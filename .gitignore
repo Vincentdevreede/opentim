@@ -1,0 +1,29 @@
+# Build outputs and caches
+.output/
+.data/
+.nuxt/
+.nitro/
+.cache/
+dist/
+dev-dist/
+
+# Node dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+
+# Misc
+.DS_Store
+.fleet/
+.idea/
+
+# Package archives
+*.tgz
+
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+!.env.ci
