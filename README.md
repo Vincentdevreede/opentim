@@ -10,9 +10,10 @@ This is a [pnpm](https://pnpm.io) workspace monorepo.
 | ----------------- | ----------------- | ------------------------------------------------------------------------------- |
 | `apps/game`       | `@opentim/game`   | The game client: Vite, TypeScript and PixiJS. Installable as a PWA.             |
 | `apps/web`        | `@opentim/web`    | The website in front of the game: Nuxt, Vue and Tailwind CSS.                   |
+| `apps/lab`        | `@opentim/lab`    | Internal dev site: load the original game files, inspect them, and test engine code. |
 | `packages/engine` | `@opentim/engine` | The simulation core. No DOM or rendering code, so it also runs headless.        |
 
-The two apps are built and deployed separately, each on its own (sub)domain:
+The game and website are built and deployed separately, each on its own (sub)domain:
 
 - `example.com` is the website
 - `play.example.com` is the game, installable as a PWA
@@ -31,6 +32,7 @@ Other commands:
 ```sh
 pnpm dev:game     # game only
 pnpm dev:web      # website only
+pnpm dev:lab      # lab only, on http://localhost:5175
 pnpm test         # run all tests
 pnpm typecheck    # typecheck all packages
 pnpm build        # build all packages
