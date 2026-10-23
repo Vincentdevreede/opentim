@@ -10,6 +10,7 @@
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "dev:game": "pnpm --filter @opentim/game dev",
     "dev:web": "pnpm --filter @opentim/web dev",
+    "dev:lab": "pnpm --filter @opentim/lab dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
