@@ -1,0 +1,40 @@
+# Example nginx config for hosting OpenTIM on a VPS.
+# Replace example.com with your domain and set up TLS (e.g. with certbot).
+
+# Website: apps/web/.output/public
+server {
+    listen 80;
+    server_name example.com;
+    root /var/www/opentim/web;
+    error_page 404 /404.html;
+
+    location / {
+        try_files $uri $uri/ $uri.html =404;
+    }
+
+    location /_nuxt/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}
+
+# Game (PWA): apps/game/dist
+server {
+    listen 80;
+    server_name play.example.com;
+    root /var/www/opentim/game;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Hashed build files never change, so they can be cached forever.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # The service worker, its entry page and the manifest must always be revalidated,
+    # otherwise installed copies of the game never pick up updates.
+    location ~ ^/(sw\.js|workbox-.*\.js|index\.html|manifest\.webmanifest)$ {
+        add_header Cache-Control "no-cache";
+    }
+}
