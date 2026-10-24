@@ -56,6 +56,7 @@ function onKeydown(e: KeyboardEvent) {
     // A focused button already toggles itself on Space.
     if (e.target.closest("button")) return;
     e.preventDefault();
+    if (e.repeat) return;
     running.value = !running.value;
   } else if (e.key === "." && !running.value) step();
   else if (e.key.toLowerCase() === "r") reset();
