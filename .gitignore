@@ -4,8 +4,8 @@
 .nuxt/
 .nitro/
 .cache/
-dist/
 dev-dist/
+dist
 
 # Node dependencies
 node_modules/

@@ -1,1 +1,25 @@
 @import "tailwindcss";
+@import "@opentim/theme/theme.css";
+
+@layer base {
+  html {
+    @apply h-full bg-surface;
+  }
+
+  body {
+    @apply h-full font-sans text-ui/[1.45] text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}

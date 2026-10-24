@@ -28,6 +28,11 @@ export class World {
     return body;
   }
 
+  removeBody(body: Body): void {
+    const index = this.bodies.indexOf(body);
+    if (index !== -1) this.bodies.splice(index, 1);
+  }
+
   step(): void {
     const dt = 1 / TICK_RATE;
     for (const body of this.bodies) {

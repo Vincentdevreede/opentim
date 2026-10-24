@@ -1,14 +1,32 @@
 <script setup lang="ts">
+import LabBadge from "../components/LabBadge.vue";
+import PageHeader from "../components/PageHeader.vue";
+import { resources } from "../library.ts";
+
 defineProps<{ title: string; description: string }>();
 </script>
 
 <template>
-  <div class="p-6">
-    <h1 class="text-xl font-semibold">{{ title }}</h1>
-    <p class="mt-2 text-slate-300">{{ description }}</p>
-    <p class="mt-4 max-w-xl text-sm text-slate-500">
-      This view needs a parser for the original file format, which hasn't been written yet. Use the Files view to
-      inspect the raw data in the meantime.
-    </p>
+  <PageHeader :title="title">
+    <template #subtitle>{{ description }}</template>
+    <LabBadge status="unsupported" label="planned" />
+  </PageHeader>
+  <div class="flex flex-1 items-center justify-center p-10">
+    <div
+      class="flex max-w-md flex-col items-center gap-3 rounded-[10px] border border-dashed border-line-strong bg-sunken px-8 py-10 text-center"
+    >
+      <p class="text-heading-sm font-semibold">Not available yet</p>
+      <p class="text-soft">
+        This view needs a decoder for the original file format, which hasn’t been ported to the lab yet.
+        <template v-if="resources.length">Use Files to inspect the raw bytes in the meantime.</template>
+      </p>
+      <RouterLink
+        v-if="resources.length"
+        to="/files"
+        class="mt-1 inline-flex h-[26px] items-center rounded-[5px] border border-line-strong bg-raised px-[9px] text-ink hover:bg-raised-hover"
+      >
+        Open Files
+      </RouterLink>
+    </div>
   </div>
 </template>

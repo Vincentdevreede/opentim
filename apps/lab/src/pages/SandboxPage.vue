@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { World, type Body } from "@opentim/engine";
+import { colors } from "@opentim/theme";
 import { Application, Graphics } from "pixi.js";
 import { onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
+import LabButton from "../components/LabButton.vue";
+import PageHeader from "../components/PageHeader.vue";
 
 const container = useTemplateRef<HTMLDivElement>("container");
 const running = ref(true);
@@ -13,7 +16,7 @@ const sprites = new Map<Body, Graphics>();
 
 function addBall(x: number, y: number) {
   const body = world.addBody({ x, y });
-  const sprite = new Graphics().circle(0, 0, 12).fill("#f59e0b");
+  const sprite = new Graphics().circle(0, 0, 12).fill(colors.accent);
   app?.stage.addChild(sprite);
   sprites.set(body, sprite);
 }
@@ -39,7 +42,7 @@ onMounted(async () => {
   const el = container.value;
   if (!el) return;
   const instance = new Application();
-  await instance.init({ resizeTo: el, background: "#0f172a", antialias: true });
+  await instance.init({ resizeTo: el, background: colors.well, antialias: true });
   app = instance;
   el.appendChild(instance.canvas);
 
@@ -63,17 +66,18 @@ onBeforeUnmount(() => app?.destroy(true, { children: true }));
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
-    <div class="flex items-center gap-2 border-b border-slate-800 p-2 text-sm">
-      <button class="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700" @click="running = !running">
-        {{ running ? "Pause" : "Play" }}
-      </button>
-      <button class="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700 disabled:opacity-40" :disabled="running" @click="step">
-        Step
-      </button>
-      <button class="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700" @click="reset">Reset</button>
-      <span class="ml-auto text-slate-400">Tick {{ tick }} · click the canvas to drop a ball</span>
-    </div>
-    <div ref="container" class="min-h-0 flex-1"></div>
+  <PageHeader title="Sandbox">
+    <template #subtitle>Try out the engine · click the canvas to drop a ball</template>
+    <span class="font-mono text-muted"
+      >tick <span class="text-ink">{{ tick }}</span></span
+    >
+  </PageHeader>
+  <div class="flex h-10 shrink-0 items-center gap-1.5 border-b border-line bg-sunken px-3">
+    <LabButton :variant="running ? 'default' : 'primary'" @click="running = !running">{{
+      running ? "Pause" : "Play"
+    }}</LabButton>
+    <LabButton :disabled="running" @click="step">Step</LabButton>
+    <LabButton variant="ghost" @click="reset">Reset</LabButton>
   </div>
+  <div ref="container" class="min-h-0 flex-1"></div>
 </template>
