@@ -16,16 +16,16 @@ interface NavItem {
   planned?: boolean;
 }
 
-const MAIN: NavItem[] = [
+const FILES: NavItem[] = [
   { to: "/", label: "Import", icon: "import" },
-  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true, planned: true },
-  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, planned: true },
   { to: "/files", label: "Files", icon: "files", needsFiles: true },
 ];
-const TOOLS: NavItem[] = [
+const RESOURCES: NavItem[] = [
+  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true, planned: true },
   { to: "/audio", label: "Audio", icon: "audio", needsFiles: true, planned: true },
-  { to: "/sandbox", label: "Sandbox", icon: "sandbox" },
+  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, planned: true },
 ];
+const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox" }];
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Ctrl", "O"], action: "Open RESOURCE files" },
@@ -111,7 +111,7 @@ const activeClass =
           <span class="font-pixel text-[10px] tracking-[.04em]">LAB</span>
         </div>
 
-        <template v-for="(group, i) in [MAIN, TOOLS]" :key="i">
+        <template v-for="(group, i) in [FILES, RESOURCES, TOOLS]" :key="i">
           <div v-if="i > 0" class="mx-2.5 my-2 h-px bg-line"></div>
           <template v-for="item in group" :key="item.to">
             <span
