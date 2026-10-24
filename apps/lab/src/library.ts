@@ -1,66 +1,169 @@
-import { ref } from "vue";
+/** The game files loaded into the lab, and the state of the import that loads them. */
 
-/**
- * Original game files loaded by the user. They are kept in the browser's
- * origin private file system (OPFS), so they survive reloads and never leave
- * the machine or end up in the repository.
- */
-export interface LibraryFile {
-  path: string;
+import { ref, shallowRef } from "vue";
+import {
+  ImportError,
+  checkComplete,
+  checkSelection,
+  describeContents,
+  indexArchive,
+  sortSelection,
+  type Received,
+  type Requirement,
+  type Resource,
+} from "./importer.ts";
+import { loadLibrary, removeLibrary, saveLibrary } from "./storage.ts";
+
+export type { Received, Requirement, Resource } from "./importer.ts";
+export { canPersist } from "./storage.ts";
+
+export interface Archive {
+  name: string;
   size: number;
 }
 
-export const files = ref<LibraryFile[]>([]);
-
-async function root(): Promise<FileSystemDirectoryHandle> {
-  const opfs = await navigator.storage.getDirectory();
-  return opfs.getDirectoryHandle("library", { create: true });
+export interface FileProgress extends Archive {
+  state: "queued" | "reading" | "done";
 }
 
-async function locate(path: string, create: boolean) {
-  const parts = path.split("/");
-  const name = parts.pop() ?? path;
-  let dir = await root();
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create });
-  return { dir, name };
+export interface ImportFailure {
+  title: string;
+  message: string;
+  received: Received[];
+  requirements: Requirement[];
+  log: string[];
 }
 
-async function walk(dir: FileSystemDirectoryHandle, prefix: string, out: LibraryFile[]) {
-  for await (const [name, handle] of dir.entries()) {
-    const path = prefix + name;
-    if (handle.kind === "directory") {
-      await walk(handle as FileSystemDirectoryHandle, `${path}/`, out);
-    } else {
-      const file = await (handle as FileSystemFileHandle).getFile();
-      out.push({ path, size: file.size });
+export type Phase = "empty" | "reading" | "loaded" | "error";
+
+export const phase = ref<Phase>("empty");
+export const archives = shallowRef<Archive[]>([]);
+export const resources = shallowRef<Resource[]>([]);
+export const readSeconds = ref(0);
+export const progress = ref<FileProgress[]>([]);
+export const foundSoFar = shallowRef<Resource[]>([]);
+export const failure = shallowRef<ImportFailure>();
+/** The resource selected in Overview and Files. */
+export const selected = ref<string>();
+
+let generation = 0;
+
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+async function read(files: File[], persist: boolean): Promise<void> {
+  const run = ++generation;
+  const started = performance.now();
+  const { archives: inputs, skipped, log } = sortSelection(files);
+  // Archives are listed first, followed by the files that were skipped.
+  const received: Received[] = [];
+
+  progress.value = inputs.map((f) => ({ name: f.name.toUpperCase(), size: f.size, state: "queued" }));
+  foundSoFar.value = [];
+  phase.value = "reading";
+
+  const found: Resource[] = [];
+  const names = new Set<string>();
+  const buffers: { name: string; data: Uint8Array }[] = [];
+  try {
+    checkSelection(inputs);
+    for (const [i, file] of inputs.entries()) {
+      const name = file.name.toUpperCase();
+      const item = progress.value[i];
+      if (item) item.state = "reading";
+      await nextFrame();
+      if (run !== generation) return;
+
+      const data = new Uint8Array(await file.arrayBuffer());
+      if (run !== generation) return;
+      let own;
+      try {
+        own = indexArchive(name, data, names);
+      } catch (error) {
+        if (error instanceof ImportError && error.detail) {
+          received.push({ name, size: file.size, outcome: "failed", detail: error.detail });
+          log.push(`[import] ${name.padEnd(13)} FAIL      ${error.detail}`);
+        }
+        throw error;
+      }
+      for (const r of own) names.add(r.name);
+      found.push(...own);
+      buffers.push({ name, data });
+      received.push({
+        name,
+        size: file.size,
+        outcome: "read",
+        detail: `Read · ${describeContents(own) || "no entries"}`,
+      });
+      log.push(`[import] ${name.padEnd(13)} index ok  entries=${own.length}`);
+      foundSoFar.value = [...found];
+      if (item) item.state = "done";
     }
+
+    const check = checkComplete(found);
+    log.push(check.log);
+    if (check.error) throw check.error;
+
+    if (persist) await saveLibrary(buffers, () => run === generation);
+    if (run !== generation) return;
+    resources.value = found.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+    archives.value = inputs.map((f) => ({ name: f.name.toUpperCase(), size: f.size }));
+    readSeconds.value = (performance.now() - started) / 1000;
+    if (!found.some((r) => r.name === selected.value)) selected.value = resources.value[0]?.name;
+    failure.value = undefined;
+    phase.value = "loaded";
+  } catch (error) {
+    if (run !== generation) return;
+    const e = error instanceof ImportError ? error : new ImportError("Import failed", String(error));
+    failure.value = {
+      title: e.title,
+      message: e.message,
+      received: [...received, ...skipped],
+      requirements: e.requirements,
+      log,
+    };
+    phase.value = "error";
   }
 }
 
-export async function refresh(): Promise<void> {
-  const out: LibraryFile[] = [];
-  await walk(await root(), "", out);
-  files.value = out.sort((a, b) => a.path.localeCompare(b.path));
+/** Imports a new selection of files. The previous library is only replaced when it succeeds. */
+export const importFiles = (files: File[]) => read(files, true);
+
+/** Reloads the archives saved by an earlier import, if there are any. */
+export async function restore(): Promise<void> {
+  const run = generation;
+  const files = await loadLibrary();
+  if (run === generation && files.length) await read(files, false);
 }
 
-export async function importFiles(input: Iterable<File>): Promise<void> {
-  for (const file of input) {
-    const { dir, name } = await locate(file.webkitRelativePath || file.name, true);
-    const writable = await (await dir.getFileHandle(name, { create: true })).createWritable();
-    await writable.write(file);
-    await writable.close();
-  }
-  await refresh();
+/** Stops a running import and goes back to the previous state. */
+export function cancel(): void {
+  generation++;
+  phase.value = resources.value.length ? "loaded" : "empty";
 }
 
-export async function readFile(path: string): Promise<Uint8Array> {
-  const { dir, name } = await locate(path, false);
-  const file = await (await dir.getFileHandle(name)).getFile();
-  return new Uint8Array(await file.arrayBuffer());
+/** Leaves the error state. */
+export function dismiss(): void {
+  failure.value = undefined;
+  phase.value = resources.value.length ? "loaded" : "empty";
 }
 
-export async function clearLibrary(): Promise<void> {
-  const opfs = await navigator.storage.getDirectory();
-  await opfs.removeEntry("library", { recursive: true });
-  files.value = [];
+/** Unloads the files and removes them from this browser. */
+export async function forget(): Promise<void> {
+  generation++;
+  resources.value = [];
+  archives.value = [];
+  selected.value = undefined;
+  phase.value = "empty";
+  await removeLibrary();
+}
+
+/** Opens the browser's file picker and imports the chosen files. */
+export function pickFiles(): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.onchange = () => {
+    if (input.files?.length) void importFiles([...input.files]);
+  };
+  input.click();
 }
