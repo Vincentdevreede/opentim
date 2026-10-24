@@ -55,6 +55,12 @@ function storage() {
     },
   };
   vi.stubGlobal("navigator", { storage: { getDirectory: async () => root } });
+  vi.stubGlobal(
+    "FileSystemFileHandle",
+    class {
+      createWritable() {}
+    },
+  );
   vi.stubGlobal("localStorage", {
     getItem: (name: string) => pointers.get(name) ?? null,
     setItem: (name: string, value: string) => {

@@ -33,6 +33,8 @@ async function root(): Promise<FileSystemDirectoryHandle | undefined> {
   try {
     // Both throw when storage is unavailable or blocked.
     void localStorage.length;
+    // Some browsers (Safari before 17) have OPFS but can only write to it from a worker.
+    if (!("createWritable" in FileSystemFileHandle.prototype)) throw new Error("OPFS can't be written here");
     return await navigator.storage.getDirectory();
   } catch {
     canPersist.value = false;
