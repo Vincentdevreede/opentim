@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <!-- Colours from @opentim/theme: surface, and muted for the hint -->
+    <!-- Colours from @opentim/theme: surface, muted for the hint, dim for the version and accent for the build stage -->
     <meta name="theme-color" content="#0d3a3f" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -37,10 +37,36 @@
       #hint.hidden {
         opacity: 0;
       }
+      #build {
+        position: fixed;
+        right: calc(env(safe-area-inset-right) + 10px);
+        bottom: calc(env(safe-area-inset-bottom) + 8px);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        font:
+          12px/1 ui-monospace,
+          monospace;
+        color: #4f8a8e;
+        pointer-events: none;
+        user-select: none;
+      }
+      #stage {
+        color: #f2c45a;
+      }
+      #stage b {
+        padding: 2px 5px;
+        border-radius: 3px;
+        background: #f2c45a;
+        color: #1d1609;
+        text-transform: uppercase;
+      }
     </style>
   </head>
   <body>
     <p id="hint">Click anywhere to drop a ball</p>
+    <p id="build"><span id="stage" hidden></span><span id="version"></span></p>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
