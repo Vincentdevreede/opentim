@@ -1,3 +1,4 @@
+import { colors } from "@opentim/theme";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
@@ -12,8 +13,8 @@ export default defineConfig({
         name: "OpenTIM",
         short_name: "OpenTIM",
         description: "An open-source reimplementation of The Incredible Machine.",
-        theme_color: "#1e293b",
-        background_color: "#0f172a",
+        theme_color: colors.surface,
+        background_color: colors.surface,
         display: "fullscreen",
         orientation: "landscape",
         start_url: "/",

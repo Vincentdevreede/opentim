@@ -1,6 +1,7 @@
 {
   "name": "@opentim/game",
   "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,10 +9,11 @@
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p .",
-    "generate-pwa-assets": "pwa-assets-generator --preset minimal-2023 public/icon.svg"
+    "generate-pwa-assets": "pwa-assets-generator"
   },
   "dependencies": {
     "@opentim/engine": "workspace:*",
+    "@opentim/theme": "workspace:*",
     "pixi.js": "^8.22.0"
   },
   "devDependencies": {
