@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { World } from "./world.ts";
+import { World } from "../src/world.ts";
 
 describe("World", () => {
   it("is deterministic across runs", () => {
@@ -10,6 +10,15 @@ describe("World", () => {
       return body.position;
     };
     expect(run()).toEqual(run());
+  });
+
+  it("removes a body", () => {
+    const world = new World();
+    const kept = world.addBody({ x: 0, y: 0 });
+    const removed = world.addBody({ x: 10, y: 0 });
+    world.removeBody(removed);
+    world.removeBody(removed);
+    expect(world.bodies).toEqual([kept]);
   });
 
   it("applies gravity", () => {
