@@ -42,4 +42,15 @@ describe("readArchive", () => {
   it("refuses names that don't fit the header", () => {
     expect(() => writeArchive([{ name: "TOOLONGNAME.BMP", data: new Uint8Array() }])).toThrow(/Invalid resource name/);
   });
+
+  it("refuses archives that readArchive wouldn't read", () => {
+    // Two 32 MiB entries plus their headers go just over the limit; the buffer is shared to save memory.
+    const half = new Uint8Array(32 * 1024 * 1024);
+    expect(() =>
+      writeArchive([
+        { name: "A.BIN", data: half },
+        { name: "B.BIN", data: half },
+      ]),
+    ).toThrow(/exceeds the 64 MiB limit/);
+  });
 });

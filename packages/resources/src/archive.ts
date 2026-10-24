@@ -44,7 +44,9 @@ export function readArchive(data: Uint8Array, archive: string): ArchiveEntry[] {
 
 /** Builds a `RESOURCE.00x` archive from entries; the inverse of {@link readArchive}. Used by tests and tools. */
 export function writeArchive(entries: { name: string; data: Uint8Array }[]): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(entries.reduce((sum, e) => sum + HEADER_SIZE + e.data.length, 0));
+  const size = entries.reduce((sum, e) => sum + HEADER_SIZE + e.data.length, 0);
+  if (size > MAX_ARCHIVE_SIZE) throw new Error("Archive exceeds the 64 MiB limit");
+  const out = new Uint8Array(size);
   const view = new DataView(out.buffer);
   let offset = 0;
   for (const { name, data } of entries) {
