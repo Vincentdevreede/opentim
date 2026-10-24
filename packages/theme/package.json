@@ -1,0 +1,23 @@
+{
+  "name": "@opentim/theme",
+  "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme.css": "./theme.css",
+    "./opentim-logo.png": "./assets/opentim-logo.png",
+    "./icon.svg": "./assets/icon.svg"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

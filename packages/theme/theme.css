@@ -1,0 +1,64 @@
+/*
+ * The OpenTIM look, shared by the website and the lab as Tailwind theme tokens.
+ * The colours are mirrored in src/colors.ts for code that doesn't use CSS (the game, PWA
+ * manifests); a test keeps the two in sync.
+ */
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-pixel: "Silkscreen", ui-monospace, monospace;
+
+  /* Type scale. Change these to resize the text everywhere. */
+  --text-2xs: 11px; /* nav labels, key caps */
+  --text-label: 11.5px; /* badges, panel titles, table headers */
+  --text-meta: 12px; /* hints, secondary details */
+  --text-ui: 13px; /* body text, controls, hex view */
+  --text-lead: 14px; /* intro paragraphs, large buttons */
+  --text-title: 15px; /* page titles */
+  --text-heading-sm: 16px;
+  --text-heading: 17px;
+  --text-heading-lg: 19px;
+  --text-stat: 21px; /* counts on the kind cards */
+  --text-display: 24px;
+  --text-percent: 28px;
+
+  /* Surfaces, from darkest to lightest. */
+  --color-sunken: #082a2e;
+  --color-well: #0a3237;
+  --color-surface: #0d3a3f;
+  --color-hover: #10474e;
+  --color-raised: #12505a;
+  --color-raised-hover: #185f69;
+
+  /* Borders. */
+  --color-line-soft: #0f4047;
+  --color-line: #1a5058;
+  --color-line-strong: #2f7a80;
+
+  /* Text, from brightest to dimmest. */
+  --color-ink: #f6efd8;
+  --color-soft: #cfe3e3;
+  --color-muted: #b2d4d6;
+  --color-faint: #8dbcbe;
+  --color-dim: #4f8a8e;
+
+  --color-accent: #f2c45a;
+  --color-accent-hover: #f6d070;
+  --color-accent-dark: #d8a63a;
+  --color-accent-ink: #1d1609;
+
+  /* Data confidence. */
+  --color-decoded: #9ad4a4;
+  --color-partial: #8ec5ec;
+  --color-hypothesis: #c9b3f0;
+  --color-error: #ff9d8f;
+  --color-error-dark: #b13f2a;
+
+  --animate-stripes: stripes 0.8s linear infinite;
+  @keyframes stripes {
+    to {
+      background-position: 24px 0;
+    }
+  }
+}
