@@ -1,6 +1,7 @@
 {
   "name": "@opentim/web",
   "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +12,8 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@fontsource/silkscreen": "^5.3.0",
+    "@opentim/theme": "workspace:*",
     "nuxt": "^4.6.2",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0"
