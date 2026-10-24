@@ -5,7 +5,7 @@ import pkg from "./package.json" with { type: "json" };
 
 // The game is deployed on its own subdomain, separate from the website.
 export default defineConfig({
-  server: { port: 5174 },
+  server: { port: 3001 },
   // Shown in the corner of the game, so players can tell which version they run.
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [

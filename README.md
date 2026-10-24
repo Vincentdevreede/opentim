@@ -27,7 +27,7 @@ Requires Node 24+ and pnpm (`corepack enable`).
 
 ```sh
 pnpm install
-pnpm dev          # website on http://localhost:3000 (or the next free port), game on :5174, lab on :5175
+pnpm dev          # website on http://localhost:3000, game on :3001, lab on :3002 (each takes the next free port if taken)
 ```
 
 Other commands:
@@ -35,7 +35,7 @@ Other commands:
 ```sh
 pnpm dev:game      # game only
 pnpm dev:web       # website only
-pnpm dev:lab       # lab only, on http://localhost:5175
+pnpm dev:lab       # lab only, on http://localhost:3002
 pnpm test          # run all tests
 pnpm typecheck     # typecheck all packages
 pnpm lint          # lint with ESLint
