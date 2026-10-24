@@ -34,6 +34,9 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["G"], action: "Go to offset (Files)" },
   { keys: ["←", "→", "↑", "↓"], action: "Move the byte selection (Files)" },
   { keys: ["PgUp", "PgDn"], action: "Move one screen (Files)" },
+  { keys: ["Space"], action: "Play or pause (Sandbox)" },
+  { keys: ["."], action: "Step one tick (Sandbox)" },
+  { keys: ["R"], action: "Reset (Sandbox)" },
 ];
 
 const router = useRouter();
