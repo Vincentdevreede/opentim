@@ -27,15 +27,22 @@ Requires Node 24+ and pnpm (`corepack enable`).
 
 ```sh
 pnpm install
-pnpm dev          # website on http://localhost:3000 (or the next free port), game on :5174, lab on :5175
+pnpm dev
 ```
+
+Each app has a default port for its dev server. If that port is already in use, the app starts on the next free port
+instead, and prints the address it uses.
+
+- Website: http://localhost:3000
+- Game: http://localhost:3001
+- Lab: http://localhost:3002
 
 Other commands:
 
 ```sh
 pnpm dev:game      # game only
 pnpm dev:web       # website only
-pnpm dev:lab       # lab only, on http://localhost:5175
+pnpm dev:lab       # lab only
 pnpm test          # run all tests
 pnpm typecheck     # typecheck all packages
 pnpm lint          # lint with ESLint
