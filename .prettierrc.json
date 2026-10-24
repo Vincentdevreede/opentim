@@ -1,0 +1,8 @@
+{
+  "printWidth": 120,
+  "plugins": ["prettier-plugin-tailwindcss"],
+  "overrides": [
+    { "files": "apps/lab/**", "options": { "tailwindStylesheet": "./apps/lab/src/style.css" } },
+    { "files": "apps/web/**", "options": { "tailwindStylesheet": "./apps/web/app/assets/css/main.css" } }
+  ]
+}

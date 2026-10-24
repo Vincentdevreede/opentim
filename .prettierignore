@@ -1,0 +1,7 @@
+pnpm-lock.yaml
+LICENSE
+**/dist/
+**/dev-dist/
+**/.output/
+**/.nuxt/
+apps/game/public/

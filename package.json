@@ -1,5 +1,6 @@
 {
   "name": "opentim",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.22.0",
@@ -13,10 +14,22 @@
     "dev:lab": "pnpm --filter @opentim/lab dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5",
+    "vue-eslint-parser": "^10.4.1"
   }
 }
