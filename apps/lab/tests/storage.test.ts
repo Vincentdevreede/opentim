@@ -1,6 +1,6 @@
 import { writeArchive } from "@opentim/resources";
 import { afterEach, expect, it, vi } from "vitest";
-import { canPersist, forget, importFiles, phase, resources, restore } from "../src/library.ts";
+import { canPersist, confirmImport, forget, importFiles, phase, resources, restore } from "../src/library.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -19,6 +19,7 @@ it("loads files for this session only when the browser can't store them", async 
     { name: "PART1.BMP", data: Uint8Array.of(2) },
   ]);
   await importFiles([new File([data], "RESOURCE.001")]);
+  await confirmImport();
   expect(phase.value).toBe("loaded");
   expect(resources.value.map((r) => r.name)).toEqual(["PART1.BMP", "TIM.PAL"]);
 
