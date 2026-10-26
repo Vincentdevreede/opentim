@@ -52,6 +52,8 @@ pnpm build         # build all packages
 
 CI runs the format check, lint, typecheck, tests and build on every pull request.
 
+`pnpm install` turns on a pre-commit hook that runs the same checks, except the build.
+
 ### TypeScript versions
 
 The game and the packages use TypeScript 7. The website, the lab and the linting at the root stay on TypeScript 6,

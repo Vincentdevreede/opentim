@@ -1,0 +1,8 @@
+# Runs the checks of CI, except the build, before every commit. Skip them once with `git commit --no-verify`.
+if ! pnpm -s format:check; then
+  echo "pre-commit: run \`pnpm format\` and stage the changes." >&2
+  exit 1
+fi
+pnpm -s lint
+pnpm -s typecheck
+pnpm -s test
