@@ -26,7 +26,8 @@ describe("readArchive", () => {
   it("reads names with an ampersand, like GFSID&AL.BMP in Sid & Al's Incredible Toons", () => {
     const data = Uint8Array.from(entry("GFSID&AL.BMP", [1]));
     expect(readArchive(data, "RESOURCE.001").map((e) => e.name)).toEqual(["GFSID&AL.BMP"]);
-    expect(readArchive(writeArchive([{ name: "GFSID&AL.BMP", data: Uint8Array.of(1) }]), "RESOURCE.001")).toHaveLength(1);
+    const written = writeArchive([{ name: "GFSID&AL.BMP", data: Uint8Array.of(1) }]);
+    expect(readArchive(written, "RESOURCE.001")).toHaveLength(1);
   });
 
   it("rejects unsafe names", () => {
