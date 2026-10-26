@@ -7,9 +7,11 @@ import LabIcon from "../components/LabIcon.vue";
 import LabKbd from "../components/LabKbd.vue";
 import PageHeader from "../components/PageHeader.vue";
 import PanelTitle from "../components/PanelTitle.vue";
-import { DOT, SUPPORT } from "../kinds.ts";
+import { DOT } from "../kinds.ts";
 import { resources, selected } from "../library.ts";
-import { crumb, formatBytes, hex } from "../ui.ts";
+import { headerBytes, markerAt, markersOf } from "../markers.ts";
+import { statusOf } from "../sprites.ts";
+import { crumb, formatBytes, hex, openAt } from "../ui.ts";
 
 /** Bytes per row grow with the available width, in groups of this size. */
 const GROUP = 8;
@@ -43,6 +45,11 @@ const list = computed(() => {
 });
 const current = computed(() => resources.value.find((r) => r.name === selected.value) ?? resources.value[0]);
 const bytes = computed(() => current.value?.data ?? new Uint8Array());
+const marked = computed(() => (current.value ? markersOf(current.value) : { markers: [] }));
+const headers = computed(() => headerBytes(marked.value.markers));
+const stoppedAt = computed(() => marked.value.markers.find((m) => m.error)?.offset);
+/** The chunk the selected byte is in. */
+const here = computed(() => markerAt(marked.value.markers, cursor.value));
 const cellWidth = computed(() => (decimal.value ? 28 : 22));
 const rowWidth = (n: number) =>
   OFFSET_WIDTH + n * cellWidth.value + (n / GROUP - 1) * GROUP_GAP + ASCII_GUTTER + n * ASCII_WIDTH;
@@ -65,9 +72,11 @@ const lastRow = computed(() =>
 watch(
   () => current.value?.name,
   (name) => {
-    cursor.value = 0;
+    cursor.value = openAt.value ?? 0;
+    openAt.value = undefined;
     goto.value = "";
     if (viewport.value) viewport.value.scrollTop = 0;
+    if (cursor.value) void nextTick(() => moveTo(cursor.value, true));
     if (name)
       void nextTick(() =>
         document.querySelector(`[data-resource="${CSS.escape(name)}"]`)?.scrollIntoView({ block: "nearest" }),
@@ -218,7 +227,7 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
           "
           @click="selected = r.name"
         >
-          <span class="size-1.5 shrink-0 rounded-full" :class="DOT[SUPPORT[r.group].status]"></span>
+          <span class="size-1.5 shrink-0 rounded-full" :class="DOT[statusOf(r).status]"></span>
           <span class="min-w-0 flex-1 truncate font-mono">{{ r.name }}</span>
           <span class="text-meta text-muted">{{ r.group }}</span>
         </button>
@@ -230,7 +239,7 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
       <div class="flex h-10 shrink-0 items-center gap-2.5 border-b border-line px-3">
         <span class="font-mono font-semibold">{{ current.name }}</span>
         <span class="font-mono text-muted">{{ formatBytes(bytes.length) }} B · {{ current.archive }}</span>
-        <LabBadge :status="SUPPORT[current.group].status" />
+        <LabBadge v-bind="statusOf(current)" />
         <div class="flex-1"></div>
         <form class="flex items-center gap-2.5" @submit.prevent="jump">
           <LabField
@@ -303,9 +312,13 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
                   groupEnd(i) && 'mr-2.5',
                   cell.offset === cursor
                     ? 'bg-accent font-bold text-accent-ink'
-                    : cell.value === 0
-                      ? 'text-faint hover:bg-raised-hover'
-                      : 'hover:bg-raised-hover',
+                    : cell.offset === stoppedAt
+                      ? 'bg-error/20 font-bold text-error hover:bg-raised-hover'
+                      : headers.has(cell.offset)
+                        ? 'text-partial hover:bg-raised-hover'
+                        : cell.value === 0
+                          ? 'text-faint hover:bg-raised-hover'
+                          : 'hover:bg-raised-hover',
                 ]"
                 :aria-label="`Offset ${hex(cell.offset, 4)}, value ${hex(cell.value, 2)}`"
                 @click="cursor = cell.offset"
@@ -348,11 +361,46 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
           <dd class="whitespace-pre">{{ value }}</dd>
         </template>
       </dl>
-      <div class="flex flex-col gap-2 px-3 py-2.5">
+      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-3 py-2.5">
         <PanelTitle>Markers in this file</PanelTitle>
+        <ul v-if="marked.markers.length" class="flex flex-col gap-0.5">
+          <li v-for="(m, i) in marked.markers" :key="i">
+            <div
+              v-if="m.error"
+              class="mb-1.5 flex items-start gap-2 rounded-md border border-error/40 bg-error/7 p-2"
+              role="alert"
+            >
+              <LabIcon name="warning" :size="14" :stroke="2" class="mt-px text-error" />
+              <div class="flex flex-1 flex-col gap-0.5">
+                <span
+                  ><span v-if="m.offset !== undefined" class="font-mono text-error">{{ hex(m.offset, 4) }}</span>
+                  decoder stopped {{ m.offset !== undefined ? "here" : "" }}</span
+                >
+                <span class="text-muted">{{ m.detail }}</span>
+              </div>
+              <LabButton v-if="m.offset !== undefined" class="h-[22px]! text-2xs!" @click="moveTo(m.offset ?? 0, true)"
+                >Jump</LabButton
+              >
+            </div>
+            <button
+              v-else
+              type="button"
+              class="flex w-full cursor-pointer items-baseline gap-2 rounded px-1.5 py-0.5 text-left hover:bg-hover"
+              :class="here === m && 'bg-accent/12 shadow-[inset_2px_0_0_var(--color-accent)]'"
+              :style="{ paddingLeft: `${6 + m.depth * 14}px` }"
+              @click="moveTo(m.offset ?? 0, true)"
+            >
+              <span class="font-mono text-faint">{{ hex(m.offset ?? 0, 4) }}</span>
+              <span class="font-mono font-semibold text-partial">{{ m.label }}</span>
+              <span class="min-w-0 truncate text-meta text-muted" :title="m.detail">{{ m.detail }}</span>
+            </button>
+          </li>
+        </ul>
         <p class="text-meta text-muted">
-          Markers come from decoders that ran on this file, such as the point where a decoder stopped. No decoders run
-          in the lab yet, so no bytes are marked.
+          {{
+            marked.note ??
+            "Markers come from decoders that ran on this file. Chunk headers are tinted blue; click one to jump to it."
+          }}
         </p>
       </div>
     </aside>

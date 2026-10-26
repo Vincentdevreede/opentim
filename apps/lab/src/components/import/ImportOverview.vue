@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import { useRouter } from "vue-router";
 import { editionHint, editionLanguages, editionName } from "../../edition.ts";
 import { GROUPS, SUPPORT, type KindGroup } from "../../kinds.ts";
+import { statusOf } from "../../sprites.ts";
 import {
   archives,
   canPersist,
@@ -227,7 +228,7 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
               <td class="text-soft">{{ r.group }}</td>
               <td class="text-right font-mono">{{ formatBytes(r.data.length) }}</td>
               <td class="font-mono text-muted">{{ r.archive }} @ {{ hex(r.offset, 6) }}</td>
-              <td><LabBadge :status="SUPPORT[r.group].status" /></td>
+              <td><LabBadge v-bind="statusOf(r)" /></td>
             </tr>
           </tbody>
         </table>
@@ -245,7 +246,7 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
       <div class="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3">
         <PanelTitle>Resource</PanelTitle>
         <div class="flex-1"></div>
-        <LabBadge v-if="current" :status="SUPPORT[current.group].status" />
+        <LabBadge v-if="current" v-bind="statusOf(current)" />
       </div>
       <div v-if="current" class="flex flex-col gap-3.5 px-3 py-3.5">
         <div class="flex flex-col gap-0.5">

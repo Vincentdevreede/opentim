@@ -12,8 +12,8 @@ import PanelTitle from "../components/PanelTitle.vue";
 import PixelFrame from "../components/PixelFrame.vue";
 import type { Resource } from "../importer.ts";
 import { resources, selected } from "../library.ts";
-import { autoPalette, decode, isImage, paletteColors, type Decoded, type PaletteChoice } from "../sprites.ts";
-import { crumb, formatBytes } from "../ui.ts";
+import { autoPalette, badgeOf, decode, isImage, paletteColors, type Decoded, type PaletteChoice } from "../sprites.ts";
+import { crumb, formatBytes, hex, openAt } from "../ui.ts";
 
 type Kind = "all" | "sprites" | "screen";
 
@@ -101,8 +101,9 @@ function step(by: number) {
   if (n) frameIndex.value = (frame.value + by + n) % n;
 }
 
-function viewBytes(r: Resource) {
+function viewBytes(r: Resource, offset?: number) {
   selected.value = r.name;
+  openAt.value = offset;
   void router.push("/files");
 }
 
@@ -111,13 +112,6 @@ function cardScale(width: number, height: number, screen: boolean) {
   const fit = screen ? Math.min(216 / width, 124 / height) : Math.min(100 / width, 76 / height);
   return fit >= 1 ? Math.min(2, Math.floor(fit)) : fit;
 }
-
-const decodedLabel = (d: Decoded) =>
-  d.status === "decoded"
-    ? { status: "decoded" as const, label: "decoded" }
-    : d.status === "text"
-      ? { status: "unsupported" as const, label: "not an image" }
-      : { status: "error" as const, label: "decode error" };
 
 let timer: ReturnType<typeof setInterval> | undefined;
 watch(playing, (on) => {
@@ -281,7 +275,7 @@ const segment = (on: boolean) =>
             >{{ galleryChoice(e.resource.name)?.name ?? "no palette"
             }}{{ galleryPalette === AUTO ? " · auto" : "" }}</span
           >
-          <LabBadge v-bind="decodedLabel(e.decoded)" />
+          <LabBadge v-bind="badgeOf(e.decoded)" />
         </div>
 
         <template v-if="!collapsed.has(e.resource.name)">
@@ -311,7 +305,11 @@ const segment = (on: boolean) =>
                 >
               </template>
             </div>
-            <LabButton @click="viewBytes(e.resource)">View bytes</LabButton>
+            <LabButton @click="viewBytes(e.resource, e.decoded.status === 'error' ? e.decoded.offset : undefined)"
+              >View bytes{{
+                e.decoded.status === "error" && e.decoded.offset !== undefined ? ` at ${hex(e.decoded.offset, 4)}` : ""
+              }}</LabButton
+            >
           </div>
           <div v-else class="mt-2 mb-1 ml-5 grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
             <button
@@ -360,7 +358,7 @@ const segment = (on: boolean) =>
           >Frame <span class="font-mono text-ink">{{ frame }}</span></span
         >
         <div class="flex-1"></div>
-        <LabBadge v-bind="decodedLabel(current.decoded)" />
+        <LabBadge v-bind="badgeOf(current.decoded)" />
       </div>
 
       <div class="relative flex h-[300px] shrink-0 overflow-auto border-b border-line checker">

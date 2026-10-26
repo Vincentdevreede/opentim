@@ -2,6 +2,7 @@
 
 import { FormatError, decodeImage, readPalette, type Image } from "@opentim/resources";
 import type { Resource } from "./importer.ts";
+import { SUPPORT, type Confidence } from "./kinds.ts";
 
 export type Decoded =
   | { status: "decoded"; image: Image }
@@ -49,6 +50,27 @@ export function paletteColors(resource: Resource): Uint8Array | undefined {
     }
   }
   return palettes.get(resource);
+}
+
+export interface Status {
+  status: Confidence;
+  label?: string;
+}
+
+/** The badge of a decode result. */
+export const badgeOf = (d: Decoded): Status =>
+  d.status === "decoded"
+    ? { status: "decoded" }
+    : d.status === "text"
+      ? { status: "unsupported", label: "not an image" }
+      : { status: "error", label: "decode error" };
+
+/** The badge of a resource: what its decoder made of it, or else what the lab can do with its kind. */
+export function statusOf(resource: Resource): Status {
+  if (isImage(resource)) return badgeOf(decode(resource));
+  if (resource.group === "palette")
+    return paletteColors(resource) ? { status: "decoded" } : { status: "error", label: "decode error" };
+  return { status: SUPPORT[resource.group].status };
 }
 
 export interface PaletteChoice {

@@ -1,7 +1,7 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { autoPalette, decode, paletteColors } from "../src/sprites.ts";
+import { autoPalette, decode, paletteColors, statusOf } from "../src/sprites.ts";
 
 const u16 = (...values: number[]) => new Uint8Array(new Uint16Array(values).buffer);
 const u32 = (...values: number[]) => new Uint8Array(new Uint32Array(values).buffer);
@@ -55,5 +55,17 @@ describe("paletteColors", () => {
     const vga = writeChunk("PAL:", [writeChunk("VGA:", new Uint8Array(768))]);
     expect(paletteColors(resource("TIM.PAL", vga))).toHaveLength(768);
     expect(paletteColors(resource("BAD.PAL", Uint8Array.of(1, 2)))).toBeUndefined();
+  });
+});
+
+describe("statusOf", () => {
+  it("badges a resource by what its decoder made of it", () => {
+    const text = Uint8Array.from("\r\n Start  Stop", (c) => c.charCodeAt(0));
+    expect(statusOf(resource("TOONS.BMP", text))).toEqual({ status: "unsupported", label: "not an image" });
+    expect(statusOf({ ...resource("BAD.PAL", Uint8Array.of(1)), group: "palette" })).toEqual({
+      status: "error",
+      label: "decode error",
+    });
+    expect(statusOf({ ...resource("L1.LEV", Uint8Array.of(1)), group: "level" })).toEqual({ status: "unsupported" });
   });
 });
