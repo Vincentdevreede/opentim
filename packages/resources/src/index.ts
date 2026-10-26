@@ -1,6 +1,15 @@
-export { readArchive, writeArchive, isArchiveName, type ArchiveEntry } from "./archive.ts";
+export { ENTRY_HEADER_SIZE, readArchive, writeArchive, isArchiveName, type ArchiveEntry } from "./archive.ts";
 export { FormatError, findChunk, readChunks, writeChunk, type Chunk } from "./chunk.ts";
-export { decodeBin, decodeImage, decodeScn, frameToRgba, type Frame, type Image } from "./image.ts";
+export {
+  decodeBin,
+  decodeImage,
+  decodeScn,
+  frameToRgba,
+  readScnCommands,
+  type Frame,
+  type Image,
+  type ScnCommand,
+} from "./image.ts";
 export { kindOf, type ResourceKind } from "./kind.ts";
 export {
   compressType3,

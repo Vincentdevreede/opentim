@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { useRouter } from "vue-router";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
 import LabField from "../components/LabField.vue";
@@ -7,11 +8,13 @@ import LabIcon from "../components/LabIcon.vue";
 import LabKbd from "../components/LabKbd.vue";
 import PageHeader from "../components/PageHeader.vue";
 import PanelTitle from "../components/PanelTitle.vue";
+import PixelFrame from "../components/PixelFrame.vue";
+import { inspectByte } from "../inspect.ts";
 import { DOT } from "../kinds.ts";
 import { resources, selected } from "../library.ts";
 import { headerBytes, markerAt, markersOf } from "../markers.ts";
-import { statusOf } from "../sprites.ts";
-import { crumb, formatBytes, hex, openAt } from "../ui.ts";
+import { autoPalette, decode, isImage, paletteColors, statusOf } from "../sprites.ts";
+import { crumb, formatBytes, hex, openAt, openFrame } from "../ui.ts";
 
 /** Bytes per row grow with the available width, in groups of this size. */
 const GROUP = 8;
@@ -48,6 +51,45 @@ const bytes = computed(() => current.value?.data ?? new Uint8Array());
 const marked = computed(() => (current.value ? markersOf(current.value) : { markers: [] }));
 const headers = computed(() => headerBytes(marked.value.markers));
 const stoppedAt = computed(() => marked.value.markers.find((m) => m.error)?.offset);
+/** Colours for the swatches: a palette's own colours, or the palette an image gets in Sprites. */
+const swatchPalette = computed(() => {
+  const r = current.value;
+  if (!r) return undefined;
+  if (r.group === "palette") return paletteColors(r);
+  if (!isImage(r)) return undefined;
+  const palettes = resources.value.filter((p) => p.group === "palette" && paletteColors(p));
+  const name = autoPalette(
+    r.name,
+    palettes.map((p) => p.name),
+  )?.name;
+  const palette = palettes.find((p) => p.name === name);
+  return palette && paletteColors(palette);
+});
+/** What the selected byte means. */
+const info = computed(() =>
+  current.value ? inspectByte(current.value, cursor.value, swatchPalette.value) : undefined,
+);
+/** The frame the selected byte belongs to, for the preview of an image. */
+const preview = computed(() => {
+  const r = current.value;
+  const result = r && isImage(r) ? decode(r) : undefined;
+  if (result?.status !== "decoded") return undefined;
+  const frames = result.image.frames;
+  const index = Math.min(info.value?.frame ?? 0, frames.length - 1);
+  const frame = frames[index]!;
+  const fit = Math.min(260 / frame.width, 96 / frame.height);
+  return { index, count: frames.length, frame, scale: fit >= 1 ? Math.min(4, Math.floor(fit)) : fit };
+});
+
+const router = useRouter();
+function openInSprites() {
+  if (!current.value) return;
+  selected.value = current.value.name;
+  openFrame.value = preview.value?.index;
+  void router.push("/sprites");
+}
+const inRange = (offset: number) =>
+  !!info.value?.range && offset >= info.value.range[0] && offset < info.value.range[1];
 /** The chunk the selected byte is in. */
 const here = computed(() => markerAt(marked.value.markers, cursor.value));
 const cellWidth = computed(() => (decimal.value ? 28 : 22));
@@ -314,11 +356,13 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
                     ? 'bg-accent font-bold text-accent-ink'
                     : cell.offset === stoppedAt
                       ? 'bg-error/20 font-bold text-error hover:bg-raised-hover'
-                      : headers.has(cell.offset)
-                        ? 'text-partial hover:bg-raised-hover'
-                        : cell.value === 0
-                          ? 'text-faint hover:bg-raised-hover'
-                          : 'hover:bg-raised-hover',
+                      : inRange(cell.offset)
+                        ? 'bg-accent/15 text-ink hover:bg-raised-hover'
+                        : headers.has(cell.offset)
+                          ? 'text-partial hover:bg-raised-hover'
+                          : cell.value === 0
+                            ? 'text-faint hover:bg-raised-hover'
+                            : 'hover:bg-raised-hover',
                 ]"
                 :aria-label="`Offset ${hex(cell.offset, 4)}, value ${hex(cell.value, 2)}`"
                 @click="cursor = cell.offset"
@@ -352,6 +396,46 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
         <PanelTitle>Selection</PanelTitle>
         <div class="flex-1"></div>
         <span class="font-mono font-semibold text-accent">{{ hex(cursor) }}</span>
+      </div>
+      <div v-if="info" class="flex flex-col gap-1.5 border-b border-line px-3 py-2.5">
+        <p class="text-meta text-muted">
+          {{ current.archive }} at <span class="font-mono text-soft">{{ hex(info.archiveOffset) }}</span>
+        </p>
+        <p v-if="info.chunk" class="text-meta text-muted">
+          <span class="font-mono font-semibold text-partial">{{ info.chunk.tag }}</span>
+          {{ info.chunk.header ? "header" : "data" }} +
+          <span class="font-mono text-soft">{{ hex(info.chunk.relative, 4) }}</span>
+        </p>
+        <p v-if="info.meaning" class="font-semibold text-ink">{{ info.meaning }}</p>
+        <p v-if="info.detail" class="text-meta text-muted">{{ info.detail }}</p>
+        <div v-if="info.swatches?.length" class="flex flex-wrap gap-1">
+          <span
+            v-for="(s, i) in info.swatches"
+            :key="i"
+            class="size-4 rounded-[3px] border border-line-strong"
+            :class="!s.color && 'checker'"
+            :style="{ background: s.color }"
+            :title="`colour ${s.index}`"
+          ></span>
+        </div>
+        <LabButton v-if="info.jump !== undefined" class="self-start" @click="moveTo(info.jump ?? 0, true)"
+          >Jump to {{ hex(info.jump, 4) }}</LabButton
+        >
+      </div>
+      <div v-if="preview" class="flex flex-col gap-2 border-b border-line px-3 py-2.5">
+        <div class="relative flex h-[104px] items-center justify-center overflow-hidden rounded-[3px] checker">
+          <PixelFrame :frame="preview.frame" :palette="swatchPalette" :scale="preview.scale" />
+          <span class="absolute top-1.5 right-1.5 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-2xs text-ink"
+            >{{ preview.frame.width }} × {{ preview.frame.height }}</span
+          >
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-meta text-muted"
+            >Frame <span class="font-mono text-ink">{{ preview.index }}</span> of {{ preview.count }}</span
+          >
+          <div class="flex-1"></div>
+          <LabButton @click="openInSprites"><LabIcon name="sprites" :size="13" :stroke="2" />Open in Sprites</LabButton>
+        </div>
       </div>
       <dl
         class="grid grid-cols-[86px_minmax(0,1fr)] gap-x-2 gap-y-[5px] border-b border-line px-3 py-2.5 font-mono text-ui"

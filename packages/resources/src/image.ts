@@ -186,6 +186,75 @@ export function decodeScn(data: Uint8Array, width: number, height: number): Fram
   throw new FormatError("SCN frame doesn't end with 0x40", data.length);
 }
 
+export interface ScnCommand {
+  /** Position of the command in the frame's data; the first byte is the base colour. */
+  offset: number;
+  /** Bytes the command takes, with its data. */
+  length: number;
+  type: "base" | "line" | "skip" | "repeat" | "copy" | "end";
+  /** The base colour, or the pixels the command moves, skips or draws. */
+  count: number;
+  /** The colours drawn, with the base colour added. */
+  colors: number[];
+  /** Where in the frame the command starts. */
+  x: number;
+  y: number;
+}
+
+/**
+ * Lists the commands of a SCN frame, as {@link decodeScn} reads them, to explain its bytes. Stops at the end command
+ * or the end of the data, without checking the frame's bounds.
+ */
+export function readScnCommands(data: Uint8Array, width: number): ScnCommand[] {
+  if (!data.length) return [];
+  const base = data[0]!;
+  const commands: ScnCommand[] = [{ offset: 0, length: 1, type: "base", count: base, colors: [], x: 0, y: 0 }];
+  let input = 1;
+  let output = 0;
+  while (input < data.length) {
+    const offset = input;
+    const code = data[input++]!;
+    const x = output % width;
+    const y = Math.floor(output / width);
+    const command = (type: ScnCommand["type"], count: number, colors: number[] = []) =>
+      commands.push({ offset, length: input - offset, type, count, colors, x, y });
+    if (code === 0x40) {
+      command("end", 0);
+      break;
+    }
+    let count = code & 63;
+    switch (code >> 6) {
+      case 0:
+        if (input < data.length && data[input]! > 0 && data[input]! < 64) count |= data[input++]! << 6;
+        output += width - count;
+        command("line", count);
+        break;
+      case 1:
+        output += count;
+        command("skip", count);
+        break;
+      case 2: {
+        const color = input < data.length ? data[input++]! + base : base;
+        output += count;
+        command("repeat", count, [color]);
+        break;
+      }
+      case 3: {
+        const colors: number[] = [];
+        for (let i = 0; i < count && input < data.length; i += 2) {
+          const pair = data[input++]!;
+          colors.push((pair >> 4) + base);
+          if (i + 1 < count) colors.push((pair & 15) + base);
+        }
+        output += count;
+        command("copy", count, colors);
+        break;
+      }
+    }
+  }
+  return commands;
+}
+
 /**
  * Unpacks a `BIN:` or `VGA:` chunk: a compression type byte (0 none, 1 RLE, 2 LZW), the u32 unpacked size, then the
  * data. Errors point at the byte where unpacking stopped.

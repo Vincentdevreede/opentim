@@ -9,5 +9,8 @@ export const hex = (n: number, width = 8) => "0x" + n.toString(16).toUpperCase()
 /** An offset for the Files page to show when it opens, set by pages that link to a byte. */
 export const openAt = ref<number>();
 
+/** A frame for the Sprites page to show when it opens, set by pages that link to a frame. */
+export const openFrame = ref<number>();
+
 /** True while files are dragged over the window. */
 export const dragging = ref(false);

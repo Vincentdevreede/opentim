@@ -13,7 +13,7 @@ import PixelFrame from "../components/PixelFrame.vue";
 import type { Resource } from "../importer.ts";
 import { resources, selected } from "../library.ts";
 import { autoPalette, badgeOf, decode, isImage, paletteColors, type Decoded, type PaletteChoice } from "../sprites.ts";
-import { crumb, formatBytes, hex, openAt } from "../ui.ts";
+import { crumb, formatBytes, hex, openAt, openFrame } from "../ui.ts";
 
 type Kind = "all" | "sprites" | "screen";
 
@@ -36,7 +36,8 @@ const kind = ref<Kind>("all");
 const galleryPalette = ref(AUTO);
 const detailPalette = ref(AUTO);
 const collapsed = reactive(new Set<string>());
-const frameIndex = ref(0);
+const frameIndex = ref(openFrame.value ?? 0);
+openFrame.value = undefined;
 const zoom = ref(2);
 const flip = ref(false);
 const playing = ref(false);
@@ -125,9 +126,10 @@ watch(
   () => current.value?.resource.name,
   (name) =>
     name &&
-    void nextTick(() =>
-      document.querySelector(`[data-image="${CSS.escape(name)}"]`)?.scrollIntoView({ block: "nearest" }),
-    ),
+    void nextTick(() => {
+      document.querySelector(`[data-image="${CSS.escape(name)}"]`)?.scrollIntoView({ block: "nearest" });
+      document.querySelector('[data-card="selected"]')?.scrollIntoView({ block: "nearest" });
+    }),
   { immediate: true },
 );
 

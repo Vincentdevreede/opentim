@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FormatError, writeChunk } from "../src/chunk.ts";
-import { decodeBin, decodeImage, decodeScn, frameToRgba } from "../src/image.ts";
+import { decodeBin, decodeImage, decodeScn, frameToRgba, readScnCommands } from "../src/image.ts";
 
 const u16 = (...values: number[]) => new Uint8Array(new Uint16Array(values).buffer);
 const u32 = (...values: number[]) => new Uint8Array(new Uint32Array(values).buffer);
@@ -51,6 +51,25 @@ describe("decodeScn", () => {
     expect(() => decodeScn(Uint8Array.of(0, 0x82, 1), 1, 1)).toThrow(/past the frame/);
     expect(() => decodeScn(Uint8Array.of(0, 0xc2), 2, 1)).toThrow(/Truncated/);
     expect(() => decodeScn(Uint8Array.of(0, 0x81, 1), 1, 1)).toThrow(/doesn't end/);
+  });
+});
+
+describe("readScnCommands", () => {
+  it("lists each command with its bytes, colours and position", () => {
+    const commands = readScnCommands(Uint8Array.of(0, 0xc3, 0x01, 0x20, 0x41, 0x03, 0x82, 3, 0x40), 4);
+    expect(commands.map((c) => [c.type, c.offset, c.length, c.count, c.colors, c.x, c.y])).toEqual([
+      ["base", 0, 1, 0, [], 0, 0],
+      ["copy", 1, 3, 3, [0, 1, 2], 0, 0],
+      ["skip", 4, 1, 1, [], 3, 0],
+      ["line", 5, 1, 3, [], 0, 1],
+      ["repeat", 6, 2, 2, [3], 1, 1],
+      ["end", 8, 1, 0, [], 3, 1],
+    ]);
+  });
+
+  it("reads a long line move as one command of two bytes", () => {
+    const commands = readScnCommands(Uint8Array.of(1, 0x01, 0x01, 0x40), 100);
+    expect(commands[1]).toMatchObject({ type: "line", offset: 1, length: 2, count: 65 });
   });
 });
 
