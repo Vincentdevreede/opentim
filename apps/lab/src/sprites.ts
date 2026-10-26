@@ -73,6 +73,17 @@ export function statusOf(resource: Resource): Status {
   return { status: SUPPORT[resource.group].status };
 }
 
+/** The colours of the palette an image gets automatically, from the palettes among `all`. */
+export function imagePalette(image: Resource, all: readonly Resource[]): Uint8Array | undefined {
+  const palettes = all.filter((p) => p.group === "palette" && paletteColors(p));
+  const name = autoPalette(
+    image.name,
+    palettes.map((p) => p.name),
+  )?.name;
+  const palette = palettes.find((p) => p.name === name);
+  return palette && paletteColors(palette);
+}
+
 export interface PaletteChoice {
   name: string;
   /** Why this palette was chosen, for the user. */

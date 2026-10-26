@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import { useRouter } from "vue-router";
 import { editionHint, editionLanguages, editionName } from "../../edition.ts";
 import { GROUPS, SUPPORT, type KindGroup } from "../../kinds.ts";
-import { statusOf } from "../../sprites.ts";
+import { decode, imagePalette, isImage, statusOf } from "../../sprites.ts";
 import {
   archives,
   canPersist,
@@ -15,7 +15,7 @@ import {
   selected,
   type Resource,
 } from "../../library.ts";
-import { crumb, formatBytes, hex } from "../../ui.ts";
+import { crumb, formatBytes, hex, openFrame } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
 import LabField from "../LabField.vue";
@@ -23,6 +23,7 @@ import LabIcon from "../LabIcon.vue";
 import LabKbd from "../LabKbd.vue";
 import PageHeader from "../PageHeader.vue";
 import PanelTitle from "../PanelTitle.vue";
+import PixelFrame from "../PixelFrame.vue";
 import StorageNotice from "./StorageNotice.vue";
 
 type SortKey = "name" | "kind" | "size";
@@ -66,6 +67,37 @@ const ariaSort = (key: SortKey) =>
 const arrow = (key: SortKey) => (sortKey.value === key ? (sortDir.value === 1 ? "▲" : "▼") : "");
 
 const openBytes = () => router.push("/files");
+
+/** The decoded image of the selected resource, with its first frame for the preview. */
+const image = computed(() => {
+  const r = current.value;
+  if (!r || !isImage(r)) return undefined;
+  const result = decode(r);
+  if (result.status !== "decoded") return undefined;
+  const frame = result.image.frames[0]!;
+  const fit = Math.min(292 / frame.width, 120 / frame.height);
+  return {
+    frame,
+    count: result.image.frames.length,
+    palette: imagePalette(r, resources.value),
+    scale: fit >= 1 ? Math.min(4, Math.floor(fit)) : fit,
+  };
+});
+
+/** What the lab's decoder made of the selected resource. */
+const decoderNote = computed(() => {
+  const r = current.value;
+  if (!r) return "";
+  const result = isImage(r) ? decode(r) : undefined;
+  if (result?.status === "text") return "Text with an image name, so not an image.";
+  if (result?.status === "error") return `Couldn’t decode it: ${result.message}`;
+  return SUPPORT[r.group].note;
+});
+
+function openSprites() {
+  openFrame.value = 0;
+  void router.push("/sprites");
+}
 
 async function remove() {
   if (confirm("Remove the loaded game files from this browser?")) await forget();
@@ -263,10 +295,19 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
           <dt class="text-muted">Offset</dt>
           <dd class="font-mono">{{ hex(current.offset) }}</dd>
           <dt class="text-muted">Decoder</dt>
-          <dd class="text-soft">{{ SUPPORT[current.group].note }}</dd>
+          <dd class="text-soft">{{ decoderNote }}</dd>
         </dl>
+        <div v-if="image" class="relative flex h-32 items-center justify-center overflow-hidden rounded-[3px] checker">
+          <PixelFrame :frame="image.frame" :palette="image.palette" :scale="image.scale" />
+          <span class="absolute top-1.5 right-1.5 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-2xs text-ink"
+            >frame 0 of {{ image.count }} · {{ image.frame.width }} × {{ image.frame.height }}</span
+          >
+        </div>
         <div class="flex flex-wrap gap-2">
-          <LabButton variant="primary" @click="openBytes"
+          <LabButton v-if="image" variant="primary" @click="openSprites"
+            ><LabIcon name="sprites" :size="14" :stroke="2" />View in Sprites</LabButton
+          >
+          <LabButton :variant="image ? 'default' : 'primary'" @click="openBytes"
             ><LabIcon name="bytes" :size="14" :stroke="2" />View bytes</LabButton
           >
         </div>

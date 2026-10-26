@@ -1,7 +1,7 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { autoPalette, decode, paletteColors, statusOf } from "../src/sprites.ts";
+import { autoPalette, decode, imagePalette, paletteColors, statusOf } from "../src/sprites.ts";
 
 const u16 = (...values: number[]) => new Uint8Array(new Uint16Array(values).buffer);
 const u32 = (...values: number[]) => new Uint8Array(new Uint32Array(values).buffer);
@@ -55,6 +55,20 @@ describe("paletteColors", () => {
     const vga = writeChunk("PAL:", [writeChunk("VGA:", new Uint8Array(768))]);
     expect(paletteColors(resource("TIM.PAL", vga))).toHaveLength(768);
     expect(paletteColors(resource("BAD.PAL", Uint8Array.of(1, 2)))).toBeUndefined();
+  });
+});
+
+describe("imagePalette", () => {
+  it("gives an image the colours of its automatic palette", () => {
+    const pal = (name: string, red: number) => {
+      const vga = new Uint8Array(768);
+      vga[0] = red;
+      return { ...resource(name, writeChunk("PAL:", [writeChunk("VGA:", vga)])), group: "palette" as const };
+    };
+    const all = [pal("TIM.PAL", 63), pal("TITLE.PAL", 0)];
+    expect(imagePalette(resource("PART1.BMP", Uint8Array.of()), all)?.[0]).toBe(255);
+    expect(imagePalette(resource("TITLE.SCR", Uint8Array.of()), all)?.[0]).toBe(0);
+    expect(imagePalette(resource("PART1.BMP", Uint8Array.of()), [])).toBeUndefined();
   });
 });
 

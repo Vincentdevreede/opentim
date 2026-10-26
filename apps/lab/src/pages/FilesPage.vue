@@ -13,7 +13,7 @@ import { inspectByte } from "../inspect.ts";
 import { DOT } from "../kinds.ts";
 import { resources, selected } from "../library.ts";
 import { headerBytes, markerAt, markersOf } from "../markers.ts";
-import { autoPalette, decode, isImage, paletteColors, statusOf } from "../sprites.ts";
+import { decode, imagePalette, isImage, paletteColors, statusOf } from "../sprites.ts";
 import { crumb, formatBytes, hex, openAt, openFrame } from "../ui.ts";
 
 /** Bytes per row grow with the available width, in groups of this size. */
@@ -56,14 +56,7 @@ const swatchPalette = computed(() => {
   const r = current.value;
   if (!r) return undefined;
   if (r.group === "palette") return paletteColors(r);
-  if (!isImage(r)) return undefined;
-  const palettes = resources.value.filter((p) => p.group === "palette" && paletteColors(p));
-  const name = autoPalette(
-    r.name,
-    palettes.map((p) => p.name),
-  )?.name;
-  const palette = palettes.find((p) => p.name === name);
-  return palette && paletteColors(palette);
+  return isImage(r) ? imagePalette(r, resources.value) : undefined;
 });
 /** What the selected byte means. */
 const info = computed(() =>
