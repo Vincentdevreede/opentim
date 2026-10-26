@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { dismiss, failure, pickFiles, resources } from "../../library.ts";
+import { dismiss, failure, pickFiles, resources, staging } from "../../library.ts";
 import { formatBytes } from "../../ui.ts";
 import LabButton from "../LabButton.vue";
 import LabIcon from "../LabIcon.vue";
@@ -33,7 +33,7 @@ const OUTCOME = {
               ><LabIcon name="folder" :size="15" :stroke="2" />Select all RESOURCE files…</LabButton
             >
             <LabButton variant="ghost" size="lg" @click="dismiss">{{
-              resources.length ? "Keep current files" : "Start over"
+              staging ? "Back to the files found" : resources.length ? "Keep current files" : "Start over"
             }}</LabButton>
           </div>
         </div>

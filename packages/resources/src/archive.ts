@@ -12,6 +12,8 @@ export interface ArchiveEntry {
 const HEADER_SIZE = 17;
 const NAME_SIZE = 13;
 const MAX_ARCHIVE_SIZE = 64 * 1024 * 1024;
+/** The characters of resource names. `&` is in Sid & Al's Incredible Toons, in `GFSID&AL.BMP`. */
+const NAME_PATTERN = /^[A-Za-z0-9_!&.-]+$/;
 
 export const isArchiveName = (name: string) => /^RESOURCE\.\d{3}$/i.test(name);
 
@@ -30,7 +32,7 @@ export function readArchive(data: Uint8Array, archive: string): ArchiveEntry[] {
     const end = field.indexOf(0);
     if (end < 1) throw new Error(`Invalid resource name at offset ${offset}`);
     const name = String.fromCharCode(...field.subarray(0, end));
-    if (!/^[A-Za-z0-9_!.-]+$/.test(name) || name.includes("..")) {
+    if (!NAME_PATTERN.test(name) || name.includes("..")) {
       throw new Error(`Unsafe resource name at offset ${offset}`);
     }
     const size = view.getUint32(offset + NAME_SIZE, true);
@@ -50,7 +52,7 @@ export function writeArchive(entries: { name: string; data: Uint8Array }[]): Uin
   const view = new DataView(out.buffer);
   let offset = 0;
   for (const { name, data } of entries) {
-    if (name.length < 1 || name.length >= NAME_SIZE || !/^[A-Za-z0-9_!.-]+$/.test(name) || name.includes("..")) {
+    if (name.length < 1 || name.length >= NAME_SIZE || !NAME_PATTERN.test(name) || name.includes("..")) {
       throw new Error(`Invalid resource name: ${name}`);
     }
     out.set(

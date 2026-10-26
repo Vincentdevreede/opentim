@@ -4,8 +4,20 @@ import { useRouter } from "vue-router";
 import pkg from "../package.json";
 import LabIcon from "./components/LabIcon.vue";
 import LabKbd from "./components/LabKbd.vue";
+import { editionHint, editionLanguages, editionName } from "./edition.ts";
 import type { IconName } from "./icons.ts";
-import { failure, foundSoFar, importFiles, phase, pickFiles, progress, resources } from "./library.ts";
+import {
+  edition,
+  failure,
+  foundSoFar,
+  importFiles,
+  needsLanguage,
+  phase,
+  pickFiles,
+  progress,
+  resources,
+  staging,
+} from "./library.ts";
 import { crumb, dragging } from "./ui.ts";
 
 interface NavItem {
@@ -194,11 +206,25 @@ const activeClass =
           <span class="size-[7px] rounded-full bg-error"></span>Import failed · {{ failure?.title.toLowerCase() }}
         </span>
       </template>
+      <template v-else-if="phase === 'staged' && staging">
+        <span class="flex items-center gap-1.5 text-ink">
+          <span class="size-[7px] rounded-full bg-accent"></span
+          ><span class="font-mono">{{ staging.resources.length }}</span> resources found ·
+          {{ needsLanguage(staging) ? "choose a language to continue" : "press Continue to load them" }}
+        </span>
+      </template>
       <template v-else-if="hasFiles">
         <span class="flex items-center gap-1.5 text-ink">
           <span class="size-[7px] rounded-full bg-decoded"></span
           ><span class="font-mono">{{ resources.length }}</span> resources loaded
         </span>
+        <template v-if="edition">
+          <span aria-hidden="true" class="text-line-strong">│</span>
+          <span :title="editionHint(edition)"
+            >Game: <span class="text-ink">{{ editionName(edition) }}</span
+            ><template v-if="editionLanguages(edition)"> · {{ editionLanguages(edition) }}</template></span
+          >
+        </template>
       </template>
       <template v-else>
         <span class="flex items-center gap-1.5"

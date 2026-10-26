@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
 import { useRouter } from "vue-router";
+import { editionHint, editionLanguages, editionName } from "../../edition.ts";
 import { GROUPS, SUPPORT, type KindGroup } from "../../kinds.ts";
 import {
   archives,
   canPersist,
+  edition,
   forget,
   pickFiles,
   readSeconds,
@@ -110,6 +112,12 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
 
   <div class="flex min-h-0 flex-1">
     <section class="flex min-w-0 flex-1 flex-col gap-3 px-4 pt-3.5">
+      <h2 v-if="edition" class="shrink-0 text-heading font-semibold" :title="editionHint(edition)">
+        <span class="font-normal text-muted">Game:</span> {{ editionName(edition)
+        }}<span v-if="editionLanguages(edition)" class="font-normal text-muted">
+          · {{ editionLanguages(edition) }}</span
+        >
+      </h2>
       <div role="group" aria-label="Filter by kind" class="grid shrink-0 grid-cols-8 gap-2">
         <button
           v-for="card in cards"

@@ -1,8 +1,8 @@
-import { isArchiveName } from "@opentim/resources";
 import { ref } from "vue";
+import { isVersionFile } from "./edition.ts";
 
 /**
- * Keeps imported RESOURCE archives in the browser's origin private file system (OPFS), so
+ * Keeps imported game files in the browser's origin private file system (OPFS), so
  * they survive reloads and never leave the machine. Each import is written to a fresh
  * directory and only becomes the active library once it is complete; localStorage points
  * at the active one.
@@ -43,7 +43,7 @@ async function root(): Promise<FileSystemDirectoryHandle | undefined> {
 }
 
 /**
- * Saves the archives of a successful import as the new library. `isCurrent` returns false
+ * Saves the files of a successful import as the new library. `isCurrent` returns false
  * once the import was cancelled or replaced, so a stale import never becomes active.
  */
 export async function saveLibrary(
@@ -83,7 +83,7 @@ export async function saveLibrary(
   }
 }
 
-/** The archives of the active library, or none when nothing was saved. */
+/** The files of the active library, or none when nothing was saved. */
 export async function loadLibrary(): Promise<File[]> {
   const opfs = await root();
   const name = activeLibrary();
@@ -92,7 +92,7 @@ export async function loadLibrary(): Promise<File[]> {
     const dir = await opfs.getDirectoryHandle(name);
     const files: File[] = [];
     for await (const [entry, handle] of dir.entries()) {
-      if (handle.kind === "file" && isArchiveName(entry)) files.push(await (handle as FileSystemFileHandle).getFile());
+      if (handle.kind === "file" && isVersionFile(entry)) files.push(await (handle as FileSystemFileHandle).getFile());
     }
     return files;
   } catch {

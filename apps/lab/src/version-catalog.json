@@ -1,0 +1,503 @@
+{
+  "schemaVersion": 2,
+  "profiles": [
+    {
+      "id": "tim1-en",
+      "name": "The Incredible Machine",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "bdad526b53414c363d9f48120549da5504f4a03bba4d55258ebaff6f24a547eb"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "8c8a2a33371b40945735443c878005d4361a6c08dd1ae32136d2c247b9408567"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "102a484b8baacd1e92aed28650fed41fc7304b2b3466871d33a38ebf63e45327"
+        },
+        {
+          "name": "RESOURCE.004",
+          "sha256": "44f56fe3e3cc6931683b43dab072408a7f00db2a84ffe0e58ea51e29f3bc5ca8"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "5ac303e00ce1e62222015bc6130b9cba802fa0f9e1c334b7a5ba336c327e47a4"
+        }
+      ]
+    },
+    {
+      "id": "evenmore-fr",
+      "name": "Even More! The Incredible Machine",
+      "languages": ["fr"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "4d2c70439055e3283ede3b68d3699c910d375f9a7b82eaf66131ce5000560197"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "df5a337f8a18be8ba022ec01072acf7fb3d5aecc963d68b073d54c00f7d225ba"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "5c8f6b5ac3d4640d3fbce3fb3a1ef73d44f75b391437834acda69163ec3669a8"
+        },
+        {
+          "name": "RESOURCE.004",
+          "sha256": "f63dbac4500576aef91b9e0116def326184f1a1246ede6cb07e514df4a1290f3"
+        },
+        {
+          "name": "RESOURCE.005",
+          "sha256": "3cee1411cf9912bb1ded2259d2d61b9ebf6cbdf1a77420a0e01f1076a27ca1f5"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "9598bb6201f8061f4e6abbf45dc092f53f5bec888f2de8120fe900ca0f8b8a91"
+        }
+      ]
+    },
+    {
+      "id": "tim1-fr-de-media",
+      "name": "The Incredible Machine (Installation Media)",
+      "languages": ["fr", "de"],
+      "files": [
+        {
+          "name": "FRENCH.RES",
+          "sha256": "a46578fcec0bdd9218c0e70d3a522e949166cd1cfc618373daf8d24a8e53dccf"
+        },
+        {
+          "name": "GERMAN.RES",
+          "sha256": "44fa4bab42b70a1502766929b14b74b7750aca69a3e37d6da853377c8cbbaadc"
+        },
+        {
+          "name": "RESOURCE.001",
+          "sha256": "c50c1cbb6b6e28cf4f6be23e6697bcb9b0264c0a4da8f2f0c5de703bffc1a18f"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "61ee8552b70d3f364991d989d162d90705a92e52fba81e29974f56f80b00b585"
+        }
+      ],
+      "requiresExtraction": true
+    },
+    {
+      "id": "tim1-fr",
+      "name": "The Incredible Machine",
+      "languages": ["fr"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "c50c1cbb6b6e28cf4f6be23e6697bcb9b0264c0a4da8f2f0c5de703bffc1a18f"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "a4db0e031fd1e5b1f32d114383c2af1cef0c97d44e75b7d241a78e48bcf2526e"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "61ee8552b70d3f364991d989d162d90705a92e52fba81e29974f56f80b00b585"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "f4e99b48bb9df3ea340b9282f68ba183aa8cce89374ff28e6ebb17e3b7cd03d9"
+        }
+      ]
+    },
+    {
+      "id": "tim1-de",
+      "name": "The Incredible Machine",
+      "languages": ["de"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "c50c1cbb6b6e28cf4f6be23e6697bcb9b0264c0a4da8f2f0c5de703bffc1a18f"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "64b84cbe128178fffcbc170cab7a867d7ac40f51233a341b0655dfe034f06a87"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "61ee8552b70d3f364991d989d162d90705a92e52fba81e29974f56f80b00b585"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "615956e475e57ef64794a2995f91e0494d566e03cf064d44d1c77030d7386cb4"
+        }
+      ]
+    },
+    {
+      "id": "tim1-addon-en",
+      "name": "The Incredible Machine: Add On Disk",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "bdad526b53414c363d9f48120549da5504f4a03bba4d55258ebaff6f24a547eb"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "8c8a2a33371b40945735443c878005d4361a6c08dd1ae32136d2c247b9408567"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "446dee1bed9ef108bbb96513ee4500bb1be386a0708102fa19d6426a9a41a357"
+        },
+        {
+          "name": "RESOURCE.004",
+          "sha256": "37c0e5acab2fffc1f215bd7adb8d2ba990af14aa25468663444954629208b645"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "34b5cda358e4c852fce5743caefbb8d94c19a6d7c9ac3ba072bb131f1f1c0493"
+        }
+      ]
+    },
+    {
+      "id": "evenmore-en-floppy",
+      "name": "Even More! The Incredible Machine (Floppy)",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "bdad526b53414c363d9f48120549da5504f4a03bba4d55258ebaff6f24a547eb"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "8c8a2a33371b40945735443c878005d4361a6c08dd1ae32136d2c247b9408567"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "7e240113f0c333da5ef546d98199ae7f336a782d1ba92345c13b6d36615252e4"
+        },
+        {
+          "name": "RESOURCE.004",
+          "sha256": "3f30353bc094be821da518cba601345a99d477050ca18e4d40e8703d8a99ecde"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "852452eeec53fb473116b779150855bc4eb5ae9e981847179b0aca55fa1f6bdb"
+        }
+      ]
+    },
+    {
+      "id": "evenmore-fr-de-media",
+      "name": "Even More! The Incredible Machine (Installation Media)",
+      "languages": ["fr", "de"],
+      "files": [
+        {
+          "name": "FRENCH.RES",
+          "sha256": "3ade73b3b117e925d762baed36407c1ab23b78c6cd694f102f5f8db383c65da9"
+        },
+        {
+          "name": "GERMAN.RES",
+          "sha256": "41dc2d66c93bd99318faf0b66f10090e831b9695e0a203b58cb7b7e4dc5626a9"
+        },
+        {
+          "name": "RESOURCE.001",
+          "sha256": "4d2c70439055e3283ede3b68d3699c910d375f9a7b82eaf66131ce5000560197"
+        },
+        {
+          "name": "RESOURCE.005",
+          "sha256": "3cee1411cf9912bb1ded2259d2d61b9ebf6cbdf1a77420a0e01f1076a27ca1f5"
+        },
+        {
+          "name": "RESOURCE.F03",
+          "sha256": "5c8f6b5ac3d4640d3fbce3fb3a1ef73d44f75b391437834acda69163ec3669a8"
+        },
+        {
+          "name": "RESOURCE.FAP",
+          "sha256": "9598bb6201f8061f4e6abbf45dc092f53f5bec888f2de8120fe900ca0f8b8a91"
+        },
+        {
+          "name": "RESOURCE.G03",
+          "sha256": "41f945470523370cc8aecb2f53143b88d353db7f135fccc26c9c8272acc3f15f"
+        },
+        {
+          "name": "RESOURCE.GAP",
+          "sha256": "52700c39992519a34ad74163ee1b0453e70d5175fc4e746a0f680d82ae9a34ac"
+        }
+      ],
+      "requiresExtraction": true
+    },
+    {
+      "id": "evenmore-de",
+      "name": "Even More! The Incredible Machine",
+      "languages": ["de"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "4d2c70439055e3283ede3b68d3699c910d375f9a7b82eaf66131ce5000560197"
+        },
+        {
+          "name": "RESOURCE.002",
+          "sha256": "ebd5d700de276f3a7aa67426b3e44d93f5ad7f61717c324ecee21af94ec018fc"
+        },
+        {
+          "name": "RESOURCE.003",
+          "sha256": "41f945470523370cc8aecb2f53143b88d353db7f135fccc26c9c8272acc3f15f"
+        },
+        {
+          "name": "RESOURCE.004",
+          "sha256": "2f1d716145014eb07524428df3fb3d1a2324980f5c1ac5d32289a7e25ae30014"
+        },
+        {
+          "name": "RESOURCE.005",
+          "sha256": "3cee1411cf9912bb1ded2259d2d61b9ebf6cbdf1a77420a0e01f1076a27ca1f5"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "52700c39992519a34ad74163ee1b0453e70d5175fc4e746a0f680d82ae9a34ac"
+        }
+      ]
+    },
+    {
+      "id": "evenmore-en-cd",
+      "name": "Even More! The Incredible Machine (CD)",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "0303b02e58ea912a7e13321290da10f325c3a997b25afccd33b3c57333f73674"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "fc59fad3f56f16e175c6f62b3dbb5392d0519ccc0fd485d1424c298a5b79770d"
+        }
+      ]
+    },
+    {
+      "id": "toons-en-cd-demo",
+      "name": "Sid & Al's Incredible Toons (CD Demo)",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "2fb240bea2cfc61c3070d1257a4a65ed4803dc6f5116722eda51e2b92e251f3f"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "d98b203bd7c0dfe4fd1155d8483ab06badde48f1097339dd1cd0efbcaa45a579"
+        }
+      ]
+    },
+    {
+      "id": "tim2-multilingual-floppy",
+      "name": "The Incredible Machine 2 (Floppy)",
+      "languages": ["en", "fr", "de", "es"],
+      "files": [
+        {
+          "name": "ENGLISH.DAT",
+          "sha256": "770f53bb84dda64362c15c28510df4ab379eb8966a2e4f7bb612d6e2d374b0d6"
+        },
+        {
+          "name": "FRENCH.DAT",
+          "sha256": "b97a02dd3dca5cbd60acf8df7a2bf5879d3c93930de5a5147680498460f20bc6"
+        },
+        {
+          "name": "GERMAN.DAT",
+          "sha256": "5b5b0967500c9a702e4e09450cdce45f071e87d5cfe1a3781be425e0dd784817"
+        },
+        {
+          "name": "RESOURCE.001",
+          "sha256": "eb4c887cc9563b06acdf4f60122628fd8f35936757673d1efc31d0a936e48876"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "f57746c558e647654cfa1af0e5f924d3653d3465502a4dfb2de0902d8cefb4bb"
+        },
+        {
+          "name": "SPANISH.DAT",
+          "sha256": "5ff213f49c802023e9781d3ff1a44dc8eaea5fc82dfad156fa67040d42538a15"
+        }
+      ]
+    },
+    {
+      "id": "tim2-multilingual-cd",
+      "name": "The Incredible Machine 2 (CD)",
+      "languages": ["en", "fr", "de", "es"],
+      "files": [
+        {
+          "name": "ENGLISH.DAT",
+          "sha256": "8bb3a1db282ff9fad562485b168750b5a33693ae489f2ca1f4c302563b7e9cec"
+        },
+        {
+          "name": "FRENCH.DAT",
+          "sha256": "bcb3d5d088995c5c1a508f1a69e3ea974be2b21ec1fd415eaf4ba2355f3639dc"
+        },
+        {
+          "name": "GERMAN.DAT",
+          "sha256": "79fa1974cd13217744ace53057cec3a42b455808a1caa65647389ee241bf1623"
+        },
+        {
+          "name": "RESOURCE.001",
+          "sha256": "4ceadf2e6e27ba9680614ad26b9fba7374d7805e0486d31cef9133521856120b"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "4513e8d2a80447e7b75d46aa4b2adcaf36314efd1fe6e5cd8adef34a314c1d4c"
+        },
+        {
+          "name": "SPANISH.DAT",
+          "sha256": "459569504b138d66f870f71542911cec97e9eaeb8bec8a355148e55f1cb32183"
+        }
+      ]
+    },
+    {
+      "id": "toons-en-floppy",
+      "name": "Sid & Al's Incredible Toons",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "30bb21ea0cd1fc87ceb83dc804639f86cf115e815e1de301d561d2ec3be4b87e"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "474db9e49f2134ed4143bda47df24c7e7d64c7f5437c1843613de9147e52dcf4"
+        }
+      ]
+    },
+    {
+      "id": "tim1-en-demo",
+      "name": "The Incredible Machine (Demo)",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "6e58f6bc5b669cbab133f743ba8dfd8a71e2bc6b812011d7fc9a57add791a993"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "2de2bfb67bb67b7d5ab607c67da0e2bc4fb1121626563aeaa30298596d954111"
+        }
+      ]
+    },
+    {
+      "id": "evenmore-en-demo",
+      "name": "Even More! The Incredible Machine (Demo)",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "2a25c0ceef2023d03fbc5a6cca149a32c6391d7cf9e1bf0fe23ea8225937212d"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "5aab01c495170928c935b37bfb4b088c9993a436a5207341c909fec131c4ff80"
+        }
+      ]
+    },
+    {
+      "id": "tim2-en-demo",
+      "name": "The Incredible Machine 2 (Demo)",
+      "languages": ["en"],
+      "files": [
+        {
+          "name": "RESOURCE.001",
+          "sha256": "2220aad065579d4ebf6cec813a6b9f46a039e02fd61ccf4319a0e8bfe281fe00"
+        },
+        {
+          "name": "RESOURCE.MAP",
+          "sha256": "30a0ea57d86cf0e67dccb753113513b240710f9ed854f009c161a5a22fb86c8d"
+        }
+      ]
+    }
+  ],
+  "archives": [
+    {
+      "name": "The Incredible Machine",
+      "languages": ["en"],
+      "sha256": "6351ae0db7736fb18deb65176d681d3dc271190c0a749f9c440d8352dc1f2f29",
+      "profileIds": ["tim1-en"]
+    },
+    {
+      "name": "Even More! The Incredible Machine",
+      "languages": ["fr"],
+      "sha256": "28570c134df32e19d3a366813b2706d5cb96e70cb6d1dac9aae9a9f49cee88eb",
+      "profileIds": ["evenmore-fr"]
+    },
+    {
+      "name": "The Incredible Machine",
+      "languages": ["en"],
+      "sha256": "7bf0a820df8e543bc14ebd23949d0a2e0030d1b15ec4b321747b6646629dd21a",
+      "profileIds": ["tim1-en"]
+    },
+    {
+      "name": "The Incredible Machine",
+      "languages": ["fr", "de"],
+      "sha256": "fd000a5178d502c3e7068ffa7d8ba7f0db1b425450483ed9a5290cec694b6881",
+      "profileIds": ["tim1-fr-de-media", "tim1-fr", "tim1-de"]
+    },
+    {
+      "name": "The Incredible Machine",
+      "languages": ["en"],
+      "sha256": "ab204c45b75036d848ff1abcfdb5df302808045adae4f298c5e2e6906ab78a73",
+      "profileIds": ["tim1-en"]
+    },
+    {
+      "name": "The Incredible Machine: Add On Disk",
+      "languages": ["en"],
+      "sha256": "9d6d5c58c06a044659e5d61738eadcc51f96e731d9366db0080b9f2c9c53225e",
+      "profileIds": ["tim1-addon-en"],
+      "requiresBaseGame": true
+    },
+    {
+      "name": "Even More! The Incredible Machine (Floppy)",
+      "languages": ["en"],
+      "sha256": "0717b2bdff3ca10bc70b36e448bb28ead1748e074f5583f6d1f8c605b9e84fb3",
+      "profileIds": ["evenmore-en-floppy"]
+    },
+    {
+      "name": "Even More! The Incredible Machine",
+      "languages": ["fr", "de"],
+      "sha256": "fbf1496ec3c91d127c4ed4ad6e8c510243bdf28dddaf7092257eca3d51464629",
+      "profileIds": ["evenmore-fr-de-media", "evenmore-fr", "evenmore-de"]
+    },
+    {
+      "name": "Even More! The Incredible Machine (CD)",
+      "languages": ["en"],
+      "sha256": "2656d52e6d01a91a019becd802f15fb6ff872fbadce9c1d4c41756982a33953e",
+      "profileIds": ["evenmore-en-cd", "toons-en-cd-demo"]
+    },
+    {
+      "name": "The Incredible Machine 2 (Floppy)",
+      "languages": ["en", "fr", "de", "es"],
+      "sha256": "52af0cecd1a43c76185ec72ccb4a8c1ab60205ddfd56f703b3d2feeee1746f30",
+      "profileIds": ["tim2-multilingual-floppy"]
+    },
+    {
+      "name": "The Incredible Machine 2 (CD)",
+      "languages": ["en", "fr", "de", "es"],
+      "sha256": "cb088217b0cff71615d5bdbc4035406b062746f60fec6bdadf659cbc368262a2",
+      "profileIds": ["tim2-multilingual-cd"]
+    },
+    {
+      "name": "Sid & Al's Incredible Toons",
+      "languages": ["en"],
+      "sha256": "8ccd50f9b13fcdf71ba3d12aedc099292d772c611513edb8e5060dd4521973f2",
+      "profileIds": ["toons-en-floppy"]
+    },
+    {
+      "name": "The Incredible Machine (Demo)",
+      "languages": ["en"],
+      "sha256": "bbf082d76eccad54a9b2470769a9dbad50512a64a3a281ff0845d9cd96ab8c3c",
+      "profileIds": ["tim1-en-demo"]
+    },
+    {
+      "name": "Even More! The Incredible Machine (Demo)",
+      "languages": ["en"],
+      "sha256": "000e80cc3ad162ccb623d918943c4a3554e088e8b1f34b9e4c1ee247107045c1",
+      "profileIds": ["evenmore-en-demo"]
+    },
+    {
+      "name": "The Incredible Machine 2 (Demo)",
+      "languages": ["en"],
+      "sha256": "18ae5478cb5b067a747d7b6cfa6734af4af4eb50ea2c01ffdc52edc46635e506",
+      "profileIds": ["tim2-en-demo"]
+    }
+  ]
+}
