@@ -33,7 +33,7 @@ const FILES: NavItem[] = [
   { to: "/files", label: "Files", icon: "files", needsFiles: true },
 ];
 const RESOURCES: NavItem[] = [
-  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true, planned: true },
+  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true },
   { to: "/audio", label: "Audio", icon: "audio", needsFiles: true, planned: true },
   { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, planned: true },
 ];
@@ -41,8 +41,12 @@ const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox" }]
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Ctrl", "O"], action: "Open RESOURCE files" },
-  { keys: ["/"], action: "Filter resources (Overview)" },
+  { keys: ["/"], action: "Filter resources (Overview, Sprites)" },
   { keys: ["↑", "↓", "↵"], action: "Move and view bytes (Overview)" },
+  { keys: ["←", "→"], action: "Previous or next frame (Sprites)" },
+  { keys: ["Space"], action: "Play or pause the preview (Sprites)" },
+  { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites)" },
+  { keys: ["H"], action: "Flip horizontally (Sprites)" },
   { keys: ["G"], action: "Go to offset (Files)" },
   { keys: ["←", "→", "↑", "↓"], action: "Move the byte selection (Files)" },
   { keys: ["PgUp", "PgDn"], action: "Move one screen (Files)" },
