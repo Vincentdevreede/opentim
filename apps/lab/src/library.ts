@@ -85,6 +85,10 @@ export const offersAddOn = (staged: Staging) =>
 /** True when a language has to be chosen before continuing. */
 export const needsLanguage = (staged: Staging) => staged.languages.length > 0 && !staged.language;
 
+/** True when the archives don't match `RESOURCE.MAP`: some are missing, or they are from another version. */
+export const mapHasProblems = (staged: Staging) =>
+  !!staged.map && (staged.map.missing.length > 0 || staged.map.problems.length > 0);
+
 /** True when files can be added to the staged ones: to complete them, or to add the Add-On. */
 export const canAddFiles = (staged: Staging) =>
   !!staged.error || staged.edition.status !== "recognized" || offersAddOn(staged);
@@ -123,8 +127,14 @@ async function prepare(name: string, data: Uint8Array): Promise<GameFile> {
   return { name, size: data.length, data, sha256: await sha256(data), resources };
 }
 
-/** Reads, hashes and indexes the game files in a selection. Undefined when it failed or was cancelled. */
-async function read(files: File[]): Promise<{ files: GameFile[]; seconds: number; log: string[] } | undefined> {
+/**
+ * Reads, hashes and indexes the game files in a selection. Files added to a staged selection don't need an archive of
+ * their own. Undefined when it failed or was cancelled.
+ */
+async function read(
+  files: File[],
+  adding = false,
+): Promise<{ files: GameFile[]; seconds: number; log: string[] } | undefined> {
   const run = ++generation;
   // Reading new files stops a save that is still running.
   saving.value = false;
@@ -139,7 +149,7 @@ async function read(files: File[]): Promise<{ files: GameFile[]; seconds: number
 
   const done: GameFile[] = [];
   try {
-    checkSelection(inputs);
+    checkSelection(inputs, !adding);
     for (const [i, file] of inputs.entries()) {
       const name = file.name.toUpperCase();
       const item = progress.value[i];
@@ -207,6 +217,7 @@ async function stage(
   seconds: number,
   readLog: string[],
 ): Promise<Staging> {
+  checkSelection(selected);
   const log = [...readLog];
   const languages = selected.filter((f) => isLanguagePackageName(f.name)).map((f) => f.name.replace(/\.RES$/, ""));
   if (language && !languages.includes(language)) language = undefined;
@@ -257,7 +268,7 @@ function load(staged: Staging): void {
  * with the same name are replaced; otherwise the selection replaces them. Nothing is loaded until the user continues.
  */
 export async function importFiles(files: File[]): Promise<void> {
-  const result = await read(files);
+  const result = await read(files, !!staging.value && canAddFiles(staging.value));
   if (!result) return;
   const run = generation;
   const previous = staging.value && canAddFiles(staging.value) ? staging.value : undefined;
@@ -296,7 +307,7 @@ export async function chooseLanguage(language: string): Promise<void> {
 /** Loads the staged archives and saves them in this browser for next time. */
 export async function confirmImport(): Promise<void> {
   const staged = staging.value;
-  if (!staged || staged.error || needsLanguage(staged)) return;
+  if (!staged || staged.error || needsLanguage(staged) || mapHasProblems(staged)) return;
   const run = ++generation;
   saving.value = true;
   try {

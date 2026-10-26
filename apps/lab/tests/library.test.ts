@@ -179,6 +179,16 @@ describe("staged import", () => {
     expect(staging.value?.files.map((f) => f.name)).toEqual(["RESOURCE.001", "RESOURCE.002"]);
   });
 
+  it("adds RESOURCE.MAP on its own to the staged archives", async () => {
+    storage();
+    await importFiles([archive("A.BMP", "RESOURCE.001")]);
+    const map = writeMap([{ name: "RESOURCE.001", offsets: [0, 18] }]);
+    await importFiles([new File([map], "RESOURCE.MAP")]);
+    expect(phase.value).toBe("staged");
+    expect(staging.value?.files.map((f) => f.name)).toEqual(["RESOURCE.001", "RESOURCE.MAP"]);
+    expect(staging.value?.map).toMatchObject({ missing: [], problems: [] });
+  });
+
   it("checks the archives against RESOURCE.MAP and saves it with them", async () => {
     const disk = storage();
     const map = writeMap([
@@ -187,6 +197,9 @@ describe("staged import", () => {
     ]);
     await importFiles([archive("A.BMP", "RESOURCE.001"), new File([map], "RESOURCE.MAP")]);
     expect(staging.value?.map).toMatchObject({ missing: ["RESOURCE.002"], problems: [] });
+    await confirmImport();
+    expect(phase.value).toBe("staged");
+    expect(disk.directories.size).toBe(0);
     await importFiles([archive("B.BMP", "RESOURCE.002")]);
     expect(staging.value?.map).toMatchObject({ missing: [], problems: [] });
     await confirmImport();

@@ -11,6 +11,7 @@ import {
   confirmImport,
   discard,
   foundSoFar,
+  mapHasProblems,
   needsLanguage,
   offersAddOn,
   phase,
@@ -49,8 +50,7 @@ const reading = computed(() => phase.value === "reading");
 const attention = computed(() => {
   const s = staging.value;
   if (!s) return false;
-  const map = s.map && (s.map.missing.length > 0 || s.map.problems.length > 0);
-  return !!s.error || needsLanguage(s) || s.edition.status === "incomplete" || !!map;
+  return !!s.error || needsLanguage(s) || s.edition.status === "incomplete" || mapHasProblems(s);
 });
 
 const copied = ref(false);
@@ -316,7 +316,7 @@ const counts = computed(() => {
               v-if="!staging.error"
               variant="primary"
               size="lg"
-              :disabled="saving || needsLanguage(staging)"
+              :disabled="saving || needsLanguage(staging) || mapHasProblems(staging)"
               @click="confirmImport"
             >
               <LabIcon v-if="saving" name="spinner" :size="15" :stroke="2.5" class="animate-spin" />

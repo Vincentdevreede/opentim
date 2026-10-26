@@ -53,6 +53,7 @@ describe("checkSelection", () => {
   it("needs at least one archive", () => {
     expect(thrown(() => checkSelection([])).title).toBe("No RESOURCE files found");
     expect(thrown(() => checkSelection([file("RESOURCE.MAP")])).title).toBe("No RESOURCE files found");
+    expect(() => checkSelection([file("RESOURCE.MAP")], false)).not.toThrow();
   });
 
   it("rejects the same file twice, ignoring case", () => {

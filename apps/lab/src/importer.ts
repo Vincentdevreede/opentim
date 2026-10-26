@@ -80,9 +80,12 @@ export function sortSelection<T extends NamedFile>(files: T[]): { files: T[]; sk
   return { files: read, skipped, log };
 }
 
-/** Rejects a selection without archives, or with the same file twice. */
-export function checkSelection(files: NamedFile[]): void {
-  if (!files.some((f) => isArchiveName(f.name))) {
+/**
+ * Rejects a selection without archives, or with the same file twice. Files added to a staged selection don't need an
+ * archive of their own, like a missing `RESOURCE.MAP`.
+ */
+export function checkSelection(files: NamedFile[], requireArchive = true): void {
+  if (requireArchive && !files.some((f) => isArchiveName(f.name))) {
     throw new ImportError(
       "No RESOURCE files found",
       "Select the RESOURCE.001, RESOURCE.002 … files from the game folder. ZIP archives have to be unzipped first.",
