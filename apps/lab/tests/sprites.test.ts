@@ -1,7 +1,7 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { autoPalette, decode, imagePalette, paletteColors, statusOf } from "../src/sprites.ts";
+import { autoPalette, colorCounts, decode, imagePalette, paletteColors, statusOf } from "../src/sprites.ts";
 
 const u16 = (...values: number[]) => new Uint8Array(new Uint16Array(values).buffer);
 const u32 = (...values: number[]) => new Uint8Array(new Uint32Array(values).buffer);
@@ -81,5 +81,12 @@ describe("statusOf", () => {
       label: "decode error",
     });
     expect(statusOf({ ...resource("L1.LEV", Uint8Array.of(1)), group: "level" })).toEqual({ status: "unsupported" });
+  });
+});
+
+describe("colorCounts", () => {
+  it("counts the drawn pixels of each colour", () => {
+    const frame = { width: 3, height: 1, pixels: Uint8Array.of(5, 6, 5), mask: Uint8Array.of(1, 0, 1) };
+    expect([...colorCounts(frame)]).toEqual([[5, 2]]);
   });
 });

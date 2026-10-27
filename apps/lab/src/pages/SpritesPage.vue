@@ -8,14 +8,27 @@ import LabIcon from "../components/LabIcon.vue";
 import LabKbd from "../components/LabKbd.vue";
 import LabSelect from "../components/LabSelect.vue";
 import PageHeader from "../components/PageHeader.vue";
+import PaletteGrid from "../components/PaletteGrid.vue";
 import PanelTitle from "../components/PanelTitle.vue";
 import PixelFrame from "../components/PixelFrame.vue";
+import { frameCanvas } from "../components/pixels.ts";
+import { download, sheetCanvas } from "../export.ts";
 import type { Resource } from "../importer.ts";
 import { resources, selected } from "../library.ts";
-import { autoPalette, badgeOf, decode, isImage, paletteColors, type Decoded, type PaletteChoice } from "../sprites.ts";
+import {
+  autoPalette,
+  badgeOf,
+  colorCounts,
+  decode,
+  isImage,
+  paletteColors,
+  type Decoded,
+  type PaletteChoice,
+} from "../sprites.ts";
 import { crumb, formatBytes, hex, openAt, openFrame } from "../ui.ts";
 
 type Kind = "all" | "sprites" | "screen";
+type Background = "checker" | "black" | "white";
 
 const KINDS: { id: Kind; label: string }[] = [
   { id: "all", label: "All" },
@@ -23,7 +36,12 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: "screen", label: "Screens" },
 ];
 const ZOOMS = [1, 2, 3, 4];
-/** Speed of the preview. The game's own animation timing isn't known yet. */
+const BACKGROUNDS: { id: Background; label: string; class: string }[] = [
+  { id: "checker", label: "Checks", class: "checker" },
+  { id: "black", label: "Black", class: "bg-black" },
+  { id: "white", label: "White", class: "bg-white" },
+];
+/** Speed of the preview. The game's own timing isn't known yet. */
 const FPS = 8;
 const AUTO = "auto";
 const AUTO_HINT =
@@ -41,6 +59,12 @@ openFrame.value = undefined;
 const zoom = ref(2);
 const flip = ref(false);
 const playing = ref(false);
+const background = ref<Background>("checker");
+const grid = ref(false);
+const onion = ref(false);
+const tab = ref<"details" | "colours">("details");
+const highlight = ref<number>();
+const hover = ref<{ x: number; y: number; index?: number }>();
 
 const entries = computed(() =>
   resources.value.filter(isImage).map((resource) => ({ resource, decoded: decode(resource) })),
@@ -91,13 +115,22 @@ const detailChoice = computed(() => {
   const name = current.value?.resource.name ?? "";
   return detailPalette.value === AUTO ? galleryChoice(name) : choose(name, detailPalette.value);
 });
+const detailColors = computed(() => colorsOf(detailChoice.value?.name));
+const previous = computed(() => (frame.value > 0 ? frame.value - 1 : frames.value.length - 1));
+
+/** Colours used by the shown frame, with their pixel counts. */
+const counts = computed(() => (shownFrame.value ? colorCounts(shownFrame.value) : new Map<number, number>()));
+const usedRange = computed(() => {
+  const indexes = [...counts.value.keys()];
+  return indexes.length ? `${Math.min(...indexes)}–${Math.max(...indexes)}` : "none";
+});
 
 function pick(name: string, index = 0) {
   selected.value = name;
   frameIndex.value = index;
 }
 
-function step(by: number) {
+function move(by: number) {
   const n = frames.value.length;
   if (n) frameIndex.value = (frame.value + by + n) % n;
 }
@@ -108,16 +141,49 @@ function viewBytes(r: Resource, offset?: number) {
   void router.push("/files");
 }
 
+/** Reads the pixel under the mouse in the preview. */
+function inspect(e: MouseEvent) {
+  const f = shownFrame.value;
+  if (!f) return;
+  const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  let x = Math.floor((e.clientX - box.left) / zoom.value);
+  const y = Math.floor((e.clientY - box.top) / zoom.value);
+  if (x < 0 || y < 0 || x >= f.width || y >= f.height) {
+    hover.value = undefined;
+    return;
+  }
+  if (flip.value) x = f.width - 1 - x;
+  const i = y * f.width + x;
+  hover.value = { x, y, index: f.mask[i] ? f.pixels[i] : undefined };
+}
+
+const rgb = (index: number) => {
+  const p = detailColors.value;
+  return p ? [p[index * 3], p[index * 3 + 1], p[index * 3 + 2]] : [index, index, index];
+};
+const css = (index: number) => `rgb(${rgb(index).join(" ")})`;
+
+const baseName = computed(() => current.value?.resource.name.replace(/\.[^.]*$/, "") ?? "image");
+function exportFrame() {
+  if (shownFrame.value)
+    download(frameCanvas(shownFrame.value, detailColors.value), `${baseName.value}-frame${frame.value}.png`);
+}
+const exportSheet = () => download(sheetCanvas(frames.value, detailColors.value), `${baseName.value}-sheet.png`);
+
 /** Scales a frame to fit a card: whole steps up to 2× for small frames, smaller for large ones. */
 function cardScale(width: number, height: number, screen: boolean) {
   const fit = screen ? Math.min(216 / width, 124 / height) : Math.min(100 / width, 76 / height);
   return fit >= 1 ? Math.min(2, Math.floor(fit)) : fit;
 }
+const compareScale = (width: number, height: number) => {
+  const fit = Math.min(76 / width, 52 / height);
+  return fit >= 1 ? Math.min(2, Math.floor(fit)) : fit;
+};
 
 let timer: ReturnType<typeof setInterval> | undefined;
 watch(playing, (on) => {
   clearInterval(timer);
-  if (on) timer = setInterval(() => step(1), 1000 / FPS);
+  if (on) timer = setInterval(() => move(1), 1000 / FPS);
 });
 watch(frames, (list) => {
   if (list.length < 2) playing.value = false;
@@ -144,7 +210,7 @@ function onKeydown(e: KeyboardEvent) {
     search.value?.focus();
   } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     e.preventDefault();
-    step(e.key === "ArrowLeft" ? -1 : 1);
+    move(e.key === "ArrowLeft" ? -1 : 1);
     // Keep the focus ring on the selected card, not on the one that was clicked.
     if (e.target.closest("[data-card]"))
       void nextTick(() => document.querySelector<HTMLElement>('[data-card="selected"]')?.focus());
@@ -155,6 +221,7 @@ function onKeydown(e: KeyboardEvent) {
     if (!e.repeat && frames.value.length > 1) playing.value = !playing.value;
   } else if (ZOOMS.includes(Number(e.key))) zoom.value = Number(e.key);
   else if (e.key.toLowerCase() === "h") flip.value = !flip.value;
+  else if (e.key.toLowerCase() === "o") onion.value = !onion.value;
 }
 
 onMounted(() => window.addEventListener("keydown", onKeydown));
@@ -169,6 +236,12 @@ watchEffect(
 
 const segment = (on: boolean) =>
   on ? "bg-accent font-semibold text-accent-ink" : "text-soft hover:bg-hover hover:text-ink";
+const toggle = (on: boolean) => on && "border-accent! bg-accent/12! text-accent!";
+const gridStyle = computed(() => ({
+  backgroundImage:
+    "linear-gradient(to right, rgb(128 128 128 / 0.45) 1px, transparent 1px), linear-gradient(to bottom, rgb(128 128 128 / 0.45) 1px, transparent 1px)",
+  backgroundSize: `${zoom.value}px ${zoom.value}px`,
+}));
 </script>
 
 <template>
@@ -363,31 +436,63 @@ const segment = (on: boolean) =>
         <LabBadge v-bind="badgeOf(current.decoded)" />
       </div>
 
-      <div class="relative flex h-[300px] shrink-0 overflow-auto border-b border-line checker">
+      <div
+        class="relative flex h-[280px] shrink-0 overflow-auto border-b border-line"
+        :class="BACKGROUNDS.find((b) => b.id === background)?.class"
+      >
         <div class="m-auto p-6">
-          <PixelFrame
+          <div
             v-if="shownFrame"
-            :frame="shownFrame"
-            :palette="colorsOf(detailChoice?.name)"
-            :scale="zoom"
-            :flip="flip"
-            class="outline-1 outline-accent/55 outline-dashed"
-          />
+            class="relative outline-1 outline-accent/55 outline-dashed"
+            @mousemove="inspect"
+            @mouseleave="hover = undefined"
+          >
+            <template v-if="onion && frames.length > 1">
+              <PixelFrame
+                :frame="frames[previous]!"
+                :palette="detailColors"
+                :scale="zoom"
+                :flip="flip"
+                class="absolute top-0 left-0 opacity-30"
+              />
+            </template>
+            <PixelFrame
+              :frame="shownFrame"
+              :palette="detailColors"
+              :scale="zoom"
+              :flip="flip"
+              :highlight="highlight"
+              class="relative"
+            />
+            <div v-if="grid && zoom >= 3" class="pointer-events-none absolute inset-0" :style="gridStyle"></div>
+          </div>
           <p v-else class="text-muted">Nothing to show for this file.</p>
         </div>
-        <template v-if="shownFrame">
-          <span class="absolute top-2 left-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-label text-ink"
-            >{{ zoom }}× · nearest</span
-          >
-          <span class="absolute top-2 right-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-label text-ink"
-            >{{ shownFrame.width }} × {{ shownFrame.height }}</span
-          >
-        </template>
+        <span class="absolute top-2 left-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-label text-ink"
+          >{{ zoom }}× · nearest</span
+        >
+        <span class="absolute top-2 right-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-label text-ink"
+          >{{ shownFrame?.width ?? 0 }} × {{ shownFrame?.height ?? 0 }}</span
+        >
+        <span
+          v-if="hover"
+          class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-[3px] bg-sunken/90 px-1.5 py-0.5 font-mono text-label text-ink"
+        >
+          x {{ hover.x }}, y {{ hover.y }} ·
+          <template v-if="hover.index !== undefined">
+            <span
+              class="size-3 rounded-[2px] border border-line-strong"
+              :style="{ background: css(hover.index) }"
+            ></span>
+            colour {{ hover.index }} · {{ rgb(hover.index).join(" ") }}
+          </template>
+          <template v-else>transparent</template>
+        </span>
       </div>
 
-      <div class="flex flex-col gap-2.5 border-b border-line px-3 py-2.5">
+      <div class="flex flex-col gap-2 border-b border-line px-3 py-2.5">
         <div class="flex items-center gap-1.5">
-          <LabButton icon aria-label="Previous frame" :disabled="frames.length < 2" @click="step(-1)">
+          <LabButton icon aria-label="Previous frame" :disabled="frames.length < 2" @click="move(-1)">
             <LabIcon name="chevronLeft" :size="13" :stroke="2.5" />
           </LabButton>
           <LabButton
@@ -395,12 +500,12 @@ const segment = (on: boolean) =>
             :aria-label="playing ? 'Pause preview' : 'Play preview'"
             :aria-pressed="playing"
             :disabled="frames.length < 2"
-            :class="playing && 'border-accent! bg-accent/12! text-accent!'"
+            :class="toggle(playing)"
             @click="playing = !playing"
           >
             <LabIcon :name="playing ? 'pause' : 'play'" :size="12" :stroke="0" class="fill-current" />
           </LabButton>
-          <LabButton icon aria-label="Next frame" :disabled="frames.length < 2" @click="step(1)">
+          <LabButton icon aria-label="Next frame" :disabled="frames.length < 2" @click="move(1)">
             <LabIcon name="chevronRight" :size="13" :stroke="2.5" />
           </LabButton>
           <label class="flex min-w-0 flex-1 items-center">
@@ -419,10 +524,8 @@ const segment = (on: boolean) =>
             >{{ frame }} / {{ Math.max(0, frames.length - 1) }}</span
           >
         </div>
-        <p class="text-meta text-muted">
-          Preview runs at a fixed {{ FPS }} fps — not the original game’s animation timing.
-        </p>
-        <div class="flex flex-wrap items-center gap-2">
+        <p class="text-meta text-muted">Plays {{ FPS }} frames a second — the game’s own timing isn’t known yet.</p>
+        <div class="flex flex-wrap items-center gap-1.5">
           <div
             class="inline-flex overflow-hidden rounded-[5px] border border-line-strong bg-sunken"
             role="group"
@@ -432,7 +535,7 @@ const segment = (on: boolean) =>
               v-for="z in ZOOMS"
               :key="z"
               type="button"
-              class="h-6 min-w-[30px] cursor-pointer border-r border-line px-[9px] text-ui last:border-r-0"
+              class="h-6 min-w-[28px] cursor-pointer border-r border-line px-2 text-ui last:border-r-0"
               :class="segment(zoom === z)"
               :aria-pressed="zoom === z"
               @click="zoom = z"
@@ -440,48 +543,134 @@ const segment = (on: boolean) =>
               {{ z }}×
             </button>
           </div>
-          <LabButton
-            :aria-pressed="flip"
-            :class="flip && 'border-accent! bg-accent/12! text-accent!'"
-            @click="flip = !flip"
-          >
-            <LabIcon name="flip" :size="13" :stroke="2" />Flip H
+          <LabButton :aria-pressed="flip" :class="toggle(flip)" title="Flip horizontally (H)" @click="flip = !flip">
+            <LabIcon name="flip" :size="13" :stroke="2" />Flip
           </LabButton>
+          <LabButton
+            :aria-pressed="onion"
+            :class="toggle(onion)"
+            title="Show the previous frame faintly behind (O)"
+            @click="onion = !onion"
+            >Onion</LabButton
+          >
+          <LabButton
+            :aria-pressed="grid"
+            :class="toggle(grid)"
+            :disabled="zoom < 3"
+            title="Pixel grid, from 3×"
+            @click="grid = !grid"
+            >Grid</LabButton
+          >
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <div
+            class="inline-flex overflow-hidden rounded-[5px] border border-line-strong bg-sunken"
+            role="group"
+            aria-label="Background"
+          >
+            <button
+              v-for="b in BACKGROUNDS"
+              :key="b.id"
+              type="button"
+              class="h-6 cursor-pointer border-r border-line px-2 text-label last:border-r-0"
+              :class="segment(background === b.id)"
+              :aria-pressed="background === b.id"
+              @click="background = b.id"
+            >
+              {{ b.label }}
+            </button>
+          </div>
           <div class="flex-1"></div>
           <LabSelect v-model="detailPalette" label="Palette for this frame" :options="detailOptions" />
         </div>
       </div>
 
-      <div class="flex flex-col gap-2 px-3 py-2.5">
-        <PanelTitle>Metadata</PanelTitle>
-        <dl class="grid grid-cols-[90px_minmax(0,1fr)] gap-x-2 gap-y-[5px] font-mono text-ui">
-          <dt class="text-muted">file</dt>
-          <dd>
-            {{ current.resource.name }} <span class="text-muted">in {{ current.resource.archive }}</span>
-          </dd>
-          <template v-if="current.decoded.status === 'decoded' && shownFrame">
-            <dt class="text-muted">frame</dt>
-            <dd>{{ frame }} of {{ frames.length }}</dd>
-            <dt class="text-muted">size</dt>
-            <dd>{{ shownFrame.width }} × {{ shownFrame.height }}</dd>
-            <dt class="text-muted">encoding</dt>
-            <dd>{{ current.decoded.image.encoding }}</dd>
+      <div class="flex shrink-0 border-b border-line px-3" role="tablist">
+        <button
+          v-for="t in ['details', 'colours'] as const"
+          :key="t"
+          type="button"
+          role="tab"
+          :aria-selected="tab === t"
+          class="-mb-px h-8 cursor-pointer border-b-2 px-2 text-label font-semibold tracking-[.07em] uppercase"
+          :class="tab === t ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink'"
+          @click="tab = t"
+        >
+          {{ t === "details" ? "Details" : "Colours" }}
+        </button>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-auto px-3 py-2.5">
+        <div v-if="tab === 'details'" class="flex flex-col gap-3">
+          <dl class="grid grid-cols-[90px_minmax(0,1fr)] gap-x-2 gap-y-[5px] font-mono text-ui">
+            <dt class="text-muted">file</dt>
+            <dd>
+              {{ current.resource.name }} <span class="text-muted">in {{ current.resource.archive }}</span>
+            </dd>
+            <template v-if="current.decoded.status === 'decoded' && shownFrame">
+              <dt class="text-muted">frame</dt>
+              <dd>{{ frame }} of {{ frames.length }}</dd>
+              <dt class="text-muted">size</dt>
+              <dd>{{ shownFrame.width }} × {{ shownFrame.height }}</dd>
+              <dt class="text-muted">encoding</dt>
+              <dd>{{ current.decoded.image.encoding }}</dd>
+            </template>
             <dt class="text-muted">palette</dt>
             <dd>
               {{ detailChoice?.name ?? "none, shown in grey" }}
               <span v-if="detailChoice" class="text-muted">({{ detailChoice.reason }})</span>
             </dd>
-            <dt class="text-muted">flip</dt>
-            <dd>{{ flip ? "horizontal" : "none" }}</dd>
-          </template>
-        </dl>
+          </dl>
+          <div v-if="shownFrame" class="flex flex-wrap gap-2">
+            <LabButton @click="exportFrame">Save frame as PNG</LabButton>
+            <LabButton @click="exportSheet">Save sheet as PNG</LabButton>
+          </div>
+        </div>
+
+        <div v-else class="flex flex-col gap-3">
+          <p class="text-meta text-muted">
+            <span class="font-mono text-ink">{{ counts.size }}</span> colours used · indexes
+            <span class="font-mono text-ink">{{ usedRange }}</span
+            >. Hover a colour to find its pixels.
+          </p>
+          <PaletteGrid v-model:highlight="highlight" :palette="detailColors" :counts="counts" />
+          <div class="flex flex-col gap-1.5">
+            <PanelTitle>Try another palette</PanelTitle>
+            <div class="grid grid-cols-4 gap-1.5">
+              <button
+                v-for="name in paletteNames"
+                :key="name"
+                type="button"
+                class="flex cursor-pointer flex-col items-center gap-1 rounded-md border p-1"
+                :class="
+                  detailChoice?.name === name ? 'border-accent bg-accent/12' : 'border-line hover:border-line-strong'
+                "
+                :title="`Use ${name} for this frame`"
+                @click="detailPalette = name"
+              >
+                <span class="flex h-14 w-full items-center justify-center overflow-hidden rounded-[3px] checker">
+                  <PixelFrame
+                    v-if="shownFrame"
+                    :frame="shownFrame"
+                    :palette="colorsOf(name)"
+                    :scale="compareScale(shownFrame.width, shownFrame.height)"
+                  />
+                </span>
+                <span class="w-full truncate text-center font-mono text-2xs text-muted">{{
+                  name.replace(/\.PAL$/, "")
+                }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="mt-auto flex flex-wrap gap-x-3 gap-y-1 border-t border-line px-3 py-2 text-meta text-muted">
+      <div class="flex flex-wrap gap-x-3 gap-y-1 border-t border-line px-3 py-2 text-meta text-muted">
         <span><LabKbd>←</LabKbd> <LabKbd>→</LabKbd> frame</span>
         <span><LabKbd>Space</LabKbd> play</span>
         <span><LabKbd>1</LabKbd>–<LabKbd>4</LabKbd> zoom</span>
         <span><LabKbd>H</LabKbd> flip</span>
+        <span><LabKbd>O</LabKbd> onion</span>
       </div>
     </aside>
   </div>

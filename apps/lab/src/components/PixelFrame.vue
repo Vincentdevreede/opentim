@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { frameToRgba, type Frame } from "@opentim/resources";
+import type { Frame } from "@opentim/resources";
 import { onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
+import { frameCanvas, greys } from "./pixels.ts";
 
 /** Draws a frame at its own size; CSS scales it up with sharp pixels. It is drawn once it scrolls into view. */
-const props = withDefaults(defineProps<{ frame: Frame; palette?: Uint8Array; scale?: number; flip?: boolean }>(), {
-  palette: undefined,
-  scale: 1,
-  flip: false,
-});
+const props = withDefaults(
+  defineProps<{
+    frame: Frame;
+    palette?: Uint8Array;
+    scale?: number;
+    flip?: boolean;
+    /** A palette index to pick out: pixels of other colours are faded. */
+    highlight?: number;
+  }>(),
+  { palette: undefined, scale: 1, flip: false, highlight: undefined },
+);
 
 const canvas = useTemplateRef<HTMLCanvasElement>("canvas");
 const visible = ref(false);
@@ -23,15 +30,14 @@ onBeforeUnmount(() => observer.disconnect());
 
 watchEffect(() => {
   const el = canvas.value;
-  const { frame, palette } = props;
+  const { frame, palette, highlight } = props;
   if (!el || !visible.value) return;
   const context = el.getContext("2d");
   if (!context) return;
   el.width = frame.width;
   el.height = frame.height;
-  // Without a palette, the indexes are shown as grey levels.
-  const colors = palette ?? Uint8Array.from({ length: 768 }, (_, i) => Math.floor(i / 3));
-  context.putImageData(new ImageData(frameToRgba(frame, colors), frame.width, frame.height), 0, 0);
+  const colors = palette ?? greys;
+  context.drawImage(frameCanvas(frame, colors, highlight), 0, 0);
 });
 </script>
 

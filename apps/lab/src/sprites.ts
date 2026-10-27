@@ -1,6 +1,6 @@
 /** Decoding the sprite sheets, screens and palettes of the loaded files, for the Sprites page. */
 
-import { FormatError, decodeImage, readPalette, type Image } from "@opentim/resources";
+import { FormatError, decodeImage, readPalette, type Frame, type Image } from "@opentim/resources";
 import type { Resource } from "./importer.ts";
 import { SUPPORT, type Confidence } from "./kinds.ts";
 
@@ -101,4 +101,13 @@ export function autoPalette(image: string, available: readonly string[]): Palett
   if (main) return { name: main, reason: "the game’s main palette" };
   const first = available[0];
   return first ? { name: first, reason: "the only palette found" } : undefined;
+}
+
+/** How many pixels of each palette index a frame draws. */
+export function colorCounts(frame: Frame): Map<number, number> {
+  const counts = new Map<number, number>();
+  frame.pixels.forEach((index, i) => {
+    if (frame.mask[i]) counts.set(index, (counts.get(index) ?? 0) + 1);
+  });
+  return counts;
 }

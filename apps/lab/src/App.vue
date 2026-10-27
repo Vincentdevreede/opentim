@@ -47,6 +47,7 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Space"], action: "Play or pause the preview (Sprites)" },
   { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites)" },
   { keys: ["H"], action: "Flip horizontally (Sprites)" },
+  { keys: ["O"], action: "Show the previous frame faintly (Sprites)" },
   { keys: ["G"], action: "Go to offset (Files)" },
   { keys: ["←", "→", "↑", "↓"], action: "Move the byte selection (Files)" },
   { keys: ["PgUp", "PgDn"], action: "Move one screen (Files)" },
