@@ -14,7 +14,7 @@ import { DOT } from "../kinds.ts";
 import { resources, selected } from "../library.ts";
 import { headerBytes, markerAt, markersOf } from "../markers.ts";
 import { decode, imagePalette, isImage, paletteColors, statusOf } from "../sprites.ts";
-import { crumb, formatBytes, hex, openAt, openFrame } from "../ui.ts";
+import { crumb, formatBytes, hex, openAt, openSprite } from "../ui.ts";
 
 /** Bytes per row grow with the available width, in groups of this size. */
 const GROUP = 8;
@@ -78,7 +78,7 @@ const router = useRouter();
 function openInSprites() {
   if (!current.value) return;
   selected.value = current.value.name;
-  openFrame.value = preview.value?.index;
+  openSprite.value = preview.value?.index;
   void router.push("/sprites");
 }
 const inRange = (offset: number) =>

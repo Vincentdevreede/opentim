@@ -15,7 +15,7 @@ import {
   selected,
   type Resource,
 } from "../../library.ts";
-import { crumb, formatBytes, hex, openFrame } from "../../ui.ts";
+import { crumb, formatBytes, hex, openSprite } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
 import LabField from "../LabField.vue";
@@ -95,7 +95,7 @@ const decoderNote = computed(() => {
 });
 
 function openSprites() {
-  openFrame.value = 0;
+  openSprite.value = 0;
   void router.push("/sprites");
 }
 
