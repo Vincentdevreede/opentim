@@ -12,6 +12,7 @@ import {
   importFiles,
   needsLanguage,
   phase,
+  program,
   resources,
   restore,
   selected,
@@ -206,6 +207,23 @@ describe("staged import", () => {
     expect([...disk.directories.values()][0]!.has("RESOURCE.MAP")).toBe(true);
     await restore();
     expect(archives.value.map((a) => a.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.MAP"]);
+  });
+
+  it("keeps the game's program with the archives, saves it and restores it", async () => {
+    const disk = storage();
+    const exe = new File([Uint8Array.of(0x4d, 0x5a)], "TIM.EXE");
+    await importFiles([archive("A.BMP", "RESOURCE.001"), exe]);
+    expect(staging.value?.files.map((f) => f.name)).toEqual(["RESOURCE.001", "TIM.EXE"]);
+    expect(staging.value?.edition.status).toBe("unknown");
+    await confirmImport();
+    expect(program.value?.name).toBe("TIM.EXE");
+    expect([...program.value!.data]).toEqual([0x4d, 0x5a]);
+    expect([...disk.directories.values()][0]!.has("TIM.EXE")).toBe(true);
+    program.value = undefined as typeof program.value;
+    await restore();
+    expect(program.value?.name).toBe("TIM.EXE");
+    await forget();
+    expect(program.value).toBeUndefined();
   });
 
   it("installs the chosen language from installation disks before continuing", async () => {

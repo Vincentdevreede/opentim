@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { isVersionFile } from "./edition.ts";
+import { isProgramName, isVersionFile } from "./edition.ts";
 
 /**
  * Keeps imported game files in the browser's origin private file system (OPFS), so
@@ -92,7 +92,8 @@ export async function loadLibrary(): Promise<File[]> {
     const dir = await opfs.getDirectoryHandle(name);
     const files: File[] = [];
     for await (const [entry, handle] of dir.entries()) {
-      if (handle.kind === "file" && isVersionFile(entry)) files.push(await (handle as FileSystemFileHandle).getFile());
+      if (handle.kind === "file" && (isVersionFile(entry) || isProgramName(entry)))
+        files.push(await (handle as FileSystemFileHandle).getFile());
     }
     return files;
   } catch {

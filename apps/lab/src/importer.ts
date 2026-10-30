@@ -1,5 +1,5 @@
 import { MAP_NAME, isArchiveName, kindOf, readArchive, readMap, type ResourceKind } from "@opentim/resources";
-import { isVersionFile } from "./edition.ts";
+import { isProgramName, isVersionFile } from "./edition.ts";
 import { GROUPS, groupOf, type KindGroup } from "./kinds.ts";
 
 /** The checks and messages of an import. Pure functions, so they can be tested without a browser. */
@@ -47,7 +47,8 @@ interface NamedFile {
 
 /**
  * Splits a selection into the game files that are read (sorted by name) and the files that are skipped. Game files are
- * the RESOURCE archives, plus `RESOURCE.MAP` and the language files that tell which version it is.
+ * the RESOURCE archives, plus `RESOURCE.MAP` and the language files that tell which version it is, and the game's
+ * program, which holds data the archives don't.
  */
 export function sortSelection<T extends NamedFile>(files: T[]): { files: T[]; skipped: Received[]; log: string[] } {
   const read: T[] = [];
@@ -55,7 +56,7 @@ export function sortSelection<T extends NamedFile>(files: T[]): { files: T[]; sk
   const log: string[] = [];
   for (const file of files) {
     const name = file.name.toUpperCase();
-    if (isVersionFile(name)) {
+    if (isVersionFile(name) || isProgramName(name)) {
       read.push(file);
     } else if (name === "RESOURCE.CFG") {
       skipped.push({ name, outcome: "skipped", detail: "Skipped — the game’s settings aren’t needed." });
@@ -69,8 +70,8 @@ export function sortSelection<T extends NamedFile>(files: T[]): { files: T[]; sk
       });
       log.push(`[import] ${name.padEnd(13)} rejected  reason=zip-archive`);
     } else if (/\.(EXE|COM|OVL)$/.test(name)) {
-      skipped.push({ name, outcome: "skipped", detail: "Skipped — the executable isn’t needed." });
-      log.push(`[import] ${name.padEnd(13)} skipped   reason=executable`);
+      skipped.push({ name, outcome: "skipped", detail: "Skipped — not the game’s program." });
+      log.push(`[import] ${name.padEnd(13)} skipped   reason=other-program`);
     } else {
       skipped.push({ name, size: file.size, outcome: "skipped", detail: "Skipped — not a RESOURCE archive." });
       log.push(`[import] ${name.padEnd(13)} skipped   reason=not-an-archive`);

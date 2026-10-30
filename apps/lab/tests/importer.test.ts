@@ -35,13 +35,14 @@ describe("sortSelection", () => {
       file("RESOURCE.CFG"),
       file("FRENCH.RES"),
       file("TIM.EXE"),
+      file("INSTALL.EXE"),
       file("README.TXT"),
     ]);
-    expect(files.map((f) => f.name)).toEqual(["FRENCH.RES", "RESOURCE.001", "resource.002", "RESOURCE.MAP"]);
+    expect(files.map((f) => f.name)).toEqual(["FRENCH.RES", "RESOURCE.001", "resource.002", "RESOURCE.MAP", "TIM.EXE"]);
     expect(skipped.map((r) => [r.name, r.outcome])).toEqual([
       ["TIM_DOS.ZIP", "rejected"],
       ["RESOURCE.CFG", "skipped"],
-      ["TIM.EXE", "skipped"],
+      ["INSTALL.EXE", "skipped"],
       ["README.TXT", "skipped"],
     ]);
     expect(skipped[2]?.size).toBeUndefined();

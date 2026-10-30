@@ -43,6 +43,9 @@ export const LANGUAGES: Record<string, string> = { en: "English", fr: "French", 
 export const isVersionFile = (name: string) =>
   (/^RESOURCE\./i.test(name) && !/\.CFG$/i.test(name)) || /^(ENGLISH|FRENCH|GERMAN|SPANISH)\.(DAT|RES)$/i.test(name);
 
+/** True for the program of a game: `TIM.EXE`, `TIM2.EXE` or `TOONS.EXE`. It doesn't count for recognition. */
+export const isProgramName = (name: string) => /^(TIM|TIM2|TOONS)\.EXE$/i.test(name);
+
 /**
  * Finds the version with exactly these files: the same names and hashes, none missing and none extra. Without one,
  * lists the versions that have all these files and more.

@@ -32,7 +32,10 @@ import StorageNotice from "./StorageNotice.vue";
 
 const STEPS = [
   ["Unzip your copy", "of the game into a normal folder."],
-  ["Select every RESOURCE file", "from that one folder. Mixing versions isn’t supported."],
+  [
+    "Select every RESOURCE file",
+    "and the program, like TIM.EXE, from that one folder. Mixing versions isn’t supported.",
+  ],
   ["Check and continue.", "The lab tells which game it found. Then Overview lists every resource inside."],
 ];
 
@@ -95,8 +98,8 @@ const counts = computed(() => {
             Open your copy of The Incredible Machine
           </h2>
           <p class="max-w-[560px] text-lead text-soft">
-            Select the RESOURCE files of your game. The lab reads them in your browser and lists every sprite, screen,
-            palette and level inside.
+            Select the RESOURCE files of your game and its program. The lab reads them in your browser and lists every
+            sprite, screen, palette and level inside.
           </p>
         </div>
 
@@ -385,11 +388,11 @@ const counts = computed(() => {
             </div>
           </div>
           <div class="flex flex-col gap-1">
-            <div class="text-heading-sm font-semibold">Select all RESOURCE files at once</div>
-            <div class="font-mono text-ui text-soft">RESOURCE.001 · … · RESOURCE.00x · RESOURCE.MAP</div>
+            <div class="text-heading-sm font-semibold">Select all game files at once</div>
+            <div class="font-mono text-ui text-soft">RESOURCE.001 · … · RESOURCE.00x · RESOURCE.MAP · TIM.EXE</div>
           </div>
           <LabButton variant="primary" size="lg" @click="pickFiles"
-            ><LabIcon name="folder" :size="15" :stroke="2" />Select RESOURCE files…</LabButton
+            ><LabIcon name="folder" :size="15" :stroke="2" />Select game files…</LabButton
           >
           <div class="text-ui text-muted">
             or drop them anywhere in this window · <LabKbd>Ctrl</LabKbd> <LabKbd>O</LabKbd>
@@ -406,6 +409,7 @@ const counts = computed(() => {
               <span class="font-mono text-ink">RESOURCE.001</span> and
               <span class="font-mono text-ink">RESOURCE.MAP</span>, and the language files, like
               <span class="font-mono text-ink">GERMAN.RES</span> or <span class="font-mono text-ink">ENGLISH.DAT</span>.
+              Add the program, <span class="font-mono text-ink">TIM.EXE</span>, to read the parts from it.
             </div>
           </div>
           <div class="flex flex-col gap-1.5 rounded-lg border border-line bg-sunken p-3">
@@ -413,8 +417,8 @@ const counts = computed(() => {
               <LabIcon name="x" :size="14" :stroke="2.25" />Not accepted
             </div>
             <div>
-              <span class="font-mono text-ink">.ZIP</span> archives — unzip first. The game
-              <span class="font-mono text-ink">.EXE</span> isn’t needed.
+              <span class="font-mono text-ink">.ZIP</span> archives: unzip them first. Other programs than the game’s,
+              like <span class="font-mono text-ink">INSTALL.EXE</span>.
             </div>
           </div>
           <div class="flex flex-col gap-1.5 rounded-lg border border-line bg-sunken p-3">
