@@ -1,3 +1,4 @@
+import { PART_LISTS } from "@opentim/content";
 import { describe, expect, it } from "vitest";
 import {
   LANGUAGES,
@@ -111,6 +112,11 @@ describe("version-catalog.json", () => {
         .join(","),
     );
     expect(new Set(sets).size).toBe(PROFILES.length);
+  });
+
+  it("links versions only to part lists that exist", () => {
+    const missing = PROFILES.filter((p) => p.parts !== undefined && !PART_LISTS[p.parts]).map((p) => p.id);
+    expect(missing).toEqual([]);
   });
 });
 

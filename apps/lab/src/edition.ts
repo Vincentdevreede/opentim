@@ -11,6 +11,8 @@ export interface Profile {
   name: string;
   /** Language codes, like `en`. A version with several has all of them installed. */
   languages: string[];
+  /** The id of the version's part list in `@opentim/content`, like `tim1`, when there is one. */
+  parts?: string;
   /** Every file that counts for recognition, with upper-case names. */
   files: FileHash[];
   /** True for installation media, whose files still have to be unpacked. */
