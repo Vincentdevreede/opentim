@@ -37,7 +37,7 @@ export const SUPPORT: Record<KindGroup, { status: Confidence; note: string }> = 
   palette: { status: "decoded", note: "Decoded. Sprites uses it to colour the images." },
   level: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
   scene: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
-  sound: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
+  sound: { status: "partial", note: "Read. Samples play in Audio, and MIDI on an emulated AdLib." },
   other: { status: "unsupported", note: "Unknown format. Raw bytes only." },
 };
 

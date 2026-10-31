@@ -1,6 +1,6 @@
 /** Marks the bytes of a resource that a decoder read: its chunks, and where decoding stopped. */
 
-import { FormatError, readChunks, readPalette, type Chunk } from "@opentim/resources";
+import { FormatError, readChunks, readPalette, readSoundBank, type Chunk } from "@opentim/resources";
 import type { Resource } from "./importer.ts";
 import { decode, isImage } from "./sprites.ts";
 
@@ -35,7 +35,13 @@ function holds(chunk: Chunk, parent?: Chunk): string {
     case "PAL:":
       return "palette";
     case "INF:":
-      return "frame count, widths and heights";
+      return parent?.tag === "SND:" ? "sound ids and where their DAT: chunks start" : "frame count, widths and heights";
+    case "SND:":
+      return "sound bank";
+    case "DAT:":
+      return "a sound: its id, two unknown bytes, then the sound packed as type 3";
+    case "TAG:":
+      return "the names of the sounds";
     case "OFF:":
       return "where each frame starts in SCN:";
     case "SCN:":
@@ -75,11 +81,20 @@ const stopped = (message: string, offset?: number): Marker => ({
 /** The markers of a resource, from the decoders the lab has for its kind. */
 export function markersOf(resource: Resource): Markers {
   const image = isImage(resource);
-  if (!image && resource.group !== "palette")
+  const bank = resource.group === "sound" && resource.name.endsWith(".SX");
+  if (resource.group === "sound" && resource.name.endsWith(".RAW"))
+    return { markers: [], note: "A .RAW file has no header or chunks: every byte is one sample." };
+  if (!image && !bank && resource.group !== "palette")
     return { markers: [], note: "No decoder reads this kind of file yet, so no bytes are marked." };
 
   let error: Marker | undefined;
-  if (image) {
+  if (bank) {
+    try {
+      readSoundBank(resource.data);
+    } catch (e) {
+      error = stopped((e as Error).message, e instanceof FormatError ? e.offset : undefined);
+    }
+  } else if (image) {
     const result = decode(resource);
     if (result.status === "text") return { markers: [], note: "This file is text, so the image decoder skipped it." };
     if (result.status === "error") error = stopped(result.message, result.offset);

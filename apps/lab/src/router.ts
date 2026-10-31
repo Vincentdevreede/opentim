@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import AudioPage from "./pages/AudioPage.vue";
 import FilesPage from "./pages/FilesPage.vue";
 import ImportPage from "./pages/ImportPage.vue";
 import PlannedPage from "./pages/PlannedPage.vue";
@@ -16,11 +17,7 @@ export const router = createRouter({
       props: { title: "Levels", description: "Inspect the layout, parts and goal of each level." },
     },
     { path: "/files", component: FilesPage },
-    {
-      path: "/audio",
-      component: PlannedPage,
-      props: { title: "Audio", description: "Listen to the music and sound effects." },
-    },
+    { path: "/audio", component: AudioPage },
     { path: "/sandbox", component: SandboxPage },
   ],
 });

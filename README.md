@@ -14,6 +14,7 @@ This is a [pnpm](https://pnpm.io) workspace monorepo.
 | `packages/resources` | `@opentim/resources` | Readers for the original game files, starting with the `RESOURCE.00x` archives.      |
 | `packages/engine`    | `@opentim/engine`    | The simulation core. No DOM or rendering code, so it also runs headless.             |
 | `packages/content`   | `@opentim/content`   | The part lists of each game, written from the original games by a script.            |
+| `packages/sound`     | `@opentim/sound`     | Plays the game's music and sounds: an AdLib (OPL2) emulation and a MIDI driver.      |
 | `packages/theme`     | `@opentim/theme`     | The shared look: colours, type scale, logo and app icon.                             |
 
 Each app is built and deployed separately, on its own (sub)domain:

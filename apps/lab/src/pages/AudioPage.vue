@@ -1,0 +1,407 @@
+<script setup lang="ts">
+import type { Sample } from "@opentim/resources";
+import { samplePcm, type Pcm } from "@opentim/sound";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { useRouter } from "vue-router";
+import {
+  RATES,
+  DRIVERS,
+  RAW_RATE,
+  adlibPatch,
+  audioSections,
+  decodeEntry,
+  deviceName,
+  duration,
+  itemName,
+  matches,
+  rawSample,
+  wavFile,
+  type AudioItem,
+} from "../audio.ts";
+import { useRendered, type RenderJob } from "../components/audio/rendering.ts";
+import SamplePlayer from "../components/audio/SamplePlayer.vue";
+import LabBadge from "../components/LabBadge.vue";
+import LabButton from "../components/LabButton.vue";
+import LabField from "../components/LabField.vue";
+import LabIcon from "../components/LabIcon.vue";
+import LabKbd from "../components/LabKbd.vue";
+import LabSegmented from "../components/LabSegmented.vue";
+import PageHeader from "../components/PageHeader.vue";
+import PanelTitle from "../components/PanelTitle.vue";
+import { saveFile } from "../export.ts";
+import type { Confidence } from "../kinds.ts";
+import { DOT } from "../kinds.ts";
+import { resources, selected } from "../library.ts";
+import { crumb, formatBytes, hex, openAt, selectedSound } from "../ui.ts";
+
+const router = useRouter();
+const search = useTemplateRef<InstanceType<typeof LabField>>("search");
+const query = ref("");
+const rate = ref(RAW_RATE);
+const rateOptions = RATES.map((r) => ({ value: r, label: `${r / 1000} kHz` }));
+
+const sections = computed(() => audioSections(resources.value));
+const all = computed(() => sections.value.flatMap((s) => s.items));
+const shown = computed(() =>
+  sections.value.map((s) => ({ ...s, items: s.items.filter((i) => matches(i, query.value)) })),
+);
+const current = computed(() => all.value.find((i) => i.key === selectedSound.value) ?? all.value[0]);
+
+const decoded = computed(() => (current.value?.type === "bank" ? decodeEntry(current.value.entry) : undefined));
+const sample = computed<Sample | undefined>(() => {
+  const item = current.value;
+  if (item?.type === "raw") return rawSample(item.resource, rate.value);
+  return decoded.value?.status === "decoded" ? decoded.value.sample : undefined;
+});
+const devices = computed(() => (decoded.value?.status === "decoded" ? decoded.value.sound.devices : []));
+const midiTracks = computed(() => devices.value.some((d) => d.tracks.some((t) => !t.sample)));
+/** True when the selected sound has MIDI for the AdLib, which plays on the emulated chip. */
+const hasAdlib = computed(() => decoded.value?.status === "decoded" && decoded.value.adlib);
+/** For a sound with both, which one plays. Which of the two the game plays isn't known yet. */
+const source = ref<"sample" | "midi">("sample");
+const SOURCES = [
+  { value: "sample" as const, label: "Sample" },
+  { value: "midi" as const, label: "AdLib MIDI" },
+];
+/** True when the AdLib MIDI plays, rather than the sound's sample. */
+const adlib = computed(() => hasAdlib.value && (!sample.value || source.value === "midi"));
+
+const patch = computed(() => adlibPatch(resources.value));
+const job = computed<RenderJob | undefined>(() => {
+  const d = decoded.value;
+  const item = current.value;
+  if (!adlib.value || d?.status !== "decoded" || patch.value.status !== "found" || !item) return undefined;
+  return { key: item.key, sound: d.sound.data, patch: patch.value.data };
+});
+const rendered = useRendered(job);
+const { progress: renderProgress, error: renderError, rendering } = rendered;
+/** What the player plays: the sound rendered on the AdLib, or else its sample. */
+const pcm = computed<Pcm | undefined>(() => {
+  if (adlib.value) return rendered.pcm.value;
+  return sample.value && samplePcm(sample.value);
+});
+
+const bankCount = computed(() => sections.value.filter((s) => s.title !== "Samples").length);
+const soundCount = computed(() => all.value.filter((i) => i.type === "bank").length);
+const sampleCount = computed(() => all.value.filter((i) => i.type === "raw").length);
+
+/** How the lab plays an item: its sample as it is, its MIDI on the emulated AdLib, or not at all. */
+function statusOf(item: AudioItem): { status: Confidence; label: string } {
+  if (item.type === "raw") return { status: "hypothesis", label: "sample · rate guessed" };
+  const d = decodeEntry(item.entry);
+  if (d.status === "error") return { status: "error", label: "decode error" };
+  if (!d.adlib)
+    return d.sample ? { status: "decoded", label: "sample" } : { status: "unsupported", label: "no AdLib tracks" };
+  if (patch.value.status !== "found") return { status: "unsupported", label: "MIDI · no instruments" };
+  return { status: "partial", label: "MIDI · emulated AdLib" };
+}
+
+/** The format of the selected item, in words. */
+const format = computed(() => {
+  if (current.value?.type === "raw") return "8-bit unsigned PCM, mono, no header";
+  if (decoded.value?.status !== "decoded") return "unknown";
+  if (sample.value && midiTracks.value) return "MIDI and a digitized sample";
+  return sample.value ? "digitized sample, 8-bit unsigned PCM" : "MIDI";
+});
+
+function pick(item: AudioItem) {
+  selectedSound.value = item.key;
+}
+
+/** Opens the item's bytes in Files: the sound's DAT: chunk in its bank, or the whole sample file. */
+function viewBytes() {
+  const item = current.value;
+  if (!item) return;
+  selected.value = item.resource.name;
+  openAt.value = item.type === "bank" ? item.entry.offset : 0;
+  void router.push("/files");
+}
+
+function saveWav() {
+  if (!pcm.value || !current.value) return;
+  saveFile(wavFile(pcm.value), `${itemName(current.value).replace(/\.RAW$/, "")}.wav`);
+}
+
+watch(
+  () => current.value?.key,
+  () => void nextTick(() => document.querySelector('[data-sound="selected"]')?.scrollIntoView({ block: "nearest" })),
+  { immediate: true },
+);
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.ctrlKey || e.metaKey || e.altKey || !(e.target instanceof HTMLElement)) return;
+  if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+  if (e.key === "/") {
+    e.preventDefault();
+    search.value?.focus();
+  } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    const list = shown.value.flatMap((s) => s.items);
+    const at = list.findIndex((i) => i.key === current.value?.key);
+    const next = list[Math.max(0, Math.min(list.length - 1, at + (e.key === "ArrowUp" ? -1 : 1)))];
+    if (!next) return;
+    e.preventDefault();
+    pick(next);
+    if (e.target.closest("[data-sound]"))
+      void nextTick(() => document.querySelector<HTMLElement>('[data-sound="selected"]')?.focus());
+  }
+}
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  crumb.value = [];
+});
+watchEffect(() => {
+  const item = current.value;
+  crumb.value = item ? ["Audio", item.type === "bank" ? item.resource.name : "Samples", itemName(item)] : [];
+});
+
+const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
+</script>
+
+<template>
+  <PageHeader title="Audio">
+    <template #subtitle>
+      <template v-if="bankCount">
+        <span class="font-mono text-ink">{{ soundCount }}</span> sounds in
+        <span class="font-mono text-ink">{{ bankCount }}</span> {{ bankCount === 1 ? "bank" : "banks" }}
+      </template>
+      <template v-if="bankCount && sampleCount"> · </template>
+      <template v-if="sampleCount">
+        <span class="font-mono text-ink">{{ sampleCount }}</span> sample files
+      </template>
+    </template>
+    <span class="text-meta text-muted">
+      <LabKbd>/</LabKbd> filter · <LabKbd>↑</LabKbd> <LabKbd>↓</LabKbd> move · <LabKbd>Space</LabKbd> play or pause
+    </span>
+  </PageHeader>
+
+  <div v-if="current" class="flex min-h-0 flex-1">
+    <aside aria-label="Sounds" class="flex w-[260px] shrink-0 flex-col border-r border-line bg-sunken">
+      <div class="border-b border-line p-2">
+        <LabField ref="search" v-model="query" label="Filter sounds" type="search" placeholder="Name or id…">
+          <template #prefix><LabIcon name="search" :size="14" :stroke="2" /></template>
+          <template #suffix><LabKbd>/</LabKbd></template>
+        </LabField>
+      </div>
+      <div class="min-h-0 flex-1 overflow-auto pb-1.5">
+        <template v-for="section in shown" :key="section.title">
+          <div class="flex items-center justify-between px-3 pt-2.5 pb-1">
+            <PanelTitle>{{ section.title }}</PanelTitle>
+            <span class="font-mono text-meta text-muted">{{ section.items.length }}</span>
+          </div>
+          <p v-if="section.error" class="flex items-start gap-1.5 px-3 py-1 text-meta text-error">
+            <LabIcon name="warning" :size="13" :stroke="2" class="mt-px" />{{ section.error.message }}
+          </p>
+          <button
+            v-for="item in section.items"
+            :key="item.key"
+            type="button"
+            :data-sound="item.key === current.key ? 'selected' : ''"
+            class="grid h-[26px] w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_8px] items-center gap-2 px-3 text-left focus-visible:-outline-offset-2"
+            :class="
+              item.key === current.key
+                ? 'bg-accent/12 text-ink shadow-[inset_2px_0_0_var(--color-accent)]'
+                : 'text-soft hover:bg-hover hover:text-ink'
+            "
+            :title="statusOf(item).label"
+            @click="pick(item)"
+          >
+            <span class="truncate font-mono">{{ itemName(item) }}</span>
+            <span class="font-mono text-meta text-muted">{{
+              item.type === "bank" ? item.entry.id : formatBytes(item.resource.data.length)
+            }}</span>
+            <span class="size-2 rounded-full" :class="DOT[statusOf(item).status]"></span>
+          </button>
+        </template>
+        <p v-if="!shown.some((s) => s.items.length)" class="px-3 py-2 text-muted">
+          No sounds match “<span class="font-mono text-ink">{{ query }}</span
+          >”.
+        </p>
+      </div>
+    </aside>
+
+    <section class="min-w-0 flex-1 overflow-auto px-10 py-10">
+      <div class="mx-auto flex max-w-[720px] flex-col gap-6">
+        <div class="flex flex-col gap-1.5">
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="font-mono text-heading font-semibold">{{ itemName(current) }}</h2>
+            <LabBadge v-bind="statusOf(current)" />
+          </div>
+          <p class="text-muted">
+            <template v-if="current.type === 'bank'">
+              Sound <span class="font-mono text-ink">{{ current.entry.id }}</span> in
+              <span class="font-mono text-ink">{{ current.resource.name }}</span
+              >, from
+              <span class="font-mono">{{ current.resource.archive }}</span>
+            </template>
+            <template v-else>
+              Sample file in <span class="font-mono">{{ current.resource.archive }}</span>
+            </template>
+          </p>
+        </div>
+
+        <div
+          v-if="decoded?.status === 'error'"
+          class="flex flex-col gap-2 rounded-lg border border-error/40 bg-error/8 p-4"
+        >
+          <p class="flex items-center gap-2 font-semibold text-error">
+            <LabIcon name="warning" :size="15" :stroke="2" />The sound couldn’t be decoded
+          </p>
+          <p class="text-soft">
+            {{ decoded.message
+            }}<template v-if="decoded.offset !== undefined">
+              at <span class="font-mono">{{ hex(decoded.offset, 4) }}</span> of the unpacked sound</template
+            >.
+          </p>
+        </div>
+
+        <div
+          v-else-if="adlib && patch.status !== 'found' && !sample"
+          class="flex flex-col gap-2 rounded-lg border border-dashed border-line-strong bg-sunken p-4"
+        >
+          <div class="flex items-center gap-2">
+            <PanelTitle>MIDI</PanelTitle>
+            <LabBadge status="unsupported" label="no instruments" />
+          </div>
+          <p class="text-soft">
+            {{ patch.message }} The MIDI plays on an emulated AdLib with the game’s own instruments, so without them it
+            can’t be heard. Import the files with {{ DRIVERS }} to play it.
+          </p>
+        </div>
+
+        <div v-else-if="adlib || sample" class="flex flex-col gap-3 rounded-lg border border-line bg-well p-4">
+          <div class="flex items-center gap-2">
+            <PanelTitle>{{ adlib ? "AdLib" : "Sample" }}</PanelTitle>
+            <div class="flex-1"></div>
+            <LabSegmented v-if="hasAdlib && sample" v-model="source" label="What to play" :options="SOURCES" />
+            <LabBadge
+              v-if="adlib"
+              status="hypothesis"
+              label="emulated · close, not exact"
+              title="The MIDI plays on an emulation of the AdLib’s OPL2 chip with the game’s instruments from SX.OVL. The chip emulation isn’t bit-exact, and the volume curve, voice allocation and pitch bend range are guesses, not read from the game’s driver."
+            />
+            <template v-if="current.type === 'raw'">
+              <LabSegmented v-model="rate" label="Playback rate" :options="rateOptions" />
+              <LabBadge
+                status="hypothesis"
+                label="rate guessed"
+                title="The .RAW files have no header with their rate. 11 kHz is the rate of most samples in the sound banks."
+              />
+            </template>
+          </div>
+          <SamplePlayer v-if="pcm" :key="current.key" :pcm="pcm" />
+          <p v-else-if="renderError" class="flex items-center gap-2 text-error">
+            <LabIcon name="warning" :size="15" :stroke="2" />The sound couldn’t be played: {{ renderError }}
+          </p>
+          <div v-else-if="rendering" class="flex h-12 items-center gap-3" role="status">
+            <LabIcon name="spinner" :size="16" :stroke="2" class="animate-spin text-accent" />
+            <span class="text-soft">Playing it on the emulated AdLib…</span>
+            <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken">
+              <div class="h-full bg-accent" :style="{ width: `${Math.round(renderProgress * 100)}%` }"></div>
+            </div>
+            <span class="w-10 text-right font-mono text-muted tabular">{{ Math.round(renderProgress * 100) }}%</span>
+          </div>
+          <p v-if="hasAdlib && sample" class="text-meta text-muted">
+            This sound has a digitized sample and MIDI for the AdLib. Which one the game plays on a Sound Blaster isn’t
+            checked yet.
+          </p>
+        </div>
+
+        <dl class="m-0 grid grid-cols-3 rounded-lg border border-line bg-sunken">
+          <div :class="[factClass, 'border-r']">
+            <dt class="text-muted">Size</dt>
+            <dd v-if="current.type === 'bank'" class="font-mono text-lead">
+              {{ formatBytes(current.entry.packed.length) }} B
+              <span v-if="decoded?.status === 'decoded'" class="text-meta text-muted"
+                >→ {{ formatBytes(decoded.sound.data.length) }} B unpacked</span
+              >
+            </dd>
+            <dd v-else class="font-mono text-lead">{{ formatBytes(current.resource.data.length) }} B</dd>
+          </div>
+          <div :class="[factClass, 'border-r']">
+            <dt class="text-muted">Format</dt>
+            <dd class="text-lead">{{ format }}</dd>
+          </div>
+          <div :class="factClass">
+            <template v-if="pcm">
+              <dt class="text-muted">Rate · length</dt>
+              <dd class="font-mono text-lead">
+                {{ formatBytes(pcm.rate) }} Hz ·
+                {{ duration(pcm.samples.length / pcm.rate) }}
+              </dd>
+            </template>
+            <template v-else-if="current.type === 'bank'">
+              <dt class="text-muted">Flags</dt>
+              <dd class="font-mono text-lead">
+                {{ current.entry.flags.map((f) => hex(f, 2).slice(2)).join(" ") }}
+                <span class="font-sans text-meta text-muted">meaning unknown</span>
+              </dd>
+            </template>
+          </div>
+        </dl>
+
+        <div v-if="devices.length" class="flex flex-col gap-2">
+          <div class="flex items-center gap-2">
+            <PanelTitle>Devices and tracks</PanelTitle>
+            <LabBadge
+              status="hypothesis"
+              label="device names from SCI"
+              title="The names are the device ids of Sierra's SCI1 sound drivers. They aren't checked against the game's own drivers yet."
+            />
+          </div>
+          <table class="w-full border-collapse text-left">
+            <thead class="text-label font-semibold tracking-[.07em] text-muted uppercase">
+              <tr class="border-b border-line">
+                <th class="w-[60px] py-1.5 pr-3 font-semibold">Id</th>
+                <th class="w-[150px] py-1.5 pr-3 font-semibold">Device</th>
+                <th class="py-1.5 font-semibold">Tracks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="d in devices" :key="d.id" class="border-b border-line-soft align-top">
+                <td class="py-1.5 pr-3 font-mono">{{ hex(d.id, 2) }}</td>
+                <td class="py-1.5 pr-3" :class="!deviceName(d.id) && 'text-muted'">
+                  {{ deviceName(d.id) ?? "unknown" }}
+                </td>
+                <td class="flex flex-wrap gap-1 py-1.5">
+                  <span
+                    v-for="(t, i) in d.tracks"
+                    :key="i"
+                    class="inline-flex h-5 items-center rounded-[4px] border border-line px-1.5 font-mono text-meta"
+                    :class="t.sample ? 'border-decoded/35 text-decoded' : 'text-soft'"
+                    :title="`At ${hex(t.offset, 4)}, ${formatBytes(t.size)} bytes. First bytes ${t.header.map((b) => hex(b, 2).slice(2)).join(' ')}.`"
+                    >{{ t.sample ? `sample ${formatBytes(t.sample.rate)} Hz` : `ch ${t.channel}` }}
+                    <span class="ml-1 text-muted">{{ formatBytes(t.size) }} B</span></span
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <LabButton @click="viewBytes"> <LabIcon name="bytes" :size="13" :stroke="2" />View bytes in Files </LabButton>
+          <LabButton v-if="pcm" @click="saveWav">Save as WAV</LabButton>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+    <LabIcon name="audio" :size="28" class="text-faint" />
+    <template v-if="resources.length">
+      <p class="text-title font-semibold">No sounds in these files</p>
+      <p class="text-muted">The loaded files have no sound banks (.SX) or samples (.RAW).</p>
+    </template>
+    <template v-else>
+      <p class="text-title font-semibold">No files loaded</p>
+      <p class="text-muted">Import the game’s RESOURCE files to list and play its sounds.</p>
+      <RouterLink
+        to="/"
+        class="mt-1 inline-flex h-[26px] items-center rounded-[5px] border border-accent bg-accent px-[9px] font-semibold text-accent-ink hover:bg-accent-hover"
+      >
+        Go to Import
+      </RouterLink>
+    </template>
+  </div>
+</template>

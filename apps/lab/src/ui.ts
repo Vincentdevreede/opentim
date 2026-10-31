@@ -20,3 +20,6 @@ export const spritesView = ref<"parts" | "images">("parts");
 
 /** The id of the part selected on the Sprites page. */
 export const selectedPart = ref<string>();
+
+/** The sound selected on the Audio page: a bank's file name and the sound's id, or a sample's file name. */
+export const selectedSound = ref<string>();
