@@ -22,3 +22,25 @@ export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);
+
+export { decodeInstruction, operandText, type CodeAddress, type Instruction, type Operand } from "./read/x86.ts";
+export { readRoutineCode, type RoutineCode } from "./read/behaviour-code.ts";
+export {
+  readBehaviour,
+  analyseRoutine,
+  type BehaviourReport,
+  type PartBehaviour,
+  type RoutineAnalysis,
+  type CallbackReference,
+  type Confidence,
+  type Evidence,
+  type Expression,
+  type Predicate,
+  type FieldWrite,
+  type Transition,
+  type Counter,
+  type Trigger,
+} from "./read/behaviour.ts";
+export { findBehaviourTiming, type BehaviourTiming } from "./read/behaviour-timing.ts";
+export { discoverBehaviourLayout, type BehaviourLayout } from "./read/behaviour-layout.ts";
+export { measuredClips, validateMeasuredPart, type MeasurementCoverage } from "./read/behaviour-validation.ts";

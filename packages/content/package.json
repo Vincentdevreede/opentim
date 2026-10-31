@@ -11,7 +11,9 @@
     "build": "tsc -p .",
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "extract-parts": "node scripts/extract-parts.ts"
+    "extract-parts": "node scripts/extract-parts.ts",
+    "extract-behaviour": "node scripts/extract-behaviour.ts",
+    "validate-behaviour": "node scripts/validate-behaviour.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"
