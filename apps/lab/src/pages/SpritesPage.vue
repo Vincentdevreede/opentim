@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Frame as Bitmap } from "@opentim/resources";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useRouter } from "vue-router";
 import LabBadge from "../components/LabBadge.vue";
 import LabField from "../components/LabField.vue";
@@ -14,6 +14,7 @@ import ImageDetail from "../components/sprites/ImageDetail.vue";
 import { AUTO, AUTO_HINT, usePalettes } from "../components/sprites/palettes.ts";
 import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
+import { readBehaviourInBackground, type BehaviourResult } from "../behaviour.ts";
 import type { Resource } from "../importer.ts";
 import { edition, program, resources, selected } from "../library.ts";
 import {
@@ -70,6 +71,28 @@ const sourceBadge = computed(() => {
         title: `Read from ${from}: the same as the committed list.`,
       };
 });
+/** What the program does with the parts, read in the background once the parts come from the program. */
+const behaviour = shallowRef<BehaviourResult | { status: "reading" }>();
+watch(
+  () => [program.value?.data, loaded.value?.program] as const,
+  ([data, parts]) => {
+    behaviour.value = undefined;
+    if (!data || !parts) return;
+    behaviour.value = { status: "reading" };
+    void readBehaviourInBackground(data, parts).then((result) => {
+      if (program.value?.data === data) behaviour.value = result;
+    });
+  },
+  { immediate: true },
+);
+/** Why there is no behaviour to show, when there can't be any. */
+const noBehaviour = computed(() => {
+  const l = loaded.value;
+  if (!l || l.program) return undefined;
+  if (l.list.id === "tim2") return "The lab reads behaviour from the programs of TIM 1 and Even More only, so far.";
+  return l.problem ?? "The parts weren’t read from the program.";
+});
+
 // A link to a sprite of an image file opens that file.
 if (startSprite !== undefined) spritesView.value = "images";
 /** Which detail is shown: the selected part, or the selected image file. */
@@ -301,6 +324,10 @@ const card = (on: boolean) =>
       v-if="view === 'parts' && list && currentPart"
       :part="currentPart"
       :sheet-sprites="sheetSprites"
+      :record="loaded?.records.get(currentPart.type)"
+      :source="loaded?.source === 'program' ? program?.name : undefined"
+      :behaviour="behaviour"
+      :no-behaviour="noBehaviour"
       :gallery-palette="galleryPalette"
       @open-sheet="openSheet"
     />

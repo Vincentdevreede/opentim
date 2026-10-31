@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { Part, Placement } from "@opentim/content";
+import type { Part, Placement, TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
-import { computed, reactive, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, reactive, ref, watch, watchEffect } from "vue";
+import type { BehaviourResult } from "../../behaviour.ts";
 import { download } from "../../export.ts";
 import { compose, drawOrder, partName, sheetFile, type SpriteOf } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
@@ -15,8 +16,10 @@ import PanelTitle from "../PanelTitle.vue";
 import PartPicture from "../PartPicture.vue";
 import PixelFrame from "../PixelFrame.vue";
 import { compositionCanvas } from "../pixels.ts";
+import BehaviourPanel from "./BehaviourPanel.vue";
 import { AUTO, usePalettes } from "./palettes.ts";
 import { FPS, ZOOMS, fitScale, gridStyle, toggle, usePlayer, useSpriteKeys } from "./player.ts";
+import RecordPanel from "./RecordPanel.vue";
 import SpriteStage, { type Background } from "./SpriteStage.vue";
 
 const props = defineProps<{
@@ -25,6 +28,14 @@ const props = defineProps<{
   sheetSprites: (sheet: string) => Bitmap[] | undefined;
   /** The palette setting of the gallery. */
   galleryPalette: string;
+  /** The part's record in the program's type table, when the parts were read from the program. */
+  record?: TypeRecord;
+  /** The name of the program the record comes from, like `TIM.EXE`. */
+  source?: string;
+  /** The analysis of what the program does with the parts. */
+  behaviour?: BehaviourResult | { status: "reading" };
+  /** Why there is no analysis, when there can't be one. */
+  noBehaviour?: string;
 }>();
 const emit = defineEmits<{ openSheet: [file: string] }>();
 
@@ -40,6 +51,7 @@ const origin = ref(true);
 const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
+const side = ref<"frame" | "behaviour" | "record">("frame");
 
 const { colorsOf, choose, options } = usePalettes();
 const spriteOf: SpriteOf = (sheet, sprite) => props.sheetSprites(sheet)?.[sprite];
@@ -116,6 +128,18 @@ function save() {
     ? `${props.part.id}-frame${frame.value.id}.png`
     : `${shownSprite.value?.sheet}-sprite${shownSprite.value?.index}.png`;
   download(compositionCanvas(composition.value, colors.value), file);
+}
+
+/** Shows the frame with this id, like the target of a state change. */
+function showFrame(id: number) {
+  const index = props.part.frames.findIndex((f) => f.id === id);
+  if (index < 0) return;
+  if (strip.value === "frames") position.value = index;
+  else {
+    strip.value = "frames";
+    // Changing the strip starts it at its first item; go to the frame after that.
+    void nextTick(() => (position.value = index));
+  }
 }
 
 function showLayer(layer: number, on: boolean) {
@@ -391,13 +415,34 @@ const tabClass = (on: boolean) => (on ? "border-accent text-ink" : "border-trans
         </div>
       </div>
 
-      <aside aria-label="Frame data" class="flex w-[300px] shrink-0 flex-col border-l border-line bg-sunken">
-        <div class="flex h-8 shrink-0 items-center border-b border-line px-3">
-          <PanelTitle>{{ strip === "frames" ? "Frame" : "Sprite" }}</PanelTitle>
+      <aside aria-label="Part data" class="flex w-[340px] shrink-0 flex-col border-l border-line bg-sunken">
+        <div class="flex shrink-0 border-b border-line px-3" role="tablist">
+          <button
+            v-for="t in ['frame', 'behaviour', 'record'] as const"
+            :key="t"
+            type="button"
+            role="tab"
+            :aria-selected="side === t"
+            class="-mb-px h-8 cursor-pointer border-b-2 px-2 text-label font-semibold tracking-[.07em] uppercase"
+            :class="tabClass(side === t)"
+            @click="side = t"
+          >
+            {{ t === "frame" ? (strip === "frames" ? "Frame" : "Sprite") : t === "behaviour" ? "Behaviour" : "Record" }}
+          </button>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-auto px-3 py-2.5">
-          <div class="flex flex-col gap-3.5">
+        <div :key="side" class="min-h-0 flex-1 overflow-auto px-3 py-2.5">
+          <BehaviourPanel
+            v-if="side === 'behaviour'"
+            :result="behaviour"
+            :unavailable="noBehaviour"
+            :type="part.type"
+            :frames="part.frames.map((f) => f.id)"
+            :current="frame?.id"
+            @show-frame="showFrame"
+          />
+          <RecordPanel v-else-if="side === 'record'" :record="record" :source="source" />
+          <div v-else class="flex flex-col gap-3.5">
             <template v-if="frame">
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center gap-2">

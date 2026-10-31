@@ -7,6 +7,7 @@ import {
   type Part,
   type PartList,
   type Placement,
+  type ProgramParts,
   type TypeRecord,
 } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
@@ -23,6 +24,8 @@ export interface LoadedParts {
   source: "program" | "resources" | "committed";
   /** The records of the program's type table, by part number, when read from the program. */
   records: Map<number, TypeRecord>;
+  /** Everything read from the program, which the behaviour analysis starts from. */
+  program?: ProgramParts;
   /** Why the parts couldn't be read from the loaded files. */
   problem?: string;
   /** The numbers of the parts that differ from the committed list, when read from the loaded files. */
@@ -68,6 +71,7 @@ export function readLoadedParts(
         list: read.list,
         source: "program",
         records: new Map(read.records.map((r) => [r.type, r])),
+        program: read,
         differs: differences(read.list, committed),
       };
     }
