@@ -14,19 +14,22 @@ const canvas = useTemplateRef<HTMLCanvasElement>("canvas");
 const width = ref(0);
 const progress = computed(() => (length.value ? position.value / length.value : 0));
 
-/** The lowest and highest value of the samples under each column of the waveform. */
+/** The lowest and highest value of the samples under each column of the waveform, over both channels in stereo. */
 const peaks = computed(() => {
-  const data = props.pcm.samples;
+  const channels = props.pcm.right ? [props.pcm.samples, props.pcm.right] : [props.pcm.samples];
+  const length = props.pcm.samples.length;
   const columns = Math.max(1, Math.floor(width.value));
   const out: [number, number][] = [];
   for (let x = 0; x < columns; x++) {
-    const start = Math.floor((x / columns) * data.length);
-    const end = Math.max(start + 1, Math.floor(((x + 1) / columns) * data.length));
+    const start = Math.floor((x / columns) * length);
+    const end = Math.max(start + 1, Math.floor(((x + 1) / columns) * length));
     let low = 1;
     let high = -1;
-    for (let i = start; i < end && i < data.length; i++) {
-      low = Math.min(low, data[i]!);
-      high = Math.max(high, data[i]!);
+    for (const data of channels) {
+      for (let i = start; i < end && i < length; i++) {
+        low = Math.min(low, data[i]!);
+        high = Math.max(high, data[i]!);
+      }
     }
     out.push(low > high ? [0, 0] : [low, high]);
   }

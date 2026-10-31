@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readAdlibBank } from "../src/adlib.ts";
+import { AdlibDriver, readAdlibBank } from "../src/adlib.ts";
 import { OPL_RATE, Opl2 } from "../src/opl.ts";
 import { hasAdlibTracks, renderAdlib } from "../src/render.ts";
 import { mergeTracks, readTrackEvents } from "../src/sequence.ts";
@@ -15,18 +15,18 @@ function crossings(samples: Float32Array): number {
 
 const peak = (samples: Float32Array) => samples.reduce((max, v) => Math.max(max, Math.abs(v)), 0);
 
-/** A plain sine on channel 0: the carrier at full level, the modulator silent. */
+/** A plain sine on channel 0: the carrier at full level, the modulator silent since its attack never starts. */
 function sine(opl: Opl2, release = 0) {
   opl.write(0x01, 0x20);
   opl.write(0x20, 0x21);
   opl.write(0x23, 0x21);
   opl.write(0x40, 63);
   opl.write(0x43, 0);
-  opl.write(0x60, 0xf0);
+  opl.write(0x60, 0x00);
   opl.write(0x63, 0xf0);
   opl.write(0x80, release);
   opl.write(0x83, release);
-  opl.write(0xc0, 1);
+  opl.write(0xc0, 0);
 }
 
 describe("Opl2", () => {
@@ -40,7 +40,8 @@ describe("Opl2", () => {
     opl.render(out, 0, out.length);
     expect(crossings(out)).toBeGreaterThanOrEqual(436);
     expect(crossings(out)).toBeLessThanOrEqual(441);
-    expect(peak(out)).toBeCloseTo(1 / 8, 2);
+    // The exponent table's largest value doubled, 4084, and its ones' complement in the negative half.
+    expect(peak(out)).toBe(Math.fround(4085 / 32768));
   });
 
   it("is silent until a key is on, and fades out after it is released", () => {
@@ -87,6 +88,103 @@ describe("readAdlibBank", () => {
   });
 });
 
+/** A driver on a fake chip that keeps the last value written to each register. */
+function driver() {
+  const data = new Uint8Array(5382);
+  data.set(instrument(10, true), 0);
+  data.set(instrument(20, false), 28);
+  // Drum key 35 plays instrument 136 at note 48.
+  data.set(instrument(0, true), 136 * 28);
+  data[5320 + 35 - 27] = 48;
+  const regs = new Uint8Array(256);
+  const d = new AdlibDriver({ write: (r, v) => (regs[r] = v) }, readAdlibBank(data));
+  /** The pitch of a voice: its block and F-number. */
+  const pitch = (voice: number) => ({
+    block: (regs[0xb0 + voice]! >> 2) & 7,
+    fnum: ((regs[0xb0 + voice]! & 3) << 8) | regs[0xa0 + voice]!,
+  });
+  const keyOn = (voice: number) => (regs[0xb0 + voice]! & 0x20) !== 0;
+  return { d, regs, pitch, keyOn };
+}
+
+describe("AdlibDriver", () => {
+  it("plays notes in quarter semitones from the driver's table, with a bend of up to an octave", () => {
+    const { d, pitch, keyOn } = driver();
+    d.message(0x90, 60, 127);
+    expect(keyOn(0)).toBe(true);
+    expect(pitch(0)).toEqual({ block: 4, fnum: 0x157 });
+    // Full bend up: 8191 - 8192 / 171 is 47 quarter semitones, so B in the next octave.
+    d.message(0xe0, 0x7f, 0x7f);
+    expect(pitch(0)).toEqual({ block: 4, fnum: 0x2a4 });
+    d.message(0xe0, 0, 0x40);
+    expect(pitch(0)).toEqual({ block: 4, fnum: 0x157 });
+    d.message(0x80, 60, 0);
+    expect(keyOn(0)).toBe(false);
+    // The driver ignores notes below 12 and above 107.
+    d.message(0x90, 11, 127);
+    d.message(0x90, 108, 127);
+    expect([...Array(9).keys()].some(keyOn)).toBe(false);
+  });
+
+  it("scales the heard levels with the driver's velocity and volume tables", () => {
+    const { d, regs } = driver();
+    // FM: only the carrier (register 0x43 for voice 0) is scaled; at full velocity it keeps the instrument's level.
+    d.message(0x90, 60, 127);
+    expect(regs[0x43]! & 63).toBe(10);
+    d.message(0xb0, 7, 64);
+    // Volume 64 is 32 of 63: (33 * 64) >> 6 = 33, less 1, and table entry 32 is a share of 49/63 of the level's range.
+    expect(regs[0x43]! & 63).toBe(63 - Math.floor((49 * 53) / 63));
+    // Additive: both operators are scaled. Velocity 2 is 1 of 63, which the table makes 12: (64 * 13) >> 6 = 13, less 1,
+    // and table entry 12 is a share of 31/63.
+    d.message(0xc1, 1, 0);
+    d.message(0x91, 60, 2);
+    expect(regs[0x41]! & 63).toBe(63);
+    expect(regs[0x44]! & 63).toBe(63 - Math.floor((31 * 43) / 63));
+  });
+
+  it("plays drums on channel 10 with the bank's drum notes", () => {
+    const { d, pitch } = driver();
+    d.message(0x99, 35, 127);
+    expect(pitch(0)).toEqual({ block: 3, fnum: 0x157 });
+  });
+
+  it("gives a new note the free voice used longest ago, and takes the oldest voice when none is free", () => {
+    const { d, keyOn, pitch } = driver();
+    for (let i = 0; i < 9; i++) d.message(0x90, 60 + i, 127);
+    d.message(0x80, 60, 0);
+    d.message(0x80, 62, 0);
+    // Voice 0 was released first, so it is used first.
+    d.message(0x90, 72, 127);
+    expect(pitch(0).block).toBe(5);
+    expect(keyOn(2)).toBe(false);
+    d.message(0x90, 73, 127);
+    d.message(0x90, 74, 127);
+    // All voices play; the next note takes voice 1, the one used longest ago. Note 74 is D, 8 quarter semitones up.
+    expect(pitch(1)).toEqual({ block: 5, fnum: 0x181 });
+  });
+});
+
+describe("AdlibDriver on the Sound Blaster Pro", () => {
+  it("writes each side's level to its own chip, from the pan controller", () => {
+    const data = new Uint8Array(5382);
+    data.set(instrument(0, true), 0);
+    const chips = [new Uint8Array(256), new Uint8Array(256)];
+    const d = new AdlibDriver(
+      { write: (r, v, chip) => (chip === undefined ? chips : [chips[chip]!]).forEach((regs) => (regs[r] = v)) },
+      readAdlibBank(data),
+      "sbpro",
+    );
+    // Pan 127 keeps the chip at 220h at full level and silences the other one.
+    d.message(0xb0, 10, 127);
+    d.message(0x90, 60, 127);
+    expect(chips.map((regs) => regs[0x43]! & 63)).toEqual([0, 63]);
+    expect(chips.map((regs) => regs[0xb0]! & 0x20)).toEqual([0x20, 0x20]);
+    // The middle keeps about 49/63 of the loudness on each side.
+    d.message(0xb0, 10, 64);
+    expect(chips.map((regs) => regs[0x43]! & 63)).toEqual([63 - 59, 63 - 59]);
+  });
+});
+
 describe("readTrackEvents", () => {
   it("reads delays, running status and the end", () => {
     const track = Uint8Array.of(0, 0xc2, 5, 0, 0x92, 60, 100, 0xf8, 10, 60, 0, 2, 0xfc);
@@ -128,6 +226,21 @@ describe("renderAdlib", () => {
     const second = pcm.samples.subarray(0, OPL_RATE);
     expect(crossings(second)).toBeGreaterThanOrEqual(436);
     expect(crossings(second)).toBeLessThanOrEqual(442);
+  });
+
+  it("renders the Sound Blaster Pro in stereo, with a panned note on one side", () => {
+    const data = new Uint8Array(5382);
+    data.set(instrument(0, true), 0);
+    const track = [0x01, 0x01, 0, 0xb1, 10, 0, 0, 0xc1, 0, 0, 0x91, 69, 127, 60, 69, 0, 0, 0xfc];
+    const sound = Uint8Array.from([0x84, 0, 0, 0, 0, ...u16(9), ...u16(track.length), 0xff, 0xff, ...track]);
+    const pcm = renderAdlib(sound, readAdlibBank(data), { card: "sbpro" });
+    expect(pcm.right).toHaveLength(pcm.samples.length);
+    // Pan 0 plays on the left and leaves the right at its quietest, about -47 dB. The driver keys the note before it
+    // writes the levels, so for a moment it sounds at the instrument's own level.
+    expect(peak(pcm.right!.subarray(0, 40))).toBeGreaterThan(0.005);
+    expect(peak(pcm.right!.subarray(40))).toBeLessThan(0.001);
+    expect(peak(pcm.samples)).toBeGreaterThan(0.1);
+    expect(renderAdlib(sound, readAdlibBank(data)).right).toBeUndefined();
   });
 
   it("rejects a sound without AdLib tracks", () => {

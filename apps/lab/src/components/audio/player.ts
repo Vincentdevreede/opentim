@@ -20,8 +20,9 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
   let frame = 0;
 
   function audioBuffer(ctx: AudioContext, s: Pcm): AudioBuffer {
-    const out = ctx.createBuffer(1, Math.max(1, s.samples.length), s.rate);
+    const out = ctx.createBuffer(s.right ? 2 : 1, Math.max(1, s.samples.length), s.rate);
     out.getChannelData(0).set(s.samples);
+    if (s.right) out.getChannelData(1).set(s.right);
     return out;
   }
 

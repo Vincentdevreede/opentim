@@ -32,7 +32,7 @@ import { saveFile } from "../export.ts";
 import type { Confidence } from "../kinds.ts";
 import { DOT } from "../kinds.ts";
 import { resources, selected } from "../library.ts";
-import { crumb, formatBytes, hex, openAt, selectedSound } from "../ui.ts";
+import { crumb, fmCard, formatBytes, hex, openAt, selectedSound } from "../ui.ts";
 
 const router = useRouter();
 const search = useTemplateRef<InstanceType<typeof LabField>>("search");
@@ -61,7 +61,12 @@ const hasAdlib = computed(() => decoded.value?.status === "decoded" && decoded.v
 const source = ref<"sample" | "midi">("sample");
 const SOURCES = [
   { value: "sample" as const, label: "Sample" },
-  { value: "midi" as const, label: "AdLib MIDI" },
+  { value: "midi" as const, label: "MIDI" },
+];
+/** The cards whose FM driver can play the MIDI; both play the same tracks. */
+const CARDS = [
+  { value: "sbpro" as const, label: "Sound Blaster Pro" },
+  { value: "adlib" as const, label: "AdLib" },
 ];
 /** True when the AdLib MIDI plays, rather than the sound's sample. */
 const adlib = computed(() => hasAdlib.value && (!sample.value || source.value === "midi"));
@@ -71,11 +76,11 @@ const job = computed<RenderJob | undefined>(() => {
   const d = decoded.value;
   const item = current.value;
   if (!adlib.value || d?.status !== "decoded" || patch.value.status !== "found" || !item) return undefined;
-  return { key: item.key, sound: d.sound.data, patch: patch.value.data };
+  return { key: `${item.key}:${fmCard.value}`, sound: d.sound.data, patch: patch.value.data, card: fmCard.value };
 });
 const rendered = useRendered(job);
 const { progress: renderProgress, error: renderError, rendering } = rendered;
-/** What the player plays: the sound rendered on the AdLib, or else its sample. */
+/** What the player plays: the sound rendered with the chosen card's FM driver, or else its sample. */
 const pcm = computed<Pcm | undefined>(() => {
   if (adlib.value) return rendered.pcm.value;
   return sample.value && samplePcm(sample.value);
@@ -93,7 +98,7 @@ function statusOf(item: AudioItem): { status: Confidence; label: string } {
   if (!d.adlib)
     return d.sample ? { status: "decoded", label: "sample" } : { status: "unsupported", label: "no AdLib tracks" };
   if (patch.value.status !== "found") return { status: "unsupported", label: "MIDI · no instruments" };
-  return { status: "partial", label: "MIDI · emulated AdLib" };
+  return { status: "partial", label: "MIDI · game’s driver, emulated chip" };
 }
 
 /** The format of the selected item, in words. */
@@ -264,21 +269,22 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             <LabBadge status="unsupported" label="no instruments" />
           </div>
           <p class="text-soft">
-            {{ patch.message }} The MIDI plays on an emulated AdLib with the game’s own instruments, so without them it
-            can’t be heard. Import the files with {{ DRIVERS }} to play it.
+            {{ patch.message }} The MIDI plays through the game’s own driver and instruments, so without them it can’t
+            be heard. Import the files with {{ DRIVERS }} to play it.
           </p>
         </div>
 
         <div v-else-if="adlib || sample" class="flex flex-col gap-3 rounded-lg border border-line bg-well p-4">
-          <div class="flex items-center gap-2">
-            <PanelTitle>{{ adlib ? "AdLib" : "Sample" }}</PanelTitle>
+          <div class="flex flex-wrap items-center gap-2">
+            <PanelTitle>{{ adlib ? "MIDI" : "Sample" }}</PanelTitle>
             <div class="flex-1"></div>
             <LabSegmented v-if="hasAdlib && sample" v-model="source" label="What to play" :options="SOURCES" />
+            <LabSegmented v-if="adlib" v-model="fmCard" label="Sound card" :options="CARDS" />
             <LabBadge
               v-if="adlib"
-              status="hypothesis"
-              label="emulated · close, not exact"
-              title="The MIDI plays on an emulation of the AdLib’s OPL2 chip with the game’s instruments from SX.OVL. The chip emulation isn’t bit-exact, and the volume curve, voice allocation and pitch bend range are guesses, not read from the game’s driver."
+              status="partial"
+              label="game’s driver · emulated chip"
+              title="The MIDI plays through the game’s own FM driver for the card from SX.OVL, redone from its code, with the game’s instruments, on an emulation of the OPL2 chip ported from Nuked OPL3. The Sound Blaster Pro driver plays the same notes on the card’s two chips and sets each side’s level from the pan. A high pan plays on the right, as the driver means it; the first Sound Blaster Pro wired that chip to the left, so there it played mirrored. Still estimated: how long each register write takes, and that the game’s sound system sends the driver nothing beyond the tracks."
             />
             <template v-if="current.type === 'raw'">
               <LabSegmented v-model="rate" label="Playback rate" :options="rateOptions" />
@@ -302,8 +308,8 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             <span class="w-10 text-right font-mono text-muted tabular">{{ Math.round(renderProgress * 100) }}%</span>
           </div>
           <p v-if="hasAdlib && sample" class="text-meta text-muted">
-            This sound has a digitized sample and MIDI for the AdLib. Which one the game plays on a Sound Blaster isn’t
-            checked yet.
+            This sound has a digitized sample and MIDI for the AdLib. The sample goes to the game’s digital sound
+            drivers and the MIDI to its music driver; whether the game plays both at once isn’t checked yet.
           </p>
         </div>
 
@@ -326,7 +332,7 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             <template v-if="pcm">
               <dt class="text-muted">Rate · length</dt>
               <dd class="font-mono text-lead">
-                {{ formatBytes(pcm.rate) }} Hz ·
+                {{ formatBytes(pcm.rate) }} Hz{{ pcm.right ? " stereo" : "" }} ·
                 {{ duration(pcm.samples.length / pcm.rate) }}
               </dd>
             </template>
@@ -344,9 +350,9 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
           <div class="flex items-center gap-2">
             <PanelTitle>Devices and tracks</PanelTitle>
             <LabBadge
-              status="hypothesis"
-              label="device names from SCI"
-              title="The names are the device ids of Sierra's SCI1 sound drivers. They aren't checked against the game's own drivers yet."
+              status="decoded"
+              label="names from the drivers"
+              title="Each driver in SX.OVL reports the device id it plays. AdLib also covers the Sound Blaster Pro and Pro AudioSpectrum drivers, which play the same tracks."
             />
           </div>
           <table class="w-full border-collapse text-left">

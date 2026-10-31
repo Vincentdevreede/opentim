@@ -40,15 +40,16 @@ export const RAW_RATE = 11025;
 export const RATES = [8000, 11025, 22050];
 
 /**
- * Names of sound devices by the id a sound lists its tracks under, as Sierra's SCI1 sound drivers number them. Taken
- * from SCI, not checked against the game's own drivers.
+ * Names of sound devices by the id a sound lists its tracks under, from the drivers in `SX.OVL`: each reports its id
+ * when asked for its details. The AdLib, Sound Blaster Pro and Pro AudioSpectrum drivers all play the AdLib tracks.
+ * No driver uses ids 0x03, 0x06 and 0x0B.
  */
 const DEVICES: Record<number, string> = {
   0x00: "AdLib",
   0x07: "General MIDI",
   0x0c: "Roland MT-32",
   0x12: "PC speaker",
-  0x13: "Tandy",
+  0x13: "PS/1 Audio",
 };
 
 export const deviceName = (id: number) => DEVICES[id];
@@ -159,9 +160,16 @@ export function duration(seconds: number): string {
   return `${minutes}:${(seconds - minutes * 60).toFixed(2).padStart(5, "0")}`;
 }
 
-/** Audio as a WAV file: 16-bit mono PCM. The game's 8-bit samples convert to it without loss. */
+/** Audio as a WAV file: 16-bit PCM, mono or stereo. The game's 8-bit samples convert to it without loss. */
 export function wavFile(pcm: Pcm): Blob {
-  const data = Int16Array.from(pcm.samples, (v) => Math.max(-32768, Math.min(32767, Math.round(v * 32768))));
+  const channels = pcm.right ? [pcm.samples, pcm.right] : [pcm.samples];
+  const data = new Int16Array(pcm.samples.length * channels.length);
+  // Stereo samples are interleaved: left, then right.
+  channels.forEach((samples, c) =>
+    samples.forEach(
+      (v, i) => (data[i * channels.length + c] = Math.max(-32768, Math.min(32767, Math.round(v * 32768)))),
+    ),
+  );
   const header = new DataView(new ArrayBuffer(44));
   const text = (offset: number, s: string) => [...s].forEach((c, i) => header.setUint8(offset + i, c.charCodeAt(0)));
   text(0, "RIFF");
@@ -170,10 +178,10 @@ export function wavFile(pcm: Pcm): Blob {
   text(12, "fmt ");
   header.setUint32(16, 16, true);
   header.setUint16(20, 1, true);
-  header.setUint16(22, 1, true);
+  header.setUint16(22, channels.length, true);
   header.setUint32(24, pcm.rate, true);
-  header.setUint32(28, pcm.rate * 2, true);
-  header.setUint16(32, 2, true);
+  header.setUint32(28, pcm.rate * 2 * channels.length, true);
+  header.setUint16(32, 2 * channels.length, true);
   header.setUint16(34, 16, true);
   text(36, "data");
   header.setUint32(40, data.byteLength, true);

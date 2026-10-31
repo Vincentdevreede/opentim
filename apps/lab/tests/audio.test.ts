@@ -82,6 +82,20 @@ describe("wavFile", () => {
     expect([view.getUint16(22, true), view.getUint32(24, true), view.getUint16(34, true)]).toEqual([1, 11025, 16]);
     expect([...new Int16Array(wav.buffer, 44)]).toEqual([-32768, 0, 127 * 256]);
   });
+
+  it("interleaves the channels of stereo audio", async () => {
+    const pcm = {
+      rate: 49716,
+      samples: Float32Array.of(0.5, 0),
+      right: Float32Array.of(-0.5, 1),
+      loopStart: 0,
+      loopEnd: 2,
+    };
+    const wav = new Uint8Array(await wavFile(pcm).arrayBuffer());
+    const view = new DataView(wav.buffer);
+    expect([view.getUint16(22, true), view.getUint32(28, true), view.getUint16(32, true)]).toEqual([2, 49716 * 4, 4]);
+    expect([...new Int16Array(wav.buffer, 44)]).toEqual([16384, -16384, 0, 32767]);
+  });
 });
 
 describe("decodeEntry and AdLib", () => {
