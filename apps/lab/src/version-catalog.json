@@ -5,6 +5,7 @@
       "id": "tim1-en",
       "name": "The Incredible Machine",
       "languages": ["en"],
+      "parts": "tim1",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -32,6 +33,7 @@
       "id": "evenmore-fr",
       "name": "Even More! The Incredible Machine",
       "languages": ["fr"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -63,6 +65,7 @@
       "id": "tim1-fr-de-media",
       "name": "The Incredible Machine (Installation Media)",
       "languages": ["fr", "de"],
+      "parts": "tim1",
       "files": [
         {
           "name": "FRENCH.RES",
@@ -87,6 +90,7 @@
       "id": "tim1-fr",
       "name": "The Incredible Machine",
       "languages": ["fr"],
+      "parts": "tim1",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -110,6 +114,7 @@
       "id": "tim1-de",
       "name": "The Incredible Machine",
       "languages": ["de"],
+      "parts": "tim1",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -133,6 +138,7 @@
       "id": "tim1-addon-en",
       "name": "The Incredible Machine: Add On Disk",
       "languages": ["en"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -160,6 +166,7 @@
       "id": "evenmore-en-floppy",
       "name": "Even More! The Incredible Machine (Floppy)",
       "languages": ["en"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -187,6 +194,7 @@
       "id": "evenmore-fr-de-media",
       "name": "Even More! The Incredible Machine (Installation Media)",
       "languages": ["fr", "de"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "FRENCH.RES",
@@ -227,6 +235,7 @@
       "id": "evenmore-de",
       "name": "Even More! The Incredible Machine",
       "languages": ["de"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -258,6 +267,7 @@
       "id": "evenmore-en-cd",
       "name": "Even More! The Incredible Machine (CD)",
       "languages": ["en"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -288,6 +298,7 @@
       "id": "tim2-multilingual-floppy",
       "name": "The Incredible Machine 2 (Floppy)",
       "languages": ["en", "fr", "de", "es"],
+      "parts": "tim2",
       "files": [
         {
           "name": "ENGLISH.DAT",
@@ -319,6 +330,7 @@
       "id": "tim2-multilingual-cd",
       "name": "The Incredible Machine 2 (CD)",
       "languages": ["en", "fr", "de", "es"],
+      "parts": "tim2",
       "files": [
         {
           "name": "ENGLISH.DAT",
@@ -380,6 +392,7 @@
       "id": "evenmore-en-demo",
       "name": "Even More! The Incredible Machine (Demo)",
       "languages": ["en"],
+      "parts": "evenmore",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -395,6 +408,7 @@
       "id": "tim2-en-demo",
       "name": "The Incredible Machine 2 (Demo)",
       "languages": ["en"],
+      "parts": "tim2",
       "files": [
         {
           "name": "RESOURCE.001",

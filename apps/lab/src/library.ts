@@ -2,7 +2,7 @@
 
 import { MAP_NAME, installLanguage, isArchiveName, isLanguagePackageName } from "@opentim/resources";
 import { ref, shallowRef } from "vue";
-import { detectEdition, sha256, type Edition } from "./edition.ts";
+import { detectEdition, isProgramName, sha256, type Edition } from "./edition.ts";
 import {
   ImportError,
   checkComplete,
@@ -105,6 +105,8 @@ export const staging = shallowRef<Staging>();
 export const saving = ref(false);
 /** The version of the game the loaded files are. */
 export const edition = shallowRef<Edition>();
+/** The game's program, like `TIM.EXE`, when it was loaded with the archives. */
+export const program = shallowRef<{ name: string; data: Uint8Array }>();
 /** The resource selected in Overview and Files. */
 export const selected = ref<string>();
 
@@ -176,7 +178,11 @@ async function read(
         name,
         size: file.size,
         outcome: "read",
-        detail: archive ? `Read · ${describeContents(read.resources) || "no entries"}` : "Read · tells the version",
+        detail: archive
+          ? `Read · ${describeContents(read.resources) || "no entries"}`
+          : isProgramName(name)
+            ? "Read · the game’s program"
+            : "Read · tells the version",
       });
       log.push(
         `[import] ${name.padEnd(13)} ${archive ? `index ok  entries=${read.resources.length}` : "read ok  "} sha256=${read.sha256.slice(0, 12)}`,
@@ -256,6 +262,8 @@ function load(staged: Staging): void {
   resources.value = staged.resources;
   archives.value = staged.files.map(({ name, size }) => ({ name, size }));
   edition.value = staged.edition;
+  const exe = staged.files.find((f) => isProgramName(f.name));
+  program.value = exe && { name: exe.name, data: exe.data };
   readSeconds.value = staged.seconds;
   if (!staged.resources.some((r) => r.name === selected.value)) selected.value = staged.resources[0]?.name;
   failure.value = undefined;
@@ -367,6 +375,7 @@ export async function forget(): Promise<void> {
   resources.value = [];
   archives.value = [];
   edition.value = undefined;
+  program.value = undefined;
   staging.value = undefined;
   saving.value = false;
   selected.value = undefined;

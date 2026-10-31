@@ -11,6 +11,8 @@ export interface Profile {
   name: string;
   /** Language codes, like `en`. A version with several has all of them installed. */
   languages: string[];
+  /** The id of the version's part list in `@opentim/content`, like `tim1`, when there is one. */
+  parts?: string;
   /** Every file that counts for recognition, with upper-case names. */
   files: FileHash[];
   /** True for installation media, whose files still have to be unpacked. */
@@ -40,6 +42,9 @@ export const LANGUAGES: Record<string, string> = { en: "English", fr: "French", 
  */
 export const isVersionFile = (name: string) =>
   (/^RESOURCE\./i.test(name) && !/\.CFG$/i.test(name)) || /^(ENGLISH|FRENCH|GERMAN|SPANISH)\.(DAT|RES)$/i.test(name);
+
+/** True for the program of a game: `TIM.EXE`, `TIM2.EXE` or `TOONS.EXE`. It doesn't count for recognition. */
+export const isProgramName = (name: string) => /^(TIM|TIM2|TOONS)\.EXE$/i.test(name);
 
 /**
  * Finds the version with exactly these files: the same names and hashes, none missing and none extra. Without one,

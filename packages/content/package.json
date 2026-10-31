@@ -1,0 +1,25 @@
+{
+  "name": "@opentim/content",
+  "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "extract-parts": "node scripts/extract-parts.ts"
+  },
+  "dependencies": {
+    "@opentim/resources": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
