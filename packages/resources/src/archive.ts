@@ -9,7 +9,8 @@ export interface ArchiveEntry {
   data: Uint8Array;
 }
 
-const HEADER_SIZE = 17;
+/** Size of an entry's header: its name and size. The entry's data follows it. */
+export const ENTRY_HEADER_SIZE = 17;
 const NAME_SIZE = 13;
 const MAX_ARCHIVE_SIZE = 64 * 1024 * 1024;
 /** The characters of resource names. `&` is in Sid & Al's Incredible Toons, in `GFSID&AL.BMP`. */
@@ -27,7 +28,7 @@ export function readArchive(data: Uint8Array, archive: string): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [];
   let offset = 0;
   while (offset < data.length) {
-    if (data.length - offset < HEADER_SIZE) throw new Error(`Truncated entry header at offset ${offset}`);
+    if (data.length - offset < ENTRY_HEADER_SIZE) throw new Error(`Truncated entry header at offset ${offset}`);
     const field = data.subarray(offset, offset + NAME_SIZE);
     const end = field.indexOf(0);
     if (end < 1) throw new Error(`Invalid resource name at offset ${offset}`);
@@ -36,8 +37,9 @@ export function readArchive(data: Uint8Array, archive: string): ArchiveEntry[] {
       throw new Error(`Unsafe resource name at offset ${offset}`);
     }
     const size = view.getUint32(offset + NAME_SIZE, true);
-    if (size > data.length - offset - HEADER_SIZE) throw new Error(`Truncated resource ${name} at offset ${offset}`);
-    const start = offset + HEADER_SIZE;
+    if (size > data.length - offset - ENTRY_HEADER_SIZE)
+      throw new Error(`Truncated resource ${name} at offset ${offset}`);
+    const start = offset + ENTRY_HEADER_SIZE;
     entries.push({ name: name.toUpperCase(), archive, offset, data: data.subarray(start, start + size) });
     offset = start + size;
   }
@@ -46,7 +48,7 @@ export function readArchive(data: Uint8Array, archive: string): ArchiveEntry[] {
 
 /** Builds a `RESOURCE.00x` archive from entries; the inverse of {@link readArchive}. Used by tests and tools. */
 export function writeArchive(entries: { name: string; data: Uint8Array }[]): Uint8Array<ArrayBuffer> {
-  const size = entries.reduce((sum, e) => sum + HEADER_SIZE + e.data.length, 0);
+  const size = entries.reduce((sum, e) => sum + ENTRY_HEADER_SIZE + e.data.length, 0);
   if (size > MAX_ARCHIVE_SIZE) throw new Error("Archive exceeds the 64 MiB limit");
   const out = new Uint8Array(size);
   const view = new DataView(out.buffer);
@@ -60,8 +62,8 @@ export function writeArchive(entries: { name: string; data: Uint8Array }[]): Uin
       offset,
     );
     view.setUint32(offset + NAME_SIZE, data.length, true);
-    out.set(data, offset + HEADER_SIZE);
-    offset += HEADER_SIZE + data.length;
+    out.set(data, offset + ENTRY_HEADER_SIZE);
+    offset += ENTRY_HEADER_SIZE + data.length;
   }
   return out;
 }

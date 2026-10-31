@@ -30,14 +30,11 @@ export function groupOf(kind: ResourceKind): KindGroup {
   }
 }
 
-/**
- * What the lab can decode per group. Nothing is decoded yet; update this as decoders
- * are ported so every badge in the lab follows.
- */
+/** What the lab can decode per group. Update this as decoders are ported, so every badge in the lab follows. */
 export const SUPPORT: Record<KindGroup, { status: Confidence; note: string }> = {
-  sprites: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
-  screen: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
-  palette: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
+  sprites: { status: "decoded", note: "Decoded. View the frames in Sprites." },
+  screen: { status: "decoded", note: "Decoded. View it in Sprites." },
+  palette: { status: "decoded", note: "Decoded. Sprites uses it to colour the images." },
   level: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
   scene: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
   sound: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },

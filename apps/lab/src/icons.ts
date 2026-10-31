@@ -33,6 +33,10 @@ export const ICONS = {
   pause: ["M6 4h4v16H6z", "M14 4h4v16h-4z"],
   step: ["M5 4v16l10-8z", "M19 4v16"],
   reset: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5"],
+  chevronLeft: ["m15 6-6 6 6 6"],
+  chevronRight: ["m9 6 6 6-6 6"],
+  chevronDown: ["m6 9 6 6 6-6"],
+  flip: ["M12 3v18", "M8 7 3 12l5 5z", "m16 7 5 5-5 5z"],
   keyboard: [
     "M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z",
     "M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10",
