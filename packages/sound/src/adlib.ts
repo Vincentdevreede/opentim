@@ -433,7 +433,8 @@ export class AdlibDriver {
     if (pitch < 0 || pitch > HIGHEST_PITCH) pitch = HIGHEST_PITCH;
     const octave = Math.floor(pitch / 48);
     const fnum = FREQUENCIES[pitch % 48]!;
-    const block = octave > 0 ? octave - 1 : 0;
+    // The register has three bits for the block, so the top pitches stay in block 7 instead of reaching the key bit.
+    const block = Math.min(7, octave > 0 ? octave - 1 : 0);
     const key = (on ? 0x20 : 0) | (block << 2) | (fnum >> 8);
     this.opl.write(0xa0 + index, fnum & 0xff);
 

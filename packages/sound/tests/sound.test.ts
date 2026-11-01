@@ -126,6 +126,15 @@ describe("AdlibDriver", () => {
     expect([...Array(9).keys()].some(keyOn)).toBe(false);
   });
 
+  it("keeps the highest pitches in block 7, so releasing them turns the key off", () => {
+    const { d, pitch, keyOn } = driver();
+    d.message(0xe0, 0x7f, 0x7f);
+    d.message(0x90, 107, 127);
+    expect(pitch(0).block).toBe(7);
+    d.message(0x80, 107, 0);
+    expect(keyOn(0)).toBe(false);
+  });
+
   it("scales the heard levels with the driver's velocity and volume tables", () => {
     const { d, regs } = driver();
     // FM: only the carrier (register 0x43 for voice 0) is scaled; at full velocity it keeps the instrument's level.
