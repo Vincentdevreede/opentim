@@ -35,8 +35,14 @@ export const SUPPORT: Record<KindGroup, { status: Confidence; note: string }> = 
   sprites: { status: "decoded", note: "Decoded. View the frames in Sprites." },
   screen: { status: "decoded", note: "Decoded. View it in Sprites." },
   palette: { status: "decoded", note: "Decoded. Sprites uses it to colour the images." },
-  level: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
-  scene: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
+  level: {
+    status: "decoded",
+    note: "Read to the last byte, except TIM 2 levels. View it in Levels.",
+  },
+  scene: {
+    status: "decoded",
+    note: "Read to the last byte, as a level without a title. View it in Levels.",
+  },
   sound: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
   other: { status: "unsupported", note: "Unknown format. Raw bytes only." },
 };
@@ -47,11 +53,3 @@ export const CONFIDENCE_HELP: { status: Confidence; text: string }[] = [
   { status: "hypothesis", text: "Research guess. Useful, not yet verified." },
   { status: "unsupported", text: "Not decoded yet. Raw bytes only." },
 ];
-
-export const DOT: Record<Confidence, string> = {
-  decoded: "bg-decoded",
-  partial: "bg-partial",
-  hypothesis: "bg-hypothesis",
-  unsupported: "bg-faint",
-  error: "bg-error",
-};

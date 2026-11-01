@@ -64,9 +64,6 @@ export function useSpriteKeys(
   onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 }
 
-/** Classes of a toggle button that is on. */
-export const toggle = (on: boolean) => on && "border-accent! bg-accent/12! text-accent!";
-
 /** A pixel grid over a picture at this zoom. */
 export const gridStyle = (zoom: number) => ({
   backgroundImage:

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ICONS, type IconName } from "../icons.ts";
 
-withDefaults(defineProps<{ name: IconName; size?: number; stroke?: number }>(), { size: 18, stroke: 1.75 });
+withDefaults(defineProps<{ name: IconName; size?: number; stroke?: number }>(), { size: 14, stroke: 2 });
 </script>
 
 <template>
