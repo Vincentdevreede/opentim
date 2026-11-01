@@ -1,5 +1,6 @@
-/** Marks the bytes of a resource that a decoder read: its chunks, and where decoding stopped. */
+/** Marks the bytes of a resource that a decoder read: its chunks or fields, and where decoding stopped. */
 
+import { LevelError, readLevel, type LevelLayout, type PartGroup } from "@opentim/content";
 import { FormatError, readChunks, readPalette, type Chunk } from "@opentim/resources";
 import type { Resource } from "./importer.ts";
 import { decode, isImage } from "./sprites.ts";
@@ -17,6 +18,8 @@ export interface Marker {
   /** How deep a chunk is nested in containers. */
   depth: number;
   error?: boolean;
+  /** Set for chunks, whose first 8 bytes are a header to tint. */
+  chunk?: boolean;
 }
 
 export interface Markers {
@@ -59,6 +62,7 @@ function chunkMarkers(chunks: Chunk[], depth = 0, parent?: Chunk): Marker[] {
       label: chunk.tag,
       detail: `${holds(chunk, parent)} · ${chunk.data.length.toLocaleString("en-US")} B`,
       depth,
+      chunk: true,
     },
     ...chunkMarkers(chunk.children, depth + 1, chunk),
   ]);
@@ -72,8 +76,75 @@ const stopped = (message: string, offset?: number): Marker => ({
   error: true,
 });
 
+const GROUPS: Record<PartGroup, string> = { static: "Static parts", moving: "Moving parts", bin: "Parts bin" };
+
+/**
+ * The markers of a level or scene: its header with every field, then each group of parts with every part. `nameOf`
+ * names a part by its number.
+ */
+function levelMarkers(resource: Resource, layout: LevelLayout, nameOf: (type: number) => string): Markers {
+  let level;
+  try {
+    level = readLevel(resource.data, { layout, name: resource.name });
+  } catch (e) {
+    return { markers: [stopped((e as Error).message, e instanceof LevelError ? e.offset : undefined)] };
+  }
+  const first = level.parts[0]?.offset ?? level.length;
+  const header = level.fields.filter((f) => f.offset < first);
+  const markers: Marker[] = [
+    { offset: 0, end: first, label: "Header", detail: `${header.length} fields · ${first} B`, depth: 0 },
+    ...header.map((f) => ({
+      offset: f.offset,
+      end: f.offset + f.size,
+      label: f.key,
+      detail:
+        typeof f.value === "string"
+          ? `“${f.value}”`
+          : f.key === "magic" || f.key === "version"
+            ? `0x${f.value.toString(16).toUpperCase()}`
+            : String(f.value),
+      depth: 1,
+    })),
+  ];
+  for (const group of ["static", "moving", "bin"] as const) {
+    const parts = level.parts.filter((p) => p.group === group);
+    const later = level.fields.filter((f) => f.offset >= first && f.offset < (parts[0]?.offset ?? level.length));
+    for (const f of later)
+      markers.push({ offset: f.offset, end: f.offset + f.size, label: f.key, detail: String(f.value), depth: 0 });
+    if (!parts.length) continue;
+    const start = parts[0]!.offset;
+    const end = parts.at(-1)!.offset + parts.at(-1)!.length;
+    markers.push({
+      offset: start,
+      end,
+      label: GROUPS[group],
+      detail: `${parts.length} parts · ${end - start} B`,
+      depth: 0,
+    });
+    for (const p of parts)
+      markers.push({
+        offset: p.offset,
+        end: p.offset + p.length,
+        label: `#${p.index}`,
+        detail: `${nameOf(p.type)} at ${p.position.x}, ${p.position.y} · ${p.length} B`,
+        depth: 1,
+      });
+  }
+  return {
+    markers,
+    note: "Markers come from the level reader, which accounts for every byte. Click one to jump to it.",
+  };
+}
+
 /** The markers of a resource, from the decoders the lab has for its kind. */
-export function markersOf(resource: Resource): Markers {
+export function markersOf(
+  resource: Resource,
+  {
+    layout = "tim",
+    nameOf = (type) => `type ${type}`,
+  }: { layout?: LevelLayout; nameOf?: (type: number) => string } = {},
+): Markers {
+  if (resource.group === "level" || resource.group === "scene") return levelMarkers(resource, layout, nameOf);
   const image = isImage(resource);
   if (!image && resource.group !== "palette")
     return { markers: [], note: "No decoder reads this kind of file yet, so no bytes are marked." };
@@ -107,8 +178,8 @@ export const markerAt = (markers: Marker[], offset: number) =>
 /** The bytes of chunk headers, to tint in the hex view. */
 export function headerBytes(markers: Marker[]): Set<number> {
   const bytes = new Set<number>();
-  for (const { offset, end } of markers) {
-    if (offset === undefined || end === undefined) continue;
+  for (const { offset, end, chunk } of markers) {
+    if (!chunk || offset === undefined || end === undefined) continue;
     for (let i = 0; i < CHUNK_HEADER; i++) bytes.add(offset + i);
   }
   return bytes;
