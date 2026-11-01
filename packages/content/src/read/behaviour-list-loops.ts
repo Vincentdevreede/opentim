@@ -1,5 +1,5 @@
 /** Proves owner-state preservation while a callback scans a discovered part list. */
-import type { Evidence, Finding } from "./behaviour.ts";
+import type { Evidence, Finding, Predicate } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { LoopField } from "./behaviour-loops.ts";
@@ -8,6 +8,7 @@ import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
 
 export interface ListLoopSummary extends Finding {
+  condition?: Predicate;
   header: number;
   bodyEntry: number;
   body: number[];
@@ -49,6 +50,7 @@ export function discoverListLoops(
   code: RoutineCode,
   helpers: Map<number, EngineSummary>,
   stateOffset: number,
+  stateIsNonzero = false,
 ): ListLoopSummary[] {
   if (code.status !== "complete") return [];
   const instructions = new Map(code.instructions.map((i) => [i.address, i]));
@@ -93,7 +95,10 @@ export function discoverListLoops(
       )
         globalLinks.set(pointer.path[0]!, helper);
     }
+  const originalOutgoing = outgoing;
   for (const guard of code.instructions) {
+    const outgoing = new Map(originalOutgoing);
+    const stateProof: Evidence[] = [];
     const node = guard.operands[0];
     if (!register(node)) continue;
     if (!(
@@ -156,7 +161,7 @@ export function discoverListLoops(
       return true;
     };
     if (!acyclic(bodyEntry)) continue;
-    const sequence = [...body].map((at) => instructions.get(at)!).sort((a, b) => a.address - b.address);
+    let sequence = [...body].map((at) => instructions.get(at)!).sort((a, b) => a.address - b.address);
     const advances = sequence.filter(
       (i) =>
         i.mnemonic === "mov" &&
@@ -248,6 +253,40 @@ export function discoverListLoops(
       code.instructions.some((i) => body.has(i.address) && writesFirst(i) && register(i.operands[0], owner))
     )
       continue;
+    if (stateIsNonzero) {
+      if (volatile.includes(owner)) continue;
+      for (const compare of sequence) {
+        const tested = compare.operands[0],
+          branch = instructions.get(compare.address + compare.size);
+        if (
+          compare.mnemonic !== "cmp" ||
+          !memory(tested) ||
+          tested.segment !== "ds" ||
+          tested.base.join() !== owner ||
+          tested.displacement !== stateOffset ||
+          tested.width !== 16 ||
+          !immediate(compare.operands[1], 0) ||
+          !branch?.target ||
+          !["je", "jne"].includes(branch.mnemonic)
+        )
+          continue;
+        const chosen = branch.mnemonic === "jne" ? branch.target.address : branch.address + branch.size;
+        if (!(outgoing.get(branch.address) ?? []).includes(chosen)) continue;
+        outgoing.set(branch.address, [chosen]);
+        stateProof.push(evidence(compare), evidence(branch));
+      }
+      if (!stateProof.length) continue;
+      const reachable = new Set<number>(),
+        pending = [bodyEntry];
+      while (pending.length) {
+        const at = pending.pop()!;
+        if (at === header || at === exit || reachable.has(at) || !body.has(at)) continue;
+        reachable.add(at);
+        pending.push(...(outgoing.get(at) ?? []));
+      }
+      for (const at of body) if (!reachable.has(at)) body.delete(at);
+      sequence = sequence.filter((i) => body.has(i.address));
+    }
     // The selected node and owner identities must survive the path to the first guard or body entry.
     const entryPaths = [...(outgoing.get(head.address) ?? [])],
       entrySeen = new Set<number>();
@@ -348,6 +387,11 @@ export function discoverListLoops(
     const assumptions = new Set([
       ...queries.flatMap((call) => helpers.get(call.target!.address)!.list!.assumptions),
       ...globalProofs.flatMap((helper) => helper.assumptions),
+      ...(stateIsNonzero
+        ? [
+            "The owner state at the loop header is nonzero. Every reachable body write and helper preserves that state; zero-state-only paths are excluded by their decoded comparisons.",
+          ]
+        : []),
       globalSource
         ? "The discovered global part list is finite and acyclic, with complete part objects and unchanged next links. It may contain the owner; the body writes only owner fields outside both state and next-link storage."
         : "The overlap query's finite list is acyclic, its nodes are complete distinct part objects, and no body operation changes the traversed next links.",
@@ -360,6 +404,7 @@ export function discoverListLoops(
     ]);
     const proof = [
       ...boundedSearches.filter((s) => s.body.every((at) => body.has(at))).flatMap((s) => s.evidence),
+      ...stateProof,
       evidence(head),
       evidence(ownerDefinition),
       ...globalProofs.flatMap((helper) => helper.evidence),
@@ -588,6 +633,17 @@ export function discoverListLoops(
     if (invalid || work.length) continue;
     changed.delete("sp");
     result.push({
+      ...(stateIsNonzero
+        ? {
+            condition: {
+              kind: "compare" as const,
+              operator: "!=",
+              left: { kind: "field" as const, object: "part", offset: stateOffset, width: 16 },
+              right: { kind: "constant" as const, value: 0, width: 16 },
+              signed: false,
+            },
+          }
+        : {}),
       header,
       bodyEntry,
       body: [...body].sort((a, b) => a - b),

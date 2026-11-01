@@ -393,3 +393,67 @@ describe("selected list-member locals", () => {
     },
   );
 });
+
+describe("conditional state-preserving scans", () => {
+  function conditionalFixture(
+    options: { noEntryGuard?: boolean; earlyStateWrite?: boolean; otherGuard?: boolean } = {},
+  ) {
+    const { image, helpers } = fixture();
+    helpers.get(0x100)!.footprint.partMemoryComplete = true;
+    const bytes = [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6];
+    let entryBranch: number | undefined;
+    if (!options.noEntryGuard) {
+      bytes.push(0x83, 0x7c, 12, 0, 0x74, 0);
+      entryBranch = bytes.length - 1;
+    }
+    bytes.push(0x56, 0x9a, 0, 1, 0, 0, 0x59, 0x8b, 0x7c, 0x70, 0xeb, 0);
+    const jump = bytes.length - 1,
+      body = bytes.length;
+    if (options.earlyStateWrite) bytes.push(0xc7, 0x44, 12, 0, 0);
+    bytes.push(0x83, options.otherGuard ? 0x7d : 0x7c, 12, 0, 0x75, 5, 0xc7, 0x44, 12, 1, 0, 0x8b, 0x7d, 0x70);
+    const header = bytes.length;
+    bytes[jump] = header - jump - 1;
+    bytes.push(0x0b, 0xff, 0x75, (body - header - 4) & 255);
+    if (entryBranch !== undefined) bytes[entryBranch] = bytes.length - entryBranch - 1;
+    bytes.push(0x5f, 0x5e, 0x5d, 0xcb);
+    image.set(bytes);
+    return { image, helpers };
+  }
+  it("requires the proved current state precondition before applying the specialised body", () => {
+    const { image, helpers } = conditionalFixture();
+    const code = readRoutineCode(image, entry, 0);
+    expect(discoverListLoops(code, helpers, 12)).toHaveLength(0);
+    const conditional = discoverListLoops(code, helpers, 12, true);
+    expect(conditional).toHaveLength(1);
+    expect(conditional[0]!.condition).toMatchObject({ kind: "compare", operator: "!=", right: { value: 0 } });
+    const result = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(result.listLoops).toHaveLength(1);
+    expect(result.uncertainties).toEqual([]);
+    expect(
+      result.transitions.every((transition) => transition.to.kind === "field" && transition.to.offset === 12),
+    ).toBe(true);
+  });
+  it("does not specialise comparisons through a volatile owner register", () => {
+    const { image, helpers } = conditionalFixture();
+    const code = readRoutineCode(image, entry, 0);
+    for (const instruction of code.instructions)
+      for (const operand of instruction.operands) {
+        if (operand.kind === "register" && operand.name === "si") operand.name = "bx";
+        if (operand.kind === "memory") operand.base = operand.base.map((name) => (name === "si" ? "bx" : name));
+      }
+    expect(discoverListLoops(code, helpers, 12, true)).toHaveLength(0);
+  });
+  it("keeps an unknown loop entry unresolved instead of assuming the conditional proof applies", () => {
+    const { image, helpers } = conditionalFixture({ noEntryGuard: true });
+    const result = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(result.listLoops).toHaveLength(0);
+    expect(result.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(true);
+  });
+  it.each([{ earlyStateWrite: true }, { otherGuard: true }])(
+    "rejects an invalid preservation assumption %s",
+    (options) => {
+      const { image, helpers } = conditionalFixture(options);
+      expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12, true)).toHaveLength(0);
+    },
+  );
+});

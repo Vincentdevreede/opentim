@@ -602,6 +602,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       : []
     ).map((loop) => [loop.header, loop]),
   );
+  if (options.objectArgument !== "collider" && argumentOffset === firstArgumentOffset)
+    for (const loop of discoverListLoops(code, options.engineSummaries ?? new Map(), stateOffset, true))
+      if (!listLoopsByHeader.has(loop.header)) listLoopsByHeader.set(loop.header, loop);
   const usedListLoops: ListLoopSummary[] = [];
   const transitions: Transition[] = [];
   const comparisons: RoutineAnalysis["comparisons"] = [];
@@ -1756,7 +1759,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     s.visited.add(i.address);
     s.registers.set("cs", tracked(constant(i.segment)));
-    const list = !s.observationOnly && listLoopsByHeader.get(i.address);
+    const candidateList = !s.observationOnly && listLoopsByHeader.get(i.address);
+    const list =
+      candidateList &&
+      (!candidateList.condition ||
+        entails(
+          {
+            kind: "compare",
+            operator: "!=",
+            left: asExpression(
+              memoryAt(tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }), stateOffset, 16, s)
+                .value,
+            ),
+            right: constant(0),
+            signed: false,
+          },
+          s,
+        ))
+        ? candidateList
+        : undefined;
     if (list) {
       const node = registerRead(list.nodeRegister, s);
       if (list.source !== "global-list") {

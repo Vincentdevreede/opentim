@@ -362,3 +362,14 @@ layout agrees on state histories, control storage, position, velocity, contacts,
 The trampoline and conveyor rules were checked against independently decoded DOS instructions. Several other part
 implementations are incomplete in that port, so it cannot validate every animation. Its disappeared-flag label was
 not adopted: the inspected DOS paths establish a narrower queueing effect, not a complete drawing contract.
+
+## Conditional scan invariants
+
+A scan may preserve the owner's state only under an established precondition. The reader can specialise direct
+owner-state comparisons for a nonzero state at the loop header. It then checks every reachable store and helper
+again. Any reachable state-changing operation rejects that invariant. The unspecialised paths remain in the routine
+graph and remain unresolved where their effects are unknown.
+
+The caller must entail the precondition using its current symbolic state, including preceding updates. An unknown
+entry value does not select the convenient invariant. This permits nonzero-state cat scans to preserve their current
+frame without claiming that the frame-zero search or its collision-dependent state changes have been resolved.
