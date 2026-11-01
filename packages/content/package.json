@@ -13,7 +13,8 @@
     "test": "vitest run",
     "extract-parts": "node scripts/extract-parts.ts",
     "extract-behaviour": "node scripts/extract-behaviour.ts",
-    "validate-behaviour": "node scripts/validate-behaviour.ts"
+    "validate-behaviour": "node scripts/validate-behaviour.ts",
+    "compare-behaviour": "node scripts/compare-behaviour.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"

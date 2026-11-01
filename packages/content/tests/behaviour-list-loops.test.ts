@@ -1,0 +1,191 @@
+import { describe, expect, it } from "vitest";
+import { analyseRoutine } from "../src/read/behaviour.ts";
+import { readRoutineCode } from "../src/read/behaviour-code.ts";
+import { discoverListLoops } from "../src/read/behaviour-list-loops.ts";
+import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
+const entry = { address: 0, segment: 0, offset: 0 };
+const fact = { confidence: "inferred" as const, assumptions: [], evidence: [] };
+function fixture(
+  options: {
+    ownerWrite?: boolean;
+    linkWrite?: boolean;
+    missingProgress?: boolean;
+    unknownCall?: boolean;
+    helperCall?: boolean;
+    alternativeQueries?: boolean;
+    skipAlternative?: boolean;
+    volatileOwner?: boolean;
+    field?: number;
+  } = {},
+) {
+  const field = options.field ?? 0x70;
+  const image = new Uint8Array(0x140).fill(0x66);
+  const bytes = [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, options.volatileOwner ? 0x5e : 0x76, 6];
+  const pushOwner = options.volatileOwner ? [0xff, 0x76, 6] : [0x56];
+  if (options.alternativeQueries) {
+    bytes.push(0x85, 0xc0, 0x74, 0);
+    const condition = bytes.length - 1;
+    bytes.push(...pushOwner, 0x9a, 0, 1, 0, 0, 0x59, 0xeb, 0);
+    const firstExit = bytes.length - 1,
+      second = bytes.length;
+    if (!options.skipAlternative) bytes.push(...pushOwner, 0x9a, 0, 1, 0, 0, 0x59);
+    bytes[condition] = second - condition - 1;
+    bytes[firstExit] = bytes.length - firstExit - 1;
+  } else bytes.push(...pushOwner, 0x9a, 0, 1, 0, 0, 0x59);
+  bytes.push(0x8b, options.volatileOwner ? 0x7f : 0x7c, field, 0xeb, 0);
+  const firstJump = bytes.length - 1,
+    body = bytes.length;
+  bytes.push(...(options.ownerWrite ? [0xc7, 0x44, 12, 1, 0] : [0xc7, 0x45, 12, 1, 0]));
+  if (options.linkWrite) bytes.push(0xc7, 0x45, field, 0, 0);
+  if (options.helperCall) bytes.push(0x57, 0x9a, 0x10, 1, 0, 0, 0x59);
+  if (options.unknownCall) bytes.push(0x9a, 0x10, 1, 0, 0);
+  if (!options.missingProgress) bytes.push(0x8b, 0x7d, field);
+  const header = bytes.length;
+  bytes[firstJump] = header - firstJump - 1;
+  bytes.push(
+    0x0b,
+    0xff,
+    0x75,
+    (body - header - 4) & 255,
+    ...(options.volatileOwner ? [0x8b, 0x5e, 6] : []),
+    0xff,
+    options.volatileOwner ? 0x47 : 0x44,
+    12,
+    0x5f,
+    0x5e,
+    0x5d,
+    0xcb,
+  );
+  image.set(bytes);
+  image[0x100] = 0xcb;
+  image[0x110] = 0xcb;
+  const query: EngineSummary = {
+    ...fact,
+    address: 0x100,
+    argumentOffset: 6,
+    argumentKind: "object",
+    kind: "overlap-list",
+    purpose: "Builds an overlap list.",
+    writes: [],
+    returns: [],
+    calls: [],
+    footprint: { complete: true, preservesArgumentMemory: false, preservesPartState: true, unknownEffects: [] },
+    list: { ...fact, headField: field, nextField: field, excludesArgument: true },
+  };
+  const helpers = new Map([[query.address, query]]);
+  return { image, helpers, query, header, body };
+}
+
+describe("overlap-list invariants", () => {
+  it.each([0x70, 0x74])("preserves the owner's state while other parts are changed through link %s", (field) => {
+    const { image, helpers, header, body } = fixture({ field });
+    const loops = discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]).toMatchObject({ header, bodyEntry: body, nextField: field, nodeRegister: "di" });
+    expect(loops[0]!.possibleFields).toContainEqual(expect.objectContaining({ object: "other", offset: 12 }));
+    expect(loops[0]!.assumptions.join(" ")).toContain("acyclic");
+  });
+
+  it("retains member writes without using one member to decide the owner's outcome", () => {
+    const { image, helpers } = fixture();
+    const result = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(result.listLoops).toHaveLength(1);
+    expect(result.transitions.every((transition) => transition.to.kind === "binary")).toBe(true);
+    expect(result.writes).toContainEqual(
+      expect.objectContaining({ offset: 12, value: { kind: "constant", value: 1, width: 16 } }),
+    );
+    expect(result.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(false);
+  });
+
+  it("requires the overlap query to exclude its owner", () => {
+    const { image, helpers, query } = fixture();
+    query.list!.excludesArgument = false;
+    expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
+  });
+
+  it.each([{ ownerWrite: true }, { linkWrite: true }, { missingProgress: true }, { unknownCall: true }])(
+    "rejects an unproved loop footprint %s",
+    (options) => {
+      const { image, helpers } = fixture(options);
+      expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
+    },
+  );
+});
+
+describe("complete member-helper footprints", () => {
+  function helperFixture() {
+    const fixtureData = fixture({ helperCall: true });
+    const setter: EngineSummary = {
+      ...fact,
+      address: 0x110,
+      argumentOffset: 6,
+      argumentKind: "object",
+      kind: "owner-field-update",
+      purpose: "Sets the argument's state.",
+      calls: [],
+      returns: [],
+      footprint: {
+        complete: true,
+        partMemoryComplete: true,
+        preservesArgumentMemory: false,
+        preservesPartState: false,
+        unknownEffects: [],
+      },
+      writes: [
+        {
+          ...fact,
+          root: "argument",
+          argumentOffset: 6,
+          path: [],
+          offset: 12,
+          width: 16,
+          value: { kind: "constant", value: 2, width: 16 },
+          condition: { kind: "true" },
+        },
+      ],
+    };
+    fixtureData.helpers.set(setter.address, setter);
+    return { ...fixtureData, setter };
+  }
+
+  it("permits a complete helper to change a disjoint member's state", () => {
+    const { image, helpers } = helperFixture();
+    expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toHaveLength(1);
+  });
+
+  it("rejects effects on an unmapped second object argument", () => {
+    const { image, helpers, setter } = helperFixture();
+    setter.writes[0]!.argumentOffset = 8;
+    expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toHaveLength(0);
+  });
+
+  it("rejects a helper that can change a next link through an alias", () => {
+    const { image, helpers, setter } = helperFixture();
+    setter.writes[0]!.path = [0x84];
+    setter.writes[0]!.offset = 0x70;
+    expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toHaveLength(0);
+  });
+});
+
+describe("alternative overlap queries", () => {
+  it("accepts mutually exclusive queries when their union dominates the head load", () => {
+    const { image, helpers } = fixture({ alternativeQueries: true });
+    const loops = discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]!.queries).toHaveLength(2);
+  });
+
+  it("rejects a path that can reach the head without an owner-excluding query", () => {
+    const { image, helpers } = fixture({ alternativeQueries: true, skipAlternative: true });
+    expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toHaveLength(0);
+  });
+});
+
+describe("reloaded owner arguments", () => {
+  it("tracks a volatile owner register loaded from the actual object argument", () => {
+    const { image, helpers } = fixture({ volatileOwner: true });
+    const loops = discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]!.ownerRegister).toBe("bx");
+  });
+});

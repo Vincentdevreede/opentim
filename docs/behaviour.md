@@ -43,17 +43,30 @@ Unsupported address-size and operand-size overrides are errors rather than guess
 
 The analyser propagates symbolic fields, constants, pointers and expression trees over the control flow graph.
 It recognises the object argument through the stack frame and preserves evidence as pointers move through registers
-and locals. Losing the pointer produces an unresolved write. Related pointers remain conditional aliases. The
+and locals. Losing the pointer produces an unresolved write and invalidates cached fields which the unknown target
+could alias. Negative displacements retain 16-bit effective-address arithmetic. Related pointers remain conditional aliases. The
 C calling convention assumption preserves SI, DI, BP and DS across calls; volatile results are discarded.
 
-Static callee summaries are applied only when the caller demonstrably passes the part pointer. Conditional effects
-are forgotten rather than selected with a fabricated object. Unknown calls invalidate cached object fields. Near
-helper arguments are distinguished from far helper arguments by their return instructions. Unresolved aliasing and
-callee effects remain visible in both the routine and its graph.
+Shared routines have structural summaries describing argument roles, memory footprints and return alternatives.
+The analyser applies these relations to the caller's symbolic inputs. Small complete state-changing summaries retain
+their conditional return alternatives. Unknown calls invalidate cached object fields. Near helper arguments are
+distinguished from far helper arguments by their return instructions. No callback is supplied with a fabricated object.
+
+The summaries distinguish owner-state effects from backend effects. A sound/resource request, for example, retains
+unresolved resource and driver effects while conditionally preserving the caller's part state. This conclusion is
+inferred under explicit separate-storage and no-hidden-owner-alias assumptions, rather than a claim that the entire
+backend has been decoded semantically. Those assumptions propagate into the caller's findings. `helpers` retains the
+full evidence, incomplete footprints and return alternatives; an empty return list means no verified return contract.
+
+Bounce dispatch needs a different argument interpretation: it supplies the colliding part, while selecting the callback
+from the type of its contact partner. The analyser therefore distinguishes `collider` from the callback owner's `part`.
+This prevents a trampoline's activation from being attributed to the part landing on it.
 
 Acyclic paths are analysed separately. Dense switches require an unsigned bounds check and a scaled code-table
 index. Sparse switches require a bounded key search, comparison and parallel target table; the proved search is
-summarised directly as cases and a default. Other back edges require a loop invariant and become unknown exits.
+summarised directly as cases and a default. Bounded counting loops can also be summarised when a unique unit update
+occurs on every path, the counter cannot wrap, every path balances the stack, and the body preserves the owner's
+state. Other back edges require an invariant and become unknown exits. Summarised loops are not unrolled.
 The limits are 12,000 decoded instructions per routine, 1,800 call-graph entries, 4,000 symbolic visits per callback,
 800 per helper, and 96 expression-tree nodes. Exhaustion is a diagnostic and an unresolved result. These limits
 bound browser work; they are not claims of completeness.
@@ -114,7 +127,170 @@ contact-list traversal, indirect helper results, conditional inter-part effects 
 not establish all measured walks; unresolved and missed transitions must be addressed before using these graphs as
 complete playback rules.
 
-The exact-hash oracle run covers 644 Even More clips and 548 TIM 1 French clips. It explains 1,310 and 1,102
-changed-state steps respectively with inferred assumptions; another 1,238 and 658 remain unresolved. None is missing
-from the graph because boundary edges explicitly retain unknown outcomes. This is partial coverage, not a proof of
-all recorded walks. Of 200 unchanged steps, 24 have inferred preserving paths and 176 remain unresolved.
+The latest extraction's exact-hash oracle run covered 644 Even More clips and 548 TIM 1 French clips. It explained
+1,658 and 1,310 changed-state steps respectively with inferred assumptions; another 890 and 450 remained unresolved.
+None was missing from the graph because boundary edges explicitly retain unknown outcomes. This is partial
+coverage, not a proof of all recorded walks.
+
+Using the same final describer on the original reports and the new reports, complete matching clips increase from
+20 to 292 in Even More and from 12 to 264 in TIM 1 French. Of the final complete matches, 44 and 28 contain actual
+frame changes; the others are single-frame recordings with independently proved holds. There are 94 and 86 correct
+prefixes, zero different comparable walks, and 258 and 198 clips without a compatible established start. Most complete
+matches use explicitly conditional inputs rather than proving that an incoming event occurs. The comparison report
+retains this distinction for each clip.
+
+## Descriptions and conditional frame walks
+
+`describeBehaviour(report)` returns plain data for every part. `rest.description` explains a known reset frame or
+why it cannot be determined. `animations` contains a trigger description, its structured condition and evidence,
+then the frame walk and its stopping reason. An unresolved trigger guard is separate from an untracked trigger
+memory effect: the former can describe a conditional local consequence, while the latter cannot establish a start.
+Related triggers use all final assignments to their target together, rather than combining isolated intermediate
+writes. `effects` describes recovered drawing changes, related-object writes
+and reachable shared helper purposes. Addresses remain in the evidence instead of the prose.
+
+The engine's level reset restores the state from a saved field of the object. Its numeric value belongs to the level,
+so a callback that does not overwrite it does not establish frame zero. `lifecycle` records the dominating restoration
+and counter clears separately from each type's reset callback. It also records state-history copies without inventing
+when every part receives them.
+
+`creation` records literal defaults proved on every return from a separately discovered constructor. The factory's
+bounded type table supplies the constructor reference; neither its address nor its entries are built into the reader.
+The analysis intersects assignments at joins, invalidates fields after unbounded writes and uses only established
+callee footprints. A successfully constructed conveyor, for example, starts with state 28 and a cleared state-control
+value in all eleven builds. These facts describe creation before level overrides, independently of a loaded level's
+rest frame. A constructor with no established literal state retains an explicit uncertainty.
+
+A documented stable ending can establish a separate conditional starting point. For example, the trampoline's own
+run code writes state zero and clears its activation value. Its next run preserves that state. If its recorded contact
+checks later reach the activation write, the recovered run rules establish frames 0 → 1 → 2 → 3 → 4 → 0. This does
+not claim that a collision happens or that every loaded trampoline resets to zero. The trigger's reachability confidence
+and the subsequent local walk's confidence remain separate.
+
+`walkBehaviourRules` applies only extracted return expressions and simultaneous final-field assignments. The values
+of unestablished fields remain unknown. A potentially applicable unresolved guard or destination stops the walk;
+it is not skipped in favour of a convenient branch. Per-frame `runCalls` counts these applications, including holds
+caused by a counter. `gameSteps` remains absent where one callback invocation per game step has not been proved.
+The engine has gated dispatcher passes, so its global timer alone does not establish that relationship.
+
+The following helper roles are found in every supplied build by decoded structure and call references:
+
+| Role                                | Meaning                                                                       | Remaining qualification                                                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Type-specific geometry notification | Chooses a rectangle-update routine for the part type.                         | Some geometry and resource storage relationships are inferred.                                                     |
+| Scalar resource request             | Checks an effect identifier and asks a shared resource service to perform it. | Driver/resource effects and any unspecified return value remain unresolved; no sound backend contract is invented. |
+| Status-byte propagation             | Copies a status byte to a part and connected objects.                         | Some related-object traversal and mode-dependent writes remain conditional.                                        |
+| Outline edge data                   | Updates edge data from neighbouring outline coordinates.                      | The full numeric helper contract remains unresolved.                                                               |
+| Connected geometry notification     | Calls the appropriate geometry routines for connected objects.                | Type and global-mode gates remain explicit.                                                                        |
+| Bounds-overlap queries              | Builds a linked list of other parts overlapping the supplied bounds.          | List well-formedness and separate object storage are assumptions.                                                  |
+
+Object fields now have evidence-backed names. Position and velocity axes are linked through fixed-point integration;
+`baseWidth` and `baseHeight` are stored dimensions rather than an assumed rest size. The contact tuple is named
+`contactPart`, `contactAngle` and `contactEdge`. Reused counter slots retain a generic storage role with per-part
+contexts such as increasing counters, countdowns and control gates. These names do not assign a universal physical
+meaning such as heat or fuse time to every use of the same offset.
+
+## Comparing descriptions before and after
+
+```sh
+pnpm --filter @opentim/content compare-behaviour \
+  --baseline /path/to/baseline-reports --reports /path/to/new-reports \
+  --oracle /path/to/v25/animations.json --out /tmp/behaviour-comparison
+```
+
+Extraction writes an analysis-time sidecar for each build; comparison measures description time separately. The
+before/after metrics count graph transitions and unique callback call sites, pointer losses and loop diagnostics.
+They do not count every transitive engine diagnostic as a separate part failure.
+
+Walk validation uses exact executable hashes and never copies oracle fields into a description. Compatible extracted
+initial fields are required before comparing a walk. It distinguishes a complete equal walk, a correct prefix that
+stops, and a different continuation. A recording with no compatible extracted starting point is listed separately as
+unavailable; it is not a successful empty prefix or a claimed game-behaviour difference. Repeated external inputs,
+hiding, reflection and physics remain outside a single-trigger frame-number comparison. One-frame recordings do
+not by themselves establish an animation.
+
+The stored JSON-text cache used by `same()` is retained. Structural summaries avoid repeating symbolic analysis of
+engine bodies whose part effects are already bounded; their decoded code and remaining backend gaps stay visible.
+This keeps browser import work at a few seconds per build rather than expanding helper loops on every caller path.
+
+## Further static proofs
+
+The analyser preserves pointer identity across same-register `or` and `and` tests and recognises same-register `xor`
+and `sub` as zeroing operations. Byte results are assembled at their actual word positions. Reads after unknown
+stores retain a distinct symbolic storage version, so a later dereference can retain its conditional pointer class
+without reusing a value from before the store. Register-return alternatives are substituted before they can merge
+into an unknown value. These are algebraic instruction relations, not an instruction interpreter.
+
+Callback ownership is derived from the actual dispatcher arguments. The first argument of a bounce callback is the
+colliding part; the selected callback belongs to its contact partner. Other dispatchers can pass the owner in a later
+argument. Near and far return conventions and immediate stack cleanup are derived separately from the owner argument.
+An unresolved owner or argument mapping remains a gap.
+
+Signed and unsigned division retain quotient and remainder expressions when their nonzero divisor and quotient
+range are established. A sign-extended word divided by a checked constant is one such domain. Definite division
+exceptions stop that path with instruction evidence; an unproved division domain produces an explicit unresolved
+boundary. The visible seven-frame conveyor cycle is recovered from these arithmetic instructions, including its
+opposite directions.
+
+Outline-copy loops use a separate storage class for the buffer identified by the edge-data helper. Bounded affine
+indices can describe a union of owner-field addresses without evaluating loop iterations. Overlap-list scans use
+another invariant: a structurally proved query excludes the owner, each body path advances the next link or exits,
+and the body cannot change that link. Alternative queries must together dominate the head load. Finite, acyclic
+lists and disjoint complete objects remain stated assumptions. The invariant preserves the owner's state only when
+all body and callee effects permit that conclusion; collider-root callbacks do not inherit this owner proof.
+
+`iterationOutcomes` retains simultaneous final assignments for one overlap-list member. Its scope is separate from
+callback returns. Descriptions can use that relation for an incoming trigger only conditionally on membership and
+its recorded checks. A state assignment and a counter assignment from different paths are never combined.
+
+Helper footprints distinguish complete part-memory effects from unbounded driver or heap globals. Preserving the
+state word alone does not preserve every cached counter. A discovered factory can have a stronger contract for a
+constant type whose constructor entry is null; the table, entry, allocation closure and cleanup path supply its
+proof. Other constructors remain unresolved. Initial zero fields belong to the nullable fresh allocation, never to
+the existing caller's part.
+
+## Conditional inputs and stop explanations
+
+A description can state a conditional input case from run predicates and literal assignments found in the code.
+For example, it can describe a supplied positive or negative state-control value without claiming that a collision
+occurs or that a level starts with that value. Finite cases retain the producer instructions and their assumptions.
+Reused counter slots do not inherit constants from unrelated part types. An untyped producer of the shared control
+field can supply a labelled input case, but does not establish an incoming event for a particular type.
+
+Conditions on related objects can remain symbolic while their pointer sources and referenced fields are unchanged.
+Changing a traversed pointer, a possibly aliasing field or untracked part memory invalidates the condition. This can
+establish a conditional cycle without choosing a convenient value for the related object.
+
+Complete guarded paths that agree on their final fields can be joined without selecting a branch. The analysis must
+establish exit coverage and forget untracked fields. A disagreement, unestablished guard, unknown destination or
+analysis limit stops the walk with a specific reason and relevant instruction evidence. A proved identity can hold
+an unspecified input frame; this does not invent frame zero. Durations remain run invocations unless a game-step
+relationship has independent evidence.
+
+The comparison report separates complete matches from actual code triggers, reset or documented stable endings,
+and conditional input cases. One-frame recordings are counted separately from animations. A missing compatible
+start is unavailable, not a successful empty prefix. Unknown starting conditions and repeated external writes cannot
+establish complete measured coverage.
+
+## Saved evidence
+
+Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
+instruction addresses. `evidencePool` stores the original bytes and decoded text once. Distinct interpretations at
+one address use an explicit `evidenceIndex`. `assumptionPool` similarly shares repeated English assumptions.
+`restoreEvidenceDocument` validates and restores the full plain-data findings. Both validation scripts accept this
+encoding and earlier reports. `readBehaviour` and `describeBehaviour` still return full evidence objects in memory;
+the browser API does not require a decoder for saved JSON.
+
+The comparison script also writes a Markdown description per build, with rest, conditional frame walks, durations,
+other effects and stop reasons for every part. These files and the JSON reports are derived from the games and
+should not be committed.
+
+## Independent cross-check
+
+The user-supplied [mrfixit2001/OpenTIM](https://github.com/mrfixit2001/OpenTIM/tree/83fac1af87651fb6bcb128c9470fad236133e3c8)
+was inspected only for verification. No implementation, tables or tests were imported. Its reverse-engineering notes
+identify a Windows executable, so agreement is corroboration rather than proof for the supplied DOS builds. The part
+layout agrees on state histories, control storage, position, velocity, contacts, outline data and reused extra slots.
+The trampoline and conveyor rules were checked against independently decoded DOS instructions. Several other part
+implementations are incomplete in that port, so it cannot validate every animation. Its disappeared-flag label was
+not adopted: the inspected DOS paths establish a narrower queueing effect, not a complete drawing contract.

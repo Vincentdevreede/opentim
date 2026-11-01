@@ -4,6 +4,7 @@
  *   pnpm --filter @opentim/content extract-behaviour --out <folder> --tim1 <game folder> --evenmore <game folder>
  */
 import { createHash } from "node:crypto";
+import { createEvidenceWriter } from "../src/read/behaviour-evidence.ts";
 import {
   closeSync,
   mkdirSync,
@@ -48,7 +49,7 @@ function semantic(value: unknown): unknown {
       )
       .map(([key, child]) => [
         key,
-        key === "reason" && typeof child === "string"
+        ["reason", "object"].includes(key) && typeof child === "string"
           ? child.replace(/\b(at|helper|destination) 0x[0-9a-f]+/gi, "$1 <address>")
           : semantic(child),
       ]),
@@ -71,7 +72,7 @@ function unresolved(value: unknown): boolean {
   );
 }
 
-function partSemantics(part: BehaviourReport["parts"][number]) {
+function partSemantics(part: BehaviourReport["parts"][number], report: BehaviourReport) {
   const findings: Record<string, unknown[]> = {
     routines: part.routines.map(({ slot, role, shared, sharedDefault, confidence }) => ({
       slot,
@@ -86,6 +87,9 @@ function partSemantics(part: BehaviourReport["parts"][number]) {
     reset: part.reset,
     visibleEffects: part.visibleEffects,
     triggers: part.triggers,
+    creation: (report.creation ?? [])
+      .filter((source) => source.partType === part.type)
+      .map(({ source, fields, confidence }) => ({ source, fields, confidence })),
   };
   return {
     resolved: Object.fromEntries(
@@ -115,23 +119,27 @@ function timingSemantics(timing: BehaviourReport["timing"]) {
 
 /** Writes top-level collections one item at a time, keeping a whole report out of the string heap. */
 function writeReport(path: string, source: { folder: string; sha256: string }, report: BehaviourReport) {
+  const evidence = createEvidenceWriter();
   const temporary = `${path}.tmp`;
   const fd = openSync(temporary, "w");
   try {
     writeFileSync(fd, "{");
     let first = true;
-    for (const [key, value] of Object.entries({ source, ...report })) {
+    for (const [key, value] of Object.entries({ evidenceEncoding: evidence.encoding, source, ...report })) {
       if (value === undefined) continue;
       writeFileSync(fd, `${first ? "" : ","}${JSON.stringify(key)}:`);
       first = false;
       if (Array.isArray(value)) {
         writeFileSync(fd, "[");
         for (const [index, item] of value.entries())
-          writeFileSync(fd, `${index ? "," : ""}${JSON.stringify(item) ?? "null"}`);
+          writeFileSync(fd, `${index ? "," : ""}${evidence.stringify(item)}`);
         writeFileSync(fd, "]");
-      } else writeFileSync(fd, JSON.stringify(value));
+      } else writeFileSync(fd, evidence.stringify(value));
     }
-    writeFileSync(fd, "}\n");
+    writeFileSync(
+      fd,
+      `,"evidencePool":${JSON.stringify(evidence.pool)},"assumptionPool":${JSON.stringify(evidence.assumptionPool)}}\n`,
+    );
   } catch (error) {
     unlinkSync(temporary);
     throw error;
@@ -142,7 +150,7 @@ function writeReport(path: string, source: { folder: string; sha256: string }, r
 }
 
 function partSummary(part: BehaviourReport["parts"][number], report: BehaviourReport) {
-  const semantics = partSemantics(part);
+  const semantics = partSemantics(part, report);
   const hashes = Object.fromEntries(
     Object.entries(semantics).map(([scope, fields]) => [
       scope,
@@ -201,7 +209,9 @@ for (const listId of ["tim1", "evenmore"] as const) {
         const data = files.get(`${sheet}.BMP`);
         return data && decodeImage(data).frames.length;
       });
+      const started = performance.now();
       const report = readBehaviour(program, parts);
+      const milliseconds = performance.now() - started;
       const source = { folder, sha256: createHash("sha256").update(program).digest("hex") };
       const name = basename(folder)
         .replace(/[^a-zA-Z0-9]+/g, "-")
@@ -209,6 +219,10 @@ for (const listId of ["tim1", "evenmore"] as const) {
         .toLowerCase();
       const filename = `${listId}-${String(index + 1).padStart(2, "0")}-${name}.json`;
       writeReport(join(out, filename), source, report);
+      writeFileSync(
+        join(out, filename.replace(/\.json$/, ".metrics.json")),
+        JSON.stringify({ milliseconds }, null, 2) + "\n",
+      );
       results.push({
         source,
         filename,
@@ -218,7 +232,7 @@ for (const listId of ["tim1", "evenmore"] as const) {
       });
       const incomplete = report.routines.filter((routine) => routine.status !== "complete").length;
       console.log(
-        `${listId}: ${folder}: ${report.parts.length} parts, ${report.routines.length} routines, ${incomplete} incomplete`,
+        `${listId}: ${folder}: ${report.parts.length} parts, ${report.routines.length} routines, ${incomplete} incomplete, ${milliseconds.toFixed(1)} ms`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

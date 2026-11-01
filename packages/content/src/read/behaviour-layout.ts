@@ -1,4 +1,6 @@
 /** Verifies the callback table dispatch and the object fields that the drawing code consumes. */
+import { decodeInstruction, type Instruction } from "./x86.ts";
+import { discoverObjectFieldRoles } from "./behaviour-fields.ts";
 import { findDataSegment } from "./type-table.ts";
 import { instructionEvidence, matchesInstructions, type TimingEvidence } from "./behaviour-timing.ts";
 
@@ -8,10 +10,38 @@ export interface LayoutFact {
   assumptions: string[];
 }
 
+export interface FieldContext extends LayoutFact {
+  partType?: number;
+  routine: number;
+  name: string;
+  description: string;
+}
+
+export interface LayoutField extends LayoutFact {
+  offset: number;
+  name: string;
+  description?: string;
+  masks?: { value: number; name: string }[];
+  contexts?: FieldContext[];
+}
+
+export interface CallbackObjectSource extends LayoutFact {
+  argumentOffset: number;
+  path: number[];
+  argumentRole: "owner" | "collider";
+}
+
+export interface CallbackLayout extends LayoutFact {
+  field: number;
+  role: string;
+  sites: number[];
+  objectSource?: CallbackObjectSource;
+}
+
 export interface BehaviourLayout {
-  callbacks: (LayoutFact & { field: number; role: string; sites: number[] })[];
+  callbacks: CallbackLayout[];
   objectArgument: LayoutFact & { offset?: number };
-  fields: (LayoutFact & { offset: number; name: string; masks?: { value: number; name: string }[] })[];
+  fields: LayoutField[];
   diagnostics: string[];
 }
 
@@ -21,7 +51,7 @@ const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 
  * The 58-byte stride and the table address come from the already discovered type table. Callback labels describe
  * candidate roles; the indirect calls prove which record fields are code pointers, not their full event semantics.
  */
-export function discoverBehaviourLayout(image: Uint8Array, table: number): BehaviourLayout {
+export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCount?: number): BehaviourLayout {
   const result: BehaviourLayout = {
     callbacks: [],
     fields: [],
@@ -387,5 +417,143 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number): Behav
   if (!result.fields.some((f) => f.name === "state"))
     result.diagnostics.push("Could not link an object field to the checked frame position array in drawing code.");
   if (!flags) result.diagnostics.push("Could not identify drawing flag tests and reflected coordinates.");
+  const previousState = result.fields.find((field) => field.name === "previousState");
+  if (state && previousState)
+    for (let at = 0; at + 12 <= image.length; at++) {
+      if (
+        !matchesInstructions(image, at, [
+          0x8b,
+          0x44,
+          previousState.offset,
+          0x89,
+          0x44,
+          null,
+          0x8b,
+          0x44,
+          state.offset,
+          0x89,
+          0x44,
+          previousState.offset,
+        ])
+      )
+        continue;
+      const offset = image[at + 5]!;
+      if (offset === state.offset || offset === previousState.offset) continue;
+      if (!result.fields.some((field) => field.name === "olderState"))
+        result.fields.push({
+          offset,
+          name: "olderState",
+          confidence: "inferred",
+          evidence: instructionEvidence(image, at, at + 12),
+          description:
+            "Receives the previous state snapshot immediately before the current state replaces that snapshot.",
+          assumptions: [
+            "The paired assignments prove a two-stage state history update; when the engine calls the history updater is a separate scheduling question.",
+          ],
+        });
+    }
+  const descriptions: Record<string, string> = {
+    type: "The number used to select this object's record in the checked type table.",
+    state: "The object's state selects the visual frame through the checked frame placement array.",
+    previousState:
+      "A snapshot of the current state retained by repeated copies; its refresh schedule requires separate engine evidence.",
+    stateDelta:
+      "A value added to the state in matched routines, with producers and meanings that can differ between parts.",
+    drawingFlags:
+      "Bits consumed by reflection and piece drawing branches; each named mask has separate instruction evidence.",
+    horizontalExtent: "The horizontal extent used to reflect a frame offset before adding the drawing origin.",
+    verticalExtent: "The vertical extent used to reflect a frame offset before adding the drawing origin.",
+    frameWidth: "The current frame width subtracted by horizontal reflection arithmetic.",
+    frameHeight: "The current frame height subtracted by vertical reflection arithmetic.",
+    drawX: "The horizontal drawing origin adjusted by the frame's placement offset.",
+    drawY: "The vertical drawing origin adjusted by the frame's placement offset.",
+  };
+  for (const field of result.fields) field.description ??= descriptions[field.name];
+  const typeField = result.fields.find((field) => field.name === "type");
+  if (typeField)
+    for (const callback of result.callbacks) {
+      const sources: { path: number[]; evidence: TimingEvidence[] }[] = [];
+      for (const site of callback.sites) {
+        const window = windows.get(site)!;
+        for (let start = Math.max(0, window.start - 16); start < window.start; start++) {
+          const sequence: Instruction[] = [];
+          let position = start;
+          try {
+            while (position < window.start && sequence.length < 4) {
+              const instruction = decodeInstruction(image, position, Math.floor(position / 0x10000) * 0x1000);
+              sequence.push(instruction);
+              position += instruction.size;
+            }
+          } catch {
+            continue;
+          }
+          if (
+            position !== window.start ||
+            sequence[0]?.mnemonic !== "push" ||
+            sequence[0].operands[0]?.kind !== "register"
+          )
+            continue;
+          const argument = sequence[0].operands[0].name;
+          const typeLoad = sequence.at(-1)!;
+          const typeOperand = typeLoad.operands[1];
+          if (
+            typeLoad.mnemonic !== "mov" ||
+            typeLoad.operands[0]?.kind !== "register" ||
+            typeLoad.operands[0].name !== "ax" ||
+            typeOperand?.kind !== "memory" ||
+            typeOperand.segment !== "ds" ||
+            typeOperand.base.length !== 1 ||
+            typeOperand.displacement !== typeField.offset
+          )
+            continue;
+          let path: number[];
+          if (sequence.length === 2 && typeOperand.base[0] === argument) path = [];
+          else if (sequence.length === 3) {
+            const related = sequence[1]!;
+            const relatedOperand = related.operands[1];
+            if (
+              related.mnemonic !== "mov" ||
+              related.operands[0]?.kind !== "register" ||
+              related.operands[0].name !== typeOperand.base[0] ||
+              relatedOperand?.kind !== "memory" ||
+              relatedOperand.segment !== "ds" ||
+              relatedOperand.base.join() !== argument
+            )
+              continue;
+            path = [relatedOperand.displacement];
+          } else continue;
+          sources.push({
+            path,
+            evidence: [
+              ...sequence.map(({ address, bytes, text }) => ({ address, bytes, text })),
+              ...instructionEvidence(image, window.start, window.end),
+            ],
+          });
+          break;
+        }
+      }
+      if (
+        sources.length === callback.sites.length &&
+        sources.every((source) => source.path.join() === sources[0]!.path.join())
+      ) {
+        const path = sources[0]!.path;
+        callback.objectSource = {
+          argumentOffset: 6,
+          path,
+          argumentRole: path.length ? "collider" : "owner",
+          confidence: "inferred",
+          evidence: sources.flatMap((source) => source.evidence),
+          assumptions: [
+            "A pushed near object pointer is the first argument of a far callback, at [bp+6] after the standard frame prologue.",
+            path.length
+              ? "The callback owner is selected by the type of the related object, while the interacting collider is passed to the callback."
+              : "The callback owner is the same object whose pointer is pushed and whose type indexes the record table.",
+          ],
+        };
+      } else if (sources.length)
+        result.diagnostics.push(`Callback ${callback.role} has incomplete or inconsistent owner-argument evidence.`);
+    }
+  if (typeCount !== undefined && result.callbacks.length === 6 && result.fields.some((field) => field.name === "state"))
+    result.fields.push(...discoverObjectFieldRoles(image, table, typeCount, result.callbacks, result.fields));
   return result;
 }

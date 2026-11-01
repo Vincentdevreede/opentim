@@ -3,6 +3,7 @@
  *
  *   pnpm --filter @opentim/content validate-behaviour --reports <folder> --oracle <v25/animations.json> --out <folder>
  */
+import { restoreEvidenceDocument } from "../src/read/behaviour-evidence.ts";
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -28,7 +29,7 @@ function statePairs(coverage: MeasurementCoverage, status: "missed" | "unresolve
 }
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
-const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8"));
+const readJson = (path: string): unknown => restoreEvidenceDocument(JSON.parse(readFileSync(path, "utf8")));
 const { values } = parseArgs({
   args: process.argv.slice(2).filter((arg, i) => i > 0 || arg !== "--"),
   options: {

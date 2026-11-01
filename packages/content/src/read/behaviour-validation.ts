@@ -148,6 +148,18 @@ function expressionValue(expression: Expression, frame: MeasuredFrame): number |
       if (!right) return undefined;
       value = left % right;
       break;
+    case "/":
+      if (!right) return undefined;
+      value = Math.trunc(left / right);
+      break;
+    case "s/":
+    case "s%": {
+      const denominator = signed(right, expression.right.width);
+      if (!denominator) return undefined;
+      const dividend = signed(left, expression.left.width);
+      value = expression.operator === "s/" ? Math.trunc(dividend / denominator) : dividend % denominator;
+      break;
+    }
     default:
       return undefined;
   }

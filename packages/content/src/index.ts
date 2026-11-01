@@ -44,3 +44,39 @@ export {
 export { findBehaviourTiming, type BehaviourTiming } from "./read/behaviour-timing.ts";
 export { discoverBehaviourLayout, type BehaviourLayout } from "./read/behaviour-layout.ts";
 export { measuredClips, validateMeasuredPart, type MeasurementCoverage } from "./read/behaviour-validation.ts";
+
+export {
+  describeBehaviour,
+  walkBehaviourRules,
+  type BehaviourDescription,
+  type PartBehaviourDescription,
+  type BehaviourWalk,
+  type AnimationDescription,
+  type AnimationTrigger,
+  type RestDescription,
+  type KnownField,
+  type FrameVisit,
+  type DescribedEffect,
+} from "./read/describe-behaviour.ts";
+export {
+  discoverEngineSummaries,
+  type EngineSummary,
+  type EngineWrite,
+  type EngineReturn,
+  type EnginePointer,
+} from "./read/behaviour-helpers.ts";
+export { discoverBehaviourLifecycle, type BehaviourLifecycle } from "./read/behaviour-lifecycle.ts";
+export { discoverCountedLoops, type LoopSummary } from "./read/behaviour-loops.ts";
+export type { RoutineOutcome } from "./read/behaviour.ts";
+export type { LayoutField, FieldContext, CallbackObjectSource } from "./read/behaviour-layout.ts";
+
+export { compareMeasuredWalks, type WalkMatch } from "./read/behaviour-walk-validation.ts";
+export { discoverListLoops, type ListLoopSummary } from "./read/behaviour-list-loops.ts";
+export { discoverLifecycleFieldRoles } from "./read/behaviour-lifecycle.ts";
+export {
+  validateDescribedWalks,
+  type DescribedWalkCoverage,
+  type DescribedWalkMatch,
+} from "./read/behaviour-walk-validation.ts";
+export { createEvidenceWriter, restoreEvidenceDocument, EVIDENCE_ENCODING } from "./read/behaviour-evidence.ts";
+export { discoverCreationDefaults, type CreationDefault, type CreationField } from "./read/behaviour-creation.ts";
