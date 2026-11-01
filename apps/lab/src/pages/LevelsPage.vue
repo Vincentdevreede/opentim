@@ -44,14 +44,14 @@ const room = ref({ width: 0, height: 0 });
 const observer = new ResizeObserver(([entry]) => {
   if (entry) room.value = { width: entry.contentRect.width, height: entry.contentRect.height };
 });
-/** The zoom: fitted to the space, but never below 1, or a fixed one. */
+/** The zoom: fitted to the space, or a fixed one. Before the space is measured, the fit is 1. */
 const zoom = computed(() => {
   if (zoomSetting.value !== "fit") return Number(zoomSetting.value);
   const fit = Math.min(
     (room.value.width - PADDING) / (PLAY_AREA.width + 2 * MARGIN),
     (room.value.height - PADDING) / (PLAY_AREA.height + 2 * MARGIN),
   );
-  return Math.max(1, fit);
+  return fit > 0 ? fit : 1;
 });
 const showBounds = ref(true);
 const selectedPart = ref<number>();

@@ -106,11 +106,16 @@ function levelMarkers(resource: Resource, layout: LevelLayout, nameOf: (type: nu
       depth: 1,
     })),
   ];
+  // Fields between the groups, like binFlag before the parts bin, are marked once, with the group they come before.
+  let from = first;
   for (const group of ["static", "moving", "bin"] as const) {
     const parts = level.parts.filter((p) => p.group === group);
-    const later = level.fields.filter((f) => f.offset >= first && f.offset < (parts[0]?.offset ?? level.length));
+    if (!parts.length && group !== "bin") continue;
+    const until = parts[0]?.offset ?? level.length;
+    const later = level.fields.filter((f) => f.offset >= from && f.offset < until);
     for (const f of later)
       markers.push({ offset: f.offset, end: f.offset + f.size, label: f.key, detail: String(f.value), depth: 0 });
+    from = until;
     if (!parts.length) continue;
     const start = parts[0]!.offset;
     const end = parts.at(-1)!.offset + parts.at(-1)!.length;

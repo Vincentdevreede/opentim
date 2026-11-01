@@ -3,7 +3,7 @@
 </script>
 
 <template>
-  <div class="flex h-10 shrink-0 items-center gap-2 border-b border-line px-3">
+  <div class="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-line px-3">
     <slot />
   </div>
 </template>

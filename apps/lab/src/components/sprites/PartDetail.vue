@@ -267,11 +267,7 @@ const stripTabs = computed(() => [
               class="w-52 pl-1"
             />
             <div class="flex-1"></div>
-            <LabSelect
-              v-model="detailPalette"
-              label="Palette for this part"
-              :options="options('Palette: as gallery')"
-            />
+            <LabSelect v-model="detailPalette" label="Palette for this part" :options="options('Palette: automatic')" />
             <LabButton :disabled="!composition.placed.length" @click="save">Save PNG</LabButton>
           </div>
         </FrameStepper>

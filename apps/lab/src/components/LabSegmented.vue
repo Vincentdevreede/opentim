@@ -6,7 +6,7 @@ const model = defineModel<T>({ required: true });
 
 <template>
   <div
-    class="inline-flex overflow-hidden rounded-[5px] border border-line-strong bg-sunken"
+    class="inline-flex shrink-0 overflow-hidden rounded-[5px] border border-line-strong bg-sunken"
     role="group"
     :aria-label="label"
   >

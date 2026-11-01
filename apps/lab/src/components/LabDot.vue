@@ -19,5 +19,8 @@ const COLORS: Record<Confidence | "accent" | "none", string> = {
 </script>
 
 <template>
-  <span class="inline-block size-1.5 shrink-0 rounded-full" :class="COLORS[status]" aria-hidden="true"></span>
+  <span class="inline-flex shrink-0">
+    <span class="inline-block size-1.5 rounded-full" :class="COLORS[status]" aria-hidden="true"></span>
+    <span class="sr-only">{{ status }}</span>
+  </span>
 </template>

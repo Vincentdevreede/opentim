@@ -98,6 +98,23 @@ describe("level markers", () => {
     expect(headerBytes(markers).size).toBe(0);
   });
 
+  it("marks the word before the parts bin once, when there are no moving parts", () => {
+    // Version 0x105 adds an empty goal and a word before the parts bin: one static part, none moving, one in the bin.
+    const later = Uint8Array.from([
+      ...u16(0xaced, 0x105),
+      0,
+      ...u16(67, 268, 1001, 1, 0, 1),
+      ...part,
+      ...u16(1),
+      ...part,
+    ]);
+    const { markers } = markersOf(resource("TITLE.GKC", "scene", later), { nameOf: () => "Wood Wall" });
+    expect(markers.filter((m) => m.label === "binFlag")).toEqual([
+      expect.objectContaining({ offset: 17 + 48, end: 17 + 50 }),
+    ]);
+    expect(markers.map((m) => m.label).slice(-5)).toEqual(["Static parts", "#0", "binFlag", "Parts bin", "#1"]);
+  });
+
   it("says where a level stops reading", () => {
     const { markers } = markersOf(resource("L1.LEV", "level", scene.subarray(0, 30)));
     expect(markers).toEqual([expect.objectContaining({ label: "Stopped", error: true })]);

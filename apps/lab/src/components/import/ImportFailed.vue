@@ -43,9 +43,9 @@ const OUTCOME = {
           :key="item.name"
           :name="item.name"
           name-width="170px"
-          :text="item.detail"
           class="last:border-b-0"
         >
+          <span class="min-w-0 font-sans text-ui">{{ item.detail }}</span>
           <template #lead>
             <LabIcon :name="OUTCOME[item.outcome].icon" :class="OUTCOME[item.outcome].class" />
           </template>

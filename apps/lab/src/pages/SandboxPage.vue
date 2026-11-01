@@ -112,9 +112,11 @@ watchEffect(() => (crumb.value = ["Sandbox", `${objects.value} objects`, running
         <LabIcon :name="running ? 'pause' : 'play'" :size="12" />{{ running ? "Pause" : "Play" }}
       </LabButton>
       <LabButton :disabled="running" title="Advance one tick (.)" @click="step">
-        <LabIcon name="step" />Step
+        <LabIcon name="step" :size="13" :stroke="2" />Step
       </LabButton>
-      <LabButton title="Reset to start (R)" @click="reset"><LabIcon name="reset" />Reset</LabButton>
+      <LabButton title="Reset to start (R)" @click="reset"
+        ><LabIcon name="reset" :size="13" :stroke="2" />Reset</LabButton
+      >
       <div class="ml-1 flex h-[26px] items-center gap-1.5 rounded-[5px] border border-line bg-sunken px-2.5">
         <span class="text-muted">tick</span>
         <span class="min-w-12 text-right font-mono text-accent tabular">{{ String(tick).padStart(6, "0") }}</span>

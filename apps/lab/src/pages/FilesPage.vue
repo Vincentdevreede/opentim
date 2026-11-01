@@ -70,6 +70,12 @@ const current = computed(() => resources.value.find((r) => r.name === selected.v
 const bytes = computed(() => current.value?.data ?? new Uint8Array());
 /** Part names for the markers of a level, from the loaded part list. */
 const partList = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value)?.list);
+/** A level file or scene, read as the Levels page reads it, for the link to that page. */
+const levelEntry = computed(() =>
+  current.value && (current.value.group === "level" || current.value.group === "scene")
+    ? readLevels([current.value], layoutOf(edition.value))[0]
+    : undefined,
+);
 const marked = computed(() => {
   if (!current.value) return { markers: [] };
   const list = partList.value;
@@ -77,7 +83,7 @@ const marked = computed(() => {
     const part = list?.parts.find((p) => p.type === type);
     return part ? partName(part).name : `type ${type}`;
   };
-  return markersOf(current.value, { layout: layoutOf(edition.value), nameOf });
+  return markersOf(current.value, { layout: levelEntry.value?.level?.layout ?? layoutOf(edition.value), nameOf });
 });
 const headers = computed(() => headerBytes(marked.value.markers));
 const stoppedAt = computed(() => marked.value.markers.find((m) => m.error)?.offset);
@@ -111,12 +117,6 @@ function openInSprites() {
   openSprite.value = preview.value?.index;
   void router.push("/sprites");
 }
-/** A level file or scene, read as the Levels page reads it, for the link to that page. */
-const levelEntry = computed(() =>
-  current.value && (current.value.group === "level" || current.value.group === "scene")
-    ? readLevels([current.value], layoutOf(edition.value))[0]
-    : undefined,
-);
 function openInLevels() {
   if (!current.value) return;
   selectedLevel.value = current.value.name;

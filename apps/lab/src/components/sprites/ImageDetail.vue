@@ -289,7 +289,7 @@ const DATA_TABS = [
               <span v-if="choice" class="text-muted">({{ choice.reason }})</span>
             </LabFact>
           </LabFacts>
-          <LabSelect v-model="detailPalette" label="Palette for this image" :options="options('Palette: as gallery')" />
+          <LabSelect v-model="detailPalette" label="Palette for this image" :options="options('Palette: automatic')" />
           <div v-if="shownSprite" class="flex flex-wrap gap-2">
             <LabButton @click="exportSprite">Save {{ noun }} as PNG</LabButton>
             <LabButton @click="exportSheet">Save sheet as PNG</LabButton>
