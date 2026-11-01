@@ -15,19 +15,20 @@ export type RenderResponse =
   { type: "progress"; done: number } | { type: "done"; pcm: Pcm } | { type: "error"; message: string };
 
 export interface RenderJob extends RenderRequest {
-  /** Identifies the sound, for the cache. */
+  /** Identifies the sound and the card, for the cache. */
   key: string;
 }
 
 /** Rendered songs are large, about 12 MB a minute in mono, so only the last few are kept. */
 const CACHE_SIZE = 4;
-const cache = new Map<string, Pcm>();
+/** Each render keeps the sound and patch it came from, so files imported again under the same names aren't mixed up. */
+const cache = new Map<string, { sound: Uint8Array; patch: Uint8Array; pcm: Pcm }>();
 /** Waits before rendering, so moving through the list doesn't start a render for every sound passed. */
 const DELAY_MS = 120;
 
-function remember(key: string, pcm: Pcm) {
+function remember(key: string, sound: Uint8Array, patch: Uint8Array, pcm: Pcm) {
   cache.delete(key);
-  cache.set(key, pcm);
+  cache.set(key, { sound, patch, pcm });
   while (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
 }
 
@@ -56,7 +57,7 @@ export function useRendered(job: Ref<RenderJob | undefined>) {
       if (message.type === "progress") progress.value = message.done;
       else {
         if (message.type === "done") {
-          remember(key, message.pcm);
+          remember(key, sound, patch, message.pcm);
           pcm.value = message.pcm;
         } else error.value = message.message;
         stop();
@@ -79,9 +80,9 @@ export function useRendered(job: Ref<RenderJob | undefined>) {
       progress.value = 0;
       if (!next) return;
       const cached = cache.get(next.key);
-      if (cached) {
-        remember(next.key, cached);
-        pcm.value = cached;
+      if (cached?.sound === next.sound && cached.patch === next.patch) {
+        remember(next.key, next.sound, next.patch, cached.pcm);
+        pcm.value = cached.pcm;
         return;
       }
       rendering.value = true;
