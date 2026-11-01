@@ -212,7 +212,31 @@ export function discoverCreationDefaults(
                   source?.kind === "immediate" ? source.value : reg(source) ? s.constants.get(source.name) : undefined;
                 if (i.mnemonic === "mov" && dest.width === 16 && dest.displacement === f.offset && value !== undefined)
                   s.fields.set(f.offset, value & 0xffff);
-                else s.fields.delete(f.offset);
+                else if (
+                  dest.width === 16 &&
+                  dest.displacement === f.offset &&
+                  typeof s.fields.get(f.offset) === "number"
+                ) {
+                  const before = s.fields.get(f.offset) as number;
+                  const result =
+                    i.mnemonic === "and" && value !== undefined
+                      ? before & value
+                      : i.mnemonic === "or" && value !== undefined
+                        ? before | value
+                        : i.mnemonic === "xor" && value !== undefined
+                          ? before ^ value
+                          : i.mnemonic === "add" && value !== undefined
+                            ? before + value
+                            : i.mnemonic === "sub" && value !== undefined
+                              ? before - value
+                              : i.mnemonic === "inc"
+                                ? before + 1
+                                : i.mnemonic === "dec"
+                                  ? before - 1
+                                  : undefined;
+                  if (result === undefined) s.fields.delete(f.offset);
+                  else s.fields.set(f.offset, result & 0xffff);
+                } else s.fields.delete(f.offset);
               }
           } else {
             s.fields.clear();
@@ -265,6 +289,18 @@ export function discoverCreationDefaults(
               }
               safe = preservation.get(key)!.safe;
               for (const item of preservation.get(key)!.evidence) proof.set(item.address, item);
+            }
+            if (!safe && call?.target && ownerPassed && typeof s.fields.get(f.offset) === "number") {
+              const value = analyse(
+                read(call.target),
+                [f],
+                new Map([[f.offset, s.fields.get(f.offset)!]]),
+                depth + 1,
+              ).get(f.offset);
+              if (typeof value === "number") {
+                s.fields.set(f.offset, value);
+                safe = true;
+              }
             }
             if (!safe) {
               s.fields.delete(f.offset);
@@ -412,7 +448,17 @@ export function discoverCreationDefaults(
       if (constructor.address >= image.length) continue;
       proof.clear();
       uncertainties.clear();
-      const values = analyse(read(constructor), fields, new Map(), 0);
+      const initial = factory.noConstructor.initialState;
+      const selected = initial && fields.find((field) => field.name === "state" && field.offset === initial.offset);
+      const defaults = new Map<number, Value>();
+      if (selected && initial) {
+        defaults.set(selected.offset, initial.value);
+        for (const item of factory.noConstructor.evidence) proof.set(item.address, item);
+        assumptions.add(
+          "Only the state word proved zero by the factory's cleared-allocation contract is supplied to the constructor relation; other unassigned fields remain unknown.",
+        );
+      }
+      const values = analyse(read(constructor), fields, defaults, 0);
       const found = fields
         .filter((f) => typeof values.get(f.offset) === "number")
         .map((f): CreationField => ({

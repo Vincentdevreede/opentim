@@ -447,6 +447,42 @@ describe("per-member trigger tuples", () => {
 });
 
 describe("creation defaults and related input conditions", () => {
+  it("keeps a periodic frame block symbolic and proves every starting phase", () => {
+    const phase: Expression = { kind: "binary", operator: "&", left: field(12), right: constant(3), width: 16 };
+    const end: Predicate = { kind: "compare", left: phase, right: constant(3), operator: "==", signed: false };
+    const data = report([
+      rule(add(12, 1), both(test(18, "==", 1), { ...end, operator: "!=" })),
+      rule(add(12, -3), both(test(18, "==", 1), end)),
+      rule(field(12), test(18, "!=", 1)),
+    ]);
+    data.parts[0]!.frameCount = 16;
+    const cycles = describeBehaviour(data).parts[0]!.animations.filter((a) => a.walk.parameterised?.kind === "cycle");
+    expect(cycles.length).toBeGreaterThan(0);
+    expect(cycles[0]!.walk.parameterised).toMatchObject({
+      kind: "cycle",
+      period: 4,
+      direction: 1,
+      minimumBase: 0,
+      maximumBase: 12,
+    });
+    expect(cycles[0]!.walk.states).toEqual([]);
+    expect(cycles[0]!.initialFields?.some((f) => f.offset === 12)).toBe(false);
+    expect(cycles[0]!.assumptions.join(" ")).toContain("does not select a level's initial state");
+  });
+
+  it("does not translate a state-specific exceptional rule into a periodic cycle", () => {
+    const phase: Expression = { kind: "binary", operator: "&", left: field(12), right: constant(3), width: 16 };
+    const data = report([
+      rule(add(12, 1), { kind: "compare", left: phase, right: constant(3), operator: "!=", signed: false }),
+      rule(add(12, -3), { kind: "compare", left: phase, right: constant(3), operator: "==", signed: false }),
+      rule(constant(0), test(12, "==", 15)),
+    ]);
+    data.parts[0]!.frameCount = 16;
+    expect(describeBehaviour(data).parts[0]!.animations.some((a) => a.walk.parameterised?.kind === "cycle")).toBe(
+      false,
+    );
+  });
+
   it("does not describe different linked fields as a value compared with itself", () => {
     const left: Expression = { kind: "field", object: "referenced-by(part+0x84)", offset: 0x30, width: 16 };
     const right: Expression = { ...left, offset: 0x32 };

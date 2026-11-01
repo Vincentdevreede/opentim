@@ -3,6 +3,7 @@ import type { Evidence, Finding } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
 
 export interface LoopField {
   object: "part" | "related" | "stack" | "data" | "buffer" | "other";
@@ -11,6 +12,8 @@ export interface LoopField {
   width: number;
   register?: string;
   operand?: Extract<Operand, { kind: "memory" }>;
+  /** Every possibly aliasing store copies the same owner's word back to that word. */
+  preservesOwnerValue?: boolean;
 }
 
 export interface LoopSummary extends Finding {
@@ -153,6 +156,8 @@ export function discoverCountedLoops(
     outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
     incoming.set(edge.to, [...(incoming.get(edge.to) ?? []), edge.from]);
   }
+  const boundedSearches = discoverBoundedSearchLoops(code);
+  const searchBackEdges = new Set(boundedSearches.map((s) => `${s.latch}:${s.header}`));
   const before = new Map<number, Instruction>();
   for (const i of code.instructions) before.set(i.segment * 16 + ((i.offset + i.size) & 0xffff), i);
   const argumentOffset = code.instructions.some((i) => i.mnemonic === "retf") ? 6 : 4;
@@ -264,7 +269,8 @@ export function discoverCountedLoops(
       if (address === compare.address || finished.has(address)) return true;
       if (active.has(address)) return false;
       active.add(address);
-      for (const next of outgoing.get(address) ?? []) if (!acyclic(next)) return false;
+      for (const next of outgoing.get(address) ?? [])
+        if (!searchBackEdges.has(`${address}:${next}`) && !acyclic(next)) return false;
       active.delete(address);
       finished.add(address);
       return true;
@@ -436,13 +442,27 @@ export function discoverCountedLoops(
         }
         for (const name of volatile) writtenRegisters.add(name);
         for (const write of helper.writes) {
-          if (write.root !== "global" && overlaps(write.offset, write.width, stateOffset)) {
+          if (write.root !== "global" && !write.separateStorage && overlaps(write.offset, write.width, stateOffset)) {
             invalid = true;
             break;
           }
           fields.push({
-            root: write.root === "global" ? "global" : write.path.length ? "related" : "part",
-            object: write.root === "global" ? "data" : write.path.length ? "related" : "part",
+            root:
+              write.separateStorage === "outline"
+                ? "buffer"
+                : write.root === "global"
+                  ? "global"
+                  : write.path.length
+                    ? "related"
+                    : "part",
+            object:
+              write.separateStorage === "outline"
+                ? "buffer"
+                : write.root === "global"
+                  ? "data"
+                  : write.path.length
+                    ? "related"
+                    : "part",
             offset: write.offset,
             width: write.width,
           });
@@ -529,9 +549,45 @@ export function discoverCountedLoops(
         offset: dest.displacement,
         width: dest.width,
         operand: dest,
+        ...(root === "related" &&
+        i.mnemonic === "mov" &&
+        register(i.operands[1]) &&
+        (() => {
+          const load = before.get(i.address);
+          return (
+            load?.mnemonic === "mov" &&
+            register(load.operands[0], i.operands[1].name) &&
+            memory(load.operands[1]) &&
+            load.operands[1].segment === "ds" &&
+            load.operands[1].base.length === 1 &&
+            stableOwners.has(load.operands[1].base[0]!) &&
+            load.operands[1].displacement === dest.displacement &&
+            load.operands[1].width === dest.width &&
+            (incoming.get(i.address) ?? []).every((address) => address === load.address)
+          );
+        })()
+          ? { preservesOwnerValue: true }
+          : {}),
       });
     }
     if (invalid) continue;
+    for (const field of fields)
+      if (
+        field.preservesOwnerValue &&
+        fields.some(
+          (other) =>
+            other !== field &&
+            !["stack", "buffer", "global"].includes(other.root) &&
+            other.offset < field.offset + field.width / 8 &&
+            field.offset < other.offset + other.width / 8 &&
+            !other.preservesOwnerValue,
+        )
+      )
+        delete field.preservesOwnerValue;
+    if (fields.some((field) => field.preservesOwnerValue))
+      assumptions.add(
+        "Related references denote complete part bases. Every store overlapping the preserved owner word copies that same owner's word, so a possible owner alias is an identity store; other members can still change.",
+      );
     // The transfer skips stack operations as well, so every path must restore the same entry SP.
     const stackDeltas = new Map<number, number>([[bodyEntry, 0]]);
     const stackQueue = [bodyEntry];

@@ -122,16 +122,19 @@ function writeDescriptionMarkdown(path: string, description: BehaviourDescriptio
       const seen = new Set<string>();
       for (const animation of part.animations) {
         const walk = animation.walk;
-        const states = walk.parameterised
-          ? "The input frame remains unchanged."
-          : walk.frames.length
-            ? walk.frames
-                .map(
-                  (frame) =>
-                    `frame ${frame.frame ?? frame.state}${frame.runCalls > 1 ? ` (${frame.runCalls} run invocations)` : ""}`,
-                )
-                .join(" → ")
-            : "No numeric starting frame was established.";
+        const states =
+          walk.parameterised?.kind === "cycle"
+            ? (animation.description ?? "The level-supplied frame block cycles.")
+            : walk.parameterised
+              ? "The input frame remains unchanged."
+              : walk.frames.length
+                ? walk.frames
+                    .map(
+                      (frame) =>
+                        `frame ${frame.frame ?? frame.state}${frame.runCalls > 1 ? ` (${frame.runCalls} run invocations)` : ""}`,
+                    )
+                    .join(" → ")
+                : "No numeric starting frame was established.";
         const trigger = animation.trigger.description ?? animation.trigger.name;
         const stopping =
           walk.status === "unresolved" || walk.status === "limit"

@@ -47,6 +47,27 @@ const clip = (control = 1): MeasuredClip => ({
 });
 
 describe("measured description walks", () => {
+  it("compares a symbolic periodic block without supplying a numeric start to the description", () => {
+    const model = animation([]);
+    model.trigger.kind = "input-case";
+    model.initial = "run-guard";
+    model.initialFields = [];
+    model.walk.status = "loop";
+    model.walk.loopStart = 0;
+    model.walk.parameterised = {
+      kind: "cycle",
+      state: { kind: "field", object: "level-supplied cycle state", offset: 12, width: 16 },
+      period: 4,
+      direction: 1,
+      minimumBase: 0,
+      maximumBase: 12,
+    };
+    const recording = { ...clip(), frames: [5, 6, 7, 4].map((state) => ({ state, control: 1 })), loopStart: 0 };
+    expect(compareMeasuredWalks([model], recording).classification).toBe("complete");
+    const invalid = { ...recording, frames: [17, 18, 19, 16].map((state) => ({ state, control: 1 })) };
+    expect(compareMeasuredWalks([model], invalid).classification).toBe("unavailable");
+    expect(model.walk.states).toEqual([]);
+  });
   it("recognises a matching full walk with its stable ending", () => {
     expect(compareMeasuredWalks([animation()], clip()).classification).toBe("complete");
   });

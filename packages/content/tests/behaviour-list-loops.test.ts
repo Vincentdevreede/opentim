@@ -189,3 +189,90 @@ describe("reloaded owner arguments", () => {
     expect(loops[0]!.ownerRegister).toBe("bx");
   });
 });
+
+describe("discovered global part lists", () => {
+  function globalFixture(
+    options: { memberWrite?: boolean; ownerLink?: boolean; ownerState?: boolean; nextField?: number } = {},
+  ) {
+    const image = new Uint8Array(0x100).fill(0x66);
+    const nextField = options.nextField ?? 0;
+    const bytes = [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6, 0x8b, 0x3e, 0x80, 0, 0xeb, 0];
+    const jump = bytes.length - 1;
+    const body = bytes.length;
+    bytes.push(0xc7, options.memberWrite ? 0x45 : 0x44, options.ownerLink ? 0 : options.ownerState ? 12 : 0x5a, 1, 0);
+    bytes.push(0x8b, 0x7d, nextField);
+    const header = bytes.length;
+    bytes[jump] = header - jump - 1;
+    bytes.push(0x0b, 0xff, 0x75, (body - header - 4) & 255, 0xff, 0x44, 12, 0x5f, 0x5e, 0x5d, 0xcb);
+    image.set(bytes);
+    const head: EngineSummary = {
+      ...fact,
+      address: 0xa0,
+      argumentOffset: 6,
+      argumentKind: "scalar",
+      kind: "list-head",
+      purpose: "Returns a global part-list head.",
+      writes: [],
+      calls: [],
+      footprint: { complete: true, preservesArgumentMemory: true, preservesPartState: true, unknownEffects: [] },
+      returns: [
+        {
+          ...fact,
+          register: "ax",
+          value: { kind: "field", object: "data", offset: 0x80, width: 16 },
+          condition: { kind: "true" },
+          pointer: { kind: "global", segment: 0, offset: 0x80, path: [] },
+        },
+      ],
+    };
+    const next: EngineSummary = {
+      ...head,
+      address: 0xb0,
+      kind: "list-next",
+      returns: [
+        {
+          ...fact,
+          register: "ax",
+          value: { kind: "field", object: "part", offset: 0, width: 16 },
+          condition: { kind: "true" },
+          pointer: { kind: "argument", argument: 6, path: [0] },
+        },
+      ],
+    };
+    return {
+      image,
+      helpers: new Map([
+        [head.address, head],
+        [next.address, next],
+      ]),
+      head,
+      header,
+    };
+  }
+
+  it("preserves state while populating owner connections without excluding the owner from the list", () => {
+    const { image, helpers, header } = globalFixture();
+    const loops = discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]).toMatchObject({ source: "global-list", globalHead: 0x80, header, nextField: 0, queries: [] });
+    expect(loops[0]!.assumptions.join(" ")).toContain("may contain the owner");
+    const analysed = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(analysed.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(false);
+    expect(analysed.iterationOutcomes).toHaveLength(0);
+    expect(analysed.transitions.some((transition) => transition.to.kind === "binary")).toBe(true);
+  });
+
+  it.each([{ memberWrite: true }, { ownerLink: true }, { ownerState: true }, { nextField: 2 }])(
+    "rejects unproved global-list mutations or links %s",
+    (options) => {
+      const { image, helpers } = globalFixture(options);
+      expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
+    },
+  );
+
+  it("requires a head independently identified by the list selector", () => {
+    const { image, helpers, head } = globalFixture();
+    helpers.delete(head.address);
+    expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
+  });
+});

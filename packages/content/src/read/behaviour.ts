@@ -18,6 +18,7 @@ import {
 } from "./behaviour-lifecycle.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
+import { engineFromGeometryRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
 
 export type Confidence = "checked" | "inferred" | "unresolved";
@@ -110,6 +111,7 @@ export interface RoutineAnalysis extends RoutineCode {
   /** Every decoded path has a recorded return relation; memory effects may still be unresolved. */
   returnPathsComplete?: boolean;
   engineCalls?: (Finding & { instruction: number; summary: number; purpose: string })[];
+  controlFlowJoins?: (Finding & { address: number; liveRegisters: string[]; conditions: Predicate[][] })[];
   loops?: LoopSummary[];
   listLoops?: ListLoopSummary[];
   /** True when an unsupported effect, a loop, or an unresolved call can affect a field. */
@@ -335,6 +337,7 @@ interface Tracked {
   writtenAt?: number;
 }
 interface Flags {
+  carryOverridden?: boolean;
   operation: string;
   left: Expression;
   right: Expression;
@@ -348,6 +351,7 @@ interface AbstractState {
   conditions: Predicate[];
   evidence: Evidence[];
   flags?: Flags;
+  carry?: Tracked;
   visited: Set<number>;
   stateWritten: boolean;
   uncertain: boolean;
@@ -417,18 +421,176 @@ const wordOfByte: Record<string, string> = {
   dh: "dx",
 };
 
+/** Carry expressions are needed only where a later instruction consumes CF before its next definition. */
+function liveCarryOutputs(code: RoutineCode): Set<number> {
+  const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  const next = new Map<number, number[]>(),
+    previous = new Map<number, number[]>();
+  for (const edge of code.edges)
+    if (edge.to !== null) {
+      next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to]);
+      previous.set(edge.to, [...(previous.get(edge.to) ?? []), edge.from]);
+    }
+  const live = new Set<number>(),
+    pending = code.instructions.map((i) => i.address),
+    queued = new Set(pending);
+  while (pending.length) {
+    const at = pending.pop()!;
+    queued.delete(at);
+    const i = byAddress.get(at);
+    if (!i) continue;
+    const use = ["adc", "sbb", "cmc", "jb", "jae", "jbe", "ja"].includes(i.mnemonic);
+    const define =
+      i.flow === "call" ||
+      [
+        "add",
+        "adc",
+        "sub",
+        "sbb",
+        "cmp",
+        "and",
+        "or",
+        "xor",
+        "test",
+        "neg",
+        "mul",
+        "imul",
+        "div",
+        "idiv",
+        "clc",
+        "stc",
+        "cmc",
+      ].includes(i.mnemonic);
+    if (!live.has(at) && (use || (!define && (next.get(at) ?? []).some((to) => live.has(to))))) {
+      live.add(at);
+      for (const from of previous.get(at) ?? [])
+        if (!queued.has(from)) {
+          pending.push(from);
+          queued.add(from);
+        }
+    }
+  }
+  return new Set(
+    code.instructions.filter((i) => (next.get(i.address) ?? []).some((at) => live.has(at))).map((i) => i.address),
+  );
+}
+
+/** A reverse postorder lets sibling paths meet before their common continuation is analysed. */
+function joinOrder(code: RoutineCode): Map<number, number> {
+  const next = new Map<number, number[]>();
+  for (const e of code.edges) if (e.to !== null) next.set(e.from, [...(next.get(e.from) ?? []), e.to]);
+  const pending = [{ at: code.address, exit: false }],
+    seen = new Set<number>(),
+    order: number[] = [];
+  while (pending.length) {
+    const item = pending.pop()!;
+    if (item.exit) {
+      order.push(item.at);
+      continue;
+    }
+    if (seen.has(item.at)) continue;
+    seen.add(item.at);
+    pending.push({ at: item.at, exit: true });
+    for (const to of next.get(item.at) ?? []) if (!seen.has(to)) pending.push({ at: to, exit: false });
+  }
+  return new Map(order.reverse().map((at, rank) => [at, rank]));
+}
+
+/** Straight-line return tails can finish pending paths when a larger branch consumes most of the visit budget. */
+function returnTails(code: RoutineCode): Set<number> {
+  const previous = new Map<number, number[]>(),
+    next = new Map<number, number[]>();
+  const instructions = new Map(code.instructions.map((i) => [i.address, i]));
+  for (const edge of code.edges)
+    if (edge.to !== null) {
+      previous.set(edge.to, [...(previous.get(edge.to) ?? []), edge.from]);
+      next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to]);
+    }
+  const tails = new Set(code.instructions.filter((i) => ["ret", "retf"].includes(i.mnemonic)).map((i) => i.address));
+  const pending = [...tails];
+  while (pending.length)
+    for (const at of previous.get(pending.pop()!) ?? []) {
+      if (tails.has(at) || instructions.get(at)?.flow !== "next" || next.get(at)?.length !== 1) continue;
+      tails.add(at);
+      pending.push(at);
+    }
+  return tails;
+}
+
+/** Byte writes do not kill the other byte; calls conservatively consume registers as well as stacked arguments. */
+function liveRegisters(code: RoutineCode): Map<number, Set<string>> {
+  const parent = (name: string) => wordOfByte[name] ?? name,
+    byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  const next = new Map<number, number[]>(),
+    previous = new Map<number, number[]>();
+  for (const edge of code.edges)
+    if (edge.to !== null) {
+      next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to]);
+      previous.set(edge.to, [...(previous.get(edge.to) ?? []), edge.from]);
+    }
+  const lives = new Map<number, Set<string>>(),
+    pending = code.instructions.map((i) => i.address),
+    queued = new Set(pending);
+  while (pending.length) {
+    const at = pending.pop()!;
+    queued.delete(at);
+    const i = byAddress.get(at);
+    if (!i) continue;
+    const values = new Set((next.get(at) ?? []).flatMap((to) => [...(lives.get(to) ?? [])]));
+    const [dest, source] = i.operands;
+    const kill = (o: Operand | undefined) => {
+      if (o?.kind === "register" && o.width === 16) values.delete(parent(o.name));
+    };
+    const use = (o: Operand | undefined) => {
+      if (o?.kind === "register") values.add(parent(o.name));
+      else if (o?.kind === "memory") {
+        for (const base of o.base) values.add(base);
+        values.add(o.segment);
+      }
+    };
+    if (i.flow === "call")
+      for (const name of ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp", "ds", "es"]) values.add(name);
+    else {
+      if (!["cmp", "test", "push"].includes(i.mnemonic) && i.flow === "next") kill(dest);
+      if (i.mnemonic === "xchg") kill(source);
+      if (["mul", "imul", "div", "idiv"].includes(i.mnemonic)) {
+        values.add("ax");
+        values.add("dx");
+      }
+      if (["cwd", "cbw"].includes(i.mnemonic)) values.add("ax");
+      if (i.flow === "return") values.add("ax");
+      if (i.mnemonic.startsWith("loop") || i.mnemonic === "jcxz") values.add("cx");
+      use(source);
+      if (!["mov", "lea", "pop"].includes(i.mnemonic) || dest?.kind === "memory") use(dest);
+      if (i.mnemonic === "push" || i.mnemonic === "pop" || i.flow === "return") values.add("sp");
+    }
+    const old = lives.get(at);
+    if (!old || values.size !== old.size || [...values].some((name) => !old.has(name))) {
+      lives.set(at, values);
+      for (const from of previous.get(at) ?? [])
+        if (!queued.has(from)) {
+          pending.push(from);
+          queued.add(from);
+        }
+    }
+  }
+  return lives;
+}
+
 /**
  * Analyses a routine as a graph of symbolic transfer functions. Each acyclic path is retained; a back edge is a
  * loss of information, not an invitation to run the loop. The finite path budget is reported whenever reached.
  */
 export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: RoutineOptions = {}): RoutineAnalysis {
   const code = options.code ?? readRoutineCode(image, entry, options.dataSegment ?? 0);
+  const carryNeeded = liveCarryOutputs(code);
   const stateOffset = options.stateOffset ?? 0x0c;
   const argumentOffset = options.argumentOffset ?? 6;
   const writes: FieldWrite[] = [];
   const outcomes: RoutineOutcome[] = [];
   const iterationOutcomes: IterationOutcome[] = [];
   const engineCalls: NonNullable<RoutineAnalysis["engineCalls"]> = [];
+  const controlFlowJoins: NonNullable<RoutineAnalysis["controlFlowJoins"]> = [];
   const provenLoops = discoverCountedLoops(code, options.engineSummaries ?? new Map(), stateOffset);
   const loopsByHeader = new Map(provenLoops.map((loop) => [loop.header, loop]));
   const usedLoops: LoopSummary[] = [];
@@ -497,7 +659,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const parent = wordOfByte[name];
     if (parent) {
       const other = name[0] + (name.endsWith("h") ? "l" : "h");
-      const sibling = s.registers.get(other);
+      const sibling = s.registers.get(other) ?? (s.registers.has(parent) ? registerRead(other, s) : undefined);
       if (sibling && sibling.value.kind !== "pointer" && sibling.value.kind !== "stack") {
         const low = name.endsWith("l") ? asExpression(value.value) : asExpression(sibling.value);
         const high = name.endsWith("h") ? asExpression(value.value) : asExpression(sibling.value);
@@ -606,7 +768,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       return { object: "data", offset: operand.displacement, width: operand.width, uncertain: false, evidence: [] };
     return undefined;
   };
-  const read = (operand: Operand | undefined, s: AbstractState): Tracked => {
+  const readUnrefined = (operand: Operand | undefined, s: AbstractState): Tracked => {
     if (!operand) return tracked(unknown("Missing operand"));
     if (operand.kind === "register") return registerRead(operand.name, s);
     if (operand.kind === "immediate") return tracked(constant(unsigned(operand.value, operand.width), operand.width));
@@ -702,6 +864,54 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     ],
     evidence: uniqueEvidence([...s.evidence, ...extra]),
   });
+  const equalities = new WeakMap<Predicate[], { length: number; values: Map<string, Expression> }>();
+  const fieldIdentity = (value: Extract<Expression, { kind: "field" }>) =>
+    JSON.stringify([value.object, value.offset, value.width, value.unresolved === true]);
+  const read = (operand: Operand | undefined, s: AbstractState): Tracked => {
+    const result = readUnrefined(operand, s);
+    if (result.value.kind === "pointer" || result.value.kind === "stack" || !s.conditions.length) return result;
+    let bindings = equalities.get(s.conditions);
+    if (!bindings || bindings.length !== s.conditions.length) {
+      const values = new Map<string, Expression>();
+      const terms = conjunction(s.conditions);
+      for (const term of terms.kind === "and" ? terms.terms : []) {
+        if (term.kind !== "compare" || term.operator !== "==") continue;
+        const field = term.left.kind === "field" ? term.left : term.right.kind === "field" ? term.right : undefined;
+        const literal =
+          term.left.kind === "constant" ? term.left : term.right.kind === "constant" ? term.right : undefined;
+        if (!field || !literal) continue;
+        const key = fieldIdentity(field),
+          value = constant(unsigned(literal.value, field.width), field.width),
+          before = values.get(key);
+        values.set(key, before && !same(before, value) ? unknown("Contradictory path equalities", field.width) : value);
+      }
+      bindings = { length: s.conditions.length, values };
+      equalities.set(s.conditions, bindings);
+    }
+    if (!bindings.values.size) return result;
+    const refine = (value: Expression): Expression => {
+      if (value.kind === "field") return bindings!.values.get(fieldIdentity(value)) ?? value;
+      if (value.kind === "binary") {
+        const left = refine(value.left),
+          right = refine(value.right);
+        return left === value.left && right === value.right ? value : binary(value.operator, left, right, value.width);
+      }
+      if (value.kind === "table") {
+        const index = refine(value.index);
+        return index === value.index ? value : { ...value, index };
+      }
+      return value;
+    };
+    const value = refine(result.value);
+    if (value !== result.value)
+      s.assumptions = [
+        ...new Set([
+          ...s.assumptions,
+          "Exact field equalities from earlier compares substitute only the same symbolic input or post-write storage version; later stores do not retroactively change that earlier value.",
+        ]),
+      ];
+    return value === result.value ? result : { ...result, value };
+  };
   const write = (operand: Operand | undefined, value: Tracked, s: AbstractState, i: Instruction) => {
     if (!operand) return;
     const e = uniqueEvidence([...value.evidence, evidenceOf(i)]);
@@ -1193,11 +1403,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
     }
     s.flags = undefined;
+    s.carry = undefined;
     return true;
   };
   const flagPredicate = (i: Instruction, s: AbstractState, taken: boolean): Predicate => {
     const flags = s.flags;
+    if (["jb", "jae"].includes(i.mnemonic) && s.carry && (flags?.operation !== "cmp" || flags.carryOverridden))
+      return {
+        kind: "compare",
+        operator: (i.mnemonic === "jb") === taken ? "!=" : "==",
+        left: asExpression(s.carry.value),
+        right: constant(0, 1),
+        signed: false,
+      };
     if (!flags) return { kind: "unknown", reason: `Flags reaching ${hex(i.address)} are not resolved` };
+    if (flags.carryOverridden && ["jbe", "ja"].includes(i.mnemonic))
+      return {
+        kind: "unknown",
+        reason: `${i.mnemonic} at ${hex(i.address)} combines a separately changed carry with the earlier zero flag.`,
+      };
     const operators: Record<string, string> = {
       je: "==",
       jne: "!=",
@@ -1235,9 +1459,126 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ]!;
     return { kind: "compare", operator, left, right, signed: isSigned };
   };
-  const queue: { at: number; state: AbstractState }[] = [{ at: entry.address, state: initial }];
+  const queue: { at: number; state: AbstractState; joinSignature?: string }[] = [];
+  const ranks = joinOrder(code),
+    live = liveRegisters(code);
+  const incomingCounts = new Map<number, number>();
+  for (const edge of code.edges)
+    if (edge.to !== null) incomingCounts.set(edge.to, (incomingCounts.get(edge.to) ?? 0) + 1);
+  const joins = new Set([...incomingCounts].filter(([, count]) => count > 1).map(([at]) => at));
+  const enqueue = (item: { at: number; state: AbstractState; joinSignature?: string }) => {
+    const active = live.get(item.at) ?? new Set<string>();
+    if (joins.has(item.at) && !item.state.observationOnly) {
+      const s = item.state;
+      const value = (tracked: Tracked) => [
+        tracked.value,
+        tracked.value.kind === "unknown" ? tracked.writtenAt : undefined,
+      ];
+      item.joinSignature = JSON.stringify([
+        [...s.registers]
+          .filter(([name]) => active.has(wordOfByte[name] ?? name))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, v]) => [name, value(v)]),
+        [...s.memory].sort(([a], [b]) => a.localeCompare(b)).map(([name, v]) => [name, value(v)]),
+        s.stack.map(value),
+        s.flags && [s.flags.operation, s.flags.left, s.flags.right, s.flags.result, s.flags.carryOverridden],
+        s.carry?.value,
+        s.stateWritten,
+        s.uncertain,
+        s.havoc,
+        s.havocAt,
+        s.globalHavocAt,
+        s.partMemoryHavocAt,
+      ]);
+      for (const queued of queue.filter((q) => q.at === item.at && q.joinSignature === item.joinSignature)) {
+        const terms = (state: AbstractState) => {
+          const c = conjunction(state.conditions);
+          return c.kind === "and" ? c.terms : [];
+        };
+        const left = terms(queued.state),
+          right = terms(s),
+          leftIds = new Set(left.map(textOf)),
+          rightIds = new Set(right.map(textOf));
+        const onlyLeft = left.filter((t) => !rightIds.has(textOf(t))),
+          onlyRight = right.filter((t) => !leftIds.has(textOf(t)));
+        const a = onlyLeft[0],
+          b = onlyRight[0];
+        if (
+          onlyLeft.length !== 1 ||
+          onlyRight.length !== 1 ||
+          a?.kind !== "compare" ||
+          b?.kind !== "compare" ||
+          a.signed !== b.signed ||
+          !same(a.left, b.left) ||
+          !same(a.right, b.right) ||
+          ({ "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" } as Record<string, string>)[
+            a.operator
+          ] !== b.operator
+        )
+          continue;
+        const merged = queued.state;
+        merged.conditions = left.filter((t) => rightIds.has(textOf(t)));
+        merged.visited = new Set([...merged.visited, ...s.visited]);
+        const joinEvidence = uniqueEvidence(
+          [...merged.visited, item.at].flatMap((at) => {
+            const i = instructions.get(at);
+            return i ? [evidenceOf(i)] : [];
+          }),
+        );
+        merged.evidence = uniqueEvidence([...merged.evidence, ...s.evidence, ...joinEvidence]);
+        merged.assumptions = [
+          ...new Set([
+            ...merged.assumptions,
+            ...s.assumptions,
+            "Complementary paths have equal live register expressions, memory effects, flags and stacked arguments at this join. Dead register values are forgotten before continuing.",
+          ]),
+        ];
+        for (const [name, v] of merged.registers)
+          if (!active.has(wordOfByte[name] ?? name)) merged.registers.delete(name);
+          else {
+            const other = s.registers.get(name);
+            if (other)
+              merged.registers.set(name, { ...v, evidence: uniqueEvidence([...v.evidence, ...other.evidence]) });
+          }
+        for (const [name, v] of merged.memory) {
+          const other = s.memory.get(name);
+          if (other) merged.memory.set(name, { ...v, evidence: uniqueEvidence([...v.evidence, ...other.evidence]) });
+        }
+        merged.stack = merged.stack.map((v, index) => ({
+          ...v,
+          evidence: uniqueEvidence([...v.evidence, ...s.stack[index]!.evidence]),
+        }));
+        if (merged.flags && s.flags)
+          merged.flags = { ...merged.flags, evidence: uniqueEvidence([...merged.flags.evidence, ...s.flags.evidence]) };
+        if (merged.carry && s.carry)
+          merged.carry = { ...merged.carry, evidence: uniqueEvidence([...merged.carry.evidence, ...s.carry.evidence]) };
+        controlFlowJoins.push({
+          address: item.at,
+          liveRegisters: [...active].sort(),
+          conditions: [left, right],
+          confidence: "inferred",
+          assumptions: [
+            "The branch predicates are exact complements with identical remaining conditions. Their live abstract environments and side-effect versions agree; discarded register values have no future use before redefinition.",
+          ],
+          evidence: joinEvidence,
+        });
+        return;
+      }
+    }
+    const rank = ranks.get(item.at) ?? Number.MAX_SAFE_INTEGER;
+    let low = 0,
+      high = queue.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if ((ranks.get(queue[mid]!.at) ?? Number.MAX_SAFE_INTEGER) > rank) low = mid + 1;
+      else high = mid;
+    }
+    queue.splice(low, 0, item);
+  };
+  enqueue({ at: entry.address, state: initial });
   let visits = 0;
   const maxVisits = options.maxVisits ?? 4000;
+  const tails = returnTails(code);
   let returnPathsComplete = code.status === "complete";
   const unresolvedExit = (s: AbstractState, i: Instruction | undefined, reason: string) => {
     if (s.observationOnly) return;
@@ -1358,7 +1699,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
   };
   while (queue.length && visits++ < maxVisits) {
-    const item = queue.pop()!;
+    const readyTail = visits > maxVisits * 0.75 ? queue.findIndex((item) => tails.has(item.at)) : -1;
+    const item = readyTail < 0 ? queue.pop()! : queue.splice(readyTail, 1)[0]!;
     const s = item.state;
     const i = instructions.get(item.at);
     if (!i) {
@@ -1386,37 +1728,39 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const list = !s.observationOnly && listLoopsByHeader.get(i.address);
     if (list) {
       const node = registerRead(list.nodeRegister, s);
-      const observed = clone(s);
-      observed.observationOnly = true;
-      observed.observationHeader = list.header;
-      observed.observationExit = list.exit;
-      observed.observationObject = `overlap candidate at ${hex(list.header)}`;
-      observed.assumptions = [...new Set([...observed.assumptions, ...list.assumptions])];
-      observed.evidence.push(...list.evidence);
-      observed.observationGuard = {
-        kind: "compare",
-        operator: "!=",
-        left: asExpression(node.value),
-        right: constant(0),
-        signed: false,
-      };
-      observed.conditions.push(observed.observationGuard);
-      registerWrite(
-        list.nodeRegister,
-        tracked(
-          {
-            kind: "pointer",
-            object: `overlap candidate at ${hex(list.header)}`,
-            displacement: 0,
-            width: 16,
-            addressValue: asExpression(node.value),
-          },
-          uniqueEvidence([...node.evidence, ...list.evidence]),
-        ),
-        observed,
-      );
-      if (!(node.value.kind === "constant" && node.value.value === 0))
-        queue.push({ at: list.bodyEntry, state: observed });
+      if (list.source !== "global-list") {
+        const observed = clone(s);
+        observed.observationOnly = true;
+        observed.observationHeader = list.header;
+        observed.observationExit = list.exit;
+        observed.observationObject = `overlap candidate at ${hex(list.header)}`;
+        observed.assumptions = [...new Set([...observed.assumptions, ...list.assumptions])];
+        observed.evidence.push(...list.evidence);
+        observed.observationGuard = {
+          kind: "compare",
+          operator: "!=",
+          left: asExpression(node.value),
+          right: constant(0),
+          signed: false,
+        };
+        observed.conditions.push(observed.observationGuard);
+        registerWrite(
+          list.nodeRegister,
+          tracked(
+            {
+              kind: "pointer",
+              object: `overlap candidate at ${hex(list.header)}`,
+              displacement: 0,
+              width: 16,
+              addressValue: asExpression(node.value),
+            },
+            uniqueEvidence([...node.evidence, ...list.evidence]),
+          ),
+          observed,
+        );
+        if (!(node.value.kind === "constant" && node.value.value === 0))
+          enqueue({ at: list.bodyEntry, state: observed });
+      }
       // The proven relation covers the complete finite scan; the observational branch only records per-node effects.
       s.assumptions = [...new Set([...s.assumptions, ...list.assumptions])];
       s.evidence.push(...list.evidence);
@@ -1480,8 +1824,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         s,
       );
       s.flags = undefined;
+      s.carry = undefined;
       usedListLoops.push(list);
-      queue.push({ at: list.exit, state: s });
+      enqueue({ at: list.exit, state: s });
       continue;
     }
     const counted = loopsByHeader.get(i.address);
@@ -1531,6 +1876,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 const object = parts.join(":");
                 if (
                   object !== "stack" &&
+                  !(object === "part" && effect.preservesOwnerValue) &&
                   offset < effect.offset + effect.width / 8 &&
                   effect.offset < offset + width / 8
                 )
@@ -1539,21 +1885,23 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                     tracked(unknown(`A bounded loop may change field ${hex(effect.offset)}`, width), counted.evidence),
                   );
               }
-              s.memory.set(
-                `part:${effect.offset}:${effect.width}`,
-                tracked(
-                  unknown(`A bounded loop may change field ${hex(effect.offset)}`, effect.width),
-                  counted.evidence,
-                ),
-              );
+              if (!effect.preservesOwnerValue)
+                s.memory.set(
+                  `part:${effect.offset}:${effect.width}`,
+                  tracked(
+                    unknown(`A bounded loop may change field ${hex(effect.offset)}`, effect.width),
+                    counted.evidence,
+                  ),
+                );
             }
           }
           for (const name of counted.writtenRegisters)
             registerWrite(name, tracked(unknown("A bounded loop changes this register"), counted.evidence), s);
           write(counted.counter, tracked(constant(unsigned(end, 16)), counted.evidence), s, i);
           s.flags = undefined;
+          s.carry = undefined;
           usedLoops.push(counted);
-          queue.push({ at: counted.exit, state: s });
+          enqueue({ at: counted.exit, state: s });
           continue;
         }
       }
@@ -1582,6 +1930,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         );
         registerWrite("cx", tracked(constant(search.count - edge.tableIndex!), edge.evidence), branch);
         branch.flags = undefined;
+        branch.carry = undefined;
         if (
           possible(conjunction(branch.conditions)) &&
           (!options.stateCount ||
@@ -1589,7 +1938,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               possible(conjunction(branch.conditions), n, stateOffset),
             ))
         )
-          queue.push({ at: edge.to!, state: branch });
+          enqueue({ at: edge.to!, state: branch });
       }
       const fallback = clone(s);
       for (const edge of sparse)
@@ -1609,7 +1958,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
       registerWrite("cx", tracked(constant(0), first.evidence), fallback);
       fallback.flags = undefined;
-      if (possible(conjunction(fallback.conditions))) queue.push({ at: search.defaultTarget, state: fallback });
+      fallback.carry = undefined;
+      if (possible(conjunction(fallback.conditions))) enqueue({ at: search.defaultTarget, state: fallback });
       continue;
     }
     const [dest, source] = i.operands;
@@ -1672,12 +2022,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (JSON.stringify(predicate).includes('"object":"part"'))
         comparisons.push({ predicate, ...finding(av, conjunction(s.conditions), s, e) });
     } else if (
-      ["add", "sub", "and", "or", "xor", "shl", "sal", "shr", "sar", "inc", "dec", "neg", "not"].includes(i.mnemonic)
+      ["add", "adc", "sub", "sbb", "and", "or", "xor", "shl", "sal", "shr", "sar", "inc", "dec", "neg", "not"].includes(
+        i.mnemonic,
+      )
     ) {
       const operator = (
         {
           add: "+",
+          adc: "+",
           sub: "-",
+          sbb: "-",
           and: "&",
           or: "|",
           xor: "^",
@@ -1707,6 +2061,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                     : bv,
               av.width,
             );
+      if (["adc", "sbb"].includes(i.mnemonic)) {
+        const carry = s.carry ?? tracked(unknown(`Carry reaching ${hex(i.address)} is unresolved`, 1), [evidenceOf(i)]);
+        e.push(...carry.evidence);
+        flagResult =
+          carry.value.kind === "unknown"
+            ? unknown(carry.value.reason, av.width)
+            : binary(operator, flagResult, asExpression(carry.value), av.width);
+      }
       if (sameRegister && ["and", "or"].includes(i.mnemonic)) write(dest, a, s, i);
       else if (
         ["add", "sub"].includes(i.mnemonic) &&
@@ -1732,7 +2094,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (dest?.kind === "register" && dest.name === "sp" && bv.kind === "constant" && i.mnemonic === "add")
         s.stack.splice(Math.max(0, s.stack.length - bv.value / 2));
     } else if (["clc", "stc", "cmc"].includes(i.mnemonic)) {
-      s.flags = undefined;
+      if (s.flags) s.flags = { ...s.flags, carryOverridden: true };
+      s.carry = tracked(
+        i.mnemonic === "clc"
+          ? constant(0, 1)
+          : i.mnemonic === "stc"
+            ? constant(1, 1)
+            : binary(
+                "^",
+                s.carry ? asExpression(s.carry.value) : unknown(`Carry reaching ${hex(i.address)} is unresolved`, 1),
+                constant(1, 1),
+                1,
+              ),
+        uniqueEvidence([...(s.carry?.evidence ?? []), evidenceOf(i)]),
+      );
     } else if (i.mnemonic === "cbw") {
       write(
         { kind: "register", name: "ax", width: 16 },
@@ -1799,6 +2174,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         }
       }
       s.flags = undefined;
+      s.carry = undefined;
       if (trap) {
         diagnostics.add(`${i.mnemonic} at ${hex(i.address)} cannot return normally: ${trap}`);
         uncertainEffects = true;
@@ -1837,6 +2213,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         registerWrite("dx", tracked(unknown("High half of product"), e), s);
       }
       s.flags = undefined;
+      s.carry = undefined;
     } else if (i.flow === "call") {
       const summary = i.target && options.summaries?.get(i.target.address);
       // A PUSH CS immediately before a near CALL supplies the far return frame, not an argument.
@@ -1926,13 +2303,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         argument.object === s.observationObject &&
         argument.displacement === 0
       );
+      const engineBefore = i.target && options.engineSummaries?.get(i.target.address);
+      const composableObject = (object: string) =>
+        object === "part" ||
+        (engineBefore?.kind === "owner-and-outline-relation" &&
+          engineBefore.writes.some(
+            (write) => write.separateStorage === "outline" && object === `referenced-by(part+${hex(write.path[0]!)})`,
+          ));
       const preciseMemberRelations = !!(
         passesObservedMember &&
         summary &&
         !summary.uncertainEffects &&
         summary.outcomes?.length &&
         summary.outcomes.length <= 24 &&
-        summary.outcomes.every((outcome) => outcome.fields.every((effect) => effect.object === "part"))
+        summary.outcomes.every((outcome) => outcome.fields.every((effect) => composableObject(effect.object)))
       );
       let engine = i.target && options.engineSummaries?.get(i.target.address);
       if (engine?.factory) {
@@ -1997,7 +2381,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (engine && !pureReturnRelations && !preciseMemberRelations && applyEngine(engine, args, s, i)) {
         returnedStack(s);
         const next = i.segment * 16 + ((i.offset + i.size) & 0xffff);
-        queue.push({ at: next, state: s });
+        enqueue({ at: next, state: s });
         continue;
       }
       if (
@@ -2006,7 +2390,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         (passesPart || pureReturnRelations || passesObservedMember) &&
         summary.outcomes?.length &&
         summary.outcomes.length <= 24 &&
-        summary.outcomes.every((outcome) => outcome.fields.every((effect) => effect.object === "part"))
+        summary.outcomes.every((outcome) => outcome.fields.every((effect) => composableObject(effect.object)))
       ) {
         // Compose return relations. This substitutes symbolic inputs; it never invokes the callee's instructions.
         const next = i.segment * 16 + ((i.offset + i.size) & 0xffff);
@@ -2021,6 +2405,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           if (!possible(conjunction([...s.conditions, condition]))) continue;
           const mapped = outcome.fields.map((effect) => ({
             effect,
+            pointer: formalObject(
+              effect.object,
+              args,
+              summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset,
+              s,
+              summary.objectPointer.argumentOffset,
+            ),
             value: formalValue(
               effect.value,
               args,
@@ -2034,8 +2425,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           branch.conditions.push(condition);
           branch.assumptions = [...new Set([...branch.assumptions, ...outcome.assumptions])];
           branch.evidence.push(evidenceOf(i), ...outcome.evidence);
-          branch.registers.set("__summary_owner", ownerArgument!);
-          for (const item of mapped)
+          for (const item of mapped) {
+            branch.registers.set("__summary_owner", item.pointer);
             write(
               {
                 kind: "memory",
@@ -2052,6 +2443,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               branch,
               i,
             );
+          }
           branch.registers.delete("__summary_owner");
           for (const name of ["ax", "bx", "cx", "dx", "es"])
             registerWrite(
@@ -2061,8 +2453,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             );
           registerWrite("ax", tracked(returned.value, uniqueEvidence([...returned.evidence, evidenceOf(i)])), branch);
           branch.flags = undefined;
+          branch.carry = undefined;
           returnedStack(branch);
-          queue.push({ at: next, state: branch });
+          enqueue({ at: next, state: branch });
         }
         continue;
       }
@@ -2163,6 +2556,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       returnedStack(s);
       s.flags = undefined;
+      s.carry = undefined;
     } else if (
       i.flow === "next" &&
       !["nop", "leave", "cld", "std", "cli", "sti", "clc", "stc", "cmc", "wait"].includes(i.mnemonic)
@@ -2171,6 +2565,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       uncertainEffects = true;
       s.uncertain = true;
       s.flags = undefined;
+      s.carry = undefined;
       if (["div", "idiv", "aam", "aad", "aaa", "aas", "daa", "das"].includes(i.mnemonic)) {
         registerWrite("ax", tracked(unknown(`Unresolved ${i.mnemonic}`), e), s);
         registerWrite("dx", tracked(unknown(`Unresolved ${i.mnemonic}`), e), s);
@@ -2187,8 +2582,28 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         s.stateWritten = true;
       }
     }
-    if (flagResult && i.mnemonic !== "not")
-      s.flags = { operation: i.mnemonic, left: av, right: bv, result: flagResult, evidence: e };
+    if (flagResult && i.mnemonic !== "not") {
+      if (!carryNeeded.has(i.address)) s.carry = undefined;
+      else if (["and", "or", "xor", "test"].includes(i.mnemonic)) s.carry = tracked(constant(0, 1), e);
+      else if (["add", "adc", "sub", "sbb", "cmp", "neg"].includes(i.mnemonic)) {
+        const left = i.mnemonic === "neg" ? constant(0, av.width) : av;
+        const right = i.mnemonic === "neg" ? av : bv;
+        const operator = ["add", "adc"].includes(i.mnemonic) ? "+" : "-";
+        let wide = binary(operator, left, right, av.width + 1);
+        if (["adc", "sbb"].includes(i.mnemonic))
+          wide = binary(
+            operator,
+            wide,
+            s.carry ? asExpression(s.carry.value) : unknown(`Carry reaching ${hex(i.address)} is unresolved`, 1),
+            av.width + 1,
+          );
+        s.carry = tracked(
+          binary("&", binary(">>>", wide, constant(av.width), av.width + 1), constant(1, 1), 1),
+          uniqueEvidence(e),
+        );
+      } else if (!["inc", "dec"].includes(i.mnemonic)) s.carry = undefined;
+      s.flags = { operation: i.mnemonic, left: av, right: bv, result: flagResult, evidence: uniqueEvidence(e) };
+    }
     if (i.flow === "return") {
       finish(s, i);
       continue;
@@ -2205,7 +2620,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         const branch = clone(s);
         const predicate = flagPredicate(i, branch, taken);
         branch.conditions.push(predicate);
-        branch.evidence.push(...(s.flags?.evidence ?? []), evidenceOf(i));
+        branch.evidence.push(...(s.flags?.evidence ?? []), ...(s.carry?.evidence ?? []), evidenceOf(i));
         if (
           possible(conjunction(branch.conditions)) &&
           (!options.stateCount ||
@@ -2213,10 +2628,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               possible(conjunction(branch.conditions), n, stateOffset),
             ))
         )
-          queue.push({ at: taken ? i.target!.address : next, state: branch });
+          enqueue({ at: taken ? i.target!.address : next, state: branch });
       }
     } else if (i.flow === "jump") {
-      if (i.target) queue.push({ at: i.target.address, state: s });
+      if (i.target) enqueue({ at: i.target.address, state: s });
       else {
         const edges = code.edges.filter((edge) => edge.from === i.address && edge.to !== null);
         if (!edges.length) {
@@ -2243,10 +2658,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               kind: "unknown",
               reason: `Jump-table selector at ${hex(i.address)} for destination ${hex(edge.to!)}`,
             });
-          queue.push({ at: edge.to!, state: branch });
+          enqueue({ at: edge.to!, state: branch });
         }
       }
-    } else queue.push({ at: next, state: s });
+    } else enqueue({ at: next, state: s });
   }
   if (queue.some((pending) => !pending.state.observationOnly)) {
     diagnostics.add(
@@ -2290,6 +2705,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     iterationOutcomes: dedup(iterationOutcomes),
     returnPathsComplete,
     engineCalls: dedup(engineCalls),
+    controlFlowJoins: dedup(controlFlowJoins),
     loops: dedup(usedLoops),
     listLoops: dedup(usedListLoops),
     uncertainEffects,
@@ -2529,7 +2945,6 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
   const lifecycle = discoverBehaviourLifecycle(image, codes, layout);
   for (const field of discoverLifecycleFieldRoles(lifecycle, layout))
     if (!layout.fields.some((known) => known.offset === field.offset)) layout.fields.push(field);
-  const creation = discoverCreationDefaults(image, helpers, layout, list.dataSegment);
   const engineSummaries = new Map(helpers.map((helper) => [helper.address, helper]));
   const callbackSlots = new Map<number, Set<number>>();
   for (const callbacks of references.values())
@@ -2617,6 +3032,15 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         : {}),
     });
     summaries.set(address, routine);
+    if (!engineSummaries.get(address)?.footprint.partMemoryComplete) {
+      const relation = engineFromGeometryRelation(routine, layout, engineSummaries);
+      if (relation) {
+        engineSummaries.set(address, relation);
+        const at = helpers.findIndex((helper) => helper.address === address);
+        if (at < 0) helpers.push(relation);
+        else helpers[at] = relation;
+      }
+    }
     return routine;
   };
   for (const callbacks of references.values()) for (const callback of callbacks) summarise(callback.address);
@@ -2819,9 +3243,9 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     dataSegment: list.dataSegment,
     layout,
     timing,
-    helpers,
+    helpers: helpers.sort((a, b) => a.address - b.address),
     lifecycle,
-    creation,
+    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment),
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),

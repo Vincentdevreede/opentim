@@ -96,6 +96,13 @@ const prefix = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6];
 const suffix = [0x5e, 0x5d, 0xcb];
 
 describe("creation defaults", () => {
+  it("uses only the factory's proved zero word through a masked constructor", () => {
+    const f = fixture([...prefix, 0x83, 0x64, 0x30, 3, ...suffix]);
+    const result = discoverCreationDefaults(f.image, f.helpers, f.layout, 0)[0]!;
+    expect(result.fields.map((f) => [f.name, f.value])).toEqual([["state", 0]]);
+    delete f.engine.factory!.noConstructor.initialState;
+    expect(discoverCreationDefaults(f.image, f.helpers, f.layout, 0)[0]!.fields).toEqual([]);
+  });
   it("reads rebased far constructors and displaced literal fields without seeding loaded parts", () => {
     for (const [offset, shift] of [
       [0x30, 0],
@@ -123,6 +130,7 @@ describe("creation defaults", () => {
     const f = fixture([...prefix, 0x83, 0x7e, 8, 0, 0x74, 5, 0xc7, 0x44, 0x30, 1, 0, ...suffix]);
     expect(discoverCreationDefaults(f.image, f.helpers, f.layout, 0)[0]?.fields).toEqual([]);
     const empty = fixture([...prefix, ...suffix]);
+    delete empty.engine.factory!.noConstructor.initialState;
     expect(discoverCreationDefaults(empty.image, empty.helpers, empty.layout, 0)[0]?.fields).toEqual([]);
   });
 

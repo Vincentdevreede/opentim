@@ -34,7 +34,16 @@ export interface BehaviourWalk extends Finding {
   status: "rest" | "loop" | "unresolved" | "limit";
   states: number[];
   /** A proved identity rule can hold an unspecified input frame without selecting a number for it. */
-  parameterised?: { kind: "hold"; state: Expression; allowedStates?: number[] };
+  parameterised?:
+    | { kind: "hold"; state: Expression; allowedStates?: number[] }
+    | {
+        kind: "cycle";
+        state: Expression;
+        period: number;
+        direction: 1 | -1;
+        minimumBase: number;
+        maximumBase: number;
+      };
   frames: FrameVisit[];
   runCalls: number;
   loopStart?: number;
@@ -1448,6 +1457,8 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
     : "Under the recorded run condition";
 }
 function walkWords(walk: BehaviourWalk): string {
+  if (walk.parameterised?.kind === "cycle")
+    return `Cycles ${walk.parameterised.direction === 1 ? "forward" : "backward"} through a block of ${walk.parameterised.period} consecutive frames, taking one run call per frame. The level supplies the frame block and starting phase.`;
   if (walk.parameterised?.kind === "hold")
     return "Keeps the supplied frame unchanged while the stated condition holds; no numeric starting frame is assumed.";
   if (!walk.states.length) return walk.reason ?? "The initial frame has not been established.";
@@ -1595,6 +1606,191 @@ function creationOf(report: BehaviourReport, part: PartBehaviour): RestDescripti
 }
 
 /** Produces rest findings and conditional animations using only reset and trigger assignments in this report. */
+/** Proves translation-invariant phase cycles while leaving the frame block supplied by the level symbolic. */
+function periodicAnimations(report: BehaviourReport, part: PartBehaviour): AnimationDescription[] {
+  const stateOffset = stateOffsetOf(report),
+    run = part.routines.find((r) => r.slot === 1);
+  if (stateOffset === undefined || !run) return [];
+  const rules = part.transitions.filter((r) => r.routine === run.address);
+  const ownerState = (e: Expression): boolean => e.kind === "field" && e.object === "part" && e.offset === stateOffset;
+  const contains = (e: Expression): boolean =>
+    ownerState(e) ||
+    (e.kind === "binary" && (contains(e.left) || contains(e.right))) ||
+    (e.kind === "table" && contains(e.index));
+  const affine = (e: Expression): number | undefined => {
+    if (ownerState(e)) return 0;
+    if (e.kind !== "binary" || !["+", "-"].includes(e.operator) || e.right.kind !== "constant") return;
+    const before = affine(e.left);
+    if (before === undefined) return;
+    const value = signed(wrap(e.right.value, e.right.width), e.right.width);
+    return before + (e.operator === "+" ? value : -value);
+  };
+  const periodOf = (e: Expression): number | undefined => {
+    if (e.kind !== "binary" || e.right.kind !== "constant") return;
+    const shift = affine(e.left);
+    if (shift === undefined || shift < 0 || shift > 1) return;
+    const amount = e.right.value;
+    if (e.operator === "&" && amount >= 1 && amount < 16 && (amount & (amount + 1)) === 0) return amount + 1;
+    if (["%", "s%"].includes(e.operator) && amount >= 2 && amount <= 16) return amount;
+  };
+  const periods = new Set<number>();
+  for (const rule of rules)
+    for (const term of predicateTerms(rule.condition))
+      if (term.kind === "compare") {
+        const period = periodOf(term.left) ?? periodOf(term.right);
+        if (period) periods.add(period);
+      }
+  const results: AnimationDescription[] = [];
+  for (const period of periods) {
+    const invariant = (e: Expression): boolean => !contains(e) || periodOf(e) === period;
+    if (
+      rules.some(
+        (rule) =>
+          affine(rule.to) === undefined ||
+          predicateTerms(rule.condition).some(
+            (term) => term.kind === "compare" && (!invariant(term.left) || !invariant(term.right)),
+          ) ||
+          (rule as WithUpdates).updates?.some(
+            (write) =>
+              contains(write.value) &&
+              !(write.object === "part" && write.offset === stateOffset && affine(write.value) !== undefined),
+          ),
+      )
+    )
+      continue;
+    const contexts = new Map<string, { condition: Predicate; proof: Finding }>();
+    for (const rule of rules) {
+      const terms = predicateTerms(rule.condition).filter(
+        (term) => inputPredicate(term) && (term.kind !== "compare" || (!contains(term.left) && !contains(term.right))),
+      );
+      const condition: Predicate = { kind: "and", terms };
+      contexts.set(JSON.stringify(terms), { condition, proof: finding([rule]) });
+    }
+    const phasePart = {
+      ...part,
+      transitions: part.transitions.map((rule) => (rule.routine === run.address ? { ...rule, from: null } : rule)),
+    };
+    const phaseReport = { ...report, parts: [phasePart] };
+    let tried = 0;
+    for (const { condition, proof } of [...contexts.values()].sort(
+      (a, b) => predicateTerms(a.condition).length - predicateTerms(b.condition).length,
+    )) {
+      if (tried++ >= 16) break;
+      const fields = metadataFields(report, part);
+      for (const term of predicateTerms(condition))
+        if (
+          term.kind === "compare" &&
+          term.operator === "==" &&
+          term.left.kind === "field" &&
+          term.left.object === "part" &&
+          term.right.kind === "constant"
+        )
+          fields.push({
+            ...term.left,
+            value: wrap(term.right.value, term.left.width),
+            knownMask: full(term.left.width),
+            ...proof,
+          });
+      const input = bindingsOf(fields);
+      if (predicateOf(condition, input) === false) continue;
+      // Zero here is the algebraic phase coordinate. It is never emitted as the part's starting state.
+      const phase = walkBehaviourRules(
+        phaseReport,
+        part.type,
+        [...fields, { object: "part", offset: stateOffset, width: 16, value: 0, knownMask: 0xffff, ...proof }],
+        { condition, maxRunCalls: period * 3 },
+      );
+      const direction = phase.states[1] === 1 ? 1 : phase.states[1] === period - 1 ? -1 : undefined;
+      if (
+        phase.status !== "loop" ||
+        direction === undefined ||
+        phase.states.length <= period ||
+        phase.states.some((state, i) => state !== (((direction * i) % period) + period) % period)
+      )
+        continue;
+      const phaseProofs: Finding[] = [phase];
+      let allPhases = true;
+      for (let start = 1; start < period; start++) {
+        const shifted = walkBehaviourRules(
+          phaseReport,
+          part.type,
+          [...fields, { object: "part", offset: stateOffset, width: 16, value: start, knownMask: 0xffff, ...proof }],
+          { condition, maxRunCalls: period * 3 },
+        );
+        if (
+          shifted.status !== "loop" ||
+          shifted.states.length <= period ||
+          shifted.states.some((state, i) => state !== (((start + direction * i) % period) + period) % period)
+        ) {
+          allPhases = false;
+          break;
+        }
+        phaseProofs.push(shifted);
+      }
+      if (!allPhases) continue;
+      const maximum =
+        Math.floor(
+          (Math.min(0x7ffe, (part as WithFrameCount).frameCount ? (part as WithFrameCount).frameCount! - 1 : 0x7ffe) -
+            (period - 1)) /
+            period,
+        ) * period;
+      if (maximum < 0) continue;
+      const phaseProof = finding(phaseProofs);
+      const assumptions = [
+        ...new Set([
+          ...phaseProof.assumptions,
+          `The frame-block base is a nonnegative multiple of ${period}, at most ${maximum}. Every state is that base plus a phase from 0 through ${period - 1}.`,
+          "Every selected state must have a valid frame for this type. The phase relation does not establish additional sprite or frame data.",
+          "State-dependent guards use only the proved periodic mask or remainder, and destinations are affine state changes. Phase reduction therefore leaves the frame-block base unchanged; it does not select a level's initial state.",
+          "The stated input conditions remain subject to the same pointer, alias and memory-effect invalidation as the phase proof.",
+        ]),
+      ];
+      const walk: BehaviourWalk = {
+        ...phase,
+        ...phaseProof,
+        states: [],
+        frames: [],
+        fields: [],
+        runCalls: period,
+        loopStart: 0,
+        confidence: "inferred",
+        assumptions,
+        parameterised: {
+          kind: "cycle",
+          state: { kind: "field", object: "level-supplied cycle state", offset: stateOffset, width: 16 },
+          period,
+          direction,
+          minimumBase: 0,
+          maximumBase: maximum,
+        },
+      };
+      const trigger: AnimationTrigger = {
+        kind: "input-case",
+        name: inputConditionWords(condition, report, part),
+        description: `${inputConditionWords(condition, report, part)}, the frame cycles within its current block of ${period} frames. The level supplies the block and starting phase.`,
+        routine: run.address,
+        condition,
+        writes: [],
+        ...proof,
+        confidence: "inferred",
+        assumptions,
+      };
+      results.push({
+        id: `periodic-${period}-${results.length}`,
+        initial: "run-guard",
+        inputCondition: condition,
+        initialFields: fields,
+        prerequisites: [],
+        trigger,
+        walk,
+        description: walkWords(walk),
+        ...finding([trigger, walk]),
+      });
+    }
+  }
+  return results;
+}
+
 export function describeBehaviour(report: BehaviourReport): BehaviourDescription {
   const parts = report.parts.map((part): PartBehaviourDescription => {
     const rest = restOf(report, part);
@@ -1833,6 +2029,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           ...finding([trigger, walk]),
         });
       });
+    animations.push(...periodicAnimations(report, part));
     const uncertainties = [
       ...new Set([
         ...part.uncertainties,

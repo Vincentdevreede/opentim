@@ -3,6 +3,9 @@ import type { Confidence, Evidence, Expression, Finding, Predicate } from "./beh
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
+import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
+import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 
 export type EnginePointer =
   | { kind: "argument"; argument: number; path: number[]; displacement?: number }
@@ -12,6 +15,7 @@ export type EnginePointer =
   | { kind: "unknown" };
 
 export interface EngineWrite extends Finding {
+  separateStorage?: "outline";
   /** BP-relative argument position, accounting for the routine's actual near or far return convention. */
   argumentOffset?: number;
   /** Dereferences from that argument before writing the named field. */
@@ -49,6 +53,7 @@ export interface EngineSummary extends Finding {
     typeArgument: number;
     constructorTable: { segment: number; offset: number; stride: number; typeCount: number };
     noConstructorTypes: number[];
+    constructors?: (Finding & { type: number; address: number })[];
     noConstructor: Finding & {
       purpose: string;
       footprint: EngineSummary["footprint"];
@@ -1963,6 +1968,7 @@ export function discoverEngineSummaries(
       );
     summary.assumptions = [...new Set(summary.assumptions)];
   }
+  addBufferEffectSummaries(codes, summaries);
   const allocators = new Set([...codes.values()].filter(heapBlockAllocator).map((c) => c.address));
   const cleared = new Set<number>();
   for (let pass = 0; pass < 4; pass++) {
@@ -2099,6 +2105,8 @@ export function discoverEngineSummaries(
     );
     summaries.set(code.address, summary);
   }
+  addNodePoolSummaries(codes, summaries);
+  discoverConstructorEffects(image, codes, summaries, layout, dataSegment);
   for (const summary of summaries.values()) {
     const code = codes.get(summary.address)!;
     const returns = code.instructions.filter((i) => i.flow === "return");

@@ -69,6 +69,11 @@ function recordedFields(
 }
 function stateAt(walk: BehaviourWalk, index: number, parameter: number): number | undefined {
   if (walk.parameterised?.kind === "hold") return parameter;
+  if (walk.parameterised?.kind === "cycle") {
+    const { period, direction } = walk.parameterised,
+      base = Math.floor(parameter / period) * period;
+    return base + ((((parameter - base + direction * index) % period) + period) % period);
+  }
   if (index < walk.states.length) return walk.states[index];
   if (walk.status === "rest") return walk.states.at(-1);
   if (walk.status !== "loop" || walk.loopStart === undefined) return undefined;
@@ -94,7 +99,17 @@ function matchWalk(
     })
   )
     return undefined;
-  if (walk.parameterised?.allowedStates && !walk.parameterised.allowedStates.includes(parameter)) return undefined;
+  if (
+    walk.parameterised?.kind === "hold" &&
+    walk.parameterised.allowedStates &&
+    !walk.parameterised.allowedStates.includes(parameter)
+  )
+    return undefined;
+  if (walk.parameterised?.kind === "cycle") {
+    const model = walk.parameterised,
+      base = Math.floor(parameter / model.period) * model.period;
+    if (parameter < 0 || base < model.minimumBase || base > model.maximumBase) return undefined;
+  }
   const basis =
     animation.initial === "creation"
       ? "creation"
@@ -176,7 +191,12 @@ function matchWalk(
     };
   }
   const oraclePeriod = clip.frames.length - clip.loopStart;
-  const modelPeriod = walk.status === "rest" ? 1 : walk.states.length - 1 - walk.loopStart!;
+  const modelPeriod =
+    walk.parameterised?.kind === "cycle"
+      ? walk.parameterised.period
+      : walk.status === "rest"
+        ? 1
+        : walk.states.length - 1 - walk.loopStart!;
   const span = (oraclePeriod * modelPeriod) / gcd(oraclePeriod, modelPeriod);
   const end = Math.max(clip.loopStart, walk.loopStart ?? walk.states.length - 1) + span;
   if (end > 4096)

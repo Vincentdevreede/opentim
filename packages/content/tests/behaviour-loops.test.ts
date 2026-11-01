@@ -16,6 +16,46 @@ function fixture(storeState = false, skipUpdate = false) {
 }
 
 describe("counted loop invariants", () => {
+  it("preserves an owner word copied to possibly aliasing linked objects", () => {
+    const bytes = [
+      0x55, 0x8b, 0xec, 0x83, 0xec, 2, 0x56, 0x57, 0x8b, 0x76, 6, 0xc7, 0x44, 0x12, 1, 0, 0xc7, 0x46, 0xfe, 0, 0, 0xeb,
+      0,
+    ];
+    const jump = bytes.length - 1,
+      body = bytes.length;
+    bytes.push(0x8b, 0x7c, 0x54, 0x8b, 0x44, 0x12, 0x89, 0x45, 0x12, 0xff, 0x46, 0xfe);
+    const header = bytes.length;
+    bytes[jump] = header - jump - 1;
+    bytes.push(
+      0x83,
+      0x7e,
+      0xfe,
+      2,
+      0x7c,
+      (body - header - 6) & 255,
+      0x8b,
+      0x44,
+      0x12,
+      0x89,
+      0x44,
+      12,
+      0x5f,
+      0x5e,
+      0x8b,
+      0xe5,
+      0x5d,
+      0xcb,
+    );
+    const image = Uint8Array.from(bytes);
+    const result = analyseRoutine(image, entry);
+    expect(result.loops).toHaveLength(1);
+    expect(result.loops![0]!.possibleFields.some((field) => field.preservesOwnerValue)).toBe(true);
+    expect(result.transitions[0]!.to).toMatchObject({ kind: "constant", value: 1 });
+    image[body + 5] = 0x14;
+    const changed = analyseRoutine(image, entry);
+    expect(changed.loops![0]!.possibleFields.some((field) => field.preservesOwnerValue)).toBe(false);
+    expect(changed.transitions[0]!.to).toMatchObject({ kind: "field", unresolved: true });
+  });
   it("proves a monotone private counter and continues without interpreting the body", () => {
     const image = fixture();
     const loops = discoverCountedLoops(readRoutineCode(image, entry, 0), new Map(), 12);

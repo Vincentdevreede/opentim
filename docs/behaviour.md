@@ -128,16 +128,21 @@ not establish all measured walks; unresolved and missed transitions must be addr
 complete playback rules.
 
 The latest extraction's exact-hash oracle run covered 644 Even More clips and 548 TIM 1 French clips. It explained
-1,658 and 1,310 changed-state steps respectively with inferred assumptions; another 890 and 450 remained unresolved.
+1,834 and 1,318 changed-state steps respectively with inferred assumptions; another 714 and 442 remained unresolved.
 None was missing from the graph because boundary edges explicitly retain unknown outcomes. This is partial
 coverage, not a proof of all recorded walks.
 
-Using the same final describer on the original reports and the new reports, complete matching clips increase from
-20 to 292 in Even More and from 12 to 264 in TIM 1 French. Of the final complete matches, 44 and 28 contain actual
-frame changes; the others are single-frame recordings with independently proved holds. There are 94 and 86 correct
-prefixes, zero different comparable walks, and 258 and 198 clips without a compatible established start. Most complete
+Using the same current describer on the previous and new reports, complete matching clips increase from 292 to 368
+in Even More and from 264 to 344 in TIM 1 French. Of the final complete matches, 60 and 44 contain actual frame
+changes; the others are single-frame recordings with independently proved holds. There are 178 and 170 correct
+prefixes, zero different comparable walks, and 98 and 34 clips without a compatible established start. Most complete
 matches use explicitly conditional inputs rather than proving that an incoming event occurs. The comparison report
 retains this distinction for each clip.
+
+Even More English floppy has 228 unresolved outcomes out of 964, 12 unresolved call sites, zero pointer losses
+and six loop gaps. TIM 1 French has 206 out of 797, 13 calls, zero pointer losses and five loop gaps. All eleven
+builds extracted successfully; `readBehaviour` took 2.94–4.23 seconds in the final capture. Description generation
+was measured separately at 1.19–1.44 seconds. These times are observations for this machine, not browser guarantees.
 
 ## Descriptions and conditional frame walks
 
@@ -238,6 +243,9 @@ another invariant: a structurally proved query excludes the owner, each body pat
 and the body cannot change that link. Alternative queries must together dominate the head load. Finite, acyclic
 lists and disjoint complete objects remain stated assumptions. The invariant preserves the owner's state only when
 all body and callee effects permit that conclusion; collider-root callbacks do not inherit this owner proof.
+A global-list scan needs independently discovered head and next-link selectors. Its list may contain the owner,
+so the narrower invariant rejects all member-pointer stores and owner stores overlapping state or next-link storage.
+It can preserve state while rebuilding owner connection slots, without assuming that a scanned member is disjoint.
 
 `iterationOutcomes` retains simultaneous final assignments for one overlap-list member. Its scope is separate from
 callback returns. Descriptions can use that relation for an incoming trigger only conditionally on membership and
@@ -248,6 +256,39 @@ state word alone does not preserve every cached counter. A discovered factory ca
 constant type whose constructor entry is null; the table, entry, allocation closure and cleanup path supply its
 proof. Other constructors remain unresolved. Initial zero fields belong to the nullable fresh allocation, never to
 the existing caller's part.
+
+Carry arithmetic keeps a separate symbolic CF value. Widened addition and subtraction establish carry and borrow;
+`adc` and `sbb` consume that relation with its producer instructions. Increment, decrement and `not` preserve CF.
+Calls and unsupported flag operations invalidate it. Carry-only instructions preserve the other flags, and a branch
+which needs an unrepresented combination of old and changed flags remains unresolved. Backward liveness avoids
+building carry expressions which no later instruction consumes.
+
+Reverse postorder scheduling lets sibling paths meet before their shared continuation. Two paths join only when
+one predicate is the exact complement of the other and the remaining conditions, live abstract register values,
+memory effects, flags, stack arguments and side-effect versions agree. Byte aliases remain live with their word
+register, and memory differences are retained. `controlFlowJoins` records the conditions, live register names and
+instruction evidence. This reduces repeated work without raising the path limits or selecting a convenient branch.
+Earlier field equalities can also simplify a later read of the same symbolic input or storage version; assignments
+and unknown writes do not retroactively change copied earlier values. Once three quarters of the unchanged visit
+budget have been spent, queued straight-line return tails receive priority. A large sibling branch therefore cannot
+starve already established short paths at the shared epilogue; unfinished paths still produce unknown exits.
+
+Fixed output-buffer footprints retain their actual argument positions. A caller can prove that the whole output
+span stays inside its reserved private stack frame. This establishes memory preservation for geometry-query
+wrappers without inventing their numeric return values or loop termination. Complete symbolic helper relations can
+also retain separate owner and outline destinations. An outline pointer must be discovered and unchanged by the
+helper; stores through arbitrary related pointers do not receive that contract.
+
+A linked-node pool can be tied to its initialization: two cleared global head slots, separately allocated fixed-size
+nodes and insertion through the checked next field. Scoped updates preserve the owner state under the stated pool
+ownership and capacity assumptions. Outstanding node aliases and selected return values remain unresolved, so the
+caller still invalidates other unbounded memory facts. Constructor-body scope proofs similarly remain separate from
+a factory's failure cleanup; they cannot by themselves make the full factory call harmless.
+
+A counted loop can copy an owner word into connected objects without changing that word on the owner. This needs
+every possibly overlapping store to copy that exact owner word, even if a connection points back to it. Other
+related-object fields still become unknown. Nested compiler switch-key searches are contracted only after their
+positive count reload, read-only body, unique entry and bounded `loop` instruction have been proved.
 
 ## Conditional inputs and stop explanations
 
@@ -271,6 +312,17 @@ The comparison report separates complete matches from actual code triggers, rese
 and conditional input cases. One-frame recordings are counted separately from animations. A missing compatible
 start is unavailable, not a successful empty prefix. Unknown starting conditions and repeated external writes cannot
 establish complete measured coverage.
+
+Periodic masks and remainder tests can establish a frame-block cycle while leaving its base and initial phase
+supplied by the level. `parameterised.kind: "cycle"` retains the period, direction and checked base bounds. The
+proof checks every phase of the extracted relation, requires translation-invariant state guards and affine state
+updates, and rejects absolute-state exceptions or untracked effects. The phase coordinate zero used in this
+algebra is never emitted as an assumed starting frame. A recording chooses its own base and phase only during
+validation; its fields never seed a description. Every selected state must still have valid frame data.
+
+Creation analysis can use a zero state word only when the factory's cleared-allocation proof explicitly establishes
+that word. It follows masked assignments and complete owner calls from that fact. Other unassigned fields remain
+unknown, and the result still describes a fresh construction before level overrides rather than a loaded level's rest.
 
 ## Saved evidence
 

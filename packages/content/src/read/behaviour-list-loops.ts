@@ -1,9 +1,10 @@
-/** Proves owner-state preservation while a callback scans an overlap list. */
+/** Proves owner-state preservation while a callback scans a discovered part list. */
 import type { Evidence, Finding } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { LoopField } from "./behaviour-loops.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
 
 export interface ListLoopSummary extends Finding {
   header: number;
@@ -12,9 +13,11 @@ export interface ListLoopSummary extends Finding {
   exit: number;
   nodeRegister: string;
   nextField: number;
-  headField: number;
+  source?: "overlap-query" | "global-list";
+  headField?: number;
+  globalHead?: number;
   ownerRegister: string;
-  query: number;
+  query?: number;
   queries: number[];
   possibleFields: LoopField[];
   writtenRegisters: string[];
@@ -38,8 +41,8 @@ const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address
 const overlaps = (offset: number, width: number, field: number) => offset < field + 2 && field < offset + width / 8;
 
 /**
- * The invariant needs a proved overlap query that excludes its argument. List well-formedness is an explicit
- * inference. The body is inspected once as a CFG; it is neither unrolled nor evaluated with invented nodes.
+ * An overlap query must exclude its owner. Global lists may include the owner, so their bodies cannot write
+ * through member pointers. List well-formedness is explicit. The body is inspected as a CFG, never unrolled.
  */
 export function discoverListLoops(
   code: RoutineCode,
@@ -50,6 +53,8 @@ export function discoverListLoops(
   const instructions = new Map(code.instructions.map((i) => [i.address, i]));
   const outgoing = new Map<number, number[]>(),
     incoming = new Map<number, number[]>();
+  const boundedSearches = discoverBoundedSearchLoops(code);
+  const searchBackEdges = new Set(boundedSearches.map((s) => `${s.latch}:${s.header}`));
   const before = new Map<number, Instruction>();
   for (const i of code.instructions) before.set(i.address + i.size, i);
   for (const edge of code.edges)
@@ -71,6 +76,22 @@ export function discoverListLoops(
   };
   const argumentOffset = code.instructions.some((i) => i.mnemonic === "retf") ? 6 : 4;
   const result: ListLoopSummary[] = [];
+  const globalHeads = new Map<number, EngineSummary>();
+  const globalLinks = new Map<number, EngineSummary>();
+  for (const helper of helpers.values())
+    for (const returned of helper.returns) {
+      const pointer = returned.pointer;
+      if (helper.kind === "list-head" && pointer?.kind === "global" && !pointer.path.length)
+        globalHeads.set(pointer.offset, helper);
+      if (
+        helper.kind === "list-next" &&
+        pointer?.kind === "argument" &&
+        pointer.argument === helper.argumentOffset &&
+        pointer.path.length === 1 &&
+        !pointer.displacement
+      )
+        globalLinks.set(pointer.path[0]!, helper);
+    }
   for (const guard of code.instructions) {
     const node = guard.operands[0];
     if (!register(node)) continue;
@@ -127,7 +148,8 @@ export function discoverListLoops(
       if (at === header || at === exit || finished.has(at)) return true;
       if (active.has(at)) return false;
       active.add(at);
-      for (const next of outgoing.get(at) ?? []) if (!acyclic(next)) return false;
+      for (const next of outgoing.get(at) ?? [])
+        if (!searchBackEdges.has(`${at}:${next}`) && !acyclic(next)) return false;
       active.delete(at);
       finished.add(at);
       return true;
@@ -183,21 +205,22 @@ export function discoverListLoops(
           register(i.operands[0], node.name) &&
           memory(i.operands[1]) &&
           i.operands[1].segment === "ds" &&
-          i.operands[1].base.length === 1 &&
+          (i.operands[1].base.length === 1 || (i.operands[1].direct && globalHeads.has(i.operands[1].displacement))) &&
           i.operands[1].width === 16 &&
           dominates(i.address, header),
       )
       .at(-1);
     if (!head || !memory(head.operands[1])) continue;
-    const owner = head.operands[1].base[0]!,
-      headField = head.operands[1].displacement;
-    if (owner === node.name) continue;
+    const globalSource = head.operands[1].direct;
+    if (globalSource && !globalLinks.has(nextField)) continue;
+    const ownerCandidate = head.operands[1].base[0];
     const ownerDefinition = code.instructions
       .filter(
         (i) =>
           i.address < head.address &&
           i.mnemonic === "mov" &&
-          register(i.operands[0], owner) &&
+          register(i.operands[0], ownerCandidate) &&
+          (!globalSource || (!volatile.includes(i.operands[0].name) && i.operands[0].name !== node.name)) &&
           memory(i.operands[1]) &&
           i.operands[1].segment === "ss" &&
           i.operands[1].base.join() === "bp" &&
@@ -205,8 +228,11 @@ export function discoverListLoops(
           dominates(i.address, head.address),
       )
       .at(-1);
+    if (!ownerDefinition || !register(ownerDefinition.operands[0])) continue;
+    const owner = ownerDefinition.operands[0].name;
+    const headField = globalSource ? undefined : head.operands[1].displacement;
+    if (owner === node.name) continue;
     if (
-      !ownerDefinition ||
       code.instructions.some(
         (i) =>
           i.address > ownerDefinition.address &&
@@ -221,6 +247,28 @@ export function discoverListLoops(
       code.instructions.some((i) => body.has(i.address) && writesFirst(i) && register(i.operands[0], owner))
     )
       continue;
+    // The selected node and owner identities must survive the path to the first guard or body entry.
+    const entryPaths = [...(outgoing.get(head.address) ?? [])],
+      entrySeen = new Set<number>();
+    while (entryPaths.length) {
+      const at = entryPaths.pop()!;
+      if (at === header || at === bodyEntry || entrySeen.has(at)) continue;
+      entrySeen.add(at);
+      const instruction = instructions.get(at);
+      if (
+        !instruction ||
+        (writesFirst(instruction) &&
+          register(instruction.operands[0]) &&
+          [owner, node.name].includes(whole(instruction.operands[0].name))) ||
+        instruction.mnemonic === "xchg" ||
+        (instruction.flow === "call" && [owner, node.name].some((name) => volatile.includes(name)))
+      ) {
+        invalid = true;
+        break;
+      }
+      entryPaths.push(...(outgoing.get(at) ?? []));
+    }
+    if (invalid) continue;
     const queries = code.calls
       .filter(
         (call) =>
@@ -244,9 +292,9 @@ export function discoverListLoops(
           argument.displacement === argumentOffset;
         return stackOwner || (!volatile.includes(owner) && register(argument, owner));
       });
-    if (!queries.length) continue;
+    if (!globalSource && !queries.length) continue;
     const querySites = new Set(queries.map((call) => call.instruction));
-    const uncovered = [code.address],
+    const uncovered = globalSource ? [] : [code.address],
       uncoveredSeen = new Set<number>();
     while (uncovered.length) {
       const at = uncovered.pop()!;
@@ -290,21 +338,36 @@ export function discoverListLoops(
       between.push(...(outgoing.get(at) ?? []));
     }
     if (invalid) continue;
-    const query = queries[0]!;
+    const query = queries[0];
+    const globalHead = globalSource ? head.operands[1].displacement : undefined;
+    const globalProofs = globalSource ? [globalHeads.get(globalHead!)!, globalLinks.get(nextField)!] : [];
     const fields: LoopField[] = [],
       changed = new Set([node.name]);
     let unknownGlobals = false;
     const assumptions = new Set([
       ...queries.flatMap((call) => helpers.get(call.target!.address)!.list!.assumptions),
-      "The overlap query's finite list is acyclic, its nodes are complete distinct part objects, and no body operation changes the traversed next links.",
-      "The query excludes the owner. Writes to a listed object's state therefore do not change the owner's state.",
+      ...globalProofs.flatMap((helper) => helper.assumptions),
+      globalSource
+        ? "The discovered global part list is finite and acyclic, with complete part objects and unchanged next links. It may contain the owner; the body writes only owner fields outside both state and next-link storage."
+        : "The overlap query's finite list is acyclic, its nodes are complete distinct part objects, and no body operation changes the traversed next links.",
+      ...(globalSource
+        ? []
+        : [
+            "The query excludes the owner. Writes to a listed object's state therefore do not change the owner's state.",
+          ]),
       "Private stack and global storage are separate from part objects. The C calling convention preserves SI, DI, BP and DS.",
     ]);
     const proof = [
+      ...boundedSearches.filter((s) => s.body.every((at) => body.has(at))).flatMap((s) => s.evidence),
       evidence(head),
       evidence(ownerDefinition),
+      ...globalProofs.flatMap((helper) => helper.evidence),
       ...queries.flatMap((call) => [...call.evidence, ...helpers.get(call.target!.address)!.list!.evidence]),
     ];
+    if (boundedSearches.some((s) => s.body.every((at) => body.has(at))))
+      assumptions.add(
+        "Nested switch-key searches reload a positive bounded CX and perform no memory writes; their LOOP back edges terminate without changing the owner or list links.",
+      );
     const rootsAt = new Map<number, Map<string, "part" | "other" | "unknown">>([
       [
         bodyEntry,
@@ -328,7 +391,10 @@ export function discoverListLoops(
       const [dest, source] = i.operands;
       let delta = stackDeltas.get(at)!;
       const rootOf = (op: Operand | undefined) => (register(op) ? roots.get(op.name) : undefined);
-      if (/^(movs|stos|lods|scas|cmps|ins|outs|int|iret|enter|leave|pusha|popa|esc)/.test(i.mnemonic)) {
+      if (
+        i.mnemonic === "xchg" ||
+        /^(movs|stos|lods|scas|cmps|ins|outs|int|iret|enter|leave|pusha|popa|esc)/.test(i.mnemonic)
+      ) {
         invalid = true;
         break;
       }
@@ -382,7 +448,7 @@ export function discoverListLoops(
             invalid = true;
             break;
           }
-          if (write.path.length && overlaps(write.offset, write.width, nextField)) {
+          if (write.path.length && !write.separateStorage && overlaps(write.offset, write.width, nextField)) {
             invalid = true;
             break;
           }
@@ -391,8 +457,11 @@ export function discoverListLoops(
             break;
           }
           // An indirect write can reach the owner, so retain a possible owner-field modification.
-          const root = write.path.length ? "part" : argumentRoot;
-          if (root === "other" && overlaps(write.offset, write.width, nextField)) {
+          const root = write.separateStorage === "outline" ? "buffer" : write.path.length ? "part" : argumentRoot;
+          if (
+            (globalSource && root === "other") ||
+            ((root === "other" || (globalSource && root === "part")) && overlaps(write.offset, write.width, nextField))
+          ) {
             invalid = true;
             break;
           }
@@ -423,7 +492,9 @@ export function discoverListLoops(
             !root ||
             root === "unknown" ||
             (root === "part" && overlaps(dest.displacement, dest.width, stateOffset)) ||
-            (root === "other" && overlaps(dest.displacement, dest.width, nextField))
+            (globalSource && root === "other") ||
+            ((root === "other" || (globalSource && root === "part")) &&
+              overlaps(dest.displacement, dest.width, nextField))
           ) {
             invalid = true;
             break;
@@ -493,9 +564,10 @@ export function discoverListLoops(
       exit,
       nodeRegister: node.name,
       nextField,
-      headField,
+      source: globalSource ? "global-list" : "overlap-query",
+      ...(globalSource ? { globalHead } : { headField }),
       ownerRegister: owner,
-      query: query.instruction,
+      ...(query ? { query: query.instruction } : {}),
       queries: queries.map((call) => call.instruction),
       possibleFields: [...new Map(fields.map((field) => [JSON.stringify(field), field])).values()],
       writtenRegisters: [...changed],
