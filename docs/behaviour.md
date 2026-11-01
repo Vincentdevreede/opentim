@@ -373,3 +373,19 @@ graph and remain unresolved where their effects are unknown.
 The caller must entail the precondition using its current symbolic state, including preceding updates. An unknown
 entry value does not select the convenient invariant. This permits nonzero-state cat scans to preserve their current
 frame without claiming that the frame-zero search or its collision-dependent state changes have been resolved.
+
+## Constructors that cannot reach failure cleanup
+
+The factory's null-constructor proof can also cover a constructor with a checked success-only continuation. The
+reader checks the table-selected far routine, bounded stores into the fresh owner, unchanged type and state, paired
+nonvolatile saves/restores, the entry frame and every symbolic return. This narrow proof rejects callees, implicit
+memory effects, escaped stores and any return other than zero.
+
+The factory must compare the result with one and branch to the same continuation used when the constructor pointer
+is null. Its owner push and dispatch sequence must have one unambiguous entry. The constructor-failure edge is then
+unreachable. Initial allocation failure still uses the separately proved null cleanup. The evidence includes the
+constructor table entry, constructor instructions, dispatch bridge and original factory skeleton.
+
+This covers the rope-end constructor used while a balloon detaches from its rope. Constructors that allocate outline
+storage, including the cannon's projectile and the bullet constructors, can return failure and do not receive this contract. Their
+cleanup ownership remains unresolved.

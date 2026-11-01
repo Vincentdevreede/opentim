@@ -5,6 +5,7 @@ import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
 import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
+import { addSuccessfulConstructors } from "./behaviour-successful-constructors.ts";
 import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 
@@ -55,6 +56,7 @@ export interface EngineSummary extends Finding {
     constructorTable: { segment: number; offset: number; stride: number; typeCount: number };
     noConstructorTypes: number[];
     constructors?: (Finding & { type: number; address: number })[];
+    alwaysSuccessfulConstructors?: (Finding & { type: number; address: number })[];
     noConstructor: Finding & {
       purpose: string;
       footprint: EngineSummary["footprint"];
@@ -2123,5 +2125,6 @@ export function discoverEngineSummaries(
       summary.returnConvention = convention(returns[0]!);
   }
   addStatePreservingForwarders(codes, summaries);
+  addSuccessfulConstructors(image, codes, summaries, layout, dataSegment);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

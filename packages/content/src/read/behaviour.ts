@@ -2404,18 +2404,36 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       let engine = i.target && options.engineSummaries?.get(i.target.address);
       if (engine?.factory) {
         const type = args.at(-1 - (engine.factory.typeArgument - engine.argumentOffset) / 2)?.value;
-        if (type?.kind === "constant" && engine.factory.noConstructorTypes.includes(unsigned(type.value, 16))) {
+        const successful =
+          type?.kind === "constant"
+            ? engine.factory.alwaysSuccessfulConstructors?.find((ctor) => ctor.type === unsigned(type.value, 16))
+            : undefined;
+        if (
+          type?.kind === "constant" &&
+          (engine.factory.noConstructorTypes.includes(unsigned(type.value, 16)) || successful)
+        ) {
           const specialized = engine.factory.noConstructor;
           engine = {
             ...engine,
             ...specialized,
+            ...(successful
+              ? {
+                  evidence: uniqueEvidence([...specialized.evidence, ...successful.evidence]),
+                  purpose:
+                    "Allocates a fresh part whose checked owner-only constructor always succeeds, preserving existing parts.",
+                }
+              : {}),
             assumptions: [
               ...new Set([
                 ...engine.assumptions.filter(
                   (assumption) => !assumption.includes("effects on other objects remain unresolved"),
                 ),
                 ...specialized.assumptions,
-                "The actual constant type argument selects an initial null constructor entry in the structurally discovered table.",
+                ...(successful
+                  ? successful.assumptions
+                  : [
+                      "The actual constant type argument selects an initial null constructor entry in the structurally discovered table.",
+                    ]),
               ]),
             ],
           };
