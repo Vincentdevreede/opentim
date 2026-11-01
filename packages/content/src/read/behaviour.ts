@@ -18,7 +18,8 @@ import {
 } from "./behaviour-lifecycle.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
-import { engineFromGeometryRelation } from "./behaviour-geometry-relations.ts";
+import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
+import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
 
 export type Confidence = "checked" | "inferred" | "unresolved";
@@ -1119,6 +1120,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       });
     return tracked(unknown("The engine routine's returned pointer remains unresolved"));
   };
+  const privateOutputsByCall = new Map<number, ReturnType<typeof privateStackOutputs>>();
   const applyEngine = (engine: EngineSummary, args: Tracked[], s: AbstractState, i: Instruction): boolean => {
     const passed = args.at(-1)?.value;
     const completeMember =
@@ -1127,8 +1129,37 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       passed.object === s.observationObject &&
       passed.displacement === 0 &&
       engine.footprint.partMemoryComplete === true;
-    if (!engine.footprint.preservesPartState && !engine.footprint.preservesArgumentMemory && !completeMember)
+    const call = code.calls.find((call) => call.instruction === i.address);
+    if (engine.kind === "argument-buffer-update" && call && !privateOutputsByCall.has(i.address))
+      privateOutputsByCall.set(i.address, privateStackOutputs(code, call, engine));
+    const privateOutput = engine.kind === "argument-buffer-update" ? privateOutputsByCall.get(i.address) : undefined;
+    if (
+      !engine.footprint.preservesPartState &&
+      !engine.footprint.preservesArgumentMemory &&
+      !completeMember &&
+      !privateOutput
+    )
       return false;
+    if (privateOutput) {
+      s.assumptions = [...new Set([...s.assumptions, ...privateOutput.assumptions])];
+      for (const output of privateOutput.outputs)
+        write(
+          {
+            kind: "memory",
+            segment: "ss",
+            base: ["bp"],
+            displacement: output.offset,
+            direct: false,
+            width: output.width === 8 ? 8 : 16,
+          },
+          tracked(
+            unknown("The helper may update this private output; its numeric relation is unresolved", output.width),
+            privateOutput.evidence,
+          ),
+          s,
+          i,
+        );
+    }
     const first = args.at(-1)?.value;
     if (!engine.numeric && engine.argumentKind === "scalar" && (first?.kind === "pointer" || first?.kind === "stack"))
       return false;
@@ -1196,7 +1227,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       condition: Predicate;
       certain: boolean;
     }[] = [];
-    for (const effect of engine.writes) {
+    for (const effect of privateOutput ? [] : engine.writes) {
       if (effect.root !== "argument" || effect.path.some((offset) => offset < 0) || effect.repeated) continue;
       let pointer = formalArgument(args, engine.argumentOffset, effect.argumentOffset ?? engine.argumentOffset);
       for (const offset of effect.path) pointer = memoryAt(pointer, offset, 16, s);
@@ -1766,16 +1797,47 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.evidence.push(...list.evidence);
       for (const effect of list.possibleFields) {
         if (effect.object === "stack" && effect.operand) {
+          if (
+            list.possibleFields.indexOf(effect) !==
+            list.possibleFields.findIndex(
+              (field) => field.object === "stack" && field.offset === effect.offset && field.width === effect.width,
+            )
+          )
+            continue;
           const locationOfField = location(effect.operand, s);
-          if (locationOfField)
-            s.memory.set(
-              memoryKey(locationOfField),
+          if (locationOfField) {
+            const previous = s.memory.get(memoryKey(locationOfField));
+            const selectedMember =
+              effect.width === 16 &&
+              previous?.value.kind === "constant" &&
+              previous.value.value === 0 &&
+              list.possibleFields
+                .filter(
+                  (field) =>
+                    field.object === "stack" &&
+                    field.offset < effect.offset + 2 &&
+                    effect.offset < field.offset + field.width / 8,
+                )
+                .every((field) => field.offset === effect.offset && field.width === 16 && field.nullableMember);
+            write(
+              effect.operand,
               tracked(
-                unknown("The complete list scan may update this private field", effect.width),
+                selectedMember
+                  ? {
+                      kind: "pointer",
+                      object: `part selected by list scan at ${hex(list.header)}`,
+                      displacement: 0,
+                      width: 16,
+                      addressValue: field(`nullable list selection at ${hex(list.header)}`, effect.offset),
+                    }
+                  : unknown("The complete list scan may update this private field", effect.width),
                 list.evidence,
                 i.address,
               ),
+              s,
+              i,
             );
+          }
           continue;
         }
         for (const [key] of s.memory) {
@@ -3033,7 +3095,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     });
     summaries.set(address, routine);
     if (!engineSummaries.get(address)?.footprint.partMemoryComplete) {
-      const relation = engineFromGeometryRelation(routine, layout, engineSummaries);
+      const relation = engineFromObjectRelation(routine, layout, engineSummaries);
       if (relation) {
         engineSummaries.set(address, relation);
         const at = helpers.findIndex((helper) => helper.address === address);

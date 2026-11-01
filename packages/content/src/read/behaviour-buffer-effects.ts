@@ -151,12 +151,17 @@ function frameSize(code: RoutineCode): number | undefined {
   return size;
 }
 
-function privateOutputs(code: RoutineCode, call: RoutineCall, callee: EngineSummary, size: number): boolean {
+function privateOutputs(
+  code: RoutineCode,
+  call: RoutineCall,
+  callee: EngineSummary,
+  size: number,
+): { offset: number; width: number }[] | undefined {
   if (!callee.footprint.complete || callee.writes.some((w) => w.root !== "argument" || w.path.length || w.repeated))
-    return false;
-  if (!callee.writes.length) return callee.footprint.preservesArgumentMemory;
+    return undefined;
+  if (!callee.writes.length) return callee.footprint.preservesArgumentMemory ? [] : undefined;
   const returned = callee.returnConvention;
-  if (!returned || (call.far && returned.kind !== "far")) return false;
+  if (!returned || (call.far && returned.kind !== "far")) return undefined;
   const byEnd = new Map(code.instructions.map((i) => [i.address + i.size, i]));
   const incoming = new Map<number, number[]>();
   for (const edge of code.edges)
@@ -176,35 +181,59 @@ function privateOutputs(code: RoutineCode, call: RoutineCall, callee: EngineSumm
   const pointers = new Map<number, number>();
   for (let n = 0; n < 64 && argument <= required; n++) {
     const i = previous();
-    if (!i) return false;
+    if (!i) return undefined;
     if (i.mnemonic === "nop") continue;
     if (first && !call.far && returned.kind === "far") {
       first = false;
-      if (i.mnemonic !== "push" || !register(i.operands[0], "cs")) return false;
+      if (i.mnemonic !== "push" || !register(i.operands[0], "cs")) return undefined;
       continue;
     }
     first = false;
     if (i.mnemonic === "push") {
       const value = i.operands[0];
-      if (register(value)) {
+      if (
+        register(value) &&
+        callee.writes.some((write) => (write.argumentOffset ?? callee.argumentOffset) === argument)
+      ) {
         const definition = previous();
-        if (!definition) return false;
+        if (!definition) return undefined;
         if (
           definition.mnemonic === "lea" &&
           register(definition.operands[0], value.name) &&
           stack(definition.operands[1])
         )
           pointers.set(argument, definition.operands[1].displacement);
-        else return false;
+        else return undefined;
       }
       argument += 2;
-    } else setup.push(i);
+    } else if (!(i.mnemonic === "lea" && register(i.operands[0]) && stack(i.operands[1]))) setup.push(i);
   }
-  if (argument <= required || setup.length) return false;
-  return callee.writes.every((write) => {
+  if (argument <= required || setup.length) return undefined;
+  const outputs: { offset: number; width: number }[] = [];
+  for (const write of callee.writes) {
     const base = pointers.get(write.argumentOffset ?? callee.argumentOffset);
-    return base !== undefined && base + write.offset >= -size && base + write.offset + write.width / 8 <= 0;
-  });
+    if (base === undefined || base + write.offset < -size || base + write.offset + write.width / 8 > 0) return;
+    outputs.push({ offset: base + write.offset, width: write.width });
+  }
+  return outputs;
+}
+
+/** Maps all helper stores into the caller's checked private frame, including outputs after read-only inputs. */
+export function privateStackOutputs(code: RoutineCode, call: RoutineCall, callee: EngineSummary) {
+  const size = frameSize(code);
+  if (size === undefined) return;
+  const outputs = privateOutputs(code, call, callee, size);
+  if (!outputs) return;
+  return {
+    outputs,
+    confidence: "inferred" as const,
+    evidence: [...code.instructions.map(evidence), ...callee.evidence],
+    assumptions: [
+      ...callee.assumptions,
+      "Every helper store is mapped to a bounded private stack local through an unambiguous argument setup. Other pushed inputs are not written through.",
+      "The decoded near-pointer C convention makes passed stack-local offsets valid in the callee's data segment; private locals are separate from complete part objects.",
+    ],
+  };
 }
 
 /** A buffer contract gives addresses and widths, never fabricated contents or a guessed return value. */

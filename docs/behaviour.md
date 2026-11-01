@@ -127,19 +127,19 @@ contact-list traversal, indirect helper results, conditional inter-part effects 
 not establish all measured walks; unresolved and missed transitions must be addressed before using these graphs as
 complete playback rules.
 
-The latest extraction's exact-hash oracle run covered 644 Even More clips and 548 TIM 1 French clips. It explained
+The fourth-round extraction's exact-hash oracle run covered 644 Even More clips and 548 TIM 1 French clips. It explained
 1,834 and 1,318 changed-state steps respectively with inferred assumptions; another 714 and 442 remained unresolved.
 None was missing from the graph because boundary edges explicitly retain unknown outcomes. This is partial
 coverage, not a proof of all recorded walks.
 
-Using the same current describer on the previous and new reports, complete matching clips increase from 292 to 368
+In that fourth-round comparison, using the same describer on the previous and new reports, complete matching clips increase from 292 to 368
 in Even More and from 264 to 344 in TIM 1 French. Of the final complete matches, 60 and 44 contain actual frame
 changes; the others are single-frame recordings with independently proved holds. There are 178 and 170 correct
 prefixes, zero different comparable walks, and 98 and 34 clips without a compatible established start. Most complete
 matches use explicitly conditional inputs rather than proving that an incoming event occurs. The comparison report
 retains this distinction for each clip.
 
-Even More English floppy has 228 unresolved outcomes out of 964, 12 unresolved call sites, zero pointer losses
+That fourth-round Even More English floppy capture had 228 unresolved outcomes out of 964, 12 unresolved call sites, zero pointer losses
 and six loop gaps. TIM 1 French has 206 out of 797, 13 calls, zero pointer losses and five loop gaps. All eleven
 builds extracted successfully; `readBehaviour` took 2.94–4.23 seconds in the final capture. Description generation
 was measured separately at 1.19–1.44 seconds. These times are observations for this machine, not browser guarantees.
@@ -278,6 +278,22 @@ span stays inside its reserved private stack frame. This establishes memory pres
 wrappers without inventing their numeric return values or loop termination. Complete symbolic helper relations can
 also retain separate owner and outline destinations. An outline pointer must be discovered and unchanged by the
 helper; stores through arbitrary related pointers do not receive that contract.
+
+A complete return relation with only owner-field stores also supplies a footprint without requiring an outline
+store. The overlap-list invariant can then apply a member's state-changing helper while preserving the scanning
+owner. It still requires complete return coverage and rejects unrelated destinations or incomplete nested effects.
+
+Output arguments can follow read-only object inputs. Their setup must uniquely reach the call, and every possible
+store must fit the reserved private stack frame. The same proof is used by ordinary calls and list-scan invariants;
+unknown numeric outputs invalidate the private locals without becoming unknown writes to a part.
+
+A private word initialized to zero can retain a nullable list-member pointer after a complete scan only when every
+overlapping body store is a complete member pointer or zero. Scalar stores, byte overlaps and unknown initial values
+prevent that conclusion. Invalidating private locals also invalidates overlapping cached words and bytes.
+
+A forwarding wrapper can compose only a selected-state preservation contract when every helper receives the same
+complete part base. The proof checks the dominating argument load, unambiguous push sequence, near/far convention
+and balanced stack on every CFG path. Other fields, backend effects and numeric returns remain unresolved.
 
 A linked-node pool can be tied to its initialization: two cleared global head slots, separately allocated fixed-size
 nodes and insertion through the checked next field. Scoped updates preserve the owner state under the stated pool

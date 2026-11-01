@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { analyseRoutine } from "../src/read/behaviour.ts";
+import { privateStackOutputs } from "../src/read/behaviour-buffer-effects.ts";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import { discoverEngineSummaries } from "../src/read/behaviour-helpers.ts";
 
@@ -81,4 +83,74 @@ describe("private output-buffer footprints", () => {
     expect(fixture({ unsafeLoad: true }).find((s) => s.address === leaf)?.kind).not.toBe("argument-buffer-update");
     expect(fixture({ unsafeLoad: true }).find((s) => s.address === wrapper)?.footprint.complete).not.toBe(true);
   });
+});
+
+describe("private outputs following read-only object arguments", () => {
+  function outputsFixture(offset = -2, bypass = false) {
+    const image = new Uint8Array(0x300);
+    image.set([0x55, 0x8b, 0xec, 0x8b, 0x5e, 10, 0x89, 7, 0x5d, 0xcb], 0x100);
+    const bytes = [
+      0x55,
+      0x8b,
+      0xec,
+      0x83,
+      0xec,
+      2,
+      0x8d,
+      0x46,
+      offset & 255,
+      0x50,
+      0x57,
+      0x56,
+      0x9a,
+      0,
+      1,
+      0,
+      0,
+      0x83,
+      0xc4,
+      6,
+      0x8b,
+      0xe5,
+      0x5d,
+      0xcb,
+    ];
+    image.set(bytes);
+    const codes = new Map(
+      [0, 0x100].map((address) => [address, readRoutineCode(image, { address, segment: 0, offset: address }, 0)]),
+    );
+    const summaries = discoverEngineSummaries(image, codes);
+    const code = codes.get(0)!;
+    if (bypass) code.edges.push({ from: 0x200, to: 9, kind: "jump" });
+    return { image, code, callee: summaries.find((s) => s.address === 0x100)!, summaries };
+  }
+  it("maps the output after two object inputs without requiring those inputs to be private", () => {
+    const { code, callee } = outputsFixture();
+    const result = privateStackOutputs(code, code.calls[0]!, callee);
+    expect(result?.outputs).toEqual([{ offset: -2, width: 16 }]);
+    expect(result?.evidence.some((item) => item.text.startsWith("lea"))).toBe(true);
+  });
+  it("applies a bounded private output without invalidating part state or inventing its numeric value", () => {
+    const { image, callee } = outputsFixture();
+    image.set([
+      0x55, 0x8b, 0xec, 0x83, 0xec, 2, 0xc7, 0x46, 0xfe, 7, 0, 0x8d, 0x46, 0xfe, 0x50, 0x57, 0x56, 0x9a, 0, 1, 0, 0,
+      0x83, 0xc4, 6, 0x8b, 0x46, 0xfe, 0x8b, 0xe5, 0x5d, 0xcb,
+    ]);
+    const routine = analyseRoutine(
+      image,
+      { address: 0, segment: 0, offset: 0 },
+      { engineSummaries: new Map([[callee.address, callee]]) },
+    );
+    expect(routine.uncertainties).toEqual([]);
+    expect(routine.transitions[0]?.to).toMatchObject({ kind: "field", object: "part", offset: 12 });
+    expect(routine.outcomes?.[0]?.returnValue.kind).toBe("unknown");
+    expect(routine.outcomes?.[0]?.effectsComplete).toBe(true);
+  });
+  it.each([{ offset: -1 }, { offset: -4 }, { bypass: true }])(
+    "rejects a crossed bound or bypassed setup %s",
+    (options) => {
+      const { code, callee } = outputsFixture(options.offset, options.bypass);
+      expect(privateStackOutputs(code, code.calls[0]!, callee)).toBeUndefined();
+    },
+  );
 });

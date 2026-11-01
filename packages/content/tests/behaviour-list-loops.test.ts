@@ -276,3 +276,120 @@ describe("discovered global part lists", () => {
     expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
   });
 });
+
+describe("selected list-member locals", () => {
+  function selectionFixture(
+    options: {
+      unknownInitial?: boolean;
+      scalarOverwrite?: boolean;
+      byteOverwrite?: boolean;
+      privateOutput?: boolean;
+    } = {},
+  ) {
+    const { image, helpers } = fixture();
+    helpers.get(0x100)!.footprint.partMemoryComplete = true;
+    const bytes = [0x55, 0x8b, 0xec, 0x83, 0xec, options.privateOutput ? 4 : 2, 0x56, 0x57, 0x8b, 0x76, 6];
+    if (!options.unknownInitial) bytes.push(0xc7, 0x46, 0xfe, 0, 0);
+    bytes.push(0x56, 0x9a, 0, 1, 0, 0, 0x59, 0x8b, 0x7c, 0x70, 0xeb, 0);
+    const jump = bytes.length - 1,
+      body = bytes.length;
+    bytes.push(0x89, 0x7e, 0xfe);
+    if (options.privateOutput) {
+      bytes.push(0x8d, 0x46, 0xfc, 0x50, 0x57, 0x56, 0x9a, 0x10, 1, 0, 0, 0x83, 0xc4, 6);
+      helpers.set(0x110, {
+        ...fact,
+        address: 0x110,
+        argumentOffset: 6,
+        argumentKind: "unknown",
+        kind: "argument-buffer-update",
+        purpose: "Writes a bounded output after two input arguments.",
+        calls: [],
+        returns: [],
+        returnConvention: { kind: "far", stackBytes: 0 },
+        footprint: {
+          complete: true,
+          partMemoryComplete: true,
+          preservesPartState: false,
+          preservesArgumentMemory: false,
+          unknownEffects: [],
+        },
+        writes: [
+          {
+            ...fact,
+            root: "argument",
+            argumentOffset: 10,
+            path: [],
+            offset: 0,
+            width: 16,
+            value: { kind: "unknown", width: 16, reason: "The numeric output is unresolved." },
+            condition: { kind: "true" },
+          },
+        ],
+      });
+    }
+    if (options.scalarOverwrite) bytes.push(0xc7, 0x46, 0xfe, 2, 0);
+    if (options.byteOverwrite) bytes.push(0xc6, 0x46, 0xff, 1);
+    bytes.push(0x8b, 0x7d, 0x70);
+    const header = bytes.length;
+    bytes[jump] = header - jump - 1;
+    bytes.push(
+      0x0b,
+      0xff,
+      0x75,
+      (body - header - 4) & 255,
+      0x8b,
+      0x5e,
+      0xfe,
+      0x0b,
+      0xdb,
+      0x74,
+      4,
+      0xff,
+      0x87,
+      0x96,
+      0,
+      0xff,
+      0x44,
+      12,
+      0x5f,
+      0x5e,
+      0x8b,
+      0xe5,
+      0x5d,
+      0xcb,
+    );
+    image.set(bytes);
+    return { image, helpers };
+  }
+  it("retains a nullable complete member when the entry value is zero and every store copies a member pointer", () => {
+    const { image, helpers } = selectionFixture();
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(routine.listLoops).toHaveLength(1);
+    expect(routine.listLoops![0]!.possibleFields.some((field) => field.nullableMember)).toBe(true);
+    expect(routine.uncertainties.some((reason) => reason.includes("pointer is lost"))).toBe(false);
+    expect(
+      routine.writes.some((write) => write.object.startsWith("part selected by list scan") && write.offset === 0x96),
+    ).toBe(true);
+  });
+  it("maps helper outputs to private locals without treating those words as a member's state", () => {
+    const { image, helpers } = selectionFixture({ privateOutput: true });
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(routine.listLoops).toHaveLength(1);
+    expect(routine.listLoops![0]!.possibleFields).toContainEqual(
+      expect.objectContaining({ object: "stack", offset: -4, width: 16 }),
+    );
+    expect(routine.uncertainties).toEqual([]);
+    expect(routine.iterationOutcomes?.some((outcome) => outcome.effectsComplete)).toBe(true);
+  });
+  it.each([{ unknownInitial: true }, { scalarOverwrite: true }, { byteOverwrite: true }])(
+    "does not promote an unproved pointer local %s",
+    (options) => {
+      const { image, helpers } = selectionFixture(options);
+      const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+      expect(
+        routine.writes.some((write) => write.object.startsWith("part selected by list scan") && write.offset === 0x96),
+      ).toBe(false);
+      expect(routine.uncertainties.some((reason) => reason.includes("pointer is lost"))).toBe(true);
+    },
+  );
+});

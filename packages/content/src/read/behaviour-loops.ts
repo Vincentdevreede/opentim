@@ -14,6 +14,8 @@ export interface LoopField {
   operand?: Extract<Operand, { kind: "memory" }>;
   /** Every possibly aliasing store copies the same owner's word back to that word. */
   preservesOwnerValue?: boolean;
+  /** A complete word store is zero or a pointer to a complete overlap-list member. */
+  nullableMember?: boolean;
 }
 
 export interface LoopSummary extends Finding {

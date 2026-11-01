@@ -4,6 +4,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { LoopField } from "./behaviour-loops.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
 
 export interface ListLoopSummary extends Finding {
@@ -439,7 +440,27 @@ export function discoverListLoops(
         }
         while (argument?.mnemonic === "nop") argument = before.get(argument.address);
         const argumentRoot = argument?.mnemonic === "push" ? rootOf(argument.operands[0]) : undefined;
-        for (const write of callee.writes) {
+        const privateOutput =
+          callee.kind === "argument-buffer-update" ? privateStackOutputs(code, call!, callee) : undefined;
+        if (privateOutput) {
+          for (const output of privateOutput.outputs)
+            fields.push({
+              root: "stack",
+              object: "stack",
+              ...output,
+              operand: {
+                kind: "memory",
+                segment: "ss",
+                base: ["bp"],
+                displacement: output.offset,
+                direct: false,
+                width: output.width === 8 ? 8 : 16,
+              },
+            });
+          proof.push(...privateOutput.evidence);
+          for (const assumption of privateOutput.assumptions) assumptions.add(assumption);
+        }
+        for (const write of privateOutput ? [] : callee.writes) {
           if (write.root === "global") {
             unknownGlobals = true;
             continue;
@@ -482,7 +503,16 @@ export function discoverListLoops(
       }
       if (writesFirst(i) && memory(dest)) {
         if (local(dest))
-          fields.push({ root: "stack", object: "stack", offset: dest.displacement, width: dest.width, operand: dest });
+          fields.push({
+            root: "stack",
+            object: "stack",
+            offset: dest.displacement,
+            width: dest.width,
+            operand: dest,
+            ...(i.mnemonic === "mov" && dest.width === 16 && (rootOf(source) === "other" || immediate(source, 0))
+              ? { nullableMember: true }
+              : {}),
+          });
         else if (dest.segment === "ds" && dest.direct) {
           fields.push({ root: "global", object: "data", offset: dest.displacement, width: dest.width });
           unknownGlobals = true;

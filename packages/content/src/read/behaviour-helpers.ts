@@ -5,6 +5,7 @@ import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
 import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
+import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 
 export type EnginePointer =
@@ -2121,5 +2122,6 @@ export function discoverEngineSummaries(
     )
       summary.returnConvention = convention(returns[0]!);
   }
+  addStatePreservingForwarders(codes, summaries);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

@@ -1,9 +1,9 @@
-/** Reuses complete symbolic return relations to bound owner and separate outline-buffer effects. */
+/** Reuses complete symbolic return relations to bound owner fields and separate outline-buffer effects. */
 import type { RoutineAnalysis } from "./behaviour.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 
-export function engineFromGeometryRelation(
+export function engineFromObjectRelation(
   routine: RoutineAnalysis,
   layout: BehaviourLayout,
   helpers: Map<number, EngineSummary>,
@@ -28,7 +28,6 @@ export function engineFromGeometryRelation(
     writes.some((write) => write.object !== "part" && write.object !== "data" && !pathOf(write.object))
   )
     return;
-  if (!writes.some((write) => pathOf(write.object))) return;
   const used = buffers.filter((field) => writes.some((write) => pathOf(write.object)?.[0] === field.offset));
   if (
     writes.some(
@@ -69,14 +68,18 @@ export function engineFromGeometryRelation(
       ...used.flatMap((field) => field.assumptions),
       ...writes.flatMap((write) => write.assumptions),
       ...nested.flatMap((helper) => helper!.assumptions),
-      "The discovered outline pointer is unchanged by this relation and denotes separate valid outline storage. All owner and outline writes have complete symbolic return coverage; unrelated object destinations are rejected.",
+      "All owner writes have complete symbolic return coverage; unrelated object destinations are rejected.",
+      ...(used.length
+        ? ["The discovered outline pointer is unchanged by this relation and denotes separate valid outline storage."]
+        : []),
     ]),
   ];
   return {
     address: routine.address,
-    kind: "owner-and-outline-relation",
-    purpose:
-      "Updates the owner's recorded fields and its separate outline coordinates under the extracted return conditions.",
+    kind: used.length ? "owner-and-outline-relation" : "owner-field-relation",
+    purpose: used.length
+      ? "Updates the owner's recorded fields and its separate outline coordinates under the extracted return conditions."
+      : "Updates only the argument part's recorded fields under the extracted return conditions.",
     argumentOffset: base,
     argumentKind: "object",
     writes: effects,
