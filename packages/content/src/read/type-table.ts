@@ -161,35 +161,78 @@ export interface RecordField {
   size: 1 | 2 | 4;
   name: string;
   /**
-   * `checked`: confirmed by reading the part lists from every build. `guess`: named by the Sprite Lab research, not
-   * checked here. `unknown`: no idea yet.
+   * `checked`: shown by the program's own code, which reads the field for this purpose, or by reading the part
+   * lists from every build. `guess`: named from patterns in the values or from other research, not shown by the
+   * code yet. `unknown`: no idea yet.
    */
   known: "checked" | "guess" | "unknown";
-  note?: string;
+  /** What the field means, in a sentence or two. */
+  note: string;
 }
 
-const unknown = (offset: number): RecordField => ({ offset, size: 2, name: "?", known: "unknown" });
 const callback = (offset: number, name: string): RecordField => ({
   offset,
   size: 4,
-  name: `${name} code?`,
+  name: `${name} code`,
   known: "guess",
-  note: "A far pointer, offset then segment, to the type's code for this.",
+  note: `A far pointer to the type's code. The program calls through it, so it is code; "${name}" is the traditional name for its place in the record.`,
 });
 
 /** The fields of a 58-byte record, in order. */
 export const RECORD_FIELDS: RecordField[] = [
-  { offset: 0x00, size: 2, name: "density?", known: "guess" },
-  { offset: 0x02, size: 2, name: "mass?", known: "guess" },
-  { offset: 0x04, size: 2, name: "bounce?", known: "guess" },
-  { offset: 0x06, size: 2, name: "friction?", known: "guess" },
-  unknown(0x08),
-  { offset: 0x0a, size: 2, name: "speed limit?", known: "guess" },
-  unknown(0x0c),
-  unknown(0x0e),
-  unknown(0x10),
-  unknown(0x12),
-  unknown(0x14),
+  {
+    offset: 0x00,
+    size: 2,
+    name: "density",
+    known: "checked",
+    note: "Compared with the air to work out the acceleration: lighter than air rises, heavier falls. The balloon has 9.",
+  },
+  {
+    offset: 0x02,
+    size: 2,
+    name: "mass",
+    known: "checked",
+    note: "Copied into each part when it is set up, and compared between two parts that collide. The balloon has 1, the bowling ball 200.",
+  },
+  {
+    offset: 0x04,
+    size: 2,
+    name: "bounciness",
+    known: "checked",
+    note: "A collision uses the lower value of the two parts. A super ball keeps its own when it is 128 or more.",
+  },
+  { offset: 0x06, size: 2, name: "friction", known: "checked", note: "Used by the same collision code as bounciness." },
+  {
+    offset: 0x08,
+    size: 2,
+    name: "acceleration",
+    known: "checked",
+    note: "0 in the file. The program works it out from density, gravity and air, and adds it to the part's vertical speed every step.",
+  },
+  {
+    offset: 0x0a,
+    size: 2,
+    name: "terminal velocity",
+    known: "checked",
+    note: "0 in the file. Worked out by the program; the most a part's vertical speed can be.",
+  },
+  {
+    offset: 0x0c,
+    size: 2,
+    name: "max width",
+    known: "guess",
+    note: "The widest it can be resized to. A part that can't be resized has 0 here and 240 as its minimum.",
+  },
+  { offset: 0x0e, size: 2, name: "max height", known: "guess", note: "The highest it can be resized to." },
+  { offset: 0x10, size: 2, name: "min width", known: "guess", note: "The narrowest it can be resized to." },
+  { offset: 0x12, size: 2, name: "min height", known: "guess", note: "The lowest it can be resized to." },
+  {
+    offset: 0x14,
+    size: 2,
+    name: "frame size list",
+    known: "guess",
+    note: "Read like the frame sizes, a pointer per state to a size. 0 for every part, so never used.",
+  },
   {
     offset: FRAMES_FIELD,
     size: 2,
@@ -207,14 +250,32 @@ export const RECORD_FIELDS: RecordField[] = [
   {
     offset: 0x1a,
     size: 2,
-    name: "frame sizes?",
-    known: "guess",
-    note: "Where a width and height per frame start in the data segment, or 0.",
+    name: "frame sizes",
+    known: "checked",
+    note: "Where a width and height per state start, or 0. The program sets the part's size from it.",
   },
-  { offset: LAYERS_FIELD, size: 1, name: "layer", known: "checked", note: "A layer the type is drawn on." },
-  { offset: LAYERS_FIELD + 1, size: 1, name: "second layer", known: "checked", note: "0xff when unused." },
-  unknown(0x1e),
-  unknown(0x20),
+  { offset: LAYERS_FIELD, size: 1, name: "layer", known: "checked", note: "The layer the type is drawn on." },
+  {
+    offset: LAYERS_FIELD + 1,
+    size: 1,
+    name: "second layer",
+    known: "checked",
+    note: "A second layer, or 0xff when unused.",
+  },
+  {
+    offset: 0x1e,
+    size: 2,
+    name: "outline points",
+    known: "checked",
+    note: "How many points the part's outline has. The program makes room for them when it sets the part up.",
+  },
+  {
+    offset: 0x20,
+    size: 2,
+    name: "parts bin place",
+    known: "guess",
+    note: "Its place in the parts bin: 0 is the bowling ball, 1 the basketball. Parts that are never in the bin seem to have 50.",
+  },
   callback(0x22, "bounce"),
   callback(0x26, "run"),
   callback(0x2a, "reset"),

@@ -30,8 +30,6 @@ const props = defineProps<{
   galleryPalette: string;
   /** The part's record in the program's type table, when the parts were read from the program. */
   record?: TypeRecord;
-  /** The name of the program the record comes from, like `TIM.EXE`. */
-  source?: string;
   /** The analysis of what the program does with the parts. */
   behaviour?: BehaviourResult | { status: "reading" };
   /** Why there is no analysis, when there can't be one. */
@@ -441,7 +439,7 @@ const tabClass = (on: boolean) => (on ? "border-accent text-ink" : "border-trans
             :current="frame?.id"
             @show-frame="showFrame"
           />
-          <RecordPanel v-else-if="side === 'record'" :record="record" :source="source" />
+          <RecordPanel v-else-if="side === 'record'" :record="record" />
           <div v-else class="flex flex-col gap-3.5">
             <template v-if="frame">
               <div class="flex flex-col gap-1.5">

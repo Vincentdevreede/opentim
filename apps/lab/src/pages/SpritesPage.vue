@@ -325,7 +325,6 @@ const card = (on: boolean) =>
       :part="currentPart"
       :sheet-sprites="sheetSprites"
       :record="loaded?.records.get(currentPart.type)"
-      :source="loaded?.source === 'program' ? program?.name : undefined"
       :behaviour="behaviour"
       :no-behaviour="noBehaviour"
       :gallery-palette="galleryPalette"
