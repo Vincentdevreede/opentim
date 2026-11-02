@@ -423,3 +423,28 @@ covers the projectile and bullet constructors used by the cannon and gun in the 
 Counted loops also require a complete part-memory footprint from a helper that can write object fields. State
 preservation alone cannot justify retaining old counter, pointer or drawing values after the loop. Such a helper
 leaves the loop unresolved until its remaining writes are bounded.
+
+## Connected gear traversals
+
+The reader matches the complete propagation, advancement and peer-query instruction graphs. Both compiler forms
+of their shared return bridges are accepted. Discovery binds fields and call targets from operands and references;
+it does not use a build address. Connection slots and the peer endpoints must denote complete part bases in a valid
+finite graph. Distinct parts have disjoint storage, while repeated references and self-links may alias.
+
+Propagation writes pending movement and visited flags. A nonzero pending movement is never replaced, so the caller's
+nonzero movement survives a traversal which comes back to that caller. Marking a gear before expansion bounds the
+recursive visits. Advancement adds the source's pending movement to its state, applies the two decoded boundary
+cases, and clears pending movement before following neighbours. The zero-movement gate then prevents a cycle from
+advancing the original owner again. This proves the owner relation without choosing any connected parts or executing
+the recursion. The accumulated movement-conflict return remains unknown until its full graph predicate is described.
+
+The part-graph footprint lists every possibly changed field on any connected part. Applying it invalidates cached
+values and gives later uncached or overlapping reads a new symbolic field version. A protected owner field keeps its
+previous version rather than reverting to the invocation input. Broader unknown calls supersede older field versions, while a state-preserving contract retains the owner's state
+version. Partial stores also prevent old word guards from constraining the changed value. Explicit related-object writes remain in the report,
+so a bounded field footprint cannot be promoted to an owner-only relation. General forwarder and list-scan proofs do
+not consume this contract; counted loops check the bounded connection argument separately.
+
+The frame graph can become larger when an earlier unresolved loop boundary is replaced with the actual state cases.
+Unknown conflict-dependent conditions remain unresolved in that larger graph. Removing a call or loop diagnostic is
+not proof of a complete animation. The full effect footprint, scalar return and state relation have separate claims.

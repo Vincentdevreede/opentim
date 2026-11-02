@@ -105,6 +105,7 @@ export function addStatePreservingForwarders(codes: Map<number, RoutineCode>, su
         const returned = callee?.returnConvention;
         if (
           !callee?.footprint.preservesPartState ||
+          callee.partGraph ||
           callee.argumentKind !== "object" ||
           !returned ||
           returned.stackBytes ||

@@ -5,6 +5,7 @@ import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
 import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
+import { addGearSummaries } from "./behaviour-gear.ts";
 import { addOwnedConstructors } from "./behaviour-owned-constructors.ts";
 import { addSuccessfulConstructors } from "./behaviour-successful-constructors.ts";
 import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
@@ -66,6 +67,15 @@ export interface EngineSummary extends Finding {
       freshFieldsOnly: true;
       initialState?: { offset: number; value: 0 };
     };
+  };
+  partGraph?: Finding & {
+    objectArguments: number[];
+    fields: { offset: number; width: number }[];
+    recursiveCalls: number[];
+    links: number[];
+    peer: { routine: number; connectionField: number; endpointFields: number[] };
+    preservesNonzeroOwnerField?: number;
+    stateCases?: { condition: Predicate; value: Expression }[];
   };
   numeric?: {
     operation: "leftShift32" | "arithmeticRightShift32";
@@ -2151,6 +2161,7 @@ export function discoverEngineSummaries(
     )
       summary.returnConvention = convention(returns[0]!);
   }
+  addGearSummaries(codes, summaries, layout);
   addStatePreservingForwarders(codes, summaries);
   addSuccessfulConstructors(image, codes, summaries, layout, dataSegment);
   addOwnedConstructors(image, codes, summaries, layout, table, dataSegment);

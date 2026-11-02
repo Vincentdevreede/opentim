@@ -14,6 +14,8 @@ export interface LoopField {
   operand?: Extract<Operand, { kind: "memory" }>;
   /** Every possibly aliasing store copies the same owner's word back to that word. */
   preservesOwnerValue?: boolean;
+  preservesNonzeroOwner?: boolean;
+  partGraph?: boolean;
   /** A complete word store is zero or a pointer to a complete overlap-list member. */
   nullableMember?: boolean;
 }
@@ -438,6 +440,7 @@ export function discoverCountedLoops(
           let previous = before.get(i.address);
           if (previous?.mnemonic === "push" && register(previous.operands[0], "cs"))
             previous = before.get(previous.address);
+          while (previous?.mnemonic === "nop") previous = before.get(previous.address);
           if (
             !previous ||
             previous.mnemonic !== "push" ||
@@ -448,8 +451,97 @@ export function discoverCountedLoops(
             break;
           }
         }
+        if (helper.partGraph && helper.partGraph.objectArguments.length > 1) {
+          // The second object comes from a bounded connection slot, copied intact through a private word.
+          let firstPush = before.get(i.address);
+          if (firstPush?.mnemonic === "push" && register(firstPush.operands[0], "cs"))
+            firstPush = before.get(firstPush.address);
+          while (firstPush?.mnemonic === "nop") firstPush = before.get(firstPush.address);
+          const secondPush = firstPush && before.get(firstPush.address),
+            slot = secondPush?.operands[0];
+          const stores = memory(slot)
+            ? instructions.filter(
+                (p) =>
+                  writesFirst(p) &&
+                  memory(p.operands[0]) &&
+                  p.operands[0].segment === "ss" &&
+                  p.operands[0].base.join() === "bp" &&
+                  p.operands[0].displacement < slot.displacement + 2 &&
+                  slot.displacement < p.operands[0].displacement + p.operands[0].width / 8,
+              )
+            : [];
+          const store = stores[0],
+            load = store && before.get(store.address),
+            shift = load && before.get(load.address),
+            index = shift && before.get(shift.address),
+            source = load?.operands[1];
+          if (
+            helper.partGraph.objectArguments.join() !== "6,8" ||
+            relation !== "<" ||
+            limit > helper.partGraph.links.length ||
+            secondPush?.mnemonic !== "push" ||
+            !memory(slot) ||
+            slot.width !== 16 ||
+            slot.segment !== "ss" ||
+            slot.base.join() !== "bp" ||
+            slot.displacement >= 0 ||
+            stores.length !== 1 ||
+            store?.mnemonic !== "mov" ||
+            !same(store.operands[0], slot) ||
+            !register(store.operands[1], "ax") ||
+            !dominates(store.address, secondPush.address, bodyEntry) ||
+            load?.mnemonic !== "mov" ||
+            !register(load.operands[0], "ax") ||
+            !memory(source) ||
+            source.width !== 16 ||
+            source.segment !== "ds" ||
+            source.base.length !== 2 ||
+            !source.base.includes("bx") ||
+            !source.base.some((r) => stableOwners.has(r)) ||
+            source.displacement !== helper.partGraph.links[0] ||
+            shift?.mnemonic !== "shl" ||
+            !register(shift.operands[0], "bx") ||
+            !immediate(shift.operands[1], 1) ||
+            index?.mnemonic !== "mov" ||
+            !register(index.operands[0], "bx") ||
+            !same(index.operands[1], counter)
+          ) {
+            invalid = true;
+            break;
+          }
+          const setup = [index, shift, load, store];
+          const bridge = code.instructions.filter((p) => p.address >= secondPush.address && p.address <= i.address);
+          if (
+            [setup, bridge].some((chain) =>
+              chain.some(
+                (p, n) =>
+                  n > 0 &&
+                  (incoming.get(p!.address)?.length !== 1 || incoming.get(p!.address)?.[0] !== chain[n - 1]!.address),
+              ),
+            )
+          ) {
+            invalid = true;
+            break;
+          }
+          minimumCounter = 0;
+        }
         for (const name of volatile) writtenRegisters.add(name);
-        for (const write of helper.writes) {
+        if (helper.partGraph) {
+          if (helper.partGraph.fields.some((f) => overlaps(f.offset, f.width, stateOffset))) {
+            invalid = true;
+            break;
+          }
+          fields.push(
+            ...helper.partGraph.fields.map((f) => ({
+              ...f,
+              root: "related" as const,
+              object: "related" as const,
+              partGraph: true,
+              preservesNonzeroOwner: f.offset === helper.partGraph!.preservesNonzeroOwnerField,
+            })),
+          );
+        }
+        for (const write of helper.partGraph ? [] : helper.writes) {
           if (write.root !== "global" && !write.separateStorage && overlaps(write.offset, write.width, stateOffset)) {
             invalid = true;
             break;

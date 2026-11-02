@@ -360,6 +360,7 @@ interface AbstractState {
   havocAt?: number;
   globalHavocAt?: number;
   partMemoryHavocAt?: number;
+  fieldHavoc?: { offset: number; width: number; address: number; exceptOwner: boolean; ownerOnly?: boolean }[];
   observationOnly?: boolean;
   observationHeader?: number;
   observationExit?: number;
@@ -410,6 +411,7 @@ const clone = (s: AbstractState): AbstractState => ({
   evidence: [...s.evidence],
   visited: new Set(s.visited),
   assumptions: [...s.assumptions],
+  fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
 });
 const wordOfByte: Record<string, string> = {
   al: "ax",
@@ -796,6 +798,40 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       return cached;
     }
+    if (
+      l &&
+      !["stack", "data"].includes(l.object) &&
+      (s.havoc ||
+        s.partMemoryHavocAt !== undefined ||
+        s.fieldHavoc?.some((f) => l.offset < f.offset + f.width / 8 && f.offset < l.offset + l.width / 8))
+    ) {
+      // A partial store supersedes an earlier field version even when no exact-width cell remains cached.
+      for (const [key, cell] of [...s.memory].reverse()) {
+        const parts = key.split(":"),
+          width = Number(parts.pop()),
+          offset = Number(parts.pop()),
+          object = parts.join(":");
+        if (
+          object !== l.object ||
+          cell.writtenAt === undefined ||
+          offset >= l.offset + l.width / 8 ||
+          l.offset >= offset + width / 8
+        )
+          continue;
+        if (offset <= l.offset && offset + width / 8 >= l.offset + l.width / 8 && cell.value.kind === "constant")
+          return tracked(
+            constant(unsigned(cell.value.value >>> ((l.offset - offset) * 8), l.width), l.width),
+            cell.evidence,
+          );
+        return tracked(
+          {
+            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt)}`, l.offset, l.width),
+            unresolved: true,
+          } as Expression,
+          cell.evidence,
+        );
+      }
+    }
     if (l?.object === "stack") {
       // PUSH BP; MOV BP,SP makes BP entry-SP minus two. A far return occupies four bytes.
       const frameOffset = l.offset + 2;
@@ -807,6 +843,26 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (frameOffset > 0) return tracked(field("argument", frameOffset, operand.width), l.evidence);
     }
     if (l) {
+      const scoped =
+        !["stack", "data"].includes(l.object) &&
+        [...(s.fieldHavoc ?? [])]
+          .reverse()
+          .find(
+            (effect) =>
+              !(effect.exceptOwner && l.object === "part") &&
+              (!effect.ownerOnly ||
+                (l.object === "part" && l.offset >= stateOffset && l.offset + l.width / 8 <= stateOffset + 2)) &&
+              l.offset < effect.offset + effect.width / 8 &&
+              effect.offset < l.offset + l.width / 8,
+          );
+      if (scoped)
+        return tracked(
+          {
+            ...field(`${l.object} after field effect at ${hex(scoped.address)}`, l.offset, l.width),
+            unresolved: true,
+          } as Expression,
+          l.evidence,
+        );
       if (l.object === "collider" && l.offset === options.ownerLink)
         return tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }, l.evidence);
       return tracked(
@@ -940,6 +996,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
       s.stateWritten = true;
       s.havoc = true;
+      s.fieldHavoc = undefined;
       s.havocAt = i.address;
       s.partMemoryHavocAt = undefined;
       s.globalHavocAt = i.address;
@@ -1124,6 +1181,52 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     return tracked(unknown("The engine routine's returned pointer remains unresolved"));
   };
   const privateOutputsByCall = new Map<number, ReturnType<typeof privateStackOutputs>>();
+  const invalidateGraphFields = (
+    fields: { offset: number; width: number }[],
+    s: AbstractState,
+    i: Instruction,
+    proof: Evidence[],
+    preserveOwner: Set<number> = new Set(),
+  ) => {
+    for (const effect of fields) {
+      const exceptOwner = preserveOwner.has(effect.offset);
+      s.fieldHavoc = [...(s.fieldHavoc ?? []), { ...effect, address: i.address, exceptOwner }];
+      for (const key of s.memory.keys()) {
+        const parts = key.split(":"),
+          width = Number(parts.pop()),
+          offset = Number(parts.pop()),
+          object = parts.join(":");
+        if (
+          !["stack", "data"].includes(object) &&
+          !(exceptOwner && object === "part") &&
+          offset < effect.offset + effect.width / 8 &&
+          effect.offset < offset + width / 8
+        )
+          s.memory.delete(key);
+      }
+      if (!exceptOwner)
+        s.memory.set(
+          `part:${effect.offset}:${effect.width}`,
+          tracked(unknown("A connected part may alias the owner", effect.width), proof, i.address),
+        );
+      const name = "a connected part";
+      s.registers.set("__graph_pointer", tracked({ kind: "pointer", object: name, displacement: 0, width: 16 }, proof));
+      write(
+        {
+          kind: "memory",
+          segment: "ds",
+          base: ["__graph_pointer"],
+          displacement: effect.offset,
+          direct: false,
+          width: effect.width === 8 ? 8 : 16,
+        },
+        tracked(unknown("A connected part may change this field", effect.width), proof, i.address),
+        s,
+        i,
+      );
+      s.registers.delete("__graph_pointer");
+    }
+  };
   const applyEngine = (engine: EngineSummary, args: Tracked[], s: AbstractState, i: Instruction): boolean => {
     const passed = args.at(-1)?.value;
     const completeMember =
@@ -1132,6 +1235,18 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       passed.object === s.observationObject &&
       passed.displacement === 0 &&
       engine.footprint.partMemoryComplete === true;
+    if (engine.partGraph) {
+      const owner = formalArgument(args, engine.argumentOffset, engine.partGraph.objectArguments[0]!).value;
+      if (owner.kind !== "pointer" || owner.object !== "part" || owner.displacement !== 0) return false;
+      for (const argument of engine.partGraph.objectArguments.slice(1)) {
+        const value = formalArgument(args, engine.argumentOffset, argument).value;
+        if (
+          !(value.kind === "pointer" && value.displacement === 0) &&
+          !(value.kind === "field" && value.object === "part" && engine.partGraph.links.includes(value.offset))
+        )
+          return false;
+      }
+    }
     const call = code.calls.find((call) => call.instruction === i.address);
     if (engine.kind === "argument-buffer-update" && call && !privateOutputsByCall.has(i.address))
       privateOutputsByCall.set(i.address, privateStackOutputs(code, call, engine));
@@ -1140,6 +1255,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       !engine.footprint.preservesPartState &&
       !engine.footprint.preservesArgumentMemory &&
       !completeMember &&
+      !engine.partGraph?.stateCases &&
       !privateOutput
     )
       return false;
@@ -1247,6 +1363,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         certain: entails(condition, s),
       });
     }
+    if (engine.partGraph) {
+      const preserve = new Set<number>();
+      const offset = engine.partGraph.preservesNonzeroOwnerField;
+      if (
+        offset !== undefined &&
+        entails(
+          {
+            kind: "compare",
+            operator: "!=",
+            left: asExpression(
+              memoryAt(formalArgument(args, engine.argumentOffset, engine.argumentOffset), offset, 16, s).value,
+            ),
+            right: constant(0),
+            signed: false,
+          },
+          s,
+        )
+      )
+        preserve.add(offset);
+      invalidateGraphFields(engine.partGraph.fields, s, i, engine.evidence, preserve);
+    }
     if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
       for (const key of s.memory.keys()) {
         const split = key.lastIndexOf(":"),
@@ -1261,6 +1398,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         )
           s.memory.delete(key);
       }
+      s.fieldHavoc = s.fieldHavoc
+        ?.filter((f) => !f.exceptOwner && f.offset < stateOffset + 2 && stateOffset < f.offset + f.width / 8)
+        .map((f) => ({ ...f, ownerOnly: true }));
       s.partMemoryHavocAt = i.address;
       uncertainEffects = true;
       s.assumptions = [
@@ -1523,6 +1663,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         s.havocAt,
         s.globalHavocAt,
         s.partMemoryHavocAt,
+        s.fieldHavoc,
       ]);
       for (const queued of queue.filter((q) => q.at === item.at && q.joinSignature === item.joinSignature)) {
         const terms = (state: AbstractState) => {
@@ -1817,6 +1958,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.assumptions = [...new Set([...s.assumptions, ...list.assumptions])];
       s.evidence.push(...list.evidence);
       for (const effect of list.possibleFields) {
+        if (s.fieldHavoc?.length && !["stack", "data", "buffer"].includes(effect.object))
+          s.fieldHavoc.push({ offset: effect.offset, width: effect.width, address: i.address, exceptOwner: false });
         if (effect.object === "stack" && effect.operand) {
           if (
             list.possibleFields.indexOf(effect) !==
@@ -1935,6 +2078,29 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s.assumptions = [...new Set([...s.assumptions, ...counted.assumptions])];
           s.evidence.push(...counted.evidence);
           for (const effect of counted.possibleFields) {
+            if (effect.partGraph) {
+              const preserved =
+                effect.preservesNonzeroOwner &&
+                entails(
+                  {
+                    kind: "compare",
+                    operator: "!=",
+                    left: asExpression(
+                      memoryAt(
+                        tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }),
+                        effect.offset,
+                        effect.width,
+                        s,
+                      ).value,
+                    ),
+                    right: constant(0),
+                    signed: false,
+                  },
+                  s,
+                );
+              invalidateGraphFields([effect], s, i, counted.evidence, new Set(preserved ? [effect.offset] : []));
+              continue;
+            }
             if (effect.object === "stack" && effect.operand) {
               const l = location(effect.operand, s);
               if (l)
@@ -1951,6 +2117,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 if (!["part", "stack", "data"].includes(parts.join(":"))) s.memory.delete(key);
               }
             } else if (effect.object !== "data") {
+              if (s.fieldHavoc?.length)
+                s.fieldHavoc.push({
+                  offset: effect.offset,
+                  width: effect.width,
+                  address: i.address,
+                  exceptOwner: effect.preservesOwnerValue ?? false,
+                });
               // Related-object aliases can change a field of the owner, but the invariant excludes the state.
               for (const [key] of s.memory) {
                 const parts = key.split(":");
@@ -1965,7 +2138,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 )
                   s.memory.set(
                     key,
-                    tracked(unknown(`A bounded loop may change field ${hex(effect.offset)}`, width), counted.evidence),
+                    tracked(
+                      unknown(`A bounded loop may change field ${hex(effect.offset)}`, width),
+                      counted.evidence,
+                      i.address,
+                    ),
                   );
               }
               if (!effect.preservesOwnerValue)
@@ -1974,6 +2151,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                   tracked(
                     unknown(`A bounded loop may change field ${hex(effect.offset)}`, effect.width),
                     counted.evidence,
+                    i.address,
                   ),
                 );
             }
@@ -2482,6 +2660,34 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         if (sp.kind === "stack")
           registerWrite("sp", tracked({ ...sp, displacement: sp.displacement + stackBytes }, [evidenceOf(i)]), state);
       };
+      if (engine?.partGraph?.stateCases && passesPart) {
+        for (const stateCase of engine.partGraph.stateCases) {
+          const condition = formalPredicate(stateCase.condition, args, engine.argumentOffset, s);
+          if (!possible(conjunction([...s.conditions, condition]))) continue;
+          const branch = clone(s);
+          branch.conditions.push(condition);
+          const selected: EngineSummary = {
+            ...engine,
+            writes: [
+              ...engine.writes,
+              {
+                ...engine,
+                root: "argument",
+                argumentOffset: engine.argumentOffset,
+                path: [],
+                offset: stateOffset,
+                width: 16,
+                value: stateCase.value,
+                condition: { kind: "true" },
+              },
+            ],
+          };
+          if (!applyEngine(selected, args, branch, i)) continue;
+          returnedStack(branch);
+          enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: branch });
+        }
+        continue;
+      }
       if (engine && !pureReturnRelations && !preciseMemberRelations && applyEngine(engine, args, s, i)) {
         returnedStack(s);
         const next = i.segment * 16 + ((i.offset + i.size) & 0xffff);
@@ -2577,6 +2783,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         uncertainEffects = true;
         s.uncertain = true;
         s.havoc = true;
+        s.fieldHavoc = undefined;
         s.havocAt = i.address;
         s.partMemoryHavocAt = undefined;
         s.globalHavocAt = i.address;
@@ -2680,6 +2887,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           registerWrite(name, tracked(unknown(`Unresolved ${i.mnemonic}`), e), s);
         s.memory.clear();
         s.havoc = true;
+        s.fieldHavoc = undefined;
         s.havocAt = i.address;
         s.partMemoryHavocAt = undefined;
         s.globalHavocAt = i.address;

@@ -457,6 +457,7 @@ export function discoverListLoops(
             !callee.footprint.partMemoryComplete &&
             !callee.footprint.preservesArgumentMemory) ||
           callee.list ||
+          callee.partGraph ||
           callee.footprint.unknownPartEffects?.length ||
           (!callee.returnConvention &&
             callee.evidence.some(
