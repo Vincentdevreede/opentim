@@ -16,6 +16,8 @@ import {
   discoverLifecycleFieldRoles,
   type BehaviourLifecycle,
 } from "./behaviour-lifecycle.ts";
+import { discoverExternalListConsumers } from "./behaviour-list-consumers.ts";
+import { discoverListConsumerCalls, type ListConsumerCall } from "./behaviour-list-calls.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
 import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour-scalars.ts";
@@ -113,7 +115,7 @@ export interface RoutineAnalysis extends RoutineCode {
   iterationOutcomes?: IterationOutcome[];
   /** Every decoded path has a recorded return relation; memory effects may still be unresolved. */
   returnPathsComplete?: boolean;
-  engineCalls?: (Finding & { instruction: number; summary: number; purpose: string })[];
+  engineCalls?: (Finding & { instruction: number; summary: number; purpose: string; listContext?: ListConsumerCall })[];
   controlFlowJoins?: (Finding & { address: number; liveRegisters: string[]; conditions: Predicate[][] })[];
   loops?: LoopSummary[];
   listLoops?: ListLoopSummary[];
@@ -694,6 +696,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     for (const loop of discoverListLoops(code, options.engineSummaries ?? new Map(), stateOffset, true))
       if (!listLoopsByHeader.has(loop.header)) listLoopsByHeader.set(loop.header, loop);
   const usedListLoops: ListLoopSummary[] = [];
+  const listConsumerCalls = new Map(
+    discoverListConsumerCalls(code, options.engineSummaries ?? new Map()).map((c) => [c.instruction, c]),
+  );
   const transitions: Transition[] = [];
   const comparisons: RoutineAnalysis["comparisons"] = [];
   const diagnostics = new Set(code.uncertainties);
@@ -1385,7 +1390,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           unknown(
             selectedObject === "a connected part"
               ? "A connected part may change this field"
-              : "An overlap query may update a selected candidate",
+              : "A selected related object may change this field",
             effect.width,
           ),
           proof,
@@ -1398,7 +1403,22 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.registers.delete("__graph_pointer");
     }
   };
+  const angleFrameMatches = (engine: EngineSummary | undefined, i: Instruction): boolean => {
+    if (!engine || !["angle-sector", "saved-angle-gate"].includes(engine.kind)) return true;
+    const previous = code.instructions.find((p) => p.address + p.size === i.address);
+    const segmentPush =
+      previous?.mnemonic === "push" && previous.operands[0]?.kind === "register" && previous.operands[0].name === "cs";
+    const incoming = code.edges.filter((edge) => edge.to === i.address);
+    const farBridge = segmentPush && incoming.length === 1 && incoming[0]!.from === previous.address;
+    const convention = engine.returnConvention;
+    return (
+      !!convention &&
+      !convention.stackBytes &&
+      (convention.kind === "far" ? !!(i.far || farBridge) : !i.far && !segmentPush)
+    );
+  };
   const applyEngine = (engine: EngineSummary, args: Tracked[], s: AbstractState, i: Instruction): boolean => {
+    if (!angleFrameMatches(engine, i)) return false;
     const passed = args.at(-1)?.value;
     const completeMember =
       s.observationOnly &&
@@ -1489,14 +1509,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
     }
     s.assumptions = [...new Set([...s.assumptions, ...engine.assumptions])];
-    s.evidence.push(evidenceOf(i));
+    s.evidence.push(evidenceOf(i), ...(engine.listConsumerScope?.evidence ?? []));
     engineCalls.push({
       instruction: i.address,
       summary: engine.address,
       purpose: engine.purpose,
       confidence: engine.confidence,
       assumptions: engine.assumptions,
-      evidence: [evidenceOf(i), ...engine.evidence.slice(0, 1)],
+      evidence: [evidenceOf(i), ...(engine.listConsumerScope ? engine.evidence : engine.evidence.slice(0, 1))],
+      ...(engine.listConsumerScope ? { listContext: engine.listConsumerScope } : {}),
     });
     const globals = engine.writes
       .filter(
@@ -1621,6 +1642,22 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           new Set(),
           `a candidate selected by the overlap query at ${hex(i.address)}`,
           condition,
+        );
+      }
+    }
+    if (engine.listConsumerScope && engine.listConsumer) {
+      for (const effect of engine.writes) {
+        if (effect.root !== "unknown" || effect.selection !== "external-list-member" || effect.path.length) continue;
+        invalidateSelectedPartFields(
+          [effect],
+          s,
+          i,
+          effect.evidence,
+          new Set([effect.offset]),
+          effect.separateStorage === "outline"
+            ? `outline storage of a listed part at ${hex(i.address)}`
+            : `a listed part at ${hex(i.address)}`,
+          { kind: "unknown", reason: "A reached list member passes the consumer's type and geometric gates." },
         );
       }
     }
@@ -2711,6 +2748,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.flags = undefined;
       s.carry = undefined;
     } else if (i.flow === "call") {
+      const angleEngine = i.target ? options.engineSummaries?.get(i.target.address) : undefined;
+      if (!angleFrameMatches(angleEngine, i)) {
+        const reason = `Scalar helper return frame at ${hex(i.address)} is not established`;
+        uncertainEffects = true;
+        diagnostics.add(reason);
+        unresolvedExit(s, i, reason);
+        continue;
+      }
       const summary = i.target && options.summaries?.get(i.target.address);
       // A PUSH CS immediately before a near CALL supplies the far return frame, not an argument.
       const args = [...s.stack];
@@ -2815,6 +2860,61 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         summary.outcomes.every((outcome) => outcome.fields.every((effect) => composableObject(effect.object)))
       );
       let engine = i.target && options.engineSummaries?.get(i.target.address);
+      const listScope = listConsumerCalls.get(i.address);
+      const listOwner = engine?.listConsumer
+        ? formalArgument(args, engine.listConsumer.argumentOffset, engine.listConsumer.argumentOffset).value
+        : undefined;
+      if (
+        engine?.listConsumer &&
+        listScope &&
+        listOwner?.kind === "pointer" &&
+        listOwner.object === "part" &&
+        listOwner.displacement === 0
+      ) {
+        const contract = engine.listConsumer;
+        engine = {
+          ...engine,
+          ...listScope,
+          address: engine.address,
+          listConsumerScope: listScope,
+          kind: "fresh-overlap-list-consumer",
+          purpose:
+            "Applies the typed list consumer to a fresh owner-excluding overlap list; only listed parts and their outline storage may change.",
+          argumentOffset: contract.argumentOffset,
+          argumentKind: "object",
+          returns: [],
+          writes: contract.fields.map((f) => ({
+            ...contract,
+            root: "unknown" as const,
+            selection: "external-list-member" as const,
+            path: [],
+            ...(f.root === "outline" ? { separateStorage: "outline" as const } : {}),
+            offset: f.offset,
+            width: f.width,
+            value: unknown(
+              "The selected member's final value depends on its type, geometry and helper conditions",
+              f.width,
+            ),
+            condition: {
+              kind: "unknown" as const,
+              reason: "A reached list member satisfies the consumer's branch conditions.",
+            },
+          })),
+          footprint: {
+            complete: !contract.unknownGlobals,
+            partMemoryComplete: true,
+            preservesArgumentMemory: false,
+            preservesPartState: true,
+            unknownEffects: contract.unknownGlobals
+              ? ["The member helpers may change unresolved backend globals."]
+              : [],
+            unknownPartEffects: [],
+            unknownGlobalEffects: contract.unknownGlobals
+              ? ["The member helpers may change unresolved backend globals."]
+              : [],
+          },
+        };
+      }
       if (engine?.factory) {
         const type = args.at(-1 - (engine.factory.typeArgument - engine.argumentOffset) / 2)?.value;
         const successful =
@@ -3654,6 +3754,39 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       : returnKinds.size === 1 && returnKinds.has("ret")
         ? 4
         : 6;
+    if (code && !counts.has(address)) {
+      const consumers = discoverExternalListConsumers(code, engineSummaries, stateOffset);
+      if (consumers.length === 1) {
+        const contract = consumers[0]!;
+        const prior = engineSummaries.get(address);
+        const conditional: EngineSummary = {
+          ...contract,
+          ...prior,
+          address,
+          kind: "conditional-list-consumer",
+          argumentOffset: contract.argumentOffset,
+          argumentKind: "object",
+          purpose:
+            "Consumes an externally supplied list; its scoped effects require a fresh, owner-excluding producer in the caller.",
+          listConsumer: contract,
+          writes: prior?.writes ?? [],
+          returns: prior?.returns ?? [],
+          calls: code.calls.flatMap((c) => (c.target ? [c.target.address] : [])),
+          returnConvention: contract.returnConvention,
+          footprint: {
+            complete: false,
+            partMemoryComplete: false,
+            preservesArgumentMemory: false,
+            preservesPartState: false,
+            unknownEffects: ["The external list preconditions have not been established at an arbitrary entry."],
+          },
+        };
+        engineSummaries.set(address, conditional);
+        const at = helpers.findIndex((h) => h.address === address);
+        if (at < 0) helpers.push(conditional);
+        else helpers[at] = conditional;
+      }
+    }
     const routine = analyseRoutine(image, entry, {
       dataSegment: list.dataSegment,
       stateOffset,

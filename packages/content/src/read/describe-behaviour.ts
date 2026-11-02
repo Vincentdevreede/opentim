@@ -1314,8 +1314,14 @@ function remapPredicate(predicate: Predicate, target: string, sourceType: number
 }
 
 function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = false): string {
+  if (write.object.startsWith("outline storage of a listed part at "))
+    return "May update the outline coordinates of a part in the overlap list.";
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
-  const subject = other ? "another part's" : "the part's";
+  const subject = write.object.startsWith("a listed part at ")
+    ? "a listed part's"
+    : other
+      ? "another part's"
+      : "the part's";
   if (name === "state")
     return write.value.kind === "constant"
       ? `Selects state ${write.value.value}${other ? " on another part" : ""}.`

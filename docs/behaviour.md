@@ -507,3 +507,51 @@ The flag is not given a gameplay meaning beyond its checked branch role.
 when its existing input relations establish the entire guard and its far-return frame is correct. Unknown connections
 are not assumed null and do not cause speculative path expansion. The remaining query may call the peer type's rope
 callback and can change part states. No general state-preservation or resolved indirect target is claimed for it.
+
+## Fresh lists passed to another routine
+
+Some helpers consume a list which their caller has just built. Their bodies do not establish that the incoming list
+is acyclic or excludes the owner. `listConsumer` therefore records a conditional contract, including the head and
+next fields, complete member and separate outline footprints, calling convention and explicit list requirements.
+Discovery reuses the list-loop CFG proof with an external entry; ordinary analysis does not assume this entry.
+Private frame effects are excluded from the caller footprint and return registers remain unspecified.
+
+A stronger `overlapProducer` certificate establishes the required output shape on normal return. The head starts at
+zero and each candidate is prepended at most once. The checked head/next helpers define a deterministic successor;
+the query does not change its source links, class flags or global heads. Repeating a candidate would therefore repeat
+the successor cycle and prevent normal return. A returned enumeration is finite and has no repeats. Together with
+the checked owner exclusion and prepend operations, this gives an acyclic owner-excluding result. Valid complete part
+bases, nonwrapping fields and separate part, global and private stack storage remain explicit assumptions. This proves
+a postcondition of returning; it does not claim that arbitrary source lists make the query terminate.
+
+At a consumer call, every incoming CFG path must cross a matching producer on the same preserved owner register.
+No intervening call, object store, owner-register replacement or frame mutation may invalidate that provenance.
+Argument pushes must have a unique straight path into their calls, with the correct near/far frame. The actual
+consumer argument must also be the analysed owner's complete base; a list built for another object gives no owner
+exemption. Missing or invalidated provenance leaves the original unresolved effects in place.
+
+Only at a proved call site does the analyser preserve the owner's fields while recording conditional effects on
+listed parts and their separate outlines. Scoped invalidation retains overlapping and uncached aliases of those
+related objects. Outline effects retain their storage identity and are described as coordinate changes, not as part
+flags at coincident byte offsets. Backend globals and numeric return values can remain unresolved independently.
+
+The producer proof also accepts constant masks in the head and successor call bridges. It verifies the complete
+constant setup and its unique path into the call. Such a query can rewrite its coordinate argument because that
+argument no longer supplies the successor mask. Queries using an argument mask still have to preserve that argument.
+The successor remains deterministic on normal return; no new source-list termination assumption is introduced.
+
+## Scalar angle helpers
+
+The reader matches the complete four-sector classifier, including its shared-return compiler form. The two explicit
+boundary returns are combined with the general shift-and-mask result into one ordinary expression. Arithmetic wraps
+to the decoded 16-bit width. This preserves every input case while avoiding three-way path splitting in callers.
+The summary retains the complete instruction evidence, scalar argument position and near/far return convention.
+It has no part or global writes. Its mathematical relation is tested over the complete 16-bit input domain; no x86
+instructions or game callbacks are executed by that check.
+
+A second complete graph matches the enabled saved-angle check and verifies its call to that classifier. It reads
+three discovered global words and compares the requested angle with the saved angle in two disjoint shifted windows.
+Its single Boolean expression preserves the explicit signed bounds and inclusive side comparisons, without assuming
+that the saved sector agrees with the saved angle. The globals are assumed stable during this read-only call.
+Both scalar summaries require a matching return frame at the caller: a far call or an unavoidable PUSH CS bridge
+for a far-return routine, and a near call for a near-return routine. Missing frame evidence keeps the call unresolved.

@@ -15,7 +15,7 @@ export interface ListLoopSummary extends Finding {
   exit: number;
   nodeRegister: string;
   nextField: number;
-  source?: "overlap-query" | "global-list";
+  source?: "overlap-query" | "global-list" | "external-list";
   headField?: number;
   globalHead?: number;
   ownerRegister: string;
@@ -51,6 +51,7 @@ export function discoverListLoops(
   helpers: Map<number, EngineSummary>,
   stateOffset: number,
   stateIsNonzero = false,
+  externalEntry?: { headInstruction: number },
 ): ListLoopSummary[] {
   if (code.status !== "complete") return [];
   const instructions = new Map(code.instructions.map((i) => [i.address, i]));
@@ -332,9 +333,10 @@ export function discoverListLoops(
           argument.displacement === argumentOffset;
         return stackOwner || (!volatile.includes(owner) && register(argument, owner));
       });
-    if (!globalSource && !queries.length) continue;
+    const externalSource = !globalSource && !queries.length && externalEntry?.headInstruction === head.address;
+    if (!globalSource && !externalSource && !queries.length) continue;
     const querySites = new Set(queries.map((call) => call.instruction));
-    const uncovered = globalSource ? [] : [code.address],
+    const uncovered = globalSource || externalSource ? [] : [code.address],
       uncoveredSeen = new Set<number>();
     while (uncovered.length) {
       const at = uncovered.pop()!;
@@ -386,6 +388,11 @@ export function discoverListLoops(
     let unknownGlobals = false;
     const assumptions = new Set([
       ...queries.flatMap((call) => helpers.get(call.target!.address)!.list!.assumptions),
+      ...(externalSource
+        ? [
+            "This is a conditional external-list contract. Its caller must establish a finite acyclic list of complete distinct part bases, excluding the argument owner, with unchanged next links.",
+          ]
+        : []),
       ...globalProofs.flatMap((helper) => helper.assumptions),
       ...(stateIsNonzero
         ? [
@@ -651,7 +658,7 @@ export function discoverListLoops(
       exit,
       nodeRegister: node.name,
       nextField,
-      source: globalSource ? "global-list" : "overlap-query",
+      source: globalSource ? "global-list" : externalSource ? "external-list" : "overlap-query",
       ...(globalSource ? { globalHead } : { headField }),
       ownerRegister: owner,
       ...(query ? { query: query.instruction } : {}),

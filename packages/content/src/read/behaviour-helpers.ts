@@ -3,12 +3,17 @@ import type { Confidence, Evidence, Expression, Finding, Predicate } from "./beh
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { discoverAngleGate } from "./behaviour-angle-gate.ts";
+import { discoverAngleClassifier } from "./behaviour-angle.ts";
 import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
 import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
 import { addGearSummaries } from "./behaviour-gear.ts";
 import { addOwnedConstructors } from "./behaviour-owned-constructors.ts";
 import { addSuccessfulConstructors } from "./behaviour-successful-constructors.ts";
 import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
+import type { ListConsumerCall } from "./behaviour-list-calls.ts";
+import type { ExternalListConsumer } from "./behaviour-list-consumers.ts";
+import { proveOverlapProducer, type OverlapProducer } from "./behaviour-overlap-producer.ts";
 import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-connection-bypass.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 
@@ -21,7 +26,7 @@ export type EnginePointer =
 
 export interface EngineWrite extends Finding {
   /** A query selects this object independently of the argument's incoming list head. */
-  selection?: "overlap-candidate";
+  selection?: "overlap-candidate" | "external-list-member";
   separateStorage?: "outline";
   /** BP-relative argument position, accounting for the routine's actual near or far return convention. */
   argumentOffset?: number;
@@ -45,6 +50,9 @@ export interface EngineReturn extends Finding {
 
 export interface EngineSummary extends Finding {
   shortCircuit?: ConnectionBypass;
+  listConsumer?: ExternalListConsumer;
+  listConsumerScope?: ListConsumerCall;
+  overlapProducer?: OverlapProducer;
   address: number;
   kind: string;
   purpose: string;
@@ -2212,9 +2220,21 @@ export function discoverEngineSummaries(
       },
     });
   }
+  for (const summary of summaries.values()) {
+    const code = codes.get(summary.address);
+    if (code) summary.overlapProducer = proveOverlapProducer(code, codes, summary);
+  }
   addGearSummaries(codes, summaries, layout);
   addStatePreservingForwarders(codes, summaries);
   addSuccessfulConstructors(image, codes, summaries, layout, dataSegment);
   addOwnedConstructors(image, codes, summaries, layout, table, dataSegment);
+  for (const code of codes.values()) {
+    const angle = discoverAngleClassifier(code);
+    if (angle) summaries.set(code.address, angle);
+  }
+  for (const code of codes.values()) {
+    const gate = discoverAngleGate(code, codes);
+    if (gate) summaries.set(code.address, gate);
+  }
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

@@ -566,3 +566,14 @@ it("does not preserve a related input constraint through untracked memory effect
   expect(result.status).toBe("unresolved");
   expect(result.states).toEqual([0, 1]);
 });
+
+it("keeps listed outline storage separate from part flags and state fields in words", () => {
+  const data = report([rule(field(12), { kind: "true" })]);
+  data.layout.fields.push({ name: "drawingFlags", offset: 8, ...proof });
+  data.routines[0]!.writes.push({ ...write(8, constant(0)), object: "outline storage of a listed part at 0x10" });
+  const effects = describeBehaviour(data).parts[0]!.effects;
+  expect(
+    effects.some((e) => e.description === "May update the outline coordinates of a part in the overlap list."),
+  ).toBe(true);
+  expect(effects.some((e) => /drawing flags|selected state/.test(e.description))).toBe(false);
+});
