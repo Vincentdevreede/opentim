@@ -167,11 +167,31 @@ const outlineSummary = (field: number): import("../src/read/behaviour-helpers.ts
         repeated: { stride: 4 },
       },
     ],
-    footprint: { complete: false, preservesArgumentMemory: false, preservesPartState: true, unknownEffects: [] },
+    footprint: {
+      complete: false,
+      partMemoryComplete: true,
+      preservesArgumentMemory: false,
+      preservesPartState: true,
+      unknownEffects: [],
+    },
   };
 };
 
 describe("outline buffer loop invariants", () => {
+  it("rejects a state-only helper whose unrecorded field writes could invalidate cached values", () => {
+    const bytes = [
+      0x55, 0x8b, 0xec, 0x83, 0xec, 2, 0x56, 0x8b, 0x76, 6, 0xc7, 0x46, 0xfe, 0, 0, 0xeb, 10, 0x56, 0x9a, 0x70, 0, 0, 0,
+      0x59, 0xff, 0x46, 0xfe, 0x83, 0x7e, 0xfe, 4, 0x7c, 0xf0, 0xc7, 0x44, 12, 1, 0, 0x5e, 0x8b, 0xe5, 0x5d, 0xcb,
+    ];
+    const image = Uint8Array.from(bytes),
+      helper = outlineSummary(0x72);
+    helper.writes = [];
+    helper.returnConvention = { kind: "far", stackBytes: 0 };
+    helper.footprint.partMemoryComplete = false;
+    expect(discoverCountedLoops(readRoutineCode(image, entry, 0), new Map([[0x70, helper]]), 12)).toHaveLength(0);
+    helper.footprint.partMemoryComplete = true;
+    expect(discoverCountedLoops(readRoutineCode(image, entry, 0), new Map([[0x70, helper]]), 12)).toHaveLength(1);
+  });
   it.each([0x72, 0x86])("uses the discovered buffer field %s and preserves the owner state", (field) => {
     const image = outlineFixture(field),
       helpers = new Map([[0x70, outlineSummary(field)]]);

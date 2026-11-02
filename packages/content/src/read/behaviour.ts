@@ -2406,7 +2406,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         const type = args.at(-1 - (engine.factory.typeArgument - engine.argumentOffset) / 2)?.value;
         const successful =
           type?.kind === "constant"
-            ? engine.factory.alwaysSuccessfulConstructors?.find((ctor) => ctor.type === unsigned(type.value, 16))
+            ? [
+                ...(engine.factory.alwaysSuccessfulConstructors ?? []),
+                ...(engine.factory.ownedConstructors ?? []),
+              ].find((ctor) => ctor.type === unsigned(type.value, 16))
             : undefined;
         if (
           type?.kind === "constant" &&
@@ -2420,7 +2423,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               ? {
                   evidence: uniqueEvidence([...specialized.evidence, ...successful.evidence]),
                   purpose:
-                    "Allocates a fresh part whose checked owner-only constructor always succeeds, preserving existing parts.",
+                    "Allocates a fresh part with a checked constructor and cleanup ownership, preserving existing parts.",
                 }
               : {}),
             assumptions: [

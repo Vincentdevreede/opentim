@@ -386,6 +386,40 @@ is null. Its owner push and dispatch sequence must have one unambiguous entry. T
 unreachable. Initial allocation failure still uses the separately proved null cleanup. The evidence includes the
 constructor table entry, constructor instructions, dispatch bridge and original factory skeleton.
 
-This covers the rope-end constructor used while a balloon detaches from its rope. Constructors that allocate outline
-storage, including the cannon's projectile and the bullet constructors, can return failure and do not receive this contract. Their
-cleanup ownership remains unresolved.
+This covers the rope-end constructor used while a balloon detaches from its rope. Constructors that allocate outline storage can return failure and do not receive this success-only contract. Their
+separate cleanup proof is described below.
+
+## Constructors with owned failure cleanup
+
+A constructor which allocates outline storage can fail even when its successful writes stay inside the fresh part
+and its outline buffer. These are separate proofs. The reader now combines the successful write scope with a checked
+allocation-failure path, the factory's cleared allocation, unchanged cleanup fields and the actual cleanup CFG.
+
+The failure-path matcher requires the allocation result to be stored before its zero test. Returning one requires a
+null result; the success helper is unreachable on that path. A success return may jump through a shared epilogue bridge,
+but that bridge must not execute the failure-value assignment. The other cleanup-owned words must retain their proved
+entry zero. The cleanup matcher checks every instruction and edge: zero fields skip secondary releases, leaving only
+the fresh owner to release. A shared stack argument such as `push word [bp+6]` can forward the owner to a helper when
+that entry argument remains intact. Byte arguments, changed stack arguments and different slots do not qualify.
+
+The release certificate is restricted to an exclusively owned allocation. It matches the complete header-release,
+coalescing, free-ring insertion, tail removal and logical-boundary routines. The allocator must use the same header
+layout, unlink entry and heap globals. Its initialization, growth and split routines are checked as well. The cleared
+allocation proof separately follows the argument wrapper, checked product, allocator call and forward byte/word fill.
+Every nonnull return has its whole requested payload cleared. These are decoded structure checks, with no selected
+heap contents, callback invocation or execution of game instructions.
+
+The contract assumes valid finite heap metadata, separate live payloads and stack storage, and sufficient stack
+capacity. It invalidates the freed payload and preserves other live allocations on normal returns. It grants no
+preservation contract to an arbitrary release call. The logical boundary helper writes only its recorded bookkeeping
+globals; it does not call an operating-system service. Heap validation can prevent return for a malformed heap.
+
+The factory proof then checks both constructor results through the existing CFG. A return of one follows failure
+cleanup; a return of zero follows the shared success continuation. The type-selected constructor and every shared
+prefix/suffix operation must remain scoped. `ownedConstructors` records the resulting type-specific certificates,
+with evidence and assumptions. It does not supply invented initial states or numeric allocation addresses. This
+covers the projectile and bullet constructors used by the cannon and gun in the supplied builds.
+
+Counted loops also require a complete part-memory footprint from a helper that can write object fields. State
+preservation alone cannot justify retaining old counter, pointer or drawing values after the loop. Such a helper
+leaves the loop unresolved until its remaining writes are bounded.

@@ -412,7 +412,13 @@ export function discoverCountedLoops(
       if (i.flow === "call") {
         const call = code.calls.find((c) => c.instruction === i.address);
         const helper = call?.target && helpers.get(call.target.address);
-        if (!helper || (!helper.footprint.preservesArgumentMemory && !helper.footprint.preservesPartState)) {
+        if (
+          !helper ||
+          (!helper.footprint.preservesArgumentMemory && !helper.footprint.preservesPartState) ||
+          (!helper.footprint.preservesArgumentMemory &&
+            !helper.footprint.complete &&
+            !helper.footprint.partMemoryComplete)
+        ) {
           invalid = true;
           break;
         }

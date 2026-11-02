@@ -151,8 +151,15 @@ export function discoverConstructorEffects(
             push = before.get(push.address);
           }
           while (push?.mnemonic === "nop") push = before.get(push.address);
+          const pushed = push?.operands[0];
           const owner =
-            push?.mnemonic === "push" && register(push.operands[0]) && state.get(push.operands[0].name) === "owner";
+            push?.mnemonic === "push" &&
+            ((register(pushed) && state.get(pushed.name) === "owner") ||
+              (memory(pushed) &&
+                pushed.segment === "ss" &&
+                pushed.base.join() === "bp" &&
+                pushed.displacement === first &&
+                pushed.width === 16));
           const allocated = callee?.kind === "nullable-allocation" && allocationProof.has(callee.address);
           const readonly =
             callee?.footprint.preservesArgumentMemory &&
@@ -194,7 +201,8 @@ export function discoverConstructorEffects(
               memory(source) &&
               source.segment === "ss" &&
               source.base.join() === "bp" &&
-              source.displacement === first
+              source.displacement === first &&
+              source.width === 16
             )
               root = "owner";
             else if (memory(source) && source.width === 16 && local(source))

@@ -5,6 +5,7 @@ import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
 import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
+import { addOwnedConstructors } from "./behaviour-owned-constructors.ts";
 import { addSuccessfulConstructors } from "./behaviour-successful-constructors.ts";
 import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
@@ -56,6 +57,7 @@ export interface EngineSummary extends Finding {
     constructorTable: { segment: number; offset: number; stride: number; typeCount: number };
     noConstructorTypes: number[];
     constructors?: (Finding & { type: number; address: number })[];
+    ownedConstructors?: (Finding & { type: number; address: number })[];
     alwaysSuccessfulConstructors?: (Finding & { type: number; address: number })[];
     noConstructor: Finding & {
       purpose: string;
@@ -819,8 +821,8 @@ function nullCleanupProof(code: RoutineCode): Evidence[] | undefined {
   return proof;
 }
 
-/** The proof tracks only a nullness predicate and a private error flag; it never supplies or runs an object. */
-function specializeNullConstructor(
+/** The proof tracks nullness, a private error flag and certified constructor results; it never supplies or runs an object. */
+export function specializeNullConstructor(
   image: Uint8Array,
   code: RoutineCode,
   summary: EngineSummary,
@@ -830,6 +832,7 @@ function specializeNullConstructor(
   dataSegment: number,
   typeCount: number | undefined,
   stateOffset: number | undefined,
+  owned?: Finding & { cleanupAddress: number; resultBranch: number },
 ): EngineSummary["factory"] | undefined {
   if (
     table === undefined ||
@@ -1091,7 +1094,7 @@ function specializeNullConstructor(
   const outgoing = new Map<number, { to: number | null; kind: string }[]>();
   for (const edge of code.edges) outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge]);
   const instructions = new Map(code.instructions.map((i) => [i.address, i]));
-  const todo: { at: number; error?: 0 | 1; nullObject?: boolean }[] = [{ at: code.address }];
+  const todo: { at: number; error?: 0 | 1; nullObject?: boolean; constructorResult?: 0 | 1 }[] = [{ at: code.address }];
   const visited = new Set<string>(),
     proof: Evidence[] = [],
     assumptions = new Set<string>([
@@ -1100,10 +1103,14 @@ function specializeNullConstructor(
       "Successful calls follow the decoded C register and stack convention. Heap validation can prevent return on a malformed heap, but it does not dispatch game callbacks or write existing parts.",
     ]);
   let budget = 1024;
-  let stateChanged = false;
+  let stateChanged = !!owned;
+  if (owned) {
+    proof.push(...owned.evidence);
+    for (const assumption of owned.assumptions) assumptions.add(assumption);
+  }
   while (todo.length && budget-- > 0) {
     const path = todo.pop()!,
-      key = `${path.at}:${path.error}:${path.nullObject}`;
+      key = `${path.at}:${path.error}:${path.nullObject}:${path.constructorResult}`;
     if (visited.has(key)) continue;
     visited.add(key);
     const instruction = instructions.get(path.at);
@@ -1151,7 +1158,15 @@ function specializeNullConstructor(
       stateChanged = true;
     if (instruction.flow === "call") {
       const call = code.calls.find((c) => c.instruction === instruction.address)!;
-      if (instruction.address === constructorCall.instruction) return undefined;
+      if (instruction.address === constructorCall.instruction) {
+        if (!owned || path.nullObject !== false) return undefined;
+        const continuations = outgoing.get(instruction.address) ?? [];
+        if (continuations.length !== 1 || continuations[0]!.kind !== "next" || continuations[0]!.to === null)
+          return undefined;
+        for (const constructorResult of [0, 1] as const)
+          todo.push({ ...path, at: continuations[0]!.to!, constructorResult });
+        continue;
+      }
       if (instruction.address !== allocation.instruction) {
         const callee = call.target && summaries.get(call.target.address),
           calleeCode = call.target && codes.get(call.target.address);
@@ -1189,6 +1204,16 @@ function specializeNullConstructor(
           for (const assumption of callee.assumptions) assumptions.add(assumption);
           proof.push(...callee.evidence);
         } else if (
+          owned &&
+          calleeCode?.address === owned.cleanupAddress &&
+          path.nullObject === false &&
+          path.error === 1 &&
+          path.constructorResult === 1 &&
+          pushed?.mnemonic === "push" &&
+          isRegister(pushed.operands[0], object)
+        ) {
+          proof.push(...owned.evidence);
+        } else if (
           calleeCode &&
           path.nullObject === true &&
           pushed?.mnemonic === "push" &&
@@ -1202,7 +1227,9 @@ function specializeNullConstructor(
     }
     if (instruction.flow === "return") continue;
     let edges = outgoing.get(instruction.address) ?? [];
-    if (instruction.address === zeroBranch.address) edges = edges.filter((e) => e.kind === "taken");
+    if (instruction.address === zeroBranch.address && !owned) edges = edges.filter((e) => e.kind === "taken");
+    if (owned && instruction.address === owned.resultBranch && path.constructorResult !== undefined)
+      edges = edges.filter((e) => e.kind === (path.constructorResult === 0 ? "taken" : "not-taken"));
     if (instruction.address === flagBranch.address && path.error !== undefined)
       edges = edges.filter(
         (e) => e.kind === ((path.error === 0) === (flagBranch.mnemonic === "je") ? "taken" : "not-taken"),
@@ -2126,5 +2153,6 @@ export function discoverEngineSummaries(
   }
   addStatePreservingForwarders(codes, summaries);
   addSuccessfulConstructors(image, codes, summaries, layout, dataSegment);
+  addOwnedConstructors(image, codes, summaries, layout, table, dataSegment);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }
