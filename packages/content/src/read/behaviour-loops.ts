@@ -3,6 +3,7 @@ import type { Evidence, Finding } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { proveEmptyConnections, type EmptyConnections } from "./behaviour-empty-connections.ts";
 import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
 
 export interface LoopField {
@@ -34,6 +35,7 @@ export interface LoopSummary extends Finding {
   signed: boolean;
   /** An indexed footprint may require a nonnegative entry counter. */
   minimumCounter?: number;
+  emptyConnections?: EmptyConnections;
   proof: {
     update: number;
     variant: string;
@@ -749,7 +751,7 @@ export function discoverCountedLoops(
     assumptions.add(
       "Every acyclic body path restores SP, including caller argument cleanup and the compiler's PUSH CS before a near call to a far-return helper.",
     );
-    result.push({
+    const summary: LoopSummary = {
       header: compare.address,
       bodyEntry,
       body: [...body].sort((a, b) => a - b),
@@ -783,7 +785,16 @@ export function discoverCountedLoops(
             .map((e) => [e.address, e]),
         ).values(),
       ],
-    });
+    };
+    const graphCalls = code.calls
+      .filter((c) => body.has(c.instruction))
+      .map((c) => c.target && helpers.get(c.target.address))
+      .filter((h) => h?.partGraph);
+    if (graphCalls.length === 1) {
+      const empty = proveEmptyConnections(code, summary, graphCalls[0]!);
+      if (empty) summary.emptyConnections = empty;
+    }
+    result.push(summary);
   }
   return result;
 }

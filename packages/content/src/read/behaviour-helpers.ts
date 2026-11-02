@@ -75,6 +75,14 @@ export interface EngineSummary extends Finding {
     links: number[];
     peer: { routine: number; connectionField: number; endpointFields: number[] };
     preservesNonzeroOwnerField?: number;
+    conflict?: {
+      accumulatorArgument: number;
+      sourceArgument: number;
+      targetArgument: number;
+      modeArgument: number;
+      returnRule: "oneAfterAnyConflictOtherwiseIncoming";
+      localConditions: Predicate[];
+    };
     stateCases?: { condition: Predicate; value: Expression }[];
   };
   numeric?: {

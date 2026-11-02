@@ -208,6 +208,28 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
   }
   if (expression.operator === "^") return bits(left.value ^ right.value, left.mask & right.mask, width);
   if (!known(left) || !known(right)) return unknownBits(width);
+  if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
+    const a = wrap(left.value, expression.left.width),
+      b = wrap(right.value, expression.left.width),
+      op = expression.operator;
+    return bits(
+      Number(
+        op === "=="
+          ? a === b
+          : op === "!="
+            ? a !== b
+            : op === "<"
+              ? a < b
+              : op === "<="
+                ? a <= b
+                : op === ">"
+                  ? a > b
+                  : a >= b,
+      ),
+      full(width),
+      width,
+    );
+  }
   let value: number;
   switch (expression.operator) {
     case "+":

@@ -436,7 +436,7 @@ nonzero movement survives a traversal which comes back to that caller. Marking a
 recursive visits. Advancement adds the source's pending movement to its state, applies the two decoded boundary
 cases, and clears pending movement before following neighbours. The zero-movement gate then prevents a cycle from
 advancing the original owner again. This proves the owner relation without choosing any connected parts or executing
-the recursion. The accumulated movement-conflict return remains unknown until its full graph predicate is described.
+the recursion. The full graph-wide movement-conflict result remains unresolved. The return rule and the local conflict tests are recorded below.
 
 The part-graph footprint lists every possibly changed field on any connected part. Applying it invalidates cached
 values and gives later uncached or overlapping reads a new symbolic field version. A protected owner field keeps its
@@ -448,3 +448,35 @@ not consume this contract; counted loops check the bounded connection argument s
 The frame graph can become larger when an earlier unresolved loop boundary is replaced with the actual state cases.
 Unknown conflict-dependent conditions remain unresolved in that larger graph. Removing a call or loop diagnostic is
 not proof of a complete animation. The full effect footprint, scalar return and state relation have separate claims.
+
+## Scalar helper returns and analysis work
+
+Read-only leaf helpers sometimes select a constant from consecutive ranges of one input. The reader proves a complete,
+disjoint interval cover and the saved-register frame before composing these returns. It encodes the result as ordinary
+binary arithmetic: a base value plus changes enabled at each range boundary. Flipping the input sign bit preserves
+signed order. All operations retain their recorded word widths. The existing expression size and analysis limits apply;
+a failed proof falls back to the existing separate return paths. No public expression kind is added.
+
+Private hints preserve correlations between uses of the same immutable arithmetic expression. They are an analysis
+optimization; the serialized arithmetic remains exact without them. Feasibility work has a separate bounded allowance
+and keeps a path possible when that allowance is exhausted. `analysisWork` records instruction-analysis visits, their
+limit and pending paths. These are reader work counts, not game steps or animation durations.
+
+This lets the teeter-totter callback finish within the existing visit limit. Its remaining unresolved collision calls,
+geometry effects and back edge remain visible. Finishing the queue does not prove those effects complete.
+
+## Conditional gear conflict results
+
+The propagation routine returns one after any local conflict; otherwise it returns its incoming accumulator. It is
+not a bitwise OR for arbitrary accumulator values. A nonzero target movement conflicts in mode one when it differs
+from the source movement, and in mode two when it equals the source movement. Mode two does not establish an exact
+opposite movement without additional domain assumptions. `partGraph.conflict` records these tests and argument roles.
+An incoming accumulator of one therefore returns one under the existing finite-graph assumptions. Other graph-wide
+results remain unresolved.
+
+A separate instruction-graph certificate recognizes the root callback's bounded connection loop. When every inspected
+connection word is null, each active iteration skips directly to the counter increment. No propagation call occurs and
+the conflict accumulator is retained. The transfer records the actual scratch registers, pointer slot and counter writes.
+It applies only after the existing entry proof establishes an active iteration and the nonnegative counter domain.
+The complementary nonempty branch retains the existing conservative graph effects and unresolved conflict result.
+This is a conditional rule for supplied level connections; it does not assert that the part is disconnected at runtime.

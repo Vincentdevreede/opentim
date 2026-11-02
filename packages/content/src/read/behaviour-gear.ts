@@ -248,7 +248,7 @@ export function addGearSummaries(
       kind: advancing ? "connected-gear-advance" : "connected-gear-propagation",
       purpose: advancing
         ? "Advances each connected moving gear once, wraps states at the recorded boundaries and clears its pending movement."
-        : "Propagates pending movement through gear connections, marks visited gears and records movement conflicts.",
+        : "Propagates pending movement, marks expanded gears, and returns one after any checked conflict or otherwise the incoming accumulator.",
       calls: code.calls.map((c) => c.target!.address),
       returns: advancing
         ? []
@@ -256,7 +256,14 @@ export function addGearSummaries(
             {
               ...finding,
               register: "ax",
-              condition: { kind: "true" },
+              condition: compare("==", { kind: "field", object: "argument", offset: 12, width: 16 }, 1),
+              value: constant(1),
+            },
+            {
+              ...finding,
+              confidence: "unresolved",
+              register: "ax",
+              condition: compare("!=", { kind: "field", object: "argument", offset: 12, width: 16 }, 1),
               value: {
                 kind: "unknown",
                 reason: "The accumulated movement-conflict result depends on the complete connected graph.",
@@ -305,6 +312,31 @@ export function addGearSummaries(
           connectionField: peerBinding.get("connection")!,
           endpointFields: [peerBinding.get("left")!, peerBinding.get("right")!],
         },
+        ...(!advancing
+          ? {
+              conflict: {
+                accumulatorArgument: 12,
+                sourceArgument: 6,
+                targetArgument: 8,
+                modeArgument: 10,
+                returnRule: "oneAfterAnyConflictOtherwiseIncoming" as const,
+                localConditions: [1, 2].map((mode) => ({
+                  kind: "and" as const,
+                  terms: [
+                    compare("!=", { kind: "field", object: "target", offset: delta.offset, width: 16 }, 0),
+                    compare("==", { kind: "field", object: "argument", offset: 10, width: 16 }, mode),
+                    {
+                      kind: "compare" as const,
+                      operator: mode === 1 ? "!=" : "==",
+                      left: { kind: "field" as const, object: "target", offset: delta.offset, width: 16 },
+                      right: { kind: "field" as const, object: "source", offset: delta.offset, width: 16 },
+                      signed: false,
+                    },
+                  ],
+                })),
+              },
+            }
+          : {}),
         ...(advancing
           ? {
               stateCases: [

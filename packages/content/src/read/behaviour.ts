@@ -18,6 +18,7 @@ import {
 } from "./behaviour-lifecycle.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
+import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour-scalars.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
@@ -103,6 +104,7 @@ export interface CallbackReference extends Finding, CodeAddress {
   role: string;
 }
 export interface RoutineAnalysis extends RoutineCode {
+  analysisWork?: { visits: number; limit: number; pendingPaths: number };
   objectPointer: Finding & { argumentOffset: number; argumentBase?: number; registers: string[] };
   writes: FieldWrite[];
   transitions: Transition[];
@@ -175,6 +177,7 @@ const signed = (n: number, width: number) => {
 
 /** Constant folding is algebra on expressions, independent of an instruction stream or a game object. */
 const expressionSizes = new WeakMap<object, number>();
+const scalarSteps = new WeakMap<object, ScalarStep>();
 function expressionSize(expression: Expression): number {
   const cached = expressionSizes.get(expression);
   if (cached !== undefined) return cached;
@@ -222,6 +225,25 @@ export function binary(operator: string, left: Expression, right: Expression, wi
                               : operator === "s%" && signed(b, right.width) !== 0
                                 ? signed(a, left.width) % signed(b, right.width)
                                 : undefined;
+    if (["==", "!=", "<", "<=", ">", ">="].includes(operator)) {
+      const rhs = unsigned(right.value, left.width);
+      return constant(
+        Number(
+          operator === "=="
+            ? a === rhs
+            : operator === "!="
+              ? a !== rhs
+              : operator === "<"
+                ? a < rhs
+                : operator === "<="
+                  ? a <= rhs
+                  : operator === ">"
+                    ? a > rhs
+                    : a >= rhs,
+        ),
+        width,
+      );
+    }
     if (result !== undefined) return constant(unsigned(result, width), width);
   }
   if (["+", "-", "|", "^"].includes(operator) && right.kind === "constant" && right.value === 0) return left;
@@ -262,9 +284,73 @@ function compareConstants(predicate: Extract<Predicate, { kind: "compare" }>): b
               ? a >= b
               : undefined;
 }
-function possible(predicate: Predicate, state?: number, stateOffset = 0x0c): boolean {
+function scalarInExpression(e: Expression): ScalarStep | undefined {
+  const step = scalarSteps.get(e);
+  if (step) return step;
+  if (e.kind === "binary") return scalarInExpression(e.left) ?? scalarInExpression(e.right);
+  if (e.kind === "table") return scalarInExpression(e.index);
+}
+function scalarInPredicate(p: Predicate): ScalarStep | undefined {
+  if (p.kind === "compare") return scalarInExpression(p.left) ?? scalarInExpression(p.right);
+  if (p.kind === "and")
+    for (const term of p.terms) {
+      const step = scalarInPredicate(term);
+      if (step) return step;
+    }
+}
+function bindScalar(e: Expression, root: Expression, value: Expression): Expression {
+  if (e === root) return value;
+  if (e.kind === "binary") {
+    const left = bindScalar(e.left, root, value),
+      right = bindScalar(e.right, root, value);
+    return left === e.left && right === e.right ? e : binary(e.operator, left, right, e.width);
+  }
+  if (e.kind === "table") {
+    const index = bindScalar(e.index, root, value);
+    return index === e.index ? e : { ...e, index };
+  }
+  return e;
+}
+function bindScalarPredicate(p: Predicate, root: Expression, value: Expression): Predicate {
+  if (p.kind === "compare")
+    return { ...p, left: bindScalar(p.left, root, value), right: bindScalar(p.right, root, value) };
+  if (p.kind === "and") return { ...p, terms: p.terms.map((t) => bindScalarPredicate(t, root, value)) };
+  return p;
+}
+function possible(predicate: Predicate, state?: number, stateOffset = 0x0c, scalarWork = { remaining: 64 }): boolean {
+  const step = scalarInPredicate(predicate);
+  if (step) {
+    if (scalarWork.remaining <= 0) return true;
+    for (const interval of step.intervals) {
+      if (--scalarWork.remaining < 0) return true;
+      const terms: Predicate[] = [
+        bindScalarPredicate(predicate, step.expression, constant(interval.value, step.width)),
+      ];
+      const inputWidth = step.input.width;
+      const low = step.signed ? -(2 ** (inputWidth - 1)) : 0,
+        high = step.signed ? 2 ** (inputWidth - 1) - 1 : 2 ** inputWidth - 1;
+      if (interval.low > low)
+        terms.push({
+          kind: "compare",
+          operator: ">=",
+          left: step.input,
+          right: constant(interval.low, inputWidth),
+          signed: step.signed,
+        });
+      if (interval.high < high)
+        terms.push({
+          kind: "compare",
+          operator: "<=",
+          left: step.input,
+          right: constant(interval.high, inputWidth),
+          signed: step.signed,
+        });
+      if (possible(conjunction(terms), state, stateOffset, scalarWork)) return true;
+    }
+    return false;
+  }
   if (predicate.kind === "and") {
-    if (!predicate.terms.every((p) => possible(p, state, stateOffset))) return false;
+    if (!predicate.terms.every((p) => possible(p, state, stateOffset, scalarWork))) return false;
     const ranges = new Map<string, { low: number; high: number; excluded: Set<number> }>();
     for (const p of predicate.terms) {
       if (p.kind !== "compare" || p.right.kind !== "constant" || p.left.kind === "unknown") continue;
@@ -1088,6 +1174,55 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     ownerOffset = base,
   ): Tracked => {
     if (expression.kind === "constant" || expression.kind === "unknown") return tracked(expression);
+    const stepHint = scalarSteps.get(expression);
+    if (stepHint) {
+      const input = formalValue(stepHint.input, args, base, s, ownerOffset),
+        value = asExpression(input.value);
+      if (value.kind === "constant") {
+        const n = stepHint.signed
+          ? signed(value.value, stepHint.input.width)
+          : unsigned(value.value, stepHint.input.width);
+        const interval = stepHint.intervals.find((p) => n >= p.low && n <= p.high);
+        if (interval) return tracked(constant(interval.value, stepHint.width), input.evidence);
+      }
+      const low = stepHint.signed ? -(2 ** (value.width - 1)) : 0,
+        high = stepHint.signed ? 2 ** (value.width - 1) - 1 : 2 ** value.width - 1;
+      const mapped = compileScalarStep(
+        stepHint.intervals.map((p) => ({
+          value: constant(p.value, stepHint.width),
+          condition: conjunction([
+            ...(p.low > low
+              ? [
+                  {
+                    kind: "compare" as const,
+                    operator: ">=",
+                    left: value,
+                    right: constant(p.low, value.width),
+                    signed: stepHint.signed,
+                  },
+                ]
+              : []),
+            ...(p.high < high
+              ? [
+                  {
+                    kind: "compare" as const,
+                    operator: "<=",
+                    left: value,
+                    right: constant(p.high, value.width),
+                    signed: stepHint.signed,
+                  },
+                ]
+              : []),
+          ]),
+        })),
+        binary,
+      );
+      if (mapped) {
+        if (mapped.expression.kind !== "constant") scalarSteps.set(mapped.expression, mapped);
+        return tracked(mapped.expression, input.evidence);
+      }
+    }
+
     if (expression.kind === "field") {
       if (expression.object.startsWith("address of ")) {
         const pointer = formalObject(expression.object.slice("address of ".length), args, base, s, ownerOffset);
@@ -1181,6 +1316,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     return tracked(unknown("The engine routine's returned pointer remains unresolved"));
   };
   const privateOutputsByCall = new Map<number, ReturnType<typeof privateStackOutputs>>();
+  const scalarDefinitions = new Map<RoutineAnalysis, ScalarStep | null>();
+  const scalarDefinition = (routine: RoutineAnalysis) => {
+    if (scalarDefinitions.has(routine)) return scalarDefinitions.get(routine);
+    const step =
+      pureScalarFrame(routine) && routine.outcomes?.every((o) => !o.returnPointer)
+        ? compileScalarStep(
+            routine.outcomes.map((o) => ({ condition: o.condition, value: o.returnValue })),
+            binary,
+          )
+        : undefined;
+    scalarDefinitions.set(routine, step ?? null);
+    if (step && step.expression.kind !== "constant") scalarSteps.set(step.expression, step);
+    return step;
+  };
   const invalidateGraphFields = (
     fields: { offset: number; width: number }[],
     s: AbstractState,
@@ -2074,6 +2223,53 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           ? start >= -0x8000 && end >= -0x8000 && end <= 0x7fff
           : start >= 0 && end >= 0 && end <= 0xffff;
         if (active && safe && (counted.minimumCounter === undefined || start >= counted.minimumCounter)) {
+          const empty = counted.emptyConnections;
+          if (empty) {
+            let gate = constant(1);
+            for (const offset of empty.fields)
+              gate = binary(
+                "&",
+                gate,
+                binary(
+                  "==",
+                  asExpression(
+                    memoryAt(tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }), offset, 16, s)
+                      .value,
+                  ),
+                  constant(0),
+                  16,
+                ),
+                16,
+              );
+            const condition: Predicate = {
+              kind: "compare",
+              operator: "==",
+              left: gate,
+              right: constant(1),
+              signed: false,
+            };
+            if (possible(conjunction([...s.conditions, condition]))) {
+              const branch = clone(s);
+              branch.conditions.push(condition);
+              branch.assumptions = [...new Set([...branch.assumptions, ...empty.assumptions])];
+              branch.evidence.push(...empty.evidence);
+              for (const name of empty.zeroRegisters) registerWrite(name, tracked(constant(0), empty.evidence), branch);
+              for (const name of empty.scratchRegisters)
+                registerWrite(
+                  name,
+                  tracked(unknown("The bounded slot index changes this scratch register"), empty.evidence),
+                  branch,
+                );
+              write(empty.localPointer, tracked(constant(0), empty.evidence), branch, i);
+              write(counted.counter, tracked(constant(unsigned(end, 16)), empty.evidence), branch, i);
+              branch.flags = undefined;
+              branch.carry = undefined;
+              usedLoops.push(counted);
+              enqueue({ at: counted.exit, state: branch });
+            }
+            s.conditions.push({ kind: "compare", operator: "==", left: gate, right: constant(0), signed: false });
+            if (!possible(conjunction(s.conditions))) continue;
+          }
           // The monotone variant and balanced stack prove this transfer; no loop body is unrolled.
           s.assumptions = [...new Set([...s.assumptions, ...counted.assumptions])];
           s.evidence.push(...counted.evidence);
@@ -2688,6 +2884,53 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         }
         continue;
       }
+      const pushedCodeSegment =
+        last?.mnemonic === "push" && last.operands[0]?.kind === "register" && last.operands[0].name === "cs";
+      const scalarFarReturn = summary?.instructions.at(-1)?.mnemonic === "retf";
+      const scalarFrameMatches = scalarFarReturn ? i.far || pushedCodeSegment : !i.far && !pushedCodeSegment;
+      if (pureReturnRelations && summary?.returnPathsComplete === true && scalarFrameMatches) {
+        const definition = scalarDefinition(summary);
+        const returned =
+          definition &&
+          formalValue(
+            definition.expression,
+            args,
+            summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset,
+            s,
+            summary.objectPointer.argumentOffset,
+          );
+        if (returned && (returned.value.kind === "constant" || scalarSteps.has(returned.value))) {
+          for (const name of ["ax", "bx", "cx", "dx", "es"])
+            registerWrite(name, tracked(unknown(`Unspecified scalar helper register ${name}`), [evidenceOf(i)]), s);
+          const proof = uniqueEvidence([
+            evidenceOf(i),
+            ...summary.outcomes!.flatMap((o) => o.evidence),
+            ...returned.evidence,
+          ]);
+          registerWrite("ax", tracked(returned.value, proof), s);
+          s.flags = undefined;
+          s.carry = undefined;
+          engineCalls.push({
+            instruction: i.address,
+            summary: summary.address,
+            purpose: "Selects a scalar constant from the recorded consecutive input ranges.",
+            confidence: "inferred",
+            evidence: proof,
+            assumptions: summary.outcomes!.flatMap((o) => o.assumptions),
+          });
+          s.evidence.push(...proof);
+          s.assumptions = [
+            ...new Set([
+              ...s.assumptions,
+              ...summary.outcomes!.flatMap((o) => o.assumptions),
+              "The leaf helper has a complete constant return relation, preserves its nonvolatile frame and arguments, and has no non-private memory writes. Private stack storage is valid, nonwrapping and separate from part and program data. Disjoint intervals cover the full input domain; ordinary guarded arithmetic retains the exact scalar function without splitting the caller.",
+            ]),
+          ];
+          returnedStack(s);
+          enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: s });
+          continue;
+        }
+      }
       if (engine && !pureReturnRelations && !preciseMemberRelations && applyEngine(engine, args, s, i)) {
         returnedStack(s);
         const next = i.segment * 16 + ((i.offset + i.size) & 0xffff);
@@ -3016,6 +3259,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     outcomes: dedup(outcomes),
     iterationOutcomes: dedup(iterationOutcomes),
     returnPathsComplete,
+    analysisWork: {
+      visits: Math.min(visits, maxVisits),
+      limit: maxVisits,
+      pendingPaths: queue.filter((p) => !p.state.observationOnly).length,
+    },
     engineCalls: dedup(engineCalls),
     controlFlowJoins: dedup(controlFlowJoins),
     loops: dedup(usedLoops),

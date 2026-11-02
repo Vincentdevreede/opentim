@@ -115,6 +115,27 @@ function expressionValue(expression: Expression, frame: MeasuredFrame): number |
   const left = expressionValue(expression.left, frame);
   const right = expressionValue(expression.right, frame);
   if (left === undefined || right === undefined) return undefined;
+  if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
+    const a = wrap(left, expression.left.width),
+      b = wrap(right, expression.left.width),
+      op = expression.operator;
+    return wrap(
+      Number(
+        op === "=="
+          ? a === b
+          : op === "!="
+            ? a !== b
+            : op === "<"
+              ? a < b
+              : op === "<="
+                ? a <= b
+                : op === ">"
+                  ? a > b
+                  : a >= b,
+      ),
+      width,
+    );
+  }
   let value: number;
   switch (expression.operator) {
     case "+":
