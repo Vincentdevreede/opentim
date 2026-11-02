@@ -1330,12 +1330,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (step && step.expression.kind !== "constant") scalarSteps.set(step.expression, step);
     return step;
   };
-  const invalidateGraphFields = (
+  const invalidateSelectedPartFields = (
     fields: { offset: number; width: number }[],
     s: AbstractState,
     i: Instruction,
     proof: Evidence[],
     preserveOwner: Set<number> = new Set(),
+    selectedObject = "a connected part",
+    selectedCondition?: Predicate,
   ) => {
     for (const effect of fields) {
       const exceptOwner = preserveOwner.has(effect.offset);
@@ -1356,10 +1358,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (!exceptOwner)
         s.memory.set(
           `part:${effect.offset}:${effect.width}`,
-          tracked(unknown("A connected part may alias the owner", effect.width), proof, i.address),
+          tracked(
+            unknown(
+              selectedObject === "a connected part"
+                ? "A connected part may alias the owner"
+                : "A selected overlap candidate may alias the owner",
+              effect.width,
+            ),
+            proof,
+            i.address,
+          ),
         );
-      const name = "a connected part";
+      const name = selectedObject;
       s.registers.set("__graph_pointer", tracked({ kind: "pointer", object: name, displacement: 0, width: 16 }, proof));
+      if (selectedCondition) s.conditions.push(selectedCondition);
       write(
         {
           kind: "memory",
@@ -1369,10 +1381,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           direct: false,
           width: effect.width === 8 ? 8 : 16,
         },
-        tracked(unknown("A connected part may change this field", effect.width), proof, i.address),
+        tracked(
+          unknown(
+            selectedObject === "a connected part"
+              ? "A connected part may change this field"
+              : "An overlap query may update a selected candidate",
+            effect.width,
+          ),
+          proof,
+          i.address,
+        ),
         s,
         i,
       );
+      if (selectedCondition) s.conditions.pop();
       s.registers.delete("__graph_pointer");
     }
   };
@@ -1531,7 +1553,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         )
       )
         preserve.add(offset);
-      invalidateGraphFields(engine.partGraph.fields, s, i, engine.evidence, preserve);
+      invalidateSelectedPartFields(engine.partGraph.fields, s, i, engine.evidence, preserve);
     }
     if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
       for (const key of s.memory.keys()) {
@@ -1584,6 +1606,23 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         i,
       );
       s.registers.delete(temporary);
+    }
+    // Candidate stores address newly selected list members, never the argument's incoming head.
+    if (engine.kind === "overlap-list" && engine.list) {
+      for (const effect of engine.writes) {
+        if (effect.root !== "unknown" || effect.selection !== "overlap-candidate" || effect.path.length) continue;
+        const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
+        if (!possible(conjunction([...s.conditions, condition]))) continue;
+        invalidateSelectedPartFields(
+          [effect],
+          s,
+          i,
+          effect.evidence,
+          new Set(),
+          `a candidate selected by the overlap query at ${hex(i.address)}`,
+          condition,
+        );
+      }
     }
     for (const item of globals) {
       if (!possible(conjunction([...s.conditions, item.condition]))) continue;
@@ -2294,7 +2333,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                   },
                   s,
                 );
-              invalidateGraphFields([effect], s, i, counted.evidence, new Set(preserved ? [effect.offset] : []));
+              invalidateSelectedPartFields([effect], s, i, counted.evidence, new Set(preserved ? [effect.offset] : []));
               continue;
             }
             if (effect.object === "stack" && effect.operand) {
@@ -2856,6 +2895,44 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         if (sp.kind === "stack")
           registerWrite("sp", tracked({ ...sp, displacement: sp.displacement + stackBytes }, [evidenceOf(i)]), state);
       };
+      const bypass = engine?.shortCircuit;
+      if (
+        engine &&
+        bypass &&
+        engine.returnConvention?.kind === "far" &&
+        engine.returnConvention.stackBytes === 0 &&
+        (i.far ||
+          (last?.mnemonic === "push" && last.operands[0]?.kind === "register" && last.operands[0].name === "cs"))
+      ) {
+        const selected = bypass.cases.find((c) =>
+          entails(formalPredicate(c.condition, args, bypass.argumentOffset, s, bypass.ownerArgument), s),
+        );
+        if (selected) {
+          const condition = formalPredicate(selected.condition, args, bypass.argumentOffset, s, bypass.ownerArgument);
+          s.conditions.push(condition);
+          const specialized: EngineSummary = {
+            ...engine,
+            ...bypass,
+            shortCircuit: undefined,
+            kind: "connection-query-bypass",
+            purpose: "Returns through a certified connection-query bypass without invoking a peer callback.",
+            writes: [],
+            returns: [{ ...bypass, register: "ax", value: selected.value, condition: { kind: "true" } }],
+            footprint: {
+              complete: true,
+              partMemoryComplete: true,
+              preservesArgumentMemory: true,
+              preservesPartState: true,
+              unknownEffects: [],
+            },
+          };
+          if (applyEngine(specialized, args, s, i)) {
+            returnedStack(s);
+            enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: s });
+            continue;
+          }
+        }
+      }
       if (engine?.partGraph?.stateCases && passesPart) {
         for (const stateCase of engine.partGraph.stateCases) {
           const condition = formalPredicate(stateCase.condition, args, engine.argumentOffset, s);

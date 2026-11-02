@@ -277,6 +277,10 @@ describe("structural engine summaries", () => {
       ).find((s) => s.address === 0x300)!;
       expect(summary.kind).toBe("overlap-list");
       expect(summary.writes.some((w) => w.offset === 0x58)).toBe(true);
+      expect(
+        summary.writes.some((w) => w.root === "unknown" && w.selection === "overlap-candidate" && !w.path.length),
+      ).toBe(true);
+      expect(summary.writes.some((w) => w.path.length)).toBe(false);
       expect(summary.footprint.preservesPartState).toBe(!changesState);
       expect(summary.footprint.complete).toBe(!changesState);
       expect(summary.list).toMatchObject({

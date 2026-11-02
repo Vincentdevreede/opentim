@@ -9,6 +9,7 @@ import { addGearSummaries } from "./behaviour-gear.ts";
 import { addOwnedConstructors } from "./behaviour-owned-constructors.ts";
 import { addSuccessfulConstructors } from "./behaviour-successful-constructors.ts";
 import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
+import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-connection-bypass.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 
 export type EnginePointer =
@@ -19,6 +20,8 @@ export type EnginePointer =
   | { kind: "unknown" };
 
 export interface EngineWrite extends Finding {
+  /** A query selects this object independently of the argument's incoming list head. */
+  selection?: "overlap-candidate";
   separateStorage?: "outline";
   /** BP-relative argument position, accounting for the routine's actual near or far return convention. */
   argumentOffset?: number;
@@ -41,6 +44,7 @@ export interface EngineReturn extends Finding {
 }
 
 export interface EngineSummary extends Finding {
+  shortCircuit?: ConnectionBypass;
   address: number;
   kind: string;
   purpose: string;
@@ -1434,6 +1438,7 @@ export function discoverEngineSummaries(
       ).length >= 2;
     if (
       insertion &&
+      !code.instructions.some(implicitWrite) &&
       owner === insertion.owner &&
       nonStackWrites.every(
         (i) =>
@@ -1475,9 +1480,10 @@ export function discoverEngineSummaries(
         const ownerWrite = isMemory(dest, insertion.owner);
         return {
           ...fact([i], "inferred"),
-          root: "argument",
+          root: ownerWrite ? "argument" : "unknown",
+          ...(!ownerWrite ? { selection: "overlap-candidate" as const } : {}),
           argumentOffset,
-          path: ownerWrite ? [] : [insertion.offset],
+          path: [],
           offset: dest.displacement,
           width: dest.width,
           value: isImmediate(i.operands[1])
@@ -1998,7 +2004,17 @@ export function discoverEngineSummaries(
     summary.writes = [
       ...new Map(
         summary.writes.map((w) => [
-          JSON.stringify([w.root, w.argumentOffset, w.path, w.segment, w.offset, w.width, w.value, w.condition]),
+          JSON.stringify([
+            w.root,
+            w.selection,
+            w.argumentOffset,
+            w.path,
+            w.segment,
+            w.offset,
+            w.width,
+            w.value,
+            w.condition,
+          ]),
           w,
         ]),
       ).values(),
@@ -2168,6 +2184,33 @@ export function discoverEngineSummaries(
       returns.every((i) => JSON.stringify(convention(i)) === JSON.stringify(convention(returns[0]!)))
     )
       summary.returnConvention = convention(returns[0]!);
+  }
+  for (const code of codes.values()) {
+    const bypass = discoverConnectionBypass(code, layout);
+    if (!bypass) continue;
+    const prior = summaries.get(code.address);
+    summaries.set(code.address, {
+      ...bypass,
+      ...prior,
+      address: code.address,
+      kind: "connection-query",
+      argumentOffset: bypass.argumentOffset,
+      argumentKind: "object",
+      shortCircuit: bypass,
+      purpose:
+        "Checks two rope connections and may dispatch the peer type's callback; the certified bypasses make no call.",
+      calls: code.calls.flatMap((c) => (c.target ? [c.target.address] : [])),
+      writes: prior?.writes ?? [],
+      returns: prior?.returns ?? [],
+      returnConvention: { kind: "far", stackBytes: 0 },
+      footprint: prior?.footprint ?? {
+        complete: false,
+        partMemoryComplete: false,
+        preservesArgumentMemory: false,
+        preservesPartState: false,
+        unknownEffects: ["The connected peer callback's effects are unresolved."],
+      },
+    });
   }
   addGearSummaries(codes, summaries, layout);
   addStatePreservingForwarders(codes, summaries);

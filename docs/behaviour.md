@@ -480,3 +480,30 @@ the conflict accumulator is retained. The transfer records the actual scratch re
 It applies only after the existing entry proof establishes an active iteration and the nonnegative counter domain.
 The complementary nonempty branch retains the existing conservative graph effects and unresolved conflict result.
 This is a conditional rule for supplied level connections; it does not assert that the part is disconnected at runtime.
+
+## Selected overlap candidates
+
+An overlap query first clears its output head, then selects candidates from independent part lists. Candidate stores
+therefore do not address the object found through the incoming head. An incoming null head is valid and is never
+interpreted as a candidate pointer. `selection: "overlap-candidate"` marks those stores with an unknown root, their
+actual field offsets, instruction evidence and unresolved eligibility predicate.
+
+Applying the summary records conditional effects on an opaque selected candidate. It also invalidates overlapping
+cached and uncached fields on every potentially aliasing part, including byte reads of a written word. The reader
+does not assume that the selected candidate differs from the analysed owner. These possible aliases are invalidated
+after the ordinary summary stores so that unresolved store ordering cannot restore an old value. Complete query
+footprints preserve unrelated fields. Incomplete footprints retain the existing broader nonstate invalidation.
+Unknown-root effects remain ineligible for generic owner-only or list-loop promotion.
+
+## Connection-query bypasses
+
+The reader matches the complete two-connection query graph, including compiler return bridges and its far indirect
+callback operand. The second far-call argument is the owner; the first is the excluded peer. A set tested entry flag
+returns one before scanning. With that flag clear and both connection words null, both iterations skip every call
+and return the unchanged zero accumulator. Both cases preserve non-stack memory and retain their decoded evidence.
+The flag is not given a gameplay meaning beyond its checked branch role.
+
+`shortCircuit` records these conditions, results and the complementary unresolved case. A caller uses a bypass only
+when its existing input relations establish the entire guard and its far-return frame is correct. Unknown connections
+are not assumed null and do not cause speculative path expansion. The remaining query may call the peer type's rope
+callback and can change part states. No general state-preservation or resolved indirect target is claimed for it.
