@@ -214,4 +214,4 @@ if (missingVersions.length)
   lines.push(`Missing source reports for oracle versions: ${missingVersions.join(", ")}.`, "");
 writeFileSync(join(out, "coverage.json"), JSON.stringify({ totals, unmatched, missingVersions }, null, 2) + "\n");
 writeFileSync(join(out, "report.md"), lines.join("\n") + "\n");
-if (missingVersions.length) process.exitCode = 1;
+if (missingVersions.length || totals.missed) process.exitCode = 1;
