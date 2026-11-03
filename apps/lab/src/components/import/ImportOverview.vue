@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import { useRouter } from "vue-router";
 import { editionHint, editionLanguages, editionName } from "../../edition.ts";
 import { GROUPS, SUPPORT, type KindGroup } from "../../kinds.ts";
@@ -9,31 +9,47 @@ import {
   canPersist,
   edition,
   forget,
-  pickFiles,
   readSeconds,
   resources,
   selected,
   type Resource,
 } from "../../library.ts";
-import { crumb, formatBytes, hex, openSprite } from "../../ui.ts";
+import { crumb, formatBytes, hex, openSprite, selectedLevel } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
-import LabField from "../LabField.vue";
 import LabIcon from "../LabIcon.vue";
-import LabKbd from "../LabKbd.vue";
+import LabSearch from "../LabSearch.vue";
+import LabHints from "../LabHints.vue";
+import LabConfirm from "../LabConfirm.vue";
+import LabPanelBody from "../LabPanelBody.vue";
 import PageHeader from "../PageHeader.vue";
-import PanelTitle from "../PanelTitle.vue";
+import LabFact from "../LabFact.vue";
+import LabFacts from "../LabFacts.vue";
+import LabTable, { type Column } from "../LabTable.vue";
 import PixelFrame from "../PixelFrame.vue";
 import StorageNotice from "./StorageNotice.vue";
+import LabNoMatch from "../LabNoMatch.vue";
+import LabPanelHeader from "../LabPanelHeader.vue";
+import LabPicture from "../LabPicture.vue";
+import LabSidePanel from "../LabSidePanel.vue";
+import LabTag from "../LabTag.vue";
+import LabOpenIn, { type OpenTarget } from "../LabOpenIn.vue";
+import LabListRow from "../LabListRow.vue";
 
 type SortKey = "name" | "kind" | "size";
 
 const router = useRouter();
-const filterField = useTemplateRef<InstanceType<typeof LabField>>("filterField");
 const group = ref<KindGroup | "all">("all");
 const query = ref("");
 const sortKey = ref<SortKey>("name");
-const sortDir = ref(1);
+const sortDir = ref<1 | -1>(1);
+const COLUMNS: Column[] = [
+  { key: "name", label: "Name", sortable: true },
+  { key: "kind", label: "Kind", width: "120px", sortable: true },
+  { key: "size", label: "Size (bytes)", width: "130px", align: "right", sortable: true },
+  { key: "source", label: "Source", width: "200px" },
+  { key: "status", label: "Status", width: "140px" },
+];
 
 const byName = (a: Resource, b: Resource) => a.name.localeCompare(b.name, "en", { numeric: true });
 const COMPARE: Record<SortKey, (a: Resource, b: Resource) => number> = {
@@ -47,6 +63,18 @@ const cards = computed(() => [
   ...GROUPS.map((g) => ({ ...g, count: resources.value.filter((r) => r.group === g.id).length })),
 ]);
 
+/** The badge of a kind: what its decoder made of the loaded files of that kind, or what the lab can do with it. */
+function cardStatus(id: KindGroup) {
+  const support = SUPPORT[id].status;
+  if (support === "unsupported") return { status: support };
+  const statuses = resources.value.filter((r) => r.group === id).map((r) => statusOf(r).status);
+  const failed = statuses.filter((s) => s === "error").length;
+  if (!statuses.length || !failed) return { status: support };
+  return failed === statuses.length
+    ? { status: "error" as const, label: "can’t read" }
+    : { status: "partial" as const, label: `${failed} can’t be read` };
+}
+
 const rows = computed(() => {
   const q = query.value.trim().toUpperCase();
   return resources.value
@@ -58,13 +86,9 @@ const current = computed(() => resources.value.find((r) => r.name === selected.v
 const groupLabel = (id: KindGroup) => GROUPS.find((g) => g.id === id)?.label ?? id;
 
 function sort(key: SortKey) {
-  if (sortKey.value === key) sortDir.value = -sortDir.value;
+  if (sortKey.value === key) sortDir.value = sortDir.value === 1 ? -1 : 1;
   else [sortKey.value, sortDir.value] = [key, 1];
 }
-
-const ariaSort = (key: SortKey) =>
-  sortKey.value === key ? (sortDir.value === 1 ? "ascending" : "descending") : "none";
-const arrow = (key: SortKey) => (sortKey.value === key ? (sortDir.value === 1 ? "▲" : "▼") : "");
 
 const openBytes = () => router.push("/files");
 
@@ -94,14 +118,25 @@ const decoderNote = computed(() => {
   return SUPPORT[r.group].note;
 });
 
-function openSprites() {
-  openSprite.value = 0;
-  void router.push("/sprites");
+/** The pages that can open the selected resource: Files always, Sprites for images, Levels for levels and scenes. */
+const openTargets = computed<OpenTarget[]>(() => {
+  const r = current.value;
+  if (!r) return [];
+  return [
+    "files",
+    ...(image.value ? (["sprites"] as const) : []),
+    ...(r.group === "level" || r.group === "scene" ? (["levels"] as const) : []),
+  ];
+});
+
+function openIn(target: OpenTarget) {
+  if (!current.value) return;
+  if (target === "sprites") openSprite.value = 0;
+  if (target === "levels") selectedLevel.value = current.value.name;
+  void router.push(`/${target}`);
 }
 
-async function remove() {
-  if (confirm("Remove the loaded game files from this browser?")) await forget();
-}
+const confirmRemove = ref(false);
 
 function select(name: string) {
   selected.value = name;
@@ -111,10 +146,7 @@ function select(name: string) {
 function onKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLElement && (e.target.closest("input, textarea, select") || e.target.isContentEditable))
     return;
-  if (e.key === "/") {
-    e.preventDefault();
-    filterField.value?.focus();
-  } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && rows.value.length) {
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && rows.value.length) {
     e.preventDefault();
     const i = rows.value.findIndex((r) => r.name === selected.value);
     const next = rows.value[Math.max(0, Math.min(rows.value.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
@@ -138,8 +170,8 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
       <span class="font-mono text-ink">{{ resources.length }}</span> resources from
       <span class="font-mono text-ink">{{ archives.length }}</span> files · read in {{ readSeconds.toFixed(1) }} s
     </template>
-    <LabButton variant="ghost" @click="pickFiles"
-      ><LabIcon name="folder" :size="14" :stroke="2" />Load other files…</LabButton
+    <LabButton v-if="canPersist" variant="ghost" tone="danger" @click="confirmRemove = true"
+      ><LabIcon name="trash" />Remove from browser</LabButton
     >
   </PageHeader>
 
@@ -168,173 +200,117 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
           <span class="text-ui text-soft">{{ card.label }}</span>
           <span class="font-mono text-stat leading-none">{{ card.count }}</span>
           <span v-if="card.id === 'all'" class="font-mono text-muted">{{ archives.length }} files</span>
-          <LabBadge v-else :status="SUPPORT[card.id].status" class="self-start" />
+          <LabBadge v-else v-bind="cardStatus(card.id)" class="self-start" />
         </button>
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
-        <LabField
-          ref="filterField"
+        <LabSearch
           v-model="query"
           label="Filter resources by name"
-          type="search"
           placeholder="Filter by name…  e.g. PART, L12, .PAL"
           class="w-[300px]"
-        >
-          <template #prefix><LabIcon name="search" :size="14" :stroke="2" /></template>
-          <template #suffix><LabKbd>/</LabKbd></template>
-        </LabField>
+        />
         <span class="text-muted"
           ><span class="font-mono text-ink">{{ rows.length }}</span> of
           <span class="font-mono">{{ resources.length }}</span> shown</span
         >
         <div class="flex-1"></div>
-        <span class="text-meta text-muted"
-          >Click a header to sort · <LabKbd>↑</LabKbd> <LabKbd>↓</LabKbd> move · <LabKbd>↵</LabKbd> view bytes</span
-        >
+        <LabHints
+          :hints="[
+            [[], 'Click a header to sort'],
+            [['↑', '↓'], 'move'],
+            [['↵'], 'view bytes'],
+          ]"
+        />
       </div>
 
       <div class="min-h-0 flex-1 overflow-auto rounded-t-lg border border-b-0 border-line bg-well">
-        <table class="w-full border-separate border-spacing-0">
-          <thead>
-            <tr
-              class="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:border-b [&_th]:border-line [&_th]:bg-sunken [&_th]:p-0"
+        <LabTable
+          :columns="COLUMNS"
+          :rows="rows"
+          :row-key="(r) => r.name"
+          :selected="selected ?? ''"
+          :sort-key="sortKey"
+          :sort-dir="sortDir"
+          @select="select"
+          @open="openBytes"
+          @sort="sort($event as SortKey)"
+        >
+          <template #cell-name="{ row }">
+            <button
+              type="button"
+              class="cursor-pointer rounded-xs font-mono text-meta"
+              @click.stop="select(row.name)"
+              @keydown.enter.prevent.stop="openBytes"
             >
-              <th
-                v-for="col in [
-                  { key: 'name', label: 'Name', class: '' },
-                  { key: 'kind', label: 'Kind', class: 'w-[120px]' },
-                  { key: 'size', label: 'Size (bytes)', class: 'w-[130px]' },
-                ] as const"
-                :key="col.key"
-                :class="col.class"
-                :aria-sort="ariaSort(col.key)"
-              >
-                <button
-                  type="button"
-                  class="flex h-7 w-full cursor-pointer items-center gap-1 px-2.5 text-label font-semibold tracking-[.06em] text-muted uppercase hover:text-ink focus-visible:-outline-offset-2"
-                  :class="col.key === 'size' && 'justify-end'"
-                  @click="sort(col.key)"
-                >
-                  {{ col.label }} <span class="font-mono text-accent">{{ arrow(col.key) }}</span>
-                </button>
-              </th>
-              <th class="w-[200px]">
-                <span
-                  class="flex h-7 items-center px-2.5 text-label font-semibold tracking-[.06em] text-muted uppercase"
-                  >Source</span
-                >
-              </th>
-              <th class="w-[140px]">
-                <span
-                  class="flex h-7 items-center px-2.5 text-label font-semibold tracking-[.06em] text-muted uppercase"
-                  >Status</span
-                >
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="r in rows"
-              :key="r.name"
-              :data-row="r.name"
-              class="group cursor-pointer [&_td]:h-[26px] [&_td]:border-b [&_td]:border-line-soft [&_td]:px-2.5 [&_td]:whitespace-nowrap"
-              :class="
-                r.name === selected
-                  ? '[&_td]:bg-accent/12 [&_td:first-child]:shadow-[inset_2px_0_0_var(--color-accent)]'
-                  : 'hover:[&_td]:bg-hover'
-              "
-              @click="select(r.name)"
-              @dblclick="openBytes"
-            >
-              <td>
-                <button
-                  type="button"
-                  class="cursor-pointer rounded-xs font-mono"
-                  @click.stop="select(r.name)"
-                  @keydown.enter.prevent.stop="openBytes"
-                >
-                  {{ r.name }}
-                </button>
-              </td>
-              <td class="text-soft">{{ r.group }}</td>
-              <td class="text-right font-mono">{{ formatBytes(r.data.length) }}</td>
-              <td class="font-mono text-muted">{{ r.archive }} @ {{ hex(r.offset, 6) }}</td>
-              <td><LabBadge v-bind="statusOf(r)" /></td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="!rows.length" class="p-10 text-center text-muted">
-          No resources match “<span class="font-mono text-ink">{{ query }}</span
-          >”.
-          <button type="button" class="cursor-pointer text-accent" @click="((query = ''), (group = 'all'))">
-            Clear filters
-          </button>
-        </div>
+              {{ row.name }}
+            </button>
+          </template>
+          <template #cell-kind="{ row }"
+            ><span class="text-muted">{{ row.group }}</span></template
+          >
+          <template #cell-size="{ row }"
+            ><span class="font-mono text-meta">{{ formatBytes(row.data.length) }}</span></template
+          >
+          <template #cell-source="{ row }"
+            ><span class="font-mono text-meta text-muted">{{ row.archive }} @ {{ hex(row.offset, 6) }}</span></template
+          >
+          <template #cell-status="{ row }"><LabBadge v-bind="statusOf(row)" /></template>
+        </LabTable>
+        <LabNoMatch v-if="!rows.length" what="resources" :query="query" class="p-10">
+          <LabButton variant="link" tone="accent" @click="((query = ''), (group = 'all'))">Clear filters</LabButton>
+        </LabNoMatch>
       </div>
     </section>
 
-    <aside aria-label="Resource details" class="flex w-80 shrink-0 flex-col border-l border-line bg-sunken">
-      <div class="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3">
-        <PanelTitle>Resource</PanelTitle>
-        <div class="flex-1"></div>
+    <LabSidePanel aria-label="Resource details">
+      <LabPanelHeader title="Resource">
         <LabBadge v-if="current" v-bind="statusOf(current)" />
-      </div>
-      <div v-if="current" class="flex flex-col gap-3.5 px-3 py-3.5">
-        <div class="flex flex-col gap-0.5">
+      </LabPanelHeader>
+      <LabOpenIn v-if="current" :targets="openTargets" @open="openIn" />
+      <LabPanelBody v-if="current">
+        <div class="flex flex-col gap-1">
           <span class="font-mono text-heading font-semibold break-all">{{ current.name }}</span>
           <span class="text-muted">{{ groupLabel(current.group) }} · {{ current.kind }}</span>
         </div>
-        <dl class="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2 gap-y-1.5">
-          <dt class="text-muted">Size</dt>
-          <dd class="font-mono">
-            {{ formatBytes(current.data.length) }} B <span class="text-muted">· {{ hex(current.data.length, 4) }}</span>
-          </dd>
-          <dt class="text-muted">Archive</dt>
-          <dd class="font-mono">{{ current.archive }}</dd>
-          <dt class="text-muted">Offset</dt>
-          <dd class="font-mono">{{ hex(current.offset) }}</dd>
-          <dt class="text-muted">Decoder</dt>
-          <dd class="text-soft">{{ decoderNote }}</dd>
-        </dl>
-        <div v-if="image" class="relative flex h-32 items-center justify-center overflow-hidden rounded-[3px] checker">
+        <LabFacts>
+          <LabFact label="Size"
+            >{{ formatBytes(current.data.length) }} B
+            <span class="text-muted">· {{ hex(current.data.length, 4) }}</span></LabFact
+          >
+          <LabFact label="Archive">{{ current.archive }}</LabFact>
+          <LabFact label="Offset">{{ hex(current.offset) }}</LabFact>
+          <LabFact label="Decoder" prose>{{ decoderNote }}</LabFact>
+        </LabFacts>
+        <LabPicture v-if="image" height="128px">
           <PixelFrame :frame="image.frame" :palette="image.palette" :scale="image.scale" />
-          <span class="absolute top-1.5 right-1.5 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-2xs text-ink"
-            >frame 0 of {{ image.count }} · {{ image.frame.width }} × {{ image.frame.height }}</span
+          <LabTag class="absolute top-1.5 right-1.5"
+            >frame 0 of {{ image.count }} · {{ image.frame.width }} × {{ image.frame.height }}</LabTag
           >
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <LabButton v-if="image" variant="primary" @click="openSprites"
-            ><LabIcon name="sprites" :size="14" :stroke="2" />View in Sprites</LabButton
-          >
-          <LabButton :variant="image ? 'default' : 'primary'" @click="openBytes"
-            ><LabIcon name="bytes" :size="14" :stroke="2" />View bytes</LabButton
-          >
-        </div>
-      </div>
+        </LabPicture>
+      </LabPanelBody>
       <p v-else class="p-3 text-muted">Select a resource to see its details.</p>
 
       <div v-if="!canPersist" class="mt-auto px-3 pb-3"><StorageNotice /></div>
-      <div :class="canPersist && 'mt-auto'" class="flex flex-col gap-2 border-t border-line p-3">
-        <div class="flex items-center">
-          <PanelTitle>Loaded files</PanelTitle>
-          <div class="flex-1"></div>
-          <button
-            v-if="canPersist"
-            type="button"
-            class="cursor-pointer text-meta text-muted hover:text-error"
-            @click="remove"
-          >
-            Remove from browser
-          </button>
-        </div>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-y-1 font-mono text-meta text-soft">
-          <template v-for="a in archives" :key="a.name">
-            <span>{{ a.name }}</span
-            ><span class="text-muted">{{ formatBytes(a.size) }} B</span>
+      <section :class="canPersist && 'mt-auto'" class="border-t border-line pb-1">
+        <LabPanelHeader title="Loaded files" :meta="archives.length" />
+        <LabListRow v-for="a in archives" :key="a.name" :name="a.name" inset class="last:after:hidden">
+          <template #end>
+            <span class="font-mono text-meta text-muted">{{ formatBytes(a.size) }} B</span>
           </template>
-        </div>
-      </div>
-    </aside>
+        </LabListRow>
+      </section>
+    </LabSidePanel>
+
+    <LabConfirm
+      v-model:open="confirmRemove"
+      title="Remove from browser?"
+      confirm-label="Remove"
+      danger
+      @confirm="forget"
+    >
+      The loaded game files are removed from this browser. You can load them again from Import.
+    </LabConfirm>
   </div>
 </template>

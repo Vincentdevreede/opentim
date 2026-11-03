@@ -1,29 +1,18 @@
 <script setup lang="ts">
-export type Background = "checker" | "black" | "white";
+import { BACKGROUND_CLASSES, type Background } from "../backgrounds.ts";
+import LabTag from "../LabTag.vue";
 
-/** The large view of a sprite, centred on a background, with labels in its corners. */
+/** The large view of a sprite, centred on a background, with tags in its corners. */
 defineProps<{ background: Background }>();
-
-const CLASSES: Record<Background, string> = { checker: "checker", black: "bg-black", white: "bg-white" };
 </script>
 
 <template>
-  <div class="relative flex min-h-0 flex-1 overflow-auto" :class="CLASSES[background]">
+  <div class="relative flex min-h-0 flex-1 overflow-auto" :class="BACKGROUND_CLASSES[background]">
     <div class="m-auto p-10"><slot /></div>
-    <span
-      v-if="$slots.topLeft"
-      class="absolute top-2 left-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-label text-ink"
-      ><slot name="topLeft"
-    /></span>
-    <span
-      v-if="$slots.topRight"
-      class="absolute top-2 right-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-label text-ink"
-      ><slot name="topRight"
-    /></span>
-    <span
-      v-if="$slots.bottomLeft"
-      class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-[3px] bg-sunken/90 px-1.5 py-0.5 font-mono text-label text-ink"
-      ><slot name="bottomLeft"
-    /></span>
+    <LabTag v-if="$slots.topLeft" class="absolute top-2 left-2"><slot name="topLeft" /></LabTag>
+    <LabTag v-if="$slots.topRight" class="absolute top-2 right-2"><slot name="topRight" /></LabTag>
+    <LabTag v-if="$slots.bottomLeft" class="absolute bottom-2 left-2 flex items-center gap-1.5">
+      <slot name="bottomLeft" />
+    </LabTag>
   </div>
 </template>

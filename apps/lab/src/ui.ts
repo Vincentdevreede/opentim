@@ -30,3 +30,6 @@ export const selectedSound = ref<string>();
  * with pan, or the AdLib in mono.
  */
 export const fmCard = ref<FmCard>("sbpro");
+
+/** The level file selected on the Levels page, like `L7.LEV`. */
+export const selectedLevel = ref<string>();

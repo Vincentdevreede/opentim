@@ -22,6 +22,7 @@ import { useRendered, type RenderJob } from "../components/audio/rendering.ts";
 import SamplePlayer from "../components/audio/SamplePlayer.vue";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
+import LabDot from "../components/LabDot.vue";
 import LabField from "../components/LabField.vue";
 import LabIcon from "../components/LabIcon.vue";
 import LabKbd from "../components/LabKbd.vue";
@@ -30,7 +31,6 @@ import PageHeader from "../components/PageHeader.vue";
 import PanelTitle from "../components/PanelTitle.vue";
 import { saveFile } from "../export.ts";
 import type { Confidence } from "../kinds.ts";
-import { DOT } from "../kinds.ts";
 import { resources, selected } from "../library.ts";
 import { crumb, fmCard, formatBytes, hex, openAt, selectedSound } from "../ui.ts";
 
@@ -215,7 +215,7 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             <span class="font-mono text-meta text-muted">{{
               item.type === "bank" ? item.entry.id : formatBytes(item.resource.data.length)
             }}</span>
-            <span class="size-2 rounded-full" :class="DOT[statusOf(item).status]"></span>
+            <LabDot :status="statusOf(item).status" />
           </button>
         </template>
         <p v-if="!shown.some((s) => s.items.length)" class="px-3 py-2 text-muted">

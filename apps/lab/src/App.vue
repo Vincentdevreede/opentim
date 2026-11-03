@@ -2,8 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import pkg from "../package.json";
+import LabFact from "./components/LabFact.vue";
+import LabFacts from "./components/LabFacts.vue";
 import LabIcon from "./components/LabIcon.vue";
 import LabKbd from "./components/LabKbd.vue";
+import LabPanelHeader from "./components/LabPanelHeader.vue";
 import { editionHint, editionLanguages, editionName } from "./edition.ts";
 import type { IconName } from "./icons.ts";
 import {
@@ -19,6 +22,7 @@ import {
   staging,
 } from "./library.ts";
 import { crumb, dragging } from "./ui.ts";
+import LabDot from "./components/LabDot.vue";
 
 interface NavItem {
   to: string;
@@ -35,13 +39,13 @@ const FILES: NavItem[] = [
 const RESOURCES: NavItem[] = [
   { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true },
   { to: "/audio", label: "Audio", icon: "audio", needsFiles: true },
-  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, planned: true },
+  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true },
 ];
-const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox" }];
+const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox", needsFiles: true }];
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Ctrl", "O"], action: "Open RESOURCE files" },
-  { keys: ["/"], action: "Filter resources (Overview, Sprites)" },
+  { keys: ["/"], action: "Filter resources (Overview, Sprites, Levels)" },
   { keys: ["↑", "↓", "↵"], action: "Move and view bytes (Overview)" },
   { keys: ["←", "→"], action: "Previous or next frame (Sprites)" },
   { keys: ["Space"], action: "Play or pause the preview (Sprites)" },
@@ -105,7 +109,7 @@ onBeforeUnmount(() => {
 });
 
 const navClass =
-  "relative mx-1.5 flex flex-col items-center gap-[3px] rounded-md pt-2 pb-[7px] text-2xs font-medium text-muted hover:bg-hover hover:text-ink";
+  "relative mx-1.5 flex flex-col items-center gap-1 rounded-md pt-2 pb-[7px] text-2xs font-medium text-muted hover:bg-hover hover:text-ink";
 const activeClass =
   "bg-raised! text-ink before:absolute before:top-2.5 before:bottom-2.5 before:-left-1.5 before:w-0.5 before:rounded-r-sm before:bg-accent [&_svg]:text-accent";
 </script>
@@ -113,10 +117,7 @@ const activeClass =
 <template>
   <div class="flex h-full min-w-[1280px] flex-col bg-surface">
     <div class="flex min-h-0 flex-1">
-      <nav
-        aria-label="Views"
-        class="flex w-[72px] shrink-0 flex-col gap-0.5 border-r border-line bg-sunken pt-2.5 pb-2"
-      >
+      <nav aria-label="Views" class="flex w-[72px] shrink-0 flex-col gap-1 border-r border-line bg-sunken pt-2.5 pb-2">
         <div class="mb-1.5 flex flex-col items-center gap-1 border-b border-line pt-0.5 pb-3">
           <svg
             width="27"
@@ -142,7 +143,7 @@ const activeClass =
               :class="[navClass, 'pointer-events-none opacity-40']"
               aria-disabled="true"
             >
-              <LabIcon :name="item.icon" />{{ item.label }}
+              <LabIcon :name="item.icon" :size="18" :stroke="1.75" />{{ item.label }}
             </span>
             <RouterLink
               v-else
@@ -151,11 +152,8 @@ const activeClass =
               :active-class="activeClass"
               :title="item.planned ? 'Planned' : undefined"
             >
-              <span
-                v-if="item.planned"
-                class="absolute top-1.5 right-[9px] size-[5px] rounded-full border border-muted"
-              ></span>
-              <LabIcon :name="item.icon" />{{ item.label }}
+              <LabDot v-if="item.planned" status="none" class="absolute top-1.5 right-[9px]" />
+              <LabIcon :name="item.icon" :size="18" :stroke="1.75" />{{ item.label }}
             </RouterLink>
           </template>
         </template>
@@ -169,26 +167,22 @@ const activeClass =
             aria-label="Keyboard shortcuts"
             @click="showKeys = !showKeys"
           >
-            <LabIcon name="keyboard" />Keys
+            <LabIcon name="keyboard" :size="18" :stroke="1.75" />Keys
           </button>
           <div
             v-if="showKeys"
             class="absolute bottom-0 left-[66px] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-sunken shadow-xl"
             @keydown.esc="showKeys = false"
           >
-            <div
-              class="flex h-8 items-center border-b border-line px-3 text-label font-semibold tracking-[.07em] text-muted uppercase"
-            >
-              Keyboard shortcuts
-            </div>
-            <dl class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-3">
-              <template v-for="item in SHORTCUTS" :key="item.action">
-                <dt class="flex gap-1">
-                  <LabKbd v-for="k in item.keys" :key="k">{{ k }}</LabKbd>
-                </dt>
-                <dd class="text-soft">{{ item.action }}</dd>
-              </template>
-            </dl>
+            <LabPanelHeader title="Keyboard shortcuts" />
+            <LabFacts label-width="auto" class="px-3 py-1.5">
+              <LabFact v-for="item in SHORTCUTS" :key="item.action" prose>
+                <template #label
+                  ><LabKbd v-for="k in item.keys" :key="k">{{ k }}</LabKbd></template
+                >
+                {{ item.action }}
+              </LabFact>
+            </LabFacts>
           </div>
         </div>
       </nav>
@@ -204,27 +198,25 @@ const activeClass =
     >
       <template v-if="phase === 'reading'">
         <span class="flex items-center gap-1.5 text-ink">
-          <LabIcon name="spinner" :size="12" :stroke="2.5" class="animate-spin text-accent" />
+          <LabIcon name="spinner" :size="12" class="animate-spin text-accent" />
           Reading {{ readingIndex }} of {{ progress.length }} files ·
           <span class="font-mono">{{ foundSoFar.length }}</span> resources found
         </span>
       </template>
       <template v-else-if="phase === 'error'">
         <span class="flex items-center gap-1.5 text-error">
-          <span class="size-[7px] rounded-full bg-error"></span>Import failed · {{ failure?.title.toLowerCase() }}
+          <LabDot status="error" />Import failed · {{ failure?.title.toLowerCase() }}
         </span>
       </template>
       <template v-else-if="phase === 'staged' && staging">
         <span class="flex items-center gap-1.5 text-ink">
-          <span class="size-[7px] rounded-full bg-accent"></span
-          ><span class="font-mono">{{ staging.resources.length }}</span> resources found ·
+          <LabDot status="accent" /><span class="font-mono">{{ staging.resources.length }}</span> resources found ·
           {{ needsLanguage(staging) ? "choose a language to continue" : "press Continue to load them" }}
         </span>
       </template>
       <template v-else-if="hasFiles">
         <span class="flex items-center gap-1.5 text-ink">
-          <span class="size-[7px] rounded-full bg-decoded"></span
-          ><span class="font-mono">{{ resources.length }}</span> resources loaded
+          <LabDot status="decoded" /><span class="font-mono">{{ resources.length }}</span> resources loaded
         </span>
         <template v-if="edition">
           <span aria-hidden="true" class="text-line-strong">│</span>
@@ -235,15 +227,11 @@ const activeClass =
         </template>
       </template>
       <template v-else>
-        <span class="flex items-center gap-1.5"
-          ><span class="size-[7px] rounded-full border-[1.5px] border-muted"></span>No files loaded</span
-        >
+        <span class="flex items-center gap-1.5"><LabDot status="none" />No files loaded</span>
       </template>
       <template v-if="phase !== 'empty'">
         <span aria-hidden="true" class="text-line-strong">│</span>
-        <span class="flex items-center gap-[5px]"
-          ><LabIcon name="lock" :size="12" :stroke="2" />Local only · nothing uploaded</span
-        >
+        <span class="flex items-center gap-1"><LabIcon name="lock" :size="12" />Local only · nothing uploaded</span>
       </template>
       <div class="flex-1"></div>
       <template v-if="crumb.length">

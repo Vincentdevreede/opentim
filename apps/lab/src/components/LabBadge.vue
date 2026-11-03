@@ -26,7 +26,7 @@ const STYLES: Record<Confidence, { badge: string; mark: string }> = {
 
 <template>
   <span
-    class="inline-flex h-[18px] items-center gap-[5px] rounded-full border pr-[7px] pl-1.5 text-label leading-none font-semibold tracking-[.02em] whitespace-nowrap"
+    class="inline-flex h-[18px] items-center gap-1 rounded-full border pr-[7px] pl-1.5 text-label leading-none font-semibold tracking-[.02em] whitespace-nowrap"
     :class="STYLES[status].badge"
   >
     <span class="box-border shrink-0" :class="STYLES[status].mark" aria-hidden="true"></span>

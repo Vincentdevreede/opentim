@@ -22,3 +22,16 @@ export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);
+export {
+  LEVEL_MAGIC,
+  LevelError,
+  TIM2_LEVEL_MAGIC,
+  readLevel,
+  type Level,
+  type LevelField,
+  type LevelKind,
+  type LevelLayout,
+  type LevelPart,
+  type PartGroup,
+  type RopeSlot,
+} from "./read/level.ts";
