@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { statesText, type BehaviourResult, type Change, type Instruction } from "../../behaviour.ts";
+import { computed, reactive } from "vue";
+import type { BehaviourResult } from "../../behaviour.ts";
+import { routineGroups, stateGroups, type ChangeRow, type WriteRow } from "../../behaviour-view.ts";
+import { behaviourLayout } from "../../ui.ts";
 import LabIcon from "../LabIcon.vue";
-import PanelTitle from "../PanelTitle.vue";
+import LabSegmented from "../LabSegmented.vue";
+import LabTip from "../LabTip.vue";
+import BehaviourChange from "./BehaviourChange.vue";
+import BehaviourRow from "./BehaviourRow.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
-/** What the program does with a part: its routines, how its state changes, and what starts that. */
+/** What the program does with a part, by routine or by the state a change starts from. */
 const props = defineProps<{
   /** The analysis of the loaded program; undefined while it hasn't started. */
   result?: BehaviourResult | { status: "reading" };
@@ -16,32 +21,91 @@ const props = defineProps<{
   frames: number[];
   /** The frame on the stage, to point out what can happen from it. */
   current?: number;
+  /** The names of the parts, to say which share a routine. */
+  names?: ReadonlyMap<number, string>;
 }>();
 const emit = defineEmits<{ showFrame: [id: number] }>();
 
-const showKept = ref(false);
+const LAYOUTS = [
+  { value: "routine" as const, label: "By routine" },
+  { value: "state" as const, label: "By state" },
+];
+/** What a routine is likely for, from where the program calls it. */
+const ROLES: Record<string, string> = {
+  bounce: "Probably runs when another part hits this one.",
+  run: "Probably runs for every part on each step of the machine.",
+  reset: "Probably runs when the machine is put back to how it was placed.",
+  resize: "Probably runs when the part is resized.",
+  flip: "Probably runs when the part is flipped.",
+  rope: "Probably runs for a rope tied to it.",
+};
 
 const summary = computed(() => (props.result?.status === "done" ? props.result.summary : undefined));
 const part = computed(() => summary.value?.parts[props.type]);
-const changes = computed(() => part.value?.changes.filter((c) => showKept.value || !c.keeps) ?? []);
-const kept = computed(() => part.value?.changes.filter((c) => c.keeps).length ?? 0);
-/** The changes by routine, in the order of the part's routines. */
-const groups = computed(() => {
-  const order = part.value?.routines.map((r) => r.role) ?? [];
-  const byRoutine = new Map<string, Change[]>();
-  for (const c of changes.value) byRoutine.set(c.routine, [...(byRoutine.get(c.routine) ?? []), c]);
-  return [...byRoutine].sort(([a], [b]) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
-});
-const fromHere = (c: Change) => props.current !== undefined && (c.from === null || c.from.includes(props.current));
-const isFrame = (n?: number) => n !== undefined && props.frames.includes(n);
+const routines = computed(() => (part.value ? routineGroups(part.value) : []));
+const states = computed(() => (part.value ? stateGroups(part.value) : []));
+const draws = computed(() => routines.value.flatMap((g) => g.draws));
 
-const address = (n: number) => `0x${n.toString(16).padStart(5, "0")}`;
-const instructionsTitle = (list: Instruction[]) =>
-  `${list.length} ${list.length === 1 ? "instruction" : "instructions"}`;
+/** The other parts that use each routine, by its address. */
+const users = computed(() => {
+  const map = new Map<number, number[]>();
+  for (const [type, p] of Object.entries(summary.value?.parts ?? {}))
+    for (const r of p.routines) map.set(r.address, [...(map.get(r.address) ?? []), Number(type)]);
+  return map;
+});
+const nameOf = (type: number) => props.names?.get(type) ?? `type ${type}`;
+
+const closed = reactive(new Set<string>());
+const toggle = (key: string) => (closed.has(key) ? closed.delete(key) : closed.add(key));
+
+function routineTip(role: string, at?: string, address?: number) {
+  const others = (address !== undefined ? (users.value.get(address) ?? []) : []).filter((t) => t !== props.type);
+  const lines = [ROLES[role] ?? "A routine the part's routines call.", "", `Code at ${at ?? role}`];
+  if (others.length)
+    lines.push(
+      `Also used by ${others.slice(0, 6).map(nameOf).join(", ")}${others.length > 6 ? ` and ${others.length - 6} more` : ""}`,
+    );
+  else lines.push("Only this part uses it.");
+  lines.push("", "The name is a guess from where the program calls it.");
+  return lines.join("\n");
+}
+const sharedCount = (address?: number) => (address !== undefined ? (users.value.get(address)?.length ?? 0) : 0);
+
+const fromHere = (row: ChangeRow) =>
+  props.current !== undefined && (row.from === null || row.from.includes(props.current));
+const writeTip = (w: WriteRow) =>
+  [`${w.routine} writes ${w.target}`, ...w.values.slice(0, 8).map((v) => `= ${v}`)]
+    .concat(w.values.length > 8 ? [`and ${w.values.length - 8} more`] : [])
+    .concat("", `${w.writes.length} ${w.writes.length === 1 ? "path" : "paths"}, ${w.confidence}. Click for each.`)
+    .join("\n");
+
+const legend = computed(() =>
+  [
+    "Read from the program’s instructions without running it" +
+      (props.result?.status === "done" ? `, in ${props.result.seconds.toFixed(1)} s.` : "."),
+    "State N shows frame N.",
+    "",
+    "● checked: follows from the instructions",
+    "◇ inferred: follows with the assumptions it lists",
+    "○ unresolved: the analysis can’t tell",
+  ].join("\n"),
+);
+const timing = computed(() => {
+  const t = summary.value?.timing;
+  if (!t) return "";
+  const parts = [];
+  if (t.ticksPerSecond) parts.push(`timer ${t.ticksPerSecond.toFixed(1)} ticks/s (divisor ${t.divisor})`);
+  if (t.minimumTicks) parts.push(`step ≥ ${t.minimumTicks} ticks, ${t.minimumMilliseconds!.toFixed(1)} ms`);
+  return parts.join(", ");
+});
+const more = computed(() => {
+  const p = part.value;
+  return p ? p.triggers.length + p.counters.length + p.uncertainties.length + (timing.value ? 1 : 0) : 0;
+});
 </script>
 
 <template>
-  <div class="flex flex-col gap-4">
+  <div class="flex flex-col gap-3">
     <p v-if="unavailable" class="text-muted">{{ unavailable }}</p>
     <p v-else-if="!result || result.status === 'reading'" class="flex items-center gap-2 text-muted">
       <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
@@ -53,171 +117,198 @@ const instructionsTitle = (list: Instruction[]) =>
     <p v-else-if="!part" class="text-muted">The program has no behaviour for this part.</p>
 
     <template v-else>
-      <p class="text-meta text-muted">
-        Read from the program’s instructions without running it, in
-        {{ result.status === "done" ? result.seconds.toFixed(1) : "" }} s.
-        <ConfidenceMark confidence="checked" /> checked, <ConfidenceMark confidence="inferred" /> inferred,
-        <ConfidenceMark confidence="unresolved" /> unresolved.
-      </p>
+      <div class="flex items-center gap-2">
+        <LabSegmented v-model="behaviourLayout" label="Layout" :options="LAYOUTS" />
+        <div class="flex-1"></div>
+        <LabTip :text="legend">
+          <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
+        </LabTip>
+      </div>
 
-      <section class="flex flex-col gap-1.5">
-        <PanelTitle>Routines</PanelTitle>
-        <div
-          v-for="r in part.routines"
-          :key="r.role"
-          class="flex h-6 items-center gap-2 font-mono text-meta"
-          :class="r.empty && 'text-faint'"
-          :title="r.assumptions.join(' ')"
-        >
-          <ConfidenceMark :confidence="r.confidence" />
-          <span class="w-12 font-sans text-ui" :class="r.empty ? 'text-faint' : 'text-ink'">{{ r.role }}?</span>
-          <span>{{ r.at }}</span>
-          <div class="flex-1"></div>
-          <span class="font-sans">{{ r.empty ? "does nothing" : r.shared ? "shared" : "" }}</span>
-        </div>
-        <p class="text-meta text-muted">
-          The six code pointers of the part’s record. Their roles are guesses from where the program calls them.
-        </p>
-      </section>
-
-      <section class="flex flex-col gap-1.5">
-        <div class="flex items-center gap-2">
-          <PanelTitle>State changes</PanelTitle>
-          <div class="flex-1"></div>
-          <label v-if="kept" class="flex items-center gap-1.5 text-meta text-muted">
-            <input v-model="showKept" type="checkbox" class="accent-accent" />
-            {{ kept }} that keep it
-          </label>
-        </div>
-        <p v-if="!changes.length" class="text-muted">No routine changes the state.</p>
-        <div v-for="[routine, list] in groups" :key="routine" class="flex flex-col gap-1">
-          <span class="text-meta font-semibold text-soft">In {{ routine }}</span>
-          <div
-            v-for="(c, i) in list"
-            :key="i"
-            class="flex flex-col gap-0.5 rounded-md border px-2 py-1.5"
-            :class="[
-              fromHere(c) ? 'border-accent/50 bg-accent/6' : 'border-line-soft',
-              c.from?.length === 0 && 'opacity-60',
-            ]"
-          >
-            <div class="flex items-center gap-1.5 font-mono text-ui">
-              <ConfidenceMark :confidence="c.confidence" />
-              <span
-                v-if="c.from?.length === 0"
-                class="font-sans text-meta text-faint"
-                title="None of this part’s frames meets the condition, so this likely changes another part’s state."
-                >no own frame</span
-              >
-              <span v-else class="text-muted">{{ statesText(c.from) }}</span>
-              <span class="text-muted">→</span>
-              <button
-                v-if="isFrame(c.toState)"
-                type="button"
-                class="cursor-pointer text-accent hover:underline"
-                :title="`Show frame ${c.toState}`"
-                @click="emit('showFrame', c.toState!)"
-              >
-                {{ c.to }}
-              </button>
-              <span v-else class="min-w-0 break-words" :class="c.to === 'unknown' ? 'text-faint' : 'text-ink'">{{
-                c.keeps ? "unchanged" : c.to
+      <div v-if="behaviourLayout === 'routine'" class="flex flex-col">
+        <section v-for="g in routines" :key="g.role" class="flex flex-col">
+          <div class="flex h-7 items-center gap-1.5">
+            <button
+              type="button"
+              class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              :class="g.changes.length || g.draws.length || g.sets.length ? 'cursor-pointer' : 'cursor-default'"
+              :aria-expanded="!closed.has(g.role)"
+              @click="toggle(g.role)"
+            >
+              <LabIcon
+                v-if="g.changes.length || g.draws.length || g.sets.length"
+                :name="closed.has(g.role) ? 'chevronRight' : 'chevronDown'"
+                :size="12"
+                :stroke="2.5"
+                class="shrink-0 text-faint"
+              />
+              <span v-else class="w-3 shrink-0"></span>
+              <span class="font-mono text-ui font-semibold" :class="g.empty ? 'text-faint' : 'text-ink'">{{
+                g.role
               }}</span>
-            </div>
-            <span class="font-mono text-meta break-words text-muted">when {{ c.condition }}</span>
-            <details class="text-meta">
-              <summary class="cursor-pointer text-muted">{{ instructionsTitle(c.evidence) }}</summary>
-              <ol class="mt-1 flex flex-col font-mono">
-                <li v-for="e in c.evidence" :key="e.address" class="flex gap-2">
-                  <span class="text-faint">{{ address(e.address) }}</span
-                  ><span>{{ e.text }}</span>
-                </li>
-              </ol>
-              <p v-for="a in c.assumptions" :key="a" class="mt-1 text-muted">{{ a }}</p>
-            </details>
+              <span class="flex-1"></span>
+              <span v-if="g.changes.length" class="chip text-accent"
+                >{{ g.changes.length }} {{ g.changes.length === 1 ? "change" : "changes" }}</span
+              >
+              <span v-if="g.draws.length" class="chip text-soft">draws</span>
+              <span v-if="g.sets.length" class="chip text-soft">sets</span>
+              <span v-if="g.open" class="chip text-error">open</span>
+              <span
+                v-if="!g.changes.length && !g.draws.length && !g.sets.length"
+                class="text-meta whitespace-nowrap text-faint"
+                >{{ g.empty ? "does nothing" : "no change" }}</span
+              >
+              <span v-if="sharedCount(g.address) > 1" class="chip text-faint"
+                >shared ×{{ sharedCount(g.address) }}</span
+              >
+            </button>
+            <LabTip :text="routineTip(g.role, g.at, g.address)">
+              <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
+            </LabTip>
           </div>
-        </div>
-      </section>
+          <div v-if="!closed.has(g.role)" class="flex flex-col pb-1.5 pl-[18px]">
+            <BehaviourChange
+              v-for="row in g.changes"
+              :key="row.key"
+              :row="row"
+              lead="from"
+              :frames="frames"
+              :highlight="fromHere(row)"
+              @show-frame="emit('showFrame', $event)"
+            />
+            <div
+              v-if="g.changes.length && g.kept"
+              class="flex h-7 items-center gap-2 border-t border-line-soft text-meta text-faint"
+            >
+              <ConfidenceMark confidence="inferred" />
+              otherwise no change · {{ g.kept }} {{ g.kept === 1 ? "path" : "paths" }}
+            </div>
+            <template
+              v-for="[title, list] in [
+                ['Draws', g.draws],
+                ['Sets', g.sets],
+              ] as const"
+              :key="title"
+            >
+              <h4
+                v-if="list.length"
+                class="pt-1.5 pb-0.5 text-label font-semibold tracking-[.07em] text-faint uppercase"
+              >
+                {{ title }}
+              </h4>
+              <BehaviourRow v-for="w in list" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
+                <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
+                <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted"
+                  >= {{ w.values.length > 1 ? `${w.values.length} values` : w.values[0] }}</span
+                >
+                <template #detail>
+                  <span v-for="(x, i) in w.writes" :key="i" class="break-words"
+                    ><span class="text-soft">= {{ x.value }}</span>
+                    <template v-if="x.condition !== 'always'"> when {{ x.condition }}</template></span
+                  >
+                </template>
+              </BehaviourRow>
+            </template>
+          </div>
+        </section>
+      </div>
 
-      <section v-if="part.triggers.length" class="flex flex-col gap-1.5">
-        <PanelTitle>Triggers</PanelTitle>
-        <div
-          v-for="(t, i) in part.triggers"
-          :key="i"
-          class="flex flex-col gap-0.5 text-ui"
-          :title="t.assumptions.join(' ')"
-        >
-          <span class="flex items-center gap-1.5"
-            ><ConfidenceMark :confidence="t.confidence" />{{ t.name }}
-            <span class="text-muted">in {{ t.routine }}</span></span
+      <div v-else class="flex flex-col">
+        <p v-if="!states.length" class="text-muted">No routine changes the state.</p>
+        <section v-for="g in states" :key="g.fromText" class="flex flex-col">
+          <button
+            type="button"
+            class="flex h-7 cursor-pointer items-center gap-1.5 text-left"
+            :aria-expanded="!closed.has(`state ${g.fromText}`)"
+            @click="toggle(`state ${g.fromText}`)"
           >
-          <span v-if="t.condition" class="pl-3 font-mono text-meta break-words text-muted">when {{ t.condition }}</span>
-        </div>
-      </section>
+            <LabIcon
+              :name="closed.has(`state ${g.fromText}`) ? 'chevronRight' : 'chevronDown'"
+              :size="12"
+              :stroke="2.5"
+              class="shrink-0 text-faint"
+            />
+            <span
+              class="font-mono text-ui font-semibold"
+              :class="
+                current !== undefined && (g.from === null || g.from.includes(current)) ? 'text-accent' : 'text-ink'
+              "
+              >{{ g.from === null ? "any state" : g.from.length ? `state ${g.fromText}` : "none of its own" }}</span
+            >
+            <span class="flex-1"></span>
+            <span class="chip text-accent">{{ g.rows.length }} {{ g.rows.length === 1 ? "way" : "ways" }} out</span>
+          </button>
+          <div v-if="!closed.has(`state ${g.fromText}`)" class="flex flex-col pb-1.5 pl-[18px]">
+            <BehaviourChange
+              v-for="row in g.rows"
+              :key="row.key"
+              :row="row"
+              lead="routine"
+              :frames="frames"
+              :highlight="fromHere(row)"
+              @show-frame="emit('showFrame', $event)"
+            />
+          </div>
+        </section>
+        <template v-if="draws.length">
+          <h4 class="pt-1.5 pb-0.5 text-label font-semibold tracking-[.07em] text-faint uppercase">Draws</h4>
+          <BehaviourRow v-for="w in draws" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
+            <span class="shrink-0 font-mono font-semibold text-accent">{{ w.routine }}</span>
+            <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
+            <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted"
+              >= {{ w.values.length > 1 ? `${w.values.length} values` : w.values[0] }}</span
+            >
+            <template #detail>
+              <span v-for="(x, i) in w.writes" :key="i" class="break-words"
+                ><span class="text-soft">= {{ x.value }}</span>
+                <template v-if="x.condition !== 'always'"> when {{ x.condition }}</template></span
+              >
+            </template>
+          </BehaviourRow>
+        </template>
+      </div>
 
-      <section v-if="part.counters.length" class="flex flex-col gap-1.5">
-        <PanelTitle>Counters</PanelTitle>
-        <div
-          v-for="c in part.counters"
-          :key="c.field"
-          class="flex flex-col gap-0.5 font-mono text-meta"
-          :title="c.assumptions.join(' ')"
-        >
-          <span class="flex items-center gap-1.5 text-ui text-ink"
-            ><ConfidenceMark :confidence="c.confidence" />{{ c.field }}</span
-          >
-          <span class="pl-3 break-words text-muted">set to {{ c.updates.join(", ") }}</span>
-          <span v-if="c.comparisons.length" class="pl-3 break-words text-muted"
-            >compared: {{ c.comparisons.join(", ") }}</span
-          >
-        </div>
-        <p class="text-meta text-muted">Counted in calls of the routine that changes them, not in time.</p>
-      </section>
-
-      <section v-if="part.reset.length" class="flex flex-col gap-1.5">
-        <PanelTitle>Reset</PanelTitle>
-        <div v-for="(w, i) in part.reset" :key="i" class="flex items-center gap-1.5 font-mono text-meta">
-          <ConfidenceMark :confidence="w.confidence" />
-          <span class="text-ink">{{ w.target }} = {{ w.value }}</span>
-          <span v-if="w.condition !== 'always'" class="break-words text-muted">when {{ w.condition }}</span>
-        </div>
-      </section>
-
-      <section v-if="part.effects.length" class="flex flex-col gap-1.5">
-        <PanelTitle>Changes to how it’s drawn</PanelTitle>
-        <div v-for="(w, i) in part.effects" :key="i" class="flex flex-col gap-0.5 font-mono text-meta">
-          <span class="flex items-center gap-1.5 text-ink"
-            ><ConfidenceMark :confidence="w.confidence" />{{ w.target }} = {{ w.value }}
-            <span class="font-sans text-muted">in {{ w.routine }}</span></span
-          >
-          <span v-if="w.condition !== 'always'" class="pl-3 break-words text-muted">when {{ w.condition }}</span>
-        </div>
-      </section>
-
-      <details v-if="part.uncertainties.length" class="flex flex-col gap-1.5">
-        <summary class="cursor-pointer text-label font-semibold tracking-[.07em] text-muted uppercase">
-          Open questions · {{ part.uncertainties.length }}
+      <details class="border-t border-line pt-2 text-meta text-muted">
+        <summary class="cursor-pointer text-label font-semibold tracking-[.07em] uppercase">
+          More · {{ more }} findings
         </summary>
-        <ul class="mt-1.5 flex flex-col gap-1 font-mono text-meta text-muted">
-          <li v-for="u in part.uncertainties" :key="u">{{ u }}</li>
+        <ul class="mt-1.5 flex flex-col gap-1 font-mono break-words">
+          <li v-for="(t, i) in part.triggers" :key="`t${i}`" class="flex gap-1.5">
+            <ConfidenceMark :confidence="t.confidence" class="mt-1.5" /><span
+              ><span class="font-sans text-faint">trigger</span> {{ t.routine }}: {{ t.name
+              }}<template v-if="t.condition"> when {{ t.condition }}</template></span
+            >
+          </li>
+          <li v-for="c in part.counters" :key="c.field" class="flex gap-1.5">
+            <ConfidenceMark :confidence="c.confidence" class="mt-1.5" /><span
+              ><span class="font-sans text-faint">counter</span> {{ c.field }} = {{ c.updates.join(", ")
+              }}<template v-if="c.comparisons.length"> · {{ c.comparisons.join(", ") }}</template></span
+            >
+          </li>
+          <li v-for="u in part.uncertainties" :key="u" class="flex gap-1.5">
+            <ConfidenceMark confidence="unresolved" class="mt-1.5" /><span
+              ><span class="font-sans text-faint">open</span> {{ u }}</span
+            >
+          </li>
+          <li v-if="timing" class="flex gap-1.5">
+            <ConfidenceMark :confidence="summary!.timing.confidence" class="mt-1.5" /><span
+              ><span class="font-sans text-faint">timing</span> {{ timing }}</span
+            >
+          </li>
         </ul>
       </details>
-
-      <section class="flex flex-col gap-1.5 border-t border-line pt-3">
-        <PanelTitle>Game timing</PanelTitle>
-        <p class="text-meta text-muted" :title="summary!.timing.assumptions.join(' ')">
-          <ConfidenceMark :confidence="summary!.timing.confidence" />
-          <template v-if="summary!.timing.divisor">
-            The timer runs at {{ summary!.timing.ticksPerSecond!.toFixed(1) }} ticks a second (divisor
-            {{ summary!.timing.divisor }}).
-          </template>
-          <template v-if="summary!.timing.minimumTicks">
-            The game loop waits at least {{ summary!.timing.minimumTicks }} ticks, so a step takes at least
-            {{ summary!.timing.minimumMilliseconds!.toFixed(1) }} ms.
-          </template>
-          Whether every part runs once per step isn’t known yet.
-        </p>
-      </section>
     </template>
   </div>
 </template>
+
+<style scoped>
+.chip {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+</style>

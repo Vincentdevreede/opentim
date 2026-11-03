@@ -34,6 +34,8 @@ const props = defineProps<{
   behaviour?: BehaviourResult | { status: "reading" };
   /** Why there is no analysis, when there can't be one. */
   noBehaviour?: string;
+  /** The names of the parts, by type. */
+  partNames?: ReadonlyMap<number, string>;
 }>();
 const emit = defineEmits<{ openSheet: [file: string] }>();
 
@@ -437,6 +439,7 @@ const tabClass = (on: boolean) => (on ? "border-accent text-ink" : "border-trans
             :type="part.type"
             :frames="part.frames.map((f) => f.id)"
             :current="frame?.id"
+            :names="partNames"
             @show-frame="showFrame"
           />
           <RecordPanel v-else-if="side === 'record'" :record="record" />

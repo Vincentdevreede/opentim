@@ -48,6 +48,8 @@ export interface Change extends Finding {
   to: string;
   /** The state as a number, when the routine sets it to one. */
   toState?: number;
+  /** The state it ends in for each state in `from`, when that only depends on the state. */
+  targets?: number[];
   /** True when the state stays what it was. */
   keeps: boolean;
   condition: string;
@@ -151,8 +153,57 @@ export function writer(fields: readonly { offset: number; name: string }[]) {
   return { expression, predicate, place };
 }
 
+const signed = (n: number) => (n > 0x7fff ? n - 0x10000 : n);
+
+/** The 16-bit value of an expression for a state, when it depends on nothing but the state. */
+export function valueForState(e: Expression, state: number, stateOffset: number): number | undefined {
+  if (e.kind === "constant") return e.value & 0xffff;
+  if (e.kind === "field") return e.object === "part" && e.offset === stateOffset ? state & 0xffff : undefined;
+  if (e.kind !== "binary") return undefined;
+  const l = valueForState(e.left, state, stateOffset);
+  const r = valueForState(e.right, state, stateOffset);
+  if (l === undefined || r === undefined) return undefined;
+  const value = (() => {
+    switch (e.operator) {
+      case "+":
+        return l + r;
+      case "-":
+        return l - r;
+      case "*":
+        return l * r;
+      case "&":
+        return l & r;
+      case "|":
+        return l | r;
+      case "^":
+        return l ^ r;
+      case "<<":
+        return l << r;
+      case ">>":
+        return signed(l) >> r;
+      case ">>>":
+        return l >>> r;
+      case "/":
+        return r ? Math.trunc(l / r) : undefined;
+      case "%":
+        return r ? l % r : undefined;
+      case "s/":
+        return r ? Math.trunc(signed(l) / signed(r)) : undefined;
+      case "s%":
+        return r ? signed(l) % signed(r) : undefined;
+    }
+  })();
+  return value === undefined ? undefined : value & 0xffff;
+}
+
 /** The short role of a routine, like `run` for "run callback candidate". */
 const roleOf = (role: string) => role.replace(/ callback candidate$/, "");
+
+function targetsOf(to: Expression, from: number[] | null, stateOffset: number): number[] | undefined {
+  if (!from?.length || to.kind !== "binary") return undefined;
+  const targets = from.map((state) => valueForState(to, state, stateOffset));
+  return targets.every((t) => t !== undefined) ? targets.map(signed) : undefined;
+}
 
 function summarisePart(part: PartBehaviour, write: ReturnType<typeof writer>, stateOffset: number): PartSummary {
   const roles = new Map(part.routines.map((r) => [r.address, roleOf(r.role)]));
@@ -186,6 +237,7 @@ function summarisePart(part: PartBehaviour, write: ReturnType<typeof writer>, st
         from: t.from,
         to: write.expression(t.to),
         toState: t.to.kind === "constant" ? t.to.value : undefined,
+        targets: targetsOf(t.to, t.from, stateOffset),
         keeps,
         condition: write.predicate(t.condition),
       };

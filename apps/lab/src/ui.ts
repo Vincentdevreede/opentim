@@ -20,3 +20,6 @@ export const spritesView = ref<"parts" | "images">("parts");
 
 /** The id of the part selected on the Sprites page. */
 export const selectedPart = ref<string>();
+
+/** How the behaviour tab lays out a part: by its routines, or by the states a change starts from. */
+export const behaviourLayout = ref<"routine" | "state">("routine");

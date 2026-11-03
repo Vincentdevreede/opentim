@@ -48,6 +48,8 @@ const { colorsOf, choose, options } = usePalettes();
 
 const loaded = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 const list = computed(() => loaded.value?.list);
+/** The names of the parts, by type. */
+const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p).name])));
 /** Where the parts were read, for the header. */
 const sourceBadge = computed(() => {
   const l = loaded.value;
@@ -327,6 +329,7 @@ const card = (on: boolean) =>
       :record="loaded?.records.get(currentPart.type)"
       :behaviour="behaviour"
       :no-behaviour="noBehaviour"
+      :part-names="partNames"
       :gallery-palette="galleryPalette"
       @open-sheet="openSheet"
     />
