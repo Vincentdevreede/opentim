@@ -22,3 +22,18 @@ export {
 } from "./language.ts";
 export { MAP_NAME, readMap, writeMap, type MapArchive } from "./map.ts";
 export { readPalette } from "./palette.ts";
+export {
+  decodeSound,
+  findPatch,
+  readSoundBank,
+  readSoundDrivers,
+  readSoundTracks,
+  soundSample,
+  type DriverFile,
+  type Sample,
+  type Sound,
+  type SoundBank,
+  type SoundDevice,
+  type SoundEntry,
+  type SoundTrack,
+} from "./sound.ts";

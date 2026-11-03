@@ -26,6 +26,7 @@ export const ICONS = {
   check: ["m5 12 5 5 9-10"],
   info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 11v5", "M12 8h.01"],
   x: ["M18 6 6 18M6 6l12 12"],
+  trash: ["M4 7h16", "M10 11v6M14 11v6", "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12", "M9 7V4h6v3"],
   minus: ["M5 12h14"],
   spinner: ["M21 12a9 9 0 1 1-9-9"],
   bytes: ["m8 8-4 4 4 4", "m16 8 4 4-4 4", "m14 4-4 16"],
@@ -37,6 +38,10 @@ export const ICONS = {
   chevronLeft: ["m15 6-6 6 6 6"],
   chevronRight: ["m9 6 6 6-6 6"],
   chevronDown: ["m6 9 6 6 6-6"],
+  loop: ["m17 2 4 4-4 4", "M3 11V9a3 3 0 0 1 3-3h15", "m7 22-4-4 4-4", "M21 13v2a3 3 0 0 1-3 3H3"],
+  volume: ["M11 5 6 9H3v6h3l5 4z", "M15.5 8.5a5 5 0 0 1 0 7"],
+  expandAll: ["m7 15 5 5 5-5", "m7 9 5-5 5 5"],
+  collapseAll: ["m7 20 5-5 5 5", "m7 4 5 5 5-5"],
   flip: ["M12 3v18", "M8 7 3 12l5 5z", "m16 7 5 5-5 5z"],
   keyboard: [
     "M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z",

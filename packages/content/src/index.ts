@@ -104,3 +104,17 @@ export type { ContactMotionAngle } from "./read/behaviour-contact-motion-angle.t
 export type { CollisionDispatch, CollisionTarget } from "./read/behaviour-collision-dispatch.ts";
 
 export type { ContactResponse } from "./read/behaviour-contact-response.ts";
+
+export {
+  LEVEL_MAGIC,
+  LevelError,
+  TIM2_LEVEL_MAGIC,
+  readLevel,
+  type Level,
+  type LevelField,
+  type LevelKind,
+  type LevelLayout,
+  type LevelPart,
+  type PartGroup,
+  type RopeSlot,
+} from "./read/level.ts";

@@ -6,15 +6,16 @@ An open-source reimplementation of The Incredible Machine in TypeScript, built f
 
 This is a [pnpm](https://pnpm.io) workspace monorepo.
 
-| Path                 | Package              | What it is                                                                           |
-| -------------------- | -------------------- | ------------------------------------------------------------------------------------ |
-| `apps/game`          | `@opentim/game`      | The game client: Vite, TypeScript and PixiJS. Installable as a PWA.                  |
-| `apps/web`           | `@opentim/web`       | The website in front of the game: Nuxt, Vue and Tailwind CSS.                        |
-| `apps/lab`           | `@opentim/lab`       | Internal dev site: load the original game files, inspect them, and test engine code. |
-| `packages/resources` | `@opentim/resources` | Readers for the original game files, starting with the `RESOURCE.00x` archives.      |
-| `packages/engine`    | `@opentim/engine`    | The simulation core. No DOM or rendering code, so it also runs headless.             |
-| `packages/content`   | `@opentim/content`   | The part lists of each game, written from the original games by a script.            |
-| `packages/theme`     | `@opentim/theme`     | The shared look: colours, type scale, logo and app icon.                             |
+| Path                 | Package              | What it is                                                                            |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `apps/game`          | `@opentim/game`      | The game client: Vite, TypeScript and PixiJS. Installable as a PWA.                   |
+| `apps/web`           | `@opentim/web`       | The website in front of the game: Nuxt, Vue and Tailwind CSS.                         |
+| `apps/lab`           | `@opentim/lab`       | Internal dev site: load the original game files, inspect them, and test engine code.  |
+| `packages/resources` | `@opentim/resources` | Readers for the original game files, starting with the `RESOURCE.00x` archives.       |
+| `packages/engine`    | `@opentim/engine`    | The simulation core. No DOM or rendering code, so it also runs headless.              |
+| `packages/content`   | `@opentim/content`   | The part lists of each game, written from the original games by a script.             |
+| `packages/sound`     | `@opentim/sound`     | Plays the game's music: its AdLib driver, redone from its code, on an OPL2 emulation. |
+| `packages/theme`     | `@opentim/theme`     | The shared look: colours, type scale, logo and app icon.                              |
 
 Each app is built and deployed separately, on its own (sub)domain:
 

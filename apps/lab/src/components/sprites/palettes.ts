@@ -6,8 +6,6 @@ import { autoPalette, paletteColors, type PaletteChoice } from "../../sprites.ts
 
 /** The setting for the palette chosen automatically from the image's name. */
 export const AUTO = "auto";
-export const AUTO_HINT =
-  "Automatic: the palette with the image’s name, like TITLE.PAL for TITLE.SCR, or else the game’s main palette. Guessed from the names, not read from the file.";
 
 export function usePalettes() {
   const palettes = computed(() => resources.value.filter((r) => r.group === "palette" && paletteColors(r)));

@@ -1,4 +1,4 @@
-/** Saving images from the lab as PNG files. */
+/** Saving images and sounds from the lab as files. */
 
 import type { Frame } from "@opentim/resources";
 import { frameCanvas } from "./components/pixels.ts";
@@ -34,12 +34,14 @@ export function sheetCanvas(frames: Frame[], palette?: Uint8Array): HTMLCanvasEl
 
 /** Saves a canvas as a PNG file. */
 export function download(canvas: HTMLCanvasElement, name: string) {
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = name;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }, "image/png");
+  canvas.toBlob((blob) => blob && saveFile(blob, name), "image/png");
+}
+
+/** Saves data as a file. */
+export function saveFile(blob: Blob, name: string) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }

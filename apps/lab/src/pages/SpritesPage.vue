@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import type { Frame as Bitmap } from "@opentim/resources";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
-import LabBadge from "../components/LabBadge.vue";
-import LabField from "../components/LabField.vue";
+import LabCard from "../components/LabCard.vue";
+import LabEmpty from "../components/LabEmpty.vue";
+import LabListHeading from "../components/LabListHeading.vue";
 import LabIcon from "../components/LabIcon.vue";
-import LabKbd from "../components/LabKbd.vue";
+import LabSearch from "../components/LabSearch.vue";
 import LabSelect from "../components/LabSelect.vue";
 import PageHeader from "../components/PageHeader.vue";
 import PartPicture from "../components/PartPicture.vue";
 import PixelFrame from "../components/PixelFrame.vue";
 import ImageDetail from "../components/sprites/ImageDetail.vue";
-import { AUTO, AUTO_HINT, usePalettes } from "../components/sprites/palettes.ts";
+import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
 import { readBehaviourInBackground, type BehaviourResult } from "../behaviour.ts";
@@ -30,6 +31,13 @@ import {
 } from "../parts.ts";
 import { decode, isImage, type Decoded } from "../sprites.ts";
 import { crumb, openAt, openSprite, selectedPart, spritesView } from "../ui.ts";
+import LabNoMatch from "../components/LabNoMatch.vue";
+import LabPicture from "../components/LabPicture.vue";
+import LabSidePanel from "../components/LabSidePanel.vue";
+import LabTag from "../components/LabTag.vue";
+import LabToolbar from "../components/LabToolbar.vue";
+import LabCaption from "../components/LabCaption.vue";
+import LabDot from "../components/LabDot.vue";
 
 const ORDERS: { value: PartOrder; label: string }[] = [
   { value: "number", label: "By number" },
@@ -37,42 +45,17 @@ const ORDERS: { value: PartOrder; label: string }[] = [
 ];
 
 const router = useRouter();
-const search = useTemplateRef<InstanceType<typeof LabField>>("search");
 const query = ref("");
 const order = ref<PartOrder>("number");
-const galleryPalette = ref(AUTO);
 const startSprite = openSprite.value;
 openSprite.value = undefined;
 
-const { colorsOf, choose, options } = usePalettes();
+const { colorsOf, choose } = usePalettes();
 
 const loaded = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 const list = computed(() => loaded.value?.list);
 /** The names of the parts, by type. */
 const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p).name])));
-/** Where the parts were read, for the header. */
-const sourceBadge = computed(() => {
-  const l = loaded.value;
-  if (!l) return undefined;
-  if (l.source === "committed")
-    return {
-      status: "unsupported" as const,
-      label: "from the committed list",
-      title: `Not read from the loaded files. ${l.problem}`,
-    };
-  const from = l.source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
-  return l.differs.length
-    ? {
-        status: "partial" as const,
-        label: `read from ${from} · ${l.differs.length} differ`,
-        title: `Read from ${from}. Parts ${l.differs.join(", ")} differ from the list committed to OpenTIM.`,
-      }
-    : {
-        status: "decoded" as const,
-        label: `read from ${from}`,
-        title: `Read from ${from}: the same as the committed list.`,
-      };
-});
 /** What the program does with the parts, read in the background once the parts come from the program. */
 const behaviour = shallowRef<BehaviourResult | { status: "reading" }>();
 watch(
@@ -137,7 +120,8 @@ const currentImage = computed(
 );
 
 /** The gallery's palette for an image. */
-const galleryColors = (image: string) => colorsOf(choose(image, galleryPalette.value)?.name);
+/** The cards use the palette with the image's name, or else the game's main palette. */
+const galleryColors = (image: string) => colorsOf(choose(image, AUTO)?.name);
 
 function pickPart(id: string) {
   selectedPart.value = id;
@@ -163,23 +147,7 @@ watch(
   { immediate: true },
 );
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || !(e.target instanceof HTMLElement)) return;
-  if (e.target.closest("input, textarea, select, [contenteditable]")) return;
-  e.preventDefault();
-  search.value?.focus();
-}
-onMounted(() => window.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKeydown);
-  crumb.value = [];
-});
-
-/** The heading of a section of the card list, which stays in view while it scrolls. */
-const sectionClass =
-  "sticky top-0 z-10 col-span-3 -mx-2.5 flex h-8 items-center gap-1.5 border-b border-line bg-surface/95 px-3 backdrop-blur";
-const card = (on: boolean) =>
-  on ? "border-accent bg-accent/12 ring-1 ring-accent" : "border-line bg-sunken hover:border-line-strong";
+onBeforeUnmount(() => (crumb.value = []));
 </script>
 
 <template>
@@ -195,50 +163,31 @@ const card = (on: boolean) =>
         · <span class="text-error">{{ errors }} decode {{ errors === 1 ? "error" : "errors" }}</span></template
       >
     </template>
-    <LabBadge v-if="sourceBadge" v-bind="sourceBadge" />
-    <div class="h-5 w-px bg-line"></div>
-    <LabSelect
-      v-model="galleryPalette"
-      label="Palette for the gallery"
-      :options="options('Automatic (by file name)')"
-    />
-    <LabBadge v-if="galleryPalette === AUTO" status="hypothesis" label="name-based guess" :title="AUTO_HINT" />
   </PageHeader>
 
   <div v-if="hasContent" class="flex min-h-0 flex-1">
-    <aside aria-label="Parts and image files" class="flex w-[404px] shrink-0 flex-col border-r border-line bg-surface">
-      <div class="flex shrink-0 items-center gap-1.5 border-b border-line px-2.5 py-2">
-        <LabField
-          ref="search"
+    <LabSidePanel side="left" width="404px" aria-label="Parts and image files">
+      <LabToolbar>
+        <LabSearch
           v-model="query"
           label="Search parts by name, id or number, and image files by name"
-          type="search"
           placeholder="Name, number or file…"
           class="min-w-0 flex-1"
-        >
-          <template #prefix><LabIcon name="search" :size="14" :stroke="2" /></template>
-          <template #suffix><LabKbd>/</LabKbd></template>
-        </LabField>
+        />
         <LabSelect v-if="list" v-model="order" label="Order of the parts" :options="ORDERS" />
-      </div>
+      </LabToolbar>
       <div class="min-h-0 flex-1 overflow-auto px-2.5 pb-2.5">
         <div v-if="list" class="grid grid-cols-3 gap-2 pb-3">
-          <div :class="sectionClass">
-            <span class="text-label font-semibold tracking-[.07em] text-muted uppercase">Parts</span>
-            <div class="flex-1"></div>
-            <span class="font-mono text-meta text-muted">{{ parts.length }} of {{ list.parts.length }}</span>
-          </div>
-          <button
+          <LabListHeading title="Parts" :meta="`${parts.length} of ${list.parts.length}`" class="col-span-3 -mx-2.5" />
+          <LabCard
             v-for="p in parts"
             :key="p.id"
-            type="button"
-            class="flex min-w-0 cursor-pointer flex-col gap-1 rounded-md border p-1 text-left"
-            :class="card(view === 'parts' && p.id === currentPart?.id)"
+            :selected="view === 'parts' && p.id === currentPart?.id"
             :data-card="view === 'parts' && p.id === currentPart?.id ? 'selected' : ''"
             :aria-label="`${partName(p).name}, number ${p.type}`"
             @click="pickPart(p.id)"
           >
-            <span class="relative flex h-[84px] items-center justify-center overflow-hidden rounded-[3px] checker">
+            <LabPicture height="84px">
               <PartPicture
                 v-if="covers.get(p.id)?.placed.length"
                 :composition="covers.get(p.id)!"
@@ -248,45 +197,39 @@ const card = (on: boolean) =>
               <span v-else class="px-2 text-center text-2xs text-muted">{{
                 p.sheets.length ? "sheet not loaded" : "drawn with lines"
               }}</span>
-              <span class="absolute top-1 left-1 rounded-[3px] bg-sunken/85 px-1 font-mono text-2xs text-muted">{{
-                p.type
-              }}</span>
-              <span
+              <LabTag class="absolute top-1 left-1">{{ p.type }}</LabTag>
+              <LabDot
                 v-if="!p.frames.length"
-                class="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-faint"
+                status="unsupported"
+                class="absolute top-1.5 right-1.5"
                 title="No frames in the list yet"
-              ></span>
-            </span>
+              />
+            </LabPicture>
             <span class="flex flex-col px-0.5 pb-px">
               <span class="truncate text-ui font-medium text-ink">{{ partName(p).name }}</span>
-              <span class="truncate font-mono text-2xs text-muted">{{
+              <LabCaption class="px-0!">{{
                 p.frames.length ? `${p.frames.length} ${p.frames.length === 1 ? "frame" : "frames"}` : "no frames"
-              }}</span>
+              }}</LabCaption>
             </span>
-          </button>
-          <p v-if="!parts.length" class="col-span-3 px-3 py-4 text-center text-muted">
-            No parts match “<span class="font-mono text-ink">{{ query }}</span
-            >”.
-          </p>
+          </LabCard>
+          <LabNoMatch v-if="!parts.length" what="parts" :query="query" class="col-span-3" />
         </div>
 
         <div class="grid grid-cols-3 gap-2">
-          <div :class="sectionClass">
-            <span class="text-label font-semibold tracking-[.07em] text-muted uppercase">Image files</span>
-            <div class="flex-1"></div>
-            <span class="font-mono text-meta text-muted">{{ images.length }} of {{ entries.length }}</span>
-          </div>
-          <button
+          <LabListHeading
+            title="Image files"
+            :meta="`${images.length} of ${entries.length}`"
+            class="col-span-3 -mx-2.5"
+          />
+          <LabCard
             v-for="e in images"
             :key="e.resource.name"
-            type="button"
-            class="flex min-w-0 cursor-pointer flex-col gap-1 rounded-md border p-1 text-left"
-            :class="card(view === 'images' && e.resource.name === currentImage?.resource.name)"
+            :selected="view === 'images' && e.resource.name === currentImage?.resource.name"
             :data-card="view === 'images' && e.resource.name === currentImage?.resource.name ? 'selected' : ''"
             :aria-label="e.resource.name"
             @click="openSheet(e.resource.name)"
           >
-            <span class="relative flex h-[84px] items-center justify-center overflow-hidden rounded-[3px] checker">
+            <LabPicture height="84px">
               <PixelFrame
                 v-if="e.decoded.status === 'decoded' && e.decoded.image.frames[0]"
                 :frame="e.decoded.image.frames[0]"
@@ -298,11 +241,11 @@ const card = (on: boolean) =>
                 class="flex items-center gap-1 text-2xs"
                 :class="e.decoded.status === 'error' ? 'text-error' : 'text-muted'"
               >
-                <LabIcon name="warning" :size="12" :stroke="2" />{{
+                <LabIcon name="warning" :size="12" />{{
                   e.decoded.status === "error" ? "decode error" : "not an image"
                 }}</span
               >
-            </span>
+            </LabPicture>
             <span class="flex flex-col px-0.5 pb-px">
               <span class="truncate font-mono text-ui text-ink">{{ e.resource.name }}</span>
               <span class="truncate text-2xs text-muted"
@@ -313,14 +256,11 @@ const card = (on: boolean) =>
                 ></span
               >
             </span>
-          </button>
-          <p v-if="!images.length" class="col-span-3 px-3 py-4 text-center text-muted">
-            No image files match “<span class="font-mono text-ink">{{ query }}</span
-            >”.
-          </p>
+          </LabCard>
+          <LabNoMatch v-if="!images.length" what="image files" :query="query" class="col-span-3" />
         </div>
       </div>
-    </aside>
+    </LabSidePanel>
 
     <PartDetail
       v-if="view === 'parts' && list && currentPart"
@@ -330,35 +270,30 @@ const card = (on: boolean) =>
       :behaviour="behaviour"
       :no-behaviour="noBehaviour"
       :part-names="partNames"
-      :gallery-palette="galleryPalette"
+      :gallery-palette="AUTO"
       @open-sheet="openSheet"
+      @view-bytes="(file) => viewBytes(resources.find((r) => r.name === file)!)"
     />
     <ImageDetail
       v-else-if="view === 'images' && currentImage"
       :key="currentImage.resource.name"
       :resource="currentImage.resource"
       :decoded="currentImage.decoded"
-      :gallery-palette="galleryPalette"
+      :gallery-palette="AUTO"
       :start-sprite="currentImage.resource.name === selected ? startSprite : undefined"
       @view-bytes="viewBytes"
     />
   </div>
 
-  <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-    <LabIcon name="sprites" :size="28" class="text-faint" />
-    <template v-if="resources.length">
-      <p class="text-title font-semibold">No images in these files</p>
-      <p class="text-muted">The loaded files have no sprite sheets (.BMP) or screens (.SCR).</p>
-    </template>
-    <template v-else>
-      <p class="text-title font-semibold">No files loaded</p>
-      <p class="text-muted">Import the game’s RESOURCE files to see their sprites.</p>
-      <RouterLink
-        to="/"
-        class="mt-1 inline-flex h-[26px] items-center rounded-[5px] border border-accent bg-accent px-[9px] font-semibold text-accent-ink hover:bg-accent-hover"
-      >
-        Go to Import
-      </RouterLink>
-    </template>
-  </div>
+  <LabEmpty
+    v-else
+    icon="sprites"
+    :title="resources.length ? 'No images in these files' : 'No files loaded'"
+    :text="
+      resources.length
+        ? 'The loaded files have no sprite sheets (.BMP) or screens (.SCR).'
+        : 'Import the game’s RESOURCE files to see their sprites.'
+    "
+    :import-link="!resources.length"
+  />
 </template>
