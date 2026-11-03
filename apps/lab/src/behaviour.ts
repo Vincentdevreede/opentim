@@ -491,7 +491,7 @@ export interface BehaviourRequest {
   parts: ProgramParts;
 }
 
-/** The behaviour of a program, once per program: a later call gets the same answer. */
+/** The behaviour of a program, once per program: a later call gets the same answer, unless the read failed. */
 const results = new WeakMap<Uint8Array, Promise<BehaviourResult>>();
 
 /** Reads the behaviour of a program in a worker. */
@@ -509,6 +509,10 @@ export function readBehaviourInBackground(program: Uint8Array, parts: ProgramPar
       worker.postMessage({ program, parts } satisfies BehaviourRequest);
     });
     results.set(program, result);
+    // A failed read isn't kept, so a later call tries again.
+    void result.then((r) => {
+      if (r.status === "error") results.delete(program);
+    });
   }
   return result;
 }
