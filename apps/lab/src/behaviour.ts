@@ -109,18 +109,103 @@ const MAX_EVIDENCE = 40;
 const instructions = (evidence: readonly Evidence[]): Instruction[] =>
   evidence.slice(0, MAX_EVIDENCE).map(({ address, text }) => ({ address, text }));
 
+/**
+ * Fields of a part the analysis doesn't name, read from the program's code: the found list and overlaps that the
+ * searches at 0x417e and 0x437d write, the history that each step shifts (0x87ed), momentum (0x3855), and the links,
+ * of which the last two are sockets (0x5d14).
+ */
+const PART_FIELDS = new Map([
+  [0x00, "nextInList"],
+  [0x06, "lists"],
+  [0x26, "olderX"],
+  [0x28, "olderY"],
+  [0x2e, "previousDrawX"],
+  [0x30, "previousDrawY"],
+  [0x32, "olderDrawX"],
+  [0x34, "olderDrawY"],
+  [0x3c, "momentum"],
+  [0x3e, "momentum.high"],
+  [0x48, "previousFrameWidth"],
+  [0x4a, "previousFrameHeight"],
+  [0x4c, "olderFrameWidth"],
+  [0x4e, "olderFrameHeight"],
+  [0x54, "belt"],
+  [0x5a, "link0"],
+  [0x5c, "link1"],
+  [0x5e, "link2"],
+  [0x60, "link3"],
+  [0x62, "socket1"],
+  [0x64, "socket2"],
+  [0x66, "rope"],
+  [0x78, "found"],
+  [0x7a, "overlapX"],
+  [0x7c, "overlapY"],
+  [0x7e, "socketNumber"],
+]);
+/** What a field of a part points to: another part, a belt record, the outline points, or a rope record. */
+const LINKS = new Map<number, Kind>([
+  [0x54, "belt"],
+  [0x5a, "part"],
+  [0x5c, "part"],
+  [0x5e, "part"],
+  [0x60, "part"],
+  [0x62, "part"],
+  [0x64, "part"],
+  [0x66, "rope"],
+  [0x78, "part"],
+  [0x82, "outline"],
+  [0x84, "part"],
+]);
+type Kind = "part" | "belt" | "outline" | "rope" | "other";
+
 /** Writes expressions and conditions as text, with the names of the part's fields. */
 export function writer(fields: readonly { offset: number; name: string }[]) {
-  const names = new Map(fields.map((f) => [f.offset, f.name]));
+  const names = new Map([...PART_FIELDS, ...fields.map((f) => [f.offset, f.name] as const)]);
   const number = (n: number) => (n >= 0 && n < 100 ? String(n) : n < 0 && n > -100 ? String(n) : hex(n >>> 0));
-  const place = (object: string, offset: number) => {
-    if (object === "part") return names.get(offset) ?? `part+${hex(offset, 2)}`;
-    if (object === "data") return `ds:${hex(offset, 4)}`;
-    if (object === "stack") return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)}`;
-    if (object === "argument") return `argument+${hex(offset, 2)}`;
-    const linked = /^referenced-by\((.+)\)$/.exec(object);
-    const field = names.get(offset) ?? `+${hex(offset, 2)}`;
-    return linked ? `[${linked[1]}].${field}` : `${object}+${hex(offset, 2)}`;
+  /** An object the analysis names, as text and the kind of thing it is. */
+  const object = (text: string): { name: string; kind: Kind } => {
+    // The same object read after a call that may have changed it.
+    const after = / after (unresolved write|unresolved effect|field effect) at 0x[0-9a-f]+$/.exec(text);
+    if (after) return object(text.slice(0, after.index));
+    if (text === "part") return { name: "", kind: "part" };
+    if (text === "collider") return { name: "collider", kind: "part" };
+    if (text === "address of part") return { name: "this", kind: "other" };
+    if (/^overlap candidate at /.test(text)) return { name: "found", kind: "part" };
+    const linked = /^referenced-by\((.+)\+0x([0-9a-f]+)\)$/.exec(text);
+    if (linked) {
+      const inner = object(linked[1]!);
+      const offset = parseInt(linked[2]!, 16);
+      const kind: Kind =
+        inner.kind === "part"
+          ? (LINKS.get(offset) ?? "other")
+          : (inner.kind === "belt" && (offset === 4 || offset === 6)) || (inner.kind === "rope" && offset === 0)
+            ? "part"
+            : "other";
+      const name = kind === "outline" ? "outline" : field(inner, offset);
+      // A link without a name is bracketed, so its own fields don't read as a sum.
+      return { name: kind === "other" || name.includes("+") ? `[${name}]` : name, kind };
+    }
+    const table = /^pointer loaded from table (\S+) indexed by /.exec(text);
+    if (table) return { name: `[table ${table[1]}[…]]`, kind: "other" };
+    return { name: text, kind: "other" };
+  };
+  const field = ({ name, kind }: { name: string; kind: Kind }, offset: number): string => {
+    const raw = `${name || "part"}+${hex(offset, 2)}`;
+    if (kind === "part") {
+      const known = names.get(offset);
+      return known ? (name ? `${name}.${known}` : known) : raw;
+    }
+    if (kind === "belt" && (offset === 4 || offset === 6)) return `${name}.end${offset === 4 ? 1 : 2}`;
+    if (kind === "rope" && offset === 0) return `${name}.part`;
+    if (kind === "outline") return `${name}[${offset >> 2}].${["x", "y", "edge", "edge"][offset & 3]}`;
+    if (name === "this" && offset === 0) return "this";
+    return raw;
+  };
+  const place = (target: string, offset: number) => {
+    if (target === "data") return `ds:${hex(offset, 4)}`;
+    if (target === "stack") return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)}`;
+    if (target === "argument") return `argument+${hex(offset, 2)}`;
+    return field(object(target), offset);
   };
   const expression = (e: Expression, nested = false): string => {
     switch (e.kind) {

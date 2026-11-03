@@ -48,8 +48,8 @@ describe("tidying conditions", () => {
     const difference = binary("-", state, { ...state, offset: 0x28 });
     const sign = binary(">>", difference, constant(15));
     const absolute = binary("-", binary("^", difference, sign), sign);
-    expect(tidyTerm(`${expression(absolute)} <= 1`)).toBe("|state - part+0x28| <= 1");
-    expect(tidyTerm(`${expression(binary("+", absolute, constant(1)))} > 2`)).toBe("|state - part+0x28| + 1 > 2");
+    expect(tidyTerm(`${expression(absolute)} <= 1`)).toBe("|state - olderY| <= 1");
+    expect(tidyTerm(`${expression(binary("+", absolute, constant(1)))} > 2`)).toBe("|state - olderY| + 1 > 2");
     const own = binary(">>", state, constant(15));
     expect(tidyTerm(`${expression(binary("-", binary("^", state, own), own))} < 3`)).toBe("|state| < 3");
     expect(tidyTerm("x + 0xffe0 > 3")).toBe("x - 32 > 3");

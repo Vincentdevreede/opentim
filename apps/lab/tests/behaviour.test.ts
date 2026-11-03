@@ -24,9 +24,24 @@ describe("writer", () => {
   it("names the part's fields and writes other places by their offset", () => {
     expect(expression(field(0x0c))).toBe("state");
     expect(expression(field(0x8a))).toBe("part+0x8a");
-    expect(expression(field(0x1e, "referenced-by(part+0x84)"))).toBe("[part+0x84].+0x1e");
+    expect(expression(field(0x1e, "referenced-by(part+0x84)"))).toBe("[part+0x84]+0x1e");
     expect(expression(field(0x0c, "referenced-by(part+0x84)"))).toBe("[part+0x84].state");
     expect(expression(field(0x40ef, "data"))).toBe("ds:0x40ef");
+  });
+
+  it("names linked objects by what they are, from the fields the program's code shows", () => {
+    expect(expression(field(0x78))).toBe("found");
+    expect(expression(field(0x0c, "referenced-by(part after unresolved write at 0x1d32a+0x78)"))).toBe("found.state");
+    expect(expression(field(0x7a, "referenced-by(part+0x78) after field effect at 0x1d32a"))).toBe("found.overlapX");
+    expect(expression(field(0x04, "referenced-by(part+0x54)"))).toBe("belt.end1");
+    expect(expression(field(0x08, "referenced-by(referenced-by(part+0x54)+0x6)"))).toBe("belt.end2+0x08");
+    expect(expression(field(0x0c, "referenced-by(referenced-by(part+0x54)+0x6)"))).toBe("belt.end2.state");
+    expect(expression(field(0x09, "referenced-by(part+0x82)"))).toBe("outline[2].y");
+    expect(expression(field(0x00, "referenced-by(part+0x66)"))).toBe("rope.part");
+    expect(expression(field(0x02, "referenced-by(part+0x66)"))).toBe("rope+0x02");
+    expect(expression(field(0x0c, "overlap candidate at 0x4a70"))).toBe("found.state");
+    expect(expression(field(0x62))).toBe("socket1");
+    expect(expression(field(0x00, "address of part"))).toBe("this");
   });
 
   it("writes small numbers in decimal and others in hex, with brackets around nested sums", () => {
