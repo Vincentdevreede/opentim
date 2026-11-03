@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
 import type { BehaviourResult } from "../../behaviour.ts";
-import { routineGroups, stateGroups, type ChangeRow, type WriteRow } from "../../behaviour-view.ts";
+import { outlineSides, routineGroups, stateGroups, type ChangeRow, type WriteRow } from "../../behaviour-view.ts";
 import { behaviourLayout } from "../../ui.ts";
 import LabIcon from "../LabIcon.vue";
 import LabSegmented from "../LabSegmented.vue";
@@ -44,6 +44,7 @@ const summary = computed(() => (props.result?.status === "done" ? props.result.s
 const part = computed(() => summary.value?.parts[props.type]);
 const routines = computed(() => (part.value ? routineGroups(part.value) : []));
 const states = computed(() => (part.value ? stateGroups(part.value) : []));
+const sides = computed(() => (part.value ? outlineSides(part.value) : undefined));
 const draws = computed(() => routines.value.flatMap((g) => g.draws));
 
 /** The other parts that use each routine, by its address. */
@@ -173,6 +174,7 @@ const more = computed(() => {
               :row="row"
               lead="from"
               :frames="frames"
+              :sides="sides"
               :highlight="fromHere(row)"
               @show-frame="emit('showFrame', $event)"
             />
@@ -245,6 +247,7 @@ const more = computed(() => {
               :row="row"
               lead="routine"
               :frames="frames"
+              :sides="sides"
               :highlight="fromHere(row)"
               @show-frame="emit('showFrame', $event)"
             />

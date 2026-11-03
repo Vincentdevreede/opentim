@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { ownTerms, termsOf, tidyTerms, type ChangeRow } from "../../behaviour-view.ts";
+import { ownTerms, readTerm, termsOf, tidyTerms, type ChangeRow } from "../../behaviour-view.ts";
 import BehaviourRow from "./BehaviourRow.vue";
 
 /** A change of the part's state, led by the states it starts from or by the routine that makes it. */
@@ -10,10 +10,13 @@ const props = defineProps<{
   /** The ids of the part's frames, to link a state to its frame. */
   frames: number[];
   highlight?: boolean;
+  /** The side each edge of the part's outline faces, when it is known. */
+  sides?: readonly string[];
 }>();
 const emit = defineEmits<{ showFrame: [id: number] }>();
 
-const condition = computed(() => ownTerms(props.row).join(" and ") || (props.row.variants.length ? "" : "always"));
+const read = (terms: readonly string[]) => terms.map((t) => readTerm(t, props.sides)).join(" and ");
+const condition = computed(() => read(ownTerms(props.row)) || (props.row.variants.length ? "" : "always"));
 /** A condition too long to share the line goes on a line of its own, where it can be read in full. */
 const wraps = computed(() => condition.value.length > 22);
 const instructions = computed(() => props.row.paths.reduce((n, p) => n + p.evidence.length, 0));
@@ -21,7 +24,7 @@ const tip = computed(() => {
   const r = props.row;
   const lines = [`${r.routine}: from ${r.fromText} ${r.target}`];
   if (r.expression) lines.push(`state = ${r.expression}`);
-  lines.push(r.shared.length ? `When ${r.shared.join(" and ")}` : "Always");
+  lines.push(r.shared.length ? `When ${read(r.shared)}` : "Always");
   if (r.variants.length) lines.push(`and one of ${r.variants.length} cases`);
   lines.push("", `${instructions.value} instructions, ${r.confidence}. Click for every path.`);
   return lines.join("\n");

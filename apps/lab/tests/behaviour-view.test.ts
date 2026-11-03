@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { valueForState, writer, type Change, type PartSummary } from "../src/behaviour.ts";
 import {
   changeRows,
+  outlineSides,
+  readTerm,
   ownTerms,
   routineGroups,
   stateGroups,
@@ -134,6 +136,73 @@ describe("groups", () => {
       ["0", ["run"]],
       ["1", ["bounce"]],
       ["none of its own", ["0x12345"]],
+    ]);
+  });
+});
+
+describe("hits in words", () => {
+  const write = (target: string, value: number) => ({
+    routine: "reset",
+    target,
+    value: String(value),
+    condition: "always",
+    confidence: "inferred" as const,
+    assumptions: [],
+    evidence: [],
+  });
+  const outline = (points: [number, number][]) =>
+    ({
+      routines: [],
+      changes: [],
+      triggers: [],
+      counters: [],
+      effects: [],
+      uncertainties: [],
+      reset: points.flatMap(([x, y], k) => [write(`outline[${k}].x`, x), write(`outline[${k}].y`, y)]),
+    }) as PartSummary;
+
+  it("works out the side each edge faces from the points a reset writes", () => {
+    expect(
+      outlineSides(
+        outline([
+          [0, 11],
+          [47, 11],
+          [47, 27],
+          [0, 27],
+        ]),
+      ),
+    ).toEqual(["top", "right", "bottom", "left"]);
+    expect(
+      outlineSides(
+        outline([
+          [8, 0],
+          [23, 0],
+          [31, 8],
+          [31, 23],
+          [23, 31],
+          [8, 31],
+          [0, 23],
+          [0, 8],
+        ]),
+      ),
+    ).toEqual(["top", "top right", "right", "bottom right", "bottom", "bottom left", "left", "top left"]);
+    expect(outlineSides(outline([]))).toBeUndefined();
+  });
+
+  it("says which way the hit surface faces and which edge was hit", () => {
+    expect(readTerm("(collider.contactAngle + 0x4000) & 0x8000 == 0")).toBe("hit from above");
+    expect(readTerm("(collider.contactAngle + 0x4000) & 0x8000 != 0")).toBe("hit from below");
+    expect(readTerm("collider.contactEdge == 0", ["top", "right"])).toBe("hit on the top (edge 0)");
+    expect(readTerm("collider.contactEdge != 1", ["top", "right"])).toBe("not on the right (edge 1)");
+    expect(readTerm("collider.contactEdge == 2")).toBe("hit on edge 2");
+    expect(readTerm("collider.contactEdge < 3")).toBe("hit on edges 0–2");
+    expect(readTerm("socket1 == 0")).toBe("socket1 == 0");
+  });
+
+  it("drops not equal to a number when the condition says equal to another", () => {
+    expect(tidyTerms(["collider.contactEdge != 3", "collider.contactEdge == 0", "collider.contactEdge != 0"])).toEqual([
+      "collider.contactEdge == 0",
+      "collider.contactEdge != 0",
     ]);
   });
 });

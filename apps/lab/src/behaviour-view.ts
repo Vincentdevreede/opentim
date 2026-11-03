@@ -33,11 +33,63 @@ export function tidyTerms(terms: readonly string[]): string[] {
     const m = COMPARE.exec(t);
     if (!m) return true;
     const [, left, op, value] = m;
-    if (op === "!=") return !has(`${left} < ${value}`) && !has(`${left} > ${value}`);
+    // Equal to one number already says it isn't another.
+    if (op === "!=")
+      return (
+        !has(`${left} < ${value}`) &&
+        !has(`${left} > ${value}`) &&
+        !list.some((other) => other.startsWith(`${left} == `) && other !== `${left} == ${value}`)
+      );
     if (op === "<=") return !has(`${left} < ${value}`);
     if (op === ">=") return !has(`${left} > ${value}`);
     return true;
   });
+}
+
+const SIDES = ["right", "top right", "top", "top left", "left", "bottom left", "bottom", "bottom right"];
+
+/**
+ * The side each edge of a part's outline faces, when its reset routine writes the points as numbers. The program
+ * gives an edge from a point to the next the direction 0xc000 - (atan2(dy, dx) - a quarter turn) (0x69e8), and
+ * outlines run clockwise on screen, so the outside of an edge faces a quarter turn further.
+ */
+export function outlineSides(part: PartSummary): string[] | undefined {
+  const points: { x?: number; y?: number }[] = [];
+  for (const w of part.reset) {
+    const m = /^outline\[(\d+)\]\.([xy])$/.exec(w.target);
+    if (!m) continue;
+    const value = Number(w.value);
+    if (w.condition !== "always" || !Number.isInteger(value)) return undefined;
+    const point = (points[Number(m[1])] ??= {});
+    if (point[m[2] as "x" | "y"] !== undefined && point[m[2] as "x" | "y"] !== value) return undefined;
+    point[m[2] as "x" | "y"] = value;
+  }
+  if (points.length < 2 || points.some((p) => p?.x === undefined || p.y === undefined)) return undefined;
+  return points.map((p, k) => {
+    const next = points[(k + 1) % points.length]!;
+    // On screen y grows downward, so the angle with y up is the negative one.
+    const angle = Math.atan2(p.y! - next.y!, next.x! - p.x!) / (2 * Math.PI);
+    return SIDES[Math.round((angle + 0.25) * 8) & 7]!;
+  });
+}
+
+/**
+ * A term in words where the program's code shows what it tests: which way the surface that was hit faces, from its
+ * direction word (0x0d98, 0x09ff), and which edge of the outline was hit.
+ */
+export function readTerm(term: string, sides?: readonly string[]): string {
+  const angle = /^\((\w+)\.contactAngle \+ 0x4000\) & 0x8000 (==|!=) 0$/.exec(term);
+  if (angle) return angle[2] === "==" ? "hit from above" : "hit from below";
+  const edge = /^(\w+)\.contactEdge (==|!=|<|<=|>|>=) (\d+)$/.exec(term);
+  if (!edge) return term;
+  const [, , op, text] = edge;
+  const n = Number(text);
+  const side = sides?.[n] ? `the ${sides[n]} (edge ${n})` : `edge ${n}`;
+  if (op === "==") return `hit on ${side}`;
+  if (op === "!=") return `not on ${side}`;
+  if (op === "<") return n === 1 ? "hit on edge 0" : `hit on edges 0–${n - 1}`;
+  if (op === ">=") return `hit on edge ${n} or later`;
+  return `hit on edge ${op} ${n}`;
 }
 
 /** The terms of a condition as the lab writes it, like `a != 0 and b == 4`. */
