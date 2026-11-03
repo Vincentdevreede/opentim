@@ -100,3 +100,5 @@ export type {
 } from "./read/behaviour-contact-outline.ts";
 export type { ContactSmallRelation } from "./read/behaviour-contact-small.ts";
 export type { ContactMotionAngle } from "./read/behaviour-contact-motion-angle.ts";
+
+export type { CollisionDispatch, CollisionTarget } from "./read/behaviour-collision-dispatch.ts";

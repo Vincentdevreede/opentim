@@ -4,6 +4,7 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
+import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
 import { discoverGearRun, type GearRunContract } from "./behaviour-gear-run.ts";
 import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-scheduling.ts";
@@ -146,6 +147,7 @@ export interface PartBehaviour {
   uncertainties: string[];
 }
 export interface BehaviourReport {
+  collisionDispatch?: CollisionDispatch[];
   gearScheduling?: GearScheduling[];
   listId: string;
   imageLength: number;
@@ -4333,9 +4335,16 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
           });
       }
     }
+  const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list);
+  if (!collisionDispatch.length)
+    for (const part of parts)
+      part.uncertainties.push(
+        "The complete contact-processing region was not found; callback selection and response routing remain unresolved.",
+      );
   return {
     listId: list.list.id,
     ...(gearScheduling.length ? { gearScheduling } : {}),
+    collisionDispatch,
     imageLength: image.length,
     dataSegment: list.dataSegment,
     layout,

@@ -722,3 +722,26 @@ zero displacement from velocity alone or preserve stale context through an unkno
 The relations are symbolic contracts, with confidence, instruction evidence and explicit storage assumptions.
 Unknown level geometry, selected contacts and indirect callbacks can still stop animation walks. A complete
 geometric relation is not a claim that every part's triggered animation is now known.
+
+## Contact callbacks and response selection
+
+`collisionDispatch` checks the complete contact-processing list region, including every incoming and outgoing
+control-flow edge. The two indirect calls select a callback using the recorded contact partner's type, while
+passing the moving part as the first argument. The report retains all loaded type-table alternatives and their
+pointer bytes. These are conditional targets: the partner's runtime type must be valid and the table must remain
+unchanged. The original calls remain indirect in the decoded routine.
+
+The dispatcher first excludes parts with mask 8 at `+0x06` or mask `0x2000` at `+0x08`. Contact mask 2 has priority
+over mask 4; the second dispatch is reached only when mask 2 is clear. A callback returning zero skips the response
+helper. A nonzero return selects the recorded helper, using flags read after the callback. The list's next pointer
+is also read after callbacks and responses, so this is not a claim of fixed membership or one visit per game step.
+
+Even More has an earlier self callback for type 54, Mel Schlemming, when either contact mask is set. Its return is
+ignored. Later contact gates read the fields again, and the first response route excludes this type. TIM 1 has no
+corresponding self call or type exception in this region. Eligibility before the self call is not silently reused
+as a statement about fields after it.
+
+Only complete return-only callback bodies receive a constant return in this contract, with their own instruction
+evidence. Other return values and effects remain in the callback analysis. `describeBehaviour` adds a conditional
+contact description per part. It does not supply a collision, choose a runtime partner or create an animation seed.
+The response helpers' addresses and arguments are established; their physical effects need their own contracts.

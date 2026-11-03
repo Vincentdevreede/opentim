@@ -13,12 +13,51 @@ const operand = (o: Operand): string | undefined => {
 
 /** Matches decoded operands and every CFG edge, rather than trusting disassembly text or a byte prefix. */
 export function matchHeapRoutine(code: RoutineCode, pattern: string, bindings: Bindings): Bindings | undefined {
+  return matchSequence(code, pattern, bindings);
+}
+
+/** Checks a complete region and rejects every external edge into its interior. The exit remains a real CFG address. */
+export function matchInstructionRegion(
+  code: RoutineCode,
+  instructions: RoutineCode["instructions"],
+  exit: number,
+  pattern: string,
+  bindings: Bindings,
+): Bindings | undefined {
+  if (code.status !== "complete" || !instructions.length || instructions.some((i) => !code.instructions.includes(i)))
+    return;
+  const addresses = new Set(instructions.map((i) => i.address));
+  const entry = instructions[0]!.address;
+  if (
+    addresses.size !== instructions.length ||
+    addresses.has(exit) ||
+    (addresses.has(code.address) && code.address !== entry) ||
+    code.edges.some((e) => e.to !== null && addresses.has(e.to) && !addresses.has(e.from) && e.to !== entry) ||
+    code.edges.some((e) => addresses.has(e.from) && (e.to === null || (!addresses.has(e.to) && e.to !== exit)))
+  )
+    return;
+  return matchSequence(
+    {
+      ...code,
+      address: entry,
+      instructions,
+      edges: code.edges.filter((e) => addresses.has(e.from)),
+      calls: code.calls.filter((c) => addresses.has(c.instruction)),
+    },
+    pattern,
+    bindings,
+    exit,
+  );
+}
+
+function matchSequence(code: RoutineCode, pattern: string, bindings: Bindings, exit?: number): Bindings | undefined {
   if (code.status !== "complete") return;
   const rows = pattern
     .trim()
     .split("\n")
     .map((row) => row.trim());
   const labels = new Map<string, number>();
+  if (exit !== undefined) labels.set("exit", exit);
   const parsed = rows.map((row, n) => {
     const label = /^([A-Za-z]+): /.exec(row);
     if (label) {
@@ -85,7 +124,7 @@ export function matchHeapRoutine(code: RoutineCode, pattern: string, bindings: B
         : !row.includes(" @") && !["call", "callf"].includes(mnemonic!) && i.flow !== "next"
     )
       return;
-    const next = code.instructions[n + 1]?.address;
+    const next = code.instructions[n + 1]?.address ?? exit;
     if (["next", "call", "branch"].includes(i.flow) && next !== i.address + i.size) return;
     const expected =
       i.flow === "return"

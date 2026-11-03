@@ -1,4 +1,5 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
+import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import type {
   BehaviourReport,
@@ -108,6 +109,7 @@ export interface DescribedEffect extends Finding {
 }
 
 export interface PartBehaviourDescription extends Finding {
+  contact?: NonNullable<ReturnType<typeof describeCollisionDispatch>>;
   gear?: GearDescription;
   type: number;
   id: string;
@@ -2107,10 +2109,12 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         ...animations.flatMap((animation) => (animation.walk.reason ? [animation.walk.reason] : [])),
       ]),
     ];
+    const contact = describeCollisionDispatch(report.collisionDispatch, part);
     return {
       id: part.id,
       type: part.type,
       ...(gear ? { gear } : {}),
+      ...(contact ? { contact } : {}),
       summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
       rest,
       ...(creation ? { creation } : {}),
