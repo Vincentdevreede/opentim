@@ -307,6 +307,10 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             </div>
             <span class="w-10 text-right font-mono text-muted tabular">{{ Math.round(renderProgress * 100) }}%</span>
           </div>
+          <p v-else-if="adlib && patch.status !== 'found'" class="text-soft">
+            {{ patch.message }} The MIDI plays through the game’s own driver and instruments, so without them it can’t
+            be heard. Import the files with {{ DRIVERS }} to play it.
+          </p>
           <p v-if="hasAdlib && sample" class="text-meta text-muted">
             This sound has a digitized sample and MIDI for the AdLib. The sample goes to the game’s digital sound
             drivers and the MIDI to its music driver; whether the game plays both at once isn’t checked yet.
