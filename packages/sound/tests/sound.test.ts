@@ -126,11 +126,15 @@ describe("AdlibDriver", () => {
     expect([...Array(9).keys()].some(keyOn)).toBe(false);
   });
 
-  it("keeps the highest pitches in block 7, so releasing them turns the key off", () => {
+  it("keeps the highest pitches in block 7 with a higher F-number, so releasing them turns the key off", () => {
     const { d, pitch, keyOn } = driver();
-    d.message(0xe0, 0x7f, 0x7f);
+    // A bend of 8 quarter semitones takes note 107 into octave 9: twice the table's F-number in block 7.
+    d.message(0xe0, 9560 & 0x7f, 9560 >> 7);
     d.message(0x90, 107, 127);
-    expect(pitch(0).block).toBe(7);
+    expect(pitch(0)).toEqual({ block: 7, fnum: 0x16b * 2 });
+    // Further up, the F-number stops at the chip's highest.
+    d.message(0xe0, 0x7f, 0x7f);
+    expect(pitch(0)).toEqual({ block: 7, fnum: 0x3ff });
     d.message(0x80, 107, 0);
     expect(keyOn(0)).toBe(false);
   });

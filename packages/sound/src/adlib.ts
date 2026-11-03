@@ -432,9 +432,10 @@ export class AdlibDriver {
     // The driver compares unsigned, so a pitch below 0 ends up at the top too.
     if (pitch < 0 || pitch > HIGHEST_PITCH) pitch = HIGHEST_PITCH;
     const octave = Math.floor(pitch / 48);
-    const fnum = FREQUENCIES[pitch % 48]!;
     // The register has three bits for the block, so the top pitches stay in block 7 instead of reaching the key bit.
+    // Their F-number doubles for each octave above it instead, up to the highest the chip takes.
     const block = Math.min(7, octave > 0 ? octave - 1 : 0);
+    const fnum = Math.min(0x3ff, FREQUENCIES[pitch % 48]! << Math.max(0, octave - 8));
     const key = (on ? 0x20 : 0) | (block << 2) | (fnum >> 8);
     this.opl.write(0xa0 + index, fnum & 0xff);
 
