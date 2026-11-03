@@ -3317,6 +3317,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         }
       }
       if (engine?.partGraph?.stateCases && passesPart) {
+        // Only take the specialised path when every possible case applies; otherwise the call is handled generically.
+        const branches: AbstractState[] = [];
+        let declined = false;
         for (const stateCase of engine.partGraph.stateCases) {
           const condition = formalPredicate(stateCase.condition, args, engine.argumentOffset, s);
           if (!possible(conjunction([...s.conditions, condition]))) continue;
@@ -3338,11 +3341,18 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               },
             ],
           };
-          if (!applyEngine(selected, args, branch, i)) continue;
+          if (!applyEngine(selected, args, branch, i)) {
+            declined = true;
+            break;
+          }
           returnedStack(branch);
-          enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: branch });
+          branches.push(branch);
         }
-        continue;
+        if (!declined) {
+          for (const branch of branches)
+            enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: branch });
+          continue;
+        }
       }
       const pushedCodeSegment =
         last?.mnemonic === "push" && last.operands[0]?.kind === "register" && last.operands[0].name === "cs";
