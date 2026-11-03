@@ -1448,7 +1448,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
   };
   const angleFrameMatches = (engine: EngineSummary | undefined, i: Instruction): boolean => {
-    if (!engine || !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind)) return true;
+    if (
+      !engine ||
+      (!engine.contactResponse && !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind))
+    )
+      return true;
     const previous = precedingByEnd.get(i.address);
     const segmentPush =
       previous?.mnemonic === "push" && previous.operands[0]?.kind === "register" && previous.operands[0].name === "cs";
@@ -2876,7 +2880,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     } else if (i.flow === "call") {
       const angleEngine = i.target ? options.engineSummaries?.get(i.target.address) : undefined;
       if (!angleFrameMatches(angleEngine, i)) {
-        const reason = `Scalar helper return frame at ${hex(i.address)} is not established`;
+        const reason = `${angleEngine?.contactResponse ? "Contact response" : "Scalar"} helper return frame at ${hex(i.address)} is not established`;
         uncertainEffects = true;
         diagnostics.add(reason);
         unresolvedExit(s, i, reason);
@@ -4335,7 +4339,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
           });
       }
     }
-  const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list);
+  const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list, engineSummaries);
   if (!collisionDispatch.length)
     for (const part of parts)
       part.uncertainties.push(

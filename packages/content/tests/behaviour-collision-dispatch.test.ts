@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import { discoverCollisionDispatch, describeCollisionDispatch } from "../src/read/behaviour-collision-dispatch.ts";
 import { matchInstructionRegion } from "../src/read/behaviour-heap-release.ts";
+import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
 import type { ProgramParts } from "../src/read/parts.ts";
 
@@ -184,6 +185,50 @@ describe("collision callback routing", () => {
     expect(c!.advance).toBe("readCurrentNextAfterCallbacks");
     expect(c!.evidence.some((e) => e.address === f.layout.callbacks[0]!.sites[0] && e.bytes[0] === 0xff)).toBe(true);
     expect(f.code.calls.filter((c) => !c.target)).toHaveLength(2);
+  });
+  it("links independently certified helper effects without turning reachability into execution", () => {
+    const f = fixture();
+    const helper: EngineSummary = {
+      ...finding,
+      address: 0x610,
+      kind: "contact-resource-request",
+      purpose: "Conditionally requests resource 20.",
+      argumentOffset: 6,
+      argumentKind: "object",
+      writes: [],
+      returns: [],
+      calls: [],
+      footprint: {
+        complete: false,
+        partMemoryComplete: true,
+        preservesArgumentMemory: true,
+        preservesPartState: true,
+        unknownEffects: ["Driver effects."],
+      },
+      contactResponse: {
+        kind: "contact-resource-request",
+        ownerArgument: 6,
+        typeField: 4,
+        requiredType: 0,
+        velocityFields: [54, 56],
+        condition: { kind: "true" },
+        resource: 20,
+        service: 0x900,
+        arithmetic: "wrappedWordAbsoluteValuesAndSumThenSignedComparison",
+        audiblePlaybackEstablished: false,
+      },
+    };
+    const [contract] = discoverCollisionDispatch(
+      f.image,
+      f.codes,
+      f.layout,
+      f.program,
+      new Map([[helper.address, helper]]),
+    );
+    expect(contract!.responseSupport).toHaveLength(1);
+    expect(contract!.responseSupport![0]).toMatchObject({ response: 0x610, helper: 0x610 });
+    expect(contract!.responseSupport![0]!.assumptions.join(" ")).toContain("does not prove that its path is taken");
+    expect(contract!.passes[0]!.callbackZero).toBe("advanceWithoutResponse");
   });
   it("certifies the far table and the earlier self callback without freezing later flags", () => {
     const f = fixture(0x80, 0x1000, true),

@@ -10,6 +10,7 @@ import { addContactEffectSummaries, type ContactSearch, type ContactObjectWrite 
 import { discoverContactScalar } from "./behaviour-contact-scalars.ts";
 import { addContactSegmentSummaries, type ContactSegmentTest } from "./behaviour-contact-segment.ts";
 import { addContactSelection, type ContactSelection } from "./behaviour-contact-selection.ts";
+import { discoverContactResponse, type ContactResponse } from "./behaviour-contact-response.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
 import { addContactMotionAngleSummaries, type ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
@@ -64,6 +65,7 @@ export interface EngineSummary extends Finding {
   contactSegment?: ContactSegmentTest;
   contactSelection?: ContactSelection;
   contactSmall?: ContactSmallRelation;
+  contactResponse?: ContactResponse;
   contactOutline?: ContactOutline;
   contactMotionAngle?: ContactMotionAngle;
   shortCircuit?: ConnectionBypass;
@@ -2264,6 +2266,10 @@ export function discoverEngineSummaries(
   for (const code of codes.values()) {
     const small = discoverContactSmall(code, codes, layout);
     if (small) summaries.set(code.address, small);
+  }
+  for (const code of codes.values()) {
+    const response = discoverContactResponse(code, summaries, table, dataSegment, typeCount, image.length);
+    if (response) summaries.set(code.address, response);
   }
   addContactSegmentSummaries(codes, summaries);
   addContactEffectSummaries(codes, summaries, layout);

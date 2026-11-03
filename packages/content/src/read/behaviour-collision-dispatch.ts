@@ -1,6 +1,8 @@
 /** Certifies contact callback selection and response routing without supplying a collision or invoking a callback. */
 import { collisionPatterns } from "./behaviour-collision-patterns.ts";
 import { matchHeapRoutine, matchInstructionRegion } from "./behaviour-heap-release.ts";
+import type { EngineSummary } from "./behaviour-helpers.ts";
+import type { ContactResponse } from "./behaviour-contact-response.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
@@ -49,6 +51,7 @@ export interface CollisionDispatch extends Finding {
     callbackNonzero: { condition: Predicate; routine: number; argument: "collider" }[];
     responseConditionsReadAfterCallback: true;
   }[];
+  responseSupport?: (Finding & { response: number; helper: number; description: string; relation: ContactResponse })[];
   advance: "readCurrentNextAfterCallbacks";
   description: string;
 }
@@ -91,6 +94,7 @@ export function discoverCollisionDispatch(
   codes: Map<number, RoutineCode>,
   layout: BehaviourLayout,
   program: Pick<ProgramParts, "table" | "records" | "dataSegment" | "list">,
+  summaries?: Map<number, EngineSummary>,
 ): CollisionDispatch[] {
   const bounce = layout.callbacks.find((c) => c.role === "bounce"),
     result: CollisionDispatch[] = [];
@@ -299,6 +303,33 @@ export function discoverCollisionDispatch(
           responseConditionsReadAfterCallback: true,
         },
       ],
+      responseSupport: ["helperA", "helperB", "helperC"].flatMap((name) => {
+        const response = binding!.get(name)!,
+          visited = new Set<number>(),
+          pending = [response];
+        const support: NonNullable<CollisionDispatch["responseSupport"]> = [];
+        while (pending.length) {
+          const address = pending.pop()!;
+          if (visited.has(address)) continue;
+          visited.add(address);
+          const helper = summaries?.get(address);
+          if (helper?.contactResponse)
+            support.push({
+              response,
+              helper: address,
+              description: helper.purpose,
+              relation: helper.contactResponse,
+              confidence: helper.confidence,
+              evidence: helper.evidence,
+              assumptions: [
+                ...helper.assumptions,
+                "This helper is reachable in the response call graph. Reachability does not prove that its path is taken; its own predicates apply to the argument at that call.",
+              ],
+            });
+          for (const call of codes.get(address)?.calls ?? []) if (call.target) pending.push(call.target.address);
+        }
+        return support;
+      }),
       advance: "readCurrentNextAfterCallbacks",
       description:
         "For an eligible moving part, selects a contact callback from the recorded partner's type and passes the moving part. A zero return skips the response; a nonzero return chooses a response using flags read after the callback.",
@@ -320,7 +351,15 @@ export function discoverCollisionDispatch(
 export function describeCollisionDispatch(
   contracts: CollisionDispatch[] | undefined,
   part: Pick<PartBehaviour, "type" | "routines">,
-): (Finding & { description: string; routine: number; sites: number[]; selfCall?: boolean }) | undefined {
+):
+  | (Finding & {
+      description: string;
+      routine: number;
+      sites: number[];
+      selfCall?: boolean;
+      responseSupport?: CollisionDispatch["responseSupport"];
+    })
+  | undefined {
   const callback = part.routines.find((r) => r.slot === 0);
   const contract = contracts?.find((c) =>
     c.selection.targets.some((t) => t.type === part.type && t.address === callback?.address),
@@ -341,6 +380,7 @@ export function describeCollisionDispatch(
     routine: callback.address,
     sites: [...contract.passes.map((p) => p.instruction), ...(selfCall ? [contract.specialSelfCall!.instruction] : [])],
     selfCall,
+    responseSupport: contract.responseSupport,
     description: `If an eligible moving part records this part as its contact partner and has a contact-response flag, the engine calls this part's contact callback with the moving part as the argument. ${returned}${selfCall ? " This type also receives an earlier self callback when either contact-response flag is set; that return value is ignored and the later gates read its updated fields." : ""}`,
   };
 }

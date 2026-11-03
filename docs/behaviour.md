@@ -745,3 +745,24 @@ Only complete return-only callback bodies receive a constant return in this cont
 evidence. Other return values and effects remain in the callback analysis. `describeBehaviour` adds a conditional
 contact description per part. It does not supply a collision, choose a runtime partner or create an animation seed.
 The response helpers' addresses and arguments are established; their physical effects need their own contracts.
+
+## Small contact response effects
+
+`contactResponse` on a helper now retains two complete wrapper relations. The velocity limiter reads field `0x0a`
+from the moving part's runtime type record, then tests vertical and horizontal velocity in that order. Its signed
+upper comparison has priority over the comparison with the wrapping negative limit. If neither write condition
+holds, the field is unchanged. The table reference is checked against the discovered type table; the report keeps
+it as a runtime read. A negative or changed record value is not silently replaced by a positive imported limit.
+
+The other wrapper tests type zero and computes two word absolute values with `CWD`, `XOR` and `SUB`. Their sum wraps
+before a signed comparison with 4096. Only a passing gate requests scalar resource 20. The wrapper establishes a
+resource request, not audible sound or a particular recording. In particular, `0x8000` absolute values and sums
+crossing `0x7fff` do not behave like an unbounded mathematical speed. The resource backend's unknown global and
+driver effects remain unresolved. Owner-memory preservation retains the backend's explicit separate-storage and
+no-hidden-owner-alias assumptions.
+
+Both relations match the entire routine and every CFG edge across the compiler forms. A changed comparison, store,
+calling frame or table reference declines the summary. `collisionDispatch.responseSupport` links the checked small
+relations to response routines through their direct call graph. These links establish reachability, not execution,
+argument identity through an arbitrary wrapper, or the complete physics of a response. Their field predicates apply
+to the helper's actual argument when reached. The larger rotation and momentum calculations remain open.
