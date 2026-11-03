@@ -3,6 +3,7 @@
  * in the lab: findings keep their confidence and the addresses of their instructions, and expressions become text.
  */
 
+import { describeGear } from "@opentim/content";
 import type {
   BehaviourReport,
   Confidence,
@@ -82,6 +83,28 @@ export interface PartSummary {
   reset: Write[];
   effects: Write[];
   uncertainties: string[];
+  gear?: GearSummary;
+}
+
+/** How a gear connects to others and passes its turn on, from the analysis of its routines. */
+export interface GearSummary extends Finding {
+  /** The four neighbours its reset links, one grid step away. */
+  slots: { offset: number; name: string; side: "left" | "right" | "above" | "below"; distance: number }[];
+  /** The field of the belt record whose other end is its fifth connection. */
+  peerField: number;
+  /** The parts that write its pending step through their belt, with the values they write. */
+  drivers: { type: number; part: string; steps: string[]; confidence: Confidence; descriptions: string[] }[];
+  /** The analysis's own words for each rule. */
+  text: {
+    activation: string;
+    connections: string;
+    conflict: string;
+    withoutConflict: string;
+    withConflict: string;
+    cycles: string;
+    scheduling: string[];
+    limits: string[];
+  };
 }
 
 export interface Timing extends Finding {
@@ -159,7 +182,11 @@ const LINKS = new Map<number, Kind>([
 type Kind = "part" | "belt" | "outline" | "rope" | "other";
 
 /** Writes expressions and conditions as text, with the names of the part's fields. */
-export function writer(fields: readonly { offset: number; name: string }[]) {
+export function writer(
+  fields: readonly { offset: number; name: string }[],
+  /** Names that only hold for this part's own fields, like the gear's neighbours. */
+  own: ReadonlyMap<number, string> = new Map(),
+) {
   const names = new Map([...PART_FIELDS, ...fields.map((f) => [f.offset, f.name] as const)]);
   const number = (n: number) => (n >= 0 && n < 100 ? String(n) : n < 0 && n > -100 ? String(n) : hex(n >>> 0));
   /** An object the analysis names, as text and the kind of thing it is. */
@@ -192,7 +219,7 @@ export function writer(fields: readonly { offset: number; name: string }[]) {
   const field = ({ name, kind }: { name: string; kind: Kind }, offset: number): string => {
     const raw = `${name || "part"}+${hex(offset, 2)}`;
     if (kind === "part") {
-      const known = names.get(offset);
+      const known = (!name && own.get(offset)) || names.get(offset);
       return known ? (name ? `${name}.${known}` : known) : raw;
     }
     if (kind === "belt" && (offset === 4 || offset === 6)) return `${name}.end${offset === 4 ? 1 : 2}`;
@@ -290,7 +317,70 @@ function targetsOf(to: Expression, from: number[] | null, stateOffset: number): 
   return targets.every((t) => t !== undefined) ? targets.map(signed) : undefined;
 }
 
-function summarisePart(part: PartBehaviour, write: ReturnType<typeof writer>, stateOffset: number): PartSummary {
+const SIDES = { "1,0": "left", "-1,0": "right", "0,1": "above", "0,-1": "below" } as const;
+
+/** The gear's neighbours by the side they are on: reset subtracts their saved position from its own. */
+function gearSlots(part: PartBehaviour) {
+  return (part.gearConnections?.slots ?? []).flatMap(({ offset, dx, dy }) => {
+    const side = SIDES[`${Math.sign(dx)},${Math.sign(dy)}` as keyof typeof SIDES];
+    if (!side) return [];
+    const name = `gear${side[0]!.toUpperCase()}${side.slice(1)}`;
+    return [{ offset, name, side, distance: Math.abs(dx || dy) }];
+  });
+}
+
+function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummary | undefined {
+  const gear = describeGear(part, report.gearScheduling, report.relatedObjectEffects);
+  if (!gear || !part.gearRun) return undefined;
+  const delta = part.gearRun.deltaField;
+  const drivers = new Map<number, GearSummary["drivers"][number]>();
+  for (const d of gear.drivers) {
+    const value = d.write.value;
+    const step =
+      value.kind === "constant"
+        ? String(value.value > 0x7fff ? value.value - 0x10000 : value.value)
+        : value.kind === "field" && value.object === "part" && value.offset === delta
+          ? "its own step"
+          : "unknown";
+    const driver = drivers.get(d.sourceType) ?? {
+      type: d.sourceType,
+      part: d.sourcePart,
+      steps: [],
+      confidence: d.confidence,
+      descriptions: [],
+    };
+    if (!driver.steps.includes(step)) driver.steps.push(step);
+    driver.steps.sort((a, b) => (Number(a) || (a === "0" ? 0 : 99)) - (Number(b) || (b === "0" ? 0 : 99)));
+    if (!driver.descriptions.includes(d.description)) driver.descriptions.push(d.description);
+    if (d.confidence === "unresolved") driver.confidence = "unresolved";
+    drivers.set(d.sourceType, driver);
+  }
+  return {
+    confidence: gear.confidence,
+    assumptions: gear.assumptions,
+    evidence: instructions(gear.evidence),
+    slots: gearSlots(part),
+    peerField: part.gearRun.propagationRelation.expansion.peer.connectionField,
+    drivers: [...drivers.values()],
+    text: {
+      activation: gear.activation,
+      connections: gear.connections,
+      conflict: gear.conflict,
+      withoutConflict: gear.withoutConflict,
+      withConflict: gear.withConflict,
+      cycles: gear.cycles,
+      scheduling: gear.scheduling.map((s) => s.description),
+      limits: gear.limits,
+    },
+  };
+}
+
+function summarisePart(
+  part: PartBehaviour,
+  write: ReturnType<typeof writer>,
+  stateOffset: number,
+  report: BehaviourReport,
+): PartSummary {
   const roles = new Map(part.routines.map((r) => [r.address, roleOf(r.role)]));
   const routineName = (address: number) => roles.get(address) ?? hex(address, 5);
   const finding = (f: { confidence: Confidence; assumptions: string[]; evidence: Evidence[] }): Finding => ({
@@ -346,6 +436,7 @@ function summarisePart(part: PartBehaviour, write: ReturnType<typeof writer>, st
     reset: part.reset.map(writeOf),
     effects: part.visibleEffects.map(writeOf),
     uncertainties: part.uncertainties,
+    gear: summariseGear(part, report),
   };
 }
 
@@ -367,7 +458,12 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   return {
     fields,
     timing,
-    parts: Object.fromEntries(report.parts.map((p) => [p.type, summarisePart(p, write, stateOffset)])),
+    parts: Object.fromEntries(
+      report.parts.map((p) => {
+        const own = new Map(gearSlots(p).map((s) => [s.offset, s.name]));
+        return [p.type, summarisePart(p, own.size ? writer(fields, own) : write, stateOffset, report)];
+      }),
+    ),
     assumptions: report.assumptions,
   };
 }

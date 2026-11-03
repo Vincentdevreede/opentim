@@ -9,6 +9,7 @@ import {
   routineGroups,
   stateGroups,
   targetsText,
+  writeRows,
   tidyTerm,
   tidyTerms,
 } from "../src/behaviour-view.ts";
@@ -204,5 +205,35 @@ describe("hits in words", () => {
       "collider.contactEdge == 0",
       "collider.contactEdge != 0",
     ]);
+  });
+});
+
+describe("writeRows", () => {
+  const write = (target: string, value: string) => ({
+    routine: "reset",
+    target,
+    value,
+    condition: "always",
+    confidence: "inferred" as const,
+    assumptions: [],
+    evidence: [],
+  });
+
+  it("folds a routine's writes to the outline points into one row of points", () => {
+    const rows = writeRows([
+      write("outline[0].x", "0"),
+      write("outline[0].y", "0"),
+      write("outline[1].x", "frameWidth"),
+      write("outline[1].y", "0"),
+      write("state", "0"),
+    ]);
+    expect(rows.map((r) => [r.target, r.values])).toEqual([
+      ["outline", ["(0,0)", "(frameWidth,0)"]],
+      ["state", ["0"]],
+    ]);
+  });
+
+  it("writes an equality with a 16-bit word as its signed value", () => {
+    expect(tidyTerm("state + stateDelta != 0xffff")).toBe("state + stateDelta != -1");
   });
 });

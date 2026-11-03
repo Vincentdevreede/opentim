@@ -12,15 +12,19 @@ export const weakest = (list: readonly Confidence[]): Confidence =>
 
 /** A term written shorter: `(x ^ (x >> 15)) - (x >> 15)` as `|x|`, and adding 0xffe0 as subtracting 32. */
 export function tidyTerm(term: string): string {
-  return term
-    .replace(/\(\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)\)/g, "|$1|")
-    .replace(/\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)/g, "|$1|")
-    .replace(
-      /\(\((\w+)\) \^ \(\1 >> 15\)\) - \(\1 >> 15\)|\((\w+) \^ \(\2 >> 15\)\) - \(\2 >> 15\)/g,
-      (_, a, b) => `|${a ?? b}|`,
-    )
-    .replace(/ \+ 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` - ${0x10000 - parseInt(n, 16)}`)
-    .replace(/ - 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` + ${0x10000 - parseInt(n, 16)}`);
+  return (
+    term
+      .replace(/\(\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)\)/g, "|$1|")
+      .replace(/\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)/g, "|$1|")
+      .replace(
+        /\(\((\w+)\) \^ \(\1 >> 15\)\) - \(\1 >> 15\)|\((\w+) \^ \(\2 >> 15\)\) - \(\2 >> 15\)/g,
+        (_, a, b) => `|${a ?? b}|`,
+      )
+      .replace(/ \+ 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` - ${0x10000 - parseInt(n, 16)}`)
+      .replace(/ - 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` + ${0x10000 - parseInt(n, 16)}`)
+      // Equal or not equal to a 16-bit word is the same test with its signed value.
+      .replace(/ (==|!=) 0x([89a-f][0-9a-f]{3})$/, (_, op: string, n: string) => ` ${op} ${parseInt(n, 16) - 0x10000}`)
+  );
 }
 
 const COMPARE = /^(.+) (==|!=|<|<=|>|>=) (-?\d+)$/;
@@ -174,20 +178,39 @@ export interface WriteRow {
   writes: Write[];
 }
 
+const OUTLINE = /^outline\[(\d+)\]\.([xy])$/;
+
+/** The points a routine writes to the outline, like `(8,0)`, when it writes each as one number. */
+function outlinePoints(list: readonly Write[]): string[] | undefined {
+  const points: { x?: string; y?: string }[] = [];
+  for (const w of list) {
+    const [, k, axis] = OUTLINE.exec(w.target)!;
+    const point = (points[Number(k)] ??= {});
+    if (w.condition !== "always" || point[axis as "x" | "y"] !== undefined) return undefined;
+    point[axis as "x" | "y"] = tidyTerm(w.value);
+  }
+  return points.some((p) => p?.x === undefined || p.y === undefined) ? undefined : points.map((p) => `(${p.x},${p.y})`);
+}
+
+/** The writes of each routine by field, with a routine's writes to the outline points as one row. */
 export function writeRows(writes: readonly Write[]): WriteRow[] {
   const groups = new Map<string, Write[]>();
   for (const w of writes) {
-    const key = `${w.routine}|${w.target}`;
+    const key = `${w.routine}|${OUTLINE.test(w.target) ? "outline" : w.target}`;
     groups.set(key, [...(groups.get(key) ?? []), w]);
   }
-  return [...groups].map(([key, list]) => ({
-    key,
-    routine: list[0]!.routine,
-    target: list[0]!.target,
-    values: [...new Set(list.map((w) => tidyTerm(w.value)))],
-    confidence: weakest(list.map((w) => w.confidence)),
-    writes: list,
-  }));
+  return [...groups].map(([key, list]) => {
+    const points = key.endsWith("|outline") ? outlinePoints(list) : undefined;
+    const outline = key.endsWith("|outline");
+    return {
+      key,
+      routine: list[0]!.routine,
+      target: outline ? "outline" : list[0]!.target,
+      values: points ?? [...new Set(list.map((w) => (outline ? `${w.target} = ` : "") + tidyTerm(w.value)))],
+      confidence: weakest(list.map((w) => w.confidence)),
+      writes: list,
+    };
+  });
 }
 
 /** A routine of the part with everything it does. */

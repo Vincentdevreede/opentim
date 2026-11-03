@@ -44,6 +44,12 @@ describe("writer", () => {
     expect(expression(field(0x00, "address of part"))).toBe("this");
   });
 
+  it("gives this part's own fields the names that only hold for it", () => {
+    const gear = writer(fields, new Map([[0x5a, "gearLeft"]]));
+    expect(gear.expression(field(0x5a))).toBe("gearLeft");
+    expect(gear.expression(field(0x5a, "referenced-by(part+0x78)"))).toBe("found.link0");
+  });
+
   it("writes small numbers in decimal and others in hex, with brackets around nested sums", () => {
     expect(expression(constant(9))).toBe("9");
     expect(expression(constant(0x1000))).toBe("0x1000");
