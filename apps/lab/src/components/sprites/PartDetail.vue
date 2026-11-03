@@ -3,6 +3,7 @@ import type { Part, Placement, TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, watch, watchEffect } from "vue";
 import type { BehaviourResult } from "../../behaviour.ts";
+import { outlineShape } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { compose, drawOrder, partName, sheetFile, type SpriteOf } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
@@ -48,6 +49,7 @@ const flipY = ref(false);
 const background = ref<Background>("checker");
 const grid = ref(false);
 const origin = ref(true);
+const outline = ref(false);
 const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
@@ -112,6 +114,26 @@ const choice = computed(() =>
 const colors = computed(() => colorsOf(choice.value?.name));
 
 /** Where the part's origin is in the picture, in screen pixels. */
+/** The outline the part's reset routine sets, on the stage: its points, and each edge's number outside it. */
+const shape = computed(() => {
+  // The points start at the part's position, which only a frame places.
+  if (props.behaviour?.status !== "done" || !frame.value) return undefined;
+  const summary = props.behaviour.summary.parts[props.part.type];
+  const { x, y, width, height } = composition.value.bounds;
+  const points = summary && outlineShape(summary, { width, height });
+  if (!points) return undefined;
+  const z = zoom.value;
+  const at = points.map((p) => ({ x: (p.x - x + 0.5) * z, y: (p.y - y + 0.5) * z }));
+  const edges = at.map((p, k) => {
+    const next = at[(k + 1) % at.length]!;
+    const length = Math.hypot(next.x - p.x, next.y - p.y) || 1;
+    // Outlines run clockwise on screen, so the outside of an edge is to its left.
+    const out = { x: (next.y - p.y) / length, y: -(next.x - p.x) / length };
+    return { k, x: (p.x + next.x) / 2 + out.x * 9, y: (p.y + next.y) / 2 + out.y * 9 };
+  });
+  return { points: at, edges, line: at.map((p) => `${p.x},${p.y}`).join(" "), source: points };
+});
+
 const originAt = computed(() => {
   const { x, y, width, height } = composition.value.bounds;
   return {
@@ -152,6 +174,7 @@ useSpriteKeys(player, count, zoom, (key) => {
   else if (key === "v") flipY.value = !flipY.value;
   else if (key === "f" && props.part.frames.length) strip.value = "frames";
   else if (key === "s" && sprites.value.length) strip.value = "sprites";
+  else if (key === "o" && shape.value) outline.value = !outline.value;
 });
 
 watchEffect(() => (crumb.value = ["Sprites", name.value.name, label.value].filter(Boolean)));
@@ -199,6 +222,29 @@ const tabClass = (on: boolean) => (on ? "border-accent text-ink" : "border-trans
               class="outline-1 outline-accent/40 outline-dashed"
             />
             <div v-if="grid && zoom >= 3" class="pointer-events-none absolute inset-0" :style="gridStyle(zoom)"></div>
+            <svg
+              v-if="outline && shape && !flipX && !flipY"
+              class="pointer-events-none absolute top-0 left-0 overflow-visible"
+              :width="composition.bounds.width * zoom"
+              :height="composition.bounds.height * zoom"
+              aria-hidden="true"
+            >
+              <polygon :points="shape.line" fill="none" class="stroke-decoded" stroke-width="1.5" />
+              <circle v-for="(p, i) in shape.points" :key="i" :cx="p.x" :cy="p.y" r="2.5" class="fill-decoded" />
+              <text
+                v-for="e in shape.edges"
+                :key="e.k"
+                :x="e.x"
+                :y="e.y"
+                text-anchor="middle"
+                dominant-baseline="central"
+                class="fill-decoded stroke-sunken font-mono text-[11px] font-semibold"
+                stroke-width="3"
+                paint-order="stroke"
+              >
+                {{ e.k }}
+              </text>
+            </svg>
             <div v-if="origin && frame" class="pointer-events-none absolute size-0" :style="originAt">
               <span class="absolute -top-px -left-[7px] h-0.5 w-[15px] bg-accent"></span>
               <span class="absolute -top-[7px] -left-px h-[15px] w-0.5 bg-accent"></span>
@@ -300,6 +346,22 @@ const tabClass = (on: boolean) => (on ? "border-accent text-ink" : "border-trans
               title="Mark the part’s origin, where the positions in the list start"
               @click="origin = !origin"
               >Origin</LabButton
+            >
+            <LabButton
+              :aria-pressed="outline"
+              :class="toggle(outline)"
+              :disabled="!shape || flipX || flipY"
+              :title="
+                !shape
+                  ? frame
+                    ? 'The analysis has no outline points for this part: its reset doesn’t write each one as a number'
+                    : 'Only a frame places the outline, and this part has no frames'
+                  : flipX || flipY
+                    ? 'The outline is the one reset sets for the part as placed, not mirrored'
+                    : `The outline reset sets, ${shape.source.length} points, with each edge’s number (O)`
+              "
+              @click="outline = !outline"
+              >Outline</LabButton
             >
             <LabButton
               :aria-pressed="grid"

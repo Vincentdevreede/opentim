@@ -192,6 +192,30 @@ function outlinePoints(list: readonly Write[]): string[] | undefined {
   return points.some((p) => p?.x === undefined || p.y === undefined) ? undefined : points.map((p) => `(${p.x},${p.y})`);
 }
 
+/**
+ * The outline a part's reset routine sets, as points from the part's position, for a frame of this size. The points
+ * are bytes, so `frameWidth + 0xff` is one less than the width. Undefined when reset doesn't write every point.
+ */
+export function outlineShape(part: PartSummary, size: { width: number; height: number }) {
+  const points = outlinePoints(part.reset.filter((w) => OUTLINE.test(w.target)));
+  if (!points || points.length < 2) return undefined;
+  const values: Record<string, number> = { frameWidth: size.width, frameHeight: size.height };
+  const value = (text: string) => {
+    const m = /^(\w+)(?: ([+-]) (\w+))?$/.exec(text);
+    if (!m) return undefined;
+    const number = (t: string) => (t in values ? values[t] : /^(0x[0-9a-f]+|\d+)$/.test(t) ? Number(t) : undefined);
+    const left = number(m[1]!);
+    const right = m[3] === undefined ? 0 : number(m[3]);
+    if (left === undefined || right === undefined) return undefined;
+    return (m[2] === "-" ? left - right : left + right) & 0xff;
+  };
+  const shape = points.map((p) => {
+    const [x, y] = p.slice(1, -1).split(",").map(value);
+    return x === undefined || y === undefined ? undefined : { x, y };
+  });
+  return shape.every((p) => p) ? (shape as { x: number; y: number }[]) : undefined;
+}
+
 /** The writes of each routine by field, with a routine's writes to the outline points as one row. */
 export function writeRows(writes: readonly Write[]): WriteRow[] {
   const groups = new Map<string, Write[]>();

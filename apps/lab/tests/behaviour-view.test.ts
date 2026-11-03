@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { valueForState, writer, type Change, type PartSummary } from "../src/behaviour.ts";
 import {
   changeRows,
+  outlineShape,
   outlineSides,
   readTerm,
   ownTerms,
@@ -235,5 +236,54 @@ describe("writeRows", () => {
 
   it("writes an equality with a 16-bit word as its signed value", () => {
     expect(tidyTerm("state + stateDelta != 0xffff")).toBe("state + stateDelta != -1");
+  });
+});
+
+describe("outlineShape", () => {
+  const write = (target: string, value: string) => ({
+    routine: "reset",
+    target,
+    value,
+    condition: "always",
+    confidence: "inferred" as const,
+    assumptions: [],
+    evidence: [],
+  });
+  const part = (points: [string, string][]) =>
+    ({
+      routines: [],
+      changes: [],
+      triggers: [],
+      counters: [],
+      effects: [],
+      uncertainties: [],
+      reset: points.flatMap(([x, y], k) => [write(`outline[${k}].x`, x), write(`outline[${k}].y`, y)]),
+    }) as PartSummary;
+
+  it("works the points out for the frame's size, as bytes", () => {
+    const wall = part([
+      ["0", "0"],
+      ["frameWidth + 0xff", "0"],
+      ["frameWidth + 0xff", "frameHeight + 0xff"],
+      ["0", "frameHeight + 0xff"],
+    ]);
+    expect(outlineShape(wall, { width: 32, height: 16 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 31, y: 0 },
+      { x: 31, y: 15 },
+      { x: 0, y: 15 },
+    ]);
+  });
+
+  it("gives nothing when a point depends on more than the frame's size", () => {
+    expect(
+      outlineShape(
+        part([
+          ["0", "0"],
+          ["positionX", "0"],
+        ]),
+        { width: 8, height: 8 },
+      ),
+    ).toBeUndefined();
   });
 });
