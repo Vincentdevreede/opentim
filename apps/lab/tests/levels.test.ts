@@ -1,0 +1,262 @@
+import type { PartList } from "@opentim/content";
+import type { Frame as Bitmap } from "@opentim/resources";
+import { describe, expect, it } from "vitest";
+import type { Resource } from "../src/importer.ts";
+import { layoutScene, partAt, readLevels } from "../src/levels.ts";
+
+const NONE = 0xffff;
+const b = (value: number) => ({ byte: value });
+type Item = number | string | { byte: number };
+
+function bytes(...items: Item[]): Uint8Array {
+  const out: number[] = [];
+  for (const item of items) {
+    if (typeof item === "number") out.push(item & 0xff, (item >> 8) & 0xff);
+    else if (typeof item === "string") out.push(...[...item].map((c) => c.charCodeAt(0)), 0);
+    else out.push(item.byte);
+  }
+  return Uint8Array.from(out);
+}
+
+interface PartSpec {
+  type: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  state?: number;
+  flags1?: number;
+  flags2?: number;
+  belt?: { at?: [number, number]; width?: number; parts?: [number, number] };
+  ropes?: { at?: [number, number]; parts?: [number, number] }[];
+  links?: [number, number];
+}
+
+/** A part of version 0x102. */
+function part(p: PartSpec): Item[] {
+  const { x = 0, y = 0, width = 16, height = 16, state = 0, flags1 = 0xe000, flags2 = 0 } = p;
+  const belt = p.belt ?? {};
+  const rope = (i: number): Item[] => {
+    const r = p.ropes?.[i];
+    const at = r?.at ?? [0, 0];
+    return r?.parts ? [1, b(at[0]), b(at[1]), ...r.parts, b(0), b(0)] : [0, b(at[0]), b(at[1])];
+  };
+  return [
+    p.type,
+    flags1,
+    flags2,
+    0,
+    state,
+    0,
+    width,
+    height,
+    width,
+    height,
+    x,
+    y,
+    0,
+    belt.parts ? 1 : 0,
+    b(belt.at?.[0] ?? 0),
+    b(belt.at?.[1] ?? 0),
+    belt.width ?? 0,
+    ...(belt.parts ?? []),
+    ...rope(0),
+    ...rope(1),
+    ...(p.links ?? [NONE, NONE]),
+    NONE,
+    NONE,
+    ...(p.type === 7 ? [NONE] : []),
+  ];
+}
+
+function puzzle(title: string, board: PartSpec[], bin: PartSpec[] = []): Uint8Array {
+  return bytes(
+    0xaced,
+    0x102,
+    title,
+    "Goal",
+    0,
+    0,
+    67,
+    272,
+    0,
+    0,
+    1000,
+    board.length,
+    0,
+    bin.length,
+    ...[...board, ...bin].flatMap(part),
+  );
+}
+
+const resource = (name: string, data: Uint8Array): Resource => ({
+  name,
+  kind: "level",
+  group: name.endsWith(".GKC") ? "scene" : "level",
+  archive: "RESOURCE.001",
+  offset: 0,
+  data,
+});
+
+const sprite = (width: number, height: number): Bitmap => ({
+  width,
+  height,
+  pixels: new Uint8Array(width * height).fill(1),
+  mask: new Uint8Array(width * height).fill(1),
+});
+
+const LIST: PartList = {
+  id: "test",
+  game: "Test",
+  parts: [
+    {
+      id: "bowling-ball",
+      type: 0,
+      sheets: ["PART0"],
+      frames: [{ id: 0, sprites: [{ sheet: "PART0", sprite: 0, x: 0, y: 0, layer: 0 }] }],
+    },
+    { id: "brick-wall", type: 1, sheets: ["PART1"], frames: [] },
+    { id: "curved-pipe-wall", type: 47, sheets: ["PART47"], frames: [] },
+    { id: "pulley", type: 7, sheets: [], frames: [] },
+    { id: "belt", type: 8, sheets: [], frames: [] },
+    { id: "rope", type: 10, sheets: [], frames: [] },
+  ],
+};
+
+const SHEETS: Record<string, Bitmap[]> = {
+  PART0: [sprite(32, 32)],
+  PART1: Array.from({ length: 8 }, () => sprite(16, 16)),
+  PART47: Array.from({ length: 4 }, () => sprite(32, 32)),
+};
+const spriteOf = (sheet: string, index: number) => SHEETS[sheet]?.[index];
+
+describe("readLevels", () => {
+  it("lists levels in number order before scenes, and says why a file can't be read", () => {
+    const scene = bytes(0xaced, 0x102, 67, 268, 1001, 0, 0, 0);
+    const entries = readLevels(
+      [
+        resource("TITLE.GKC", scene),
+        resource("L10.LEV", puzzle("Ten", [])),
+        resource("L2.LEV", puzzle("Two", [])),
+        resource("ELEV1.LEV", bytes(0xacef, 0x113)),
+      ],
+      "tim",
+    );
+    expect(entries.map((e) => [e.resource.name, e.kind, e.level?.title ?? e.error])).toEqual([
+      ["ELEV1.LEV", "level", "TIM 2 levels have their own layout, which isn’t read yet"],
+      ["L2.LEV", "level", "Two"],
+      ["L10.LEV", "level", "Ten"],
+      ["TITLE.GKC", "scene", undefined],
+    ]);
+  });
+});
+
+describe("layoutScene", () => {
+  it("tiles walls, picks the sprite of the state, mirrors and leaves the bin out", () => {
+    const data = puzzle(
+      "T",
+      [
+        { type: 1, x: 0, y: 0, width: 64, height: 16, flags1: 0xe040 },
+        { type: 47, x: 100, y: 0, width: 32, height: 32, state: 2, flags2: 0x10 },
+        { type: 0, x: 200, y: 50, width: 32, height: 32 },
+        { type: 99, x: 300, y: 50, width: 20, height: 20 },
+      ],
+      [{ type: 0, x: -1, y: -1 }],
+    );
+    const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;
+    const scene = layoutScene(level, LIST, spriteOf);
+    expect(scene.parts.map((p) => [p.part.index, p.how, p.detail])).toEqual([
+      [0, "tiles", "tiles of PART1 from sprite 0"],
+      [1, "sprite", "sprite 2 of PART47"],
+      [2, "frame", "frame 0"],
+      [3, "outline", "type 99 isn’t in the part list"],
+    ]);
+    // The view starts at x -8, so the first middle tile, at screen x 24, has bit 0x10 set: state + 2.
+    expect(scene.parts[0]!.composition!.placed.map((p) => p.placement.sprite)).toEqual([0, 2, 1, 3]);
+    expect(scene.parts[1]!.composition!.placed[0]!.placement).toMatchObject({ x: 0, flip: "h" });
+    expect(scene.bin.map((p) => p.index)).toEqual([4]);
+    expect(scene.notes.map((n) => n.status)).toEqual(["partial"]);
+    expect(partAt(scene, { x: 210, y: 60 })?.part.index).toBe(2);
+    expect(partAt(scene, { x: 500, y: 300 })).toBeUndefined();
+  });
+
+  it("tiles a standing wall from state + 4 to state + 7", () => {
+    const data = puzzle("T", [{ type: 1, x: 8, y: 8, width: 16, height: 64, flags1: 0xe040 }]);
+    const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;
+    const [wall] = layoutScene(level, LIST, spriteOf).parts;
+    expect(wall!.composition!.placed.map((p) => [p.placement.sprite, p.placement.y])).toEqual([
+      [4, 0],
+      [5, 16],
+      [6, 32],
+      [7, 48],
+    ]);
+  });
+
+  it("runs a rope through the pulleys its slots link to, and a belt along two sides of its hubs", () => {
+    const data = puzzle("T", [
+      { type: 10, ropes: [{ parts: [1, 3] }] },
+      { type: 0, x: 0, y: 100, ropes: [{ at: [16, 0] }], links: [2, NONE] },
+      { type: 7, x: 50, y: 20, ropes: [{ at: [0, 6] }, { at: [15, 6] }], links: [3, 1] },
+      { type: 0, x: 100, y: 100, ropes: [{ at: [16, 0] }], links: [2, NONE] },
+      { type: 8, belt: { parts: [5, 6] } },
+      { type: 0, x: 0, y: 200, belt: { at: [4, 4], width: 8 } },
+      { type: 0, x: 100, y: 200, belt: { at: [4, 4], width: 8 } },
+    ]);
+    const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;
+    const { lines } = layoutScene(level, LIST, spriteOf);
+    expect(lines[0]).toEqual({
+      kind: "rope",
+      part: 0,
+      color: 6,
+      knots: [
+        { x: 16, y: 100 },
+        { x: 116, y: 100 },
+      ],
+      segments: [
+        [
+          { x: 16, y: 100 },
+          { x: 50, y: 26 },
+        ],
+        [
+          { x: 65, y: 26 },
+          { x: 116, y: 100 },
+        ],
+      ],
+    });
+    expect(lines[1]).toEqual({
+      kind: "belt",
+      part: 4,
+      color: 0,
+      segments: [
+        [
+          { x: 8, y: 204 },
+          { x: 108, y: 204 },
+        ],
+        [
+          { x: 8, y: 212 },
+          { x: 108, y: 212 },
+        ],
+      ],
+    });
+  });
+
+  it("says when a rope's links lead somewhere else than a pulley", () => {
+    const data = puzzle("T", [
+      { type: 10, ropes: [{ parts: [1, 2] }] },
+      { type: 0, links: [3, NONE] },
+      { type: 0, x: 50 },
+      { type: 0, x: 90 },
+    ]);
+    const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;
+    const scene = layoutScene(level, LIST, spriteOf);
+    expect(scene.lines[0]!.broken).toBe(true);
+    expect(scene.notes.some((n) => n.title.includes("doesn’t close"))).toBe(true);
+  });
+
+  it("only draws boxes without a part list", () => {
+    const level = readLevels([resource("L1.LEV", puzzle("T", [{ type: 0, x: 5, y: 5 }]))], "tim")[0]!.level!;
+    const scene = layoutScene(level, undefined, spriteOf);
+    expect(scene.parts[0]!.how).toBe("outline");
+    expect(scene.notes[0]!.title).toBe("No part list for this game.");
+  });
+});

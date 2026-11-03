@@ -3,18 +3,33 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import { useRouter } from "vue-router";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
+import LabEmpty from "../components/LabEmpty.vue";
+import LabListRow from "../components/LabListRow.vue";
+import LabSegmented from "../components/LabSegmented.vue";
+import LabFact from "../components/LabFact.vue";
+import LabFacts from "../components/LabFacts.vue";
 import LabField from "../components/LabField.vue";
-import LabIcon from "../components/LabIcon.vue";
-import LabKbd from "../components/LabKbd.vue";
+import LabSearch from "../components/LabSearch.vue";
+import LabAlert from "../components/LabAlert.vue";
 import PageHeader from "../components/PageHeader.vue";
-import PanelTitle from "../components/PanelTitle.vue";
 import PixelFrame from "../components/PixelFrame.vue";
 import { inspectByte } from "../inspect.ts";
-import { DOT } from "../kinds.ts";
-import { resources, selected } from "../library.ts";
+import { layoutOf, readLevels } from "../levels.ts";
+import { edition, program, resources, selected } from "../library.ts";
+import { listIdOf, partName, readLoadedParts } from "../parts.ts";
 import { headerBytes, markerAt, markersOf } from "../markers.ts";
 import { decode, imagePalette, isImage, paletteColors, statusOf } from "../sprites.ts";
-import { crumb, formatBytes, hex, openAt, openSprite } from "../ui.ts";
+import { crumb, formatBytes, hex, openAt, openSprite, selectedLevel } from "../ui.ts";
+import LabNoMatch from "../components/LabNoMatch.vue";
+import LabPanelHeader from "../components/LabPanelHeader.vue";
+import LabPicture from "../components/LabPicture.vue";
+import LabSidePanel from "../components/LabSidePanel.vue";
+import LabTag from "../components/LabTag.vue";
+import LabToolbar from "../components/LabToolbar.vue";
+import LabSwatch from "../components/LabSwatch.vue";
+import LabSection from "../components/LabSection.vue";
+import LabPanelBody from "../components/LabPanelBody.vue";
+import LabOpenIn from "../components/LabOpenIn.vue";
 
 /** Bytes per row grow with the available width, in groups of this size. */
 const GROUP = 8;
@@ -34,7 +49,12 @@ const query = ref("");
 const cursor = ref(0);
 const goto = ref("");
 const gotoInvalid = ref(false);
-const decimal = ref(false);
+const FORMATS = [
+  { value: "hex" as const, label: "Hex" },
+  { value: "dec" as const, label: "Dec" },
+];
+const format = ref<"hex" | "dec">("hex");
+const decimal = computed(() => format.value === "dec");
 const gotoField = useTemplateRef<InstanceType<typeof LabField>>("gotoField");
 const viewport = useTemplateRef<HTMLDivElement>("viewport");
 const body = useTemplateRef<HTMLDivElement>("body");
@@ -48,7 +68,23 @@ const list = computed(() => {
 });
 const current = computed(() => resources.value.find((r) => r.name === selected.value) ?? resources.value[0]);
 const bytes = computed(() => current.value?.data ?? new Uint8Array());
-const marked = computed(() => (current.value ? markersOf(current.value) : { markers: [] }));
+/** Part names for the markers of a level, from the loaded part list. */
+const partList = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value)?.list);
+/** A level file or scene, read as the Levels page reads it, for the link to that page. */
+const levelEntry = computed(() =>
+  current.value && (current.value.group === "level" || current.value.group === "scene")
+    ? readLevels([current.value], layoutOf(edition.value))[0]
+    : undefined,
+);
+const marked = computed(() => {
+  if (!current.value) return { markers: [] };
+  const list = partList.value;
+  const nameOf = (type: number) => {
+    const part = list?.parts.find((p) => p.type === type);
+    return part ? partName(part).name : `type ${type}`;
+  };
+  return markersOf(current.value, { layout: levelEntry.value?.level?.layout ?? layoutOf(edition.value), nameOf });
+});
 const headers = computed(() => headerBytes(marked.value.markers));
 const stoppedAt = computed(() => marked.value.markers.find((m) => m.error)?.offset);
 /** Colours for the swatches: a palette's own colours, or the palette an image gets in Sprites. */
@@ -80,6 +116,11 @@ function openInSprites() {
   selected.value = current.value.name;
   openSprite.value = preview.value?.index;
   void router.push("/sprites");
+}
+function openInLevels() {
+  if (!current.value) return;
+  selectedLevel.value = current.value.name;
+  void router.push("/levels");
 }
 const inRange = (offset: number) =>
   !!info.value?.range && offset >= info.value.range[0] && offset < info.value.range[1];
@@ -236,47 +277,35 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
 <template>
   <PageHeader title="Files">
     <template #subtitle>Raw bytes of any resource</template>
-    <span class="text-meta text-muted">
-      <LabKbd>G</LabKbd> go to offset · arrows move selection · <LabKbd>PgUp</LabKbd> <LabKbd>PgDn</LabKbd> one screen
-    </span>
   </PageHeader>
 
   <div v-if="current" class="flex min-h-0 flex-1">
-    <aside aria-label="Resources" class="flex w-[232px] shrink-0 flex-col border-r border-line bg-sunken">
-      <div class="border-b border-line p-2">
-        <LabField v-model="query" label="Filter resources" type="search" placeholder="Any resource…">
-          <template #prefix><LabIcon name="search" :size="14" :stroke="2" /></template>
-        </LabField>
-      </div>
-      <div class="min-h-0 flex-1 overflow-auto py-1">
-        <button
+    <LabSidePanel side="left" aria-label="Resources">
+      <LabToolbar>
+        <LabSearch v-model="query" label="Filter resources" placeholder="Any resource…" class="flex-1" />
+      </LabToolbar>
+      <div class="min-h-0 flex-1 overflow-auto pb-2">
+        <LabListRow
           v-for="r in list"
           :key="r.name"
-          type="button"
+          :name="r.name"
+          :meta="r.group"
+          :status="statusOf(r).status"
+          :selected="r.name === current.name"
           :data-resource="r.name"
-          class="flex h-6 w-full cursor-pointer items-center gap-2 pr-2.5 pl-3 text-left focus-visible:-outline-offset-2"
-          :class="
-            r.name === current.name
-              ? 'bg-accent/12 text-ink shadow-[inset_2px_0_0_var(--color-accent)]'
-              : 'text-soft hover:bg-hover hover:text-ink'
-          "
           @click="selected = r.name"
-        >
-          <span class="size-1.5 shrink-0 rounded-full" :class="DOT[statusOf(r).status]"></span>
-          <span class="min-w-0 flex-1 truncate font-mono">{{ r.name }}</span>
-          <span class="text-meta text-muted">{{ r.group }}</span>
-        </button>
-        <p v-if="!list.length" class="px-3 py-2 text-muted">No resources match.</p>
+        />
+        <LabNoMatch v-if="!list.length" what="resources" :query="query" />
       </div>
-    </aside>
+    </LabSidePanel>
 
     <section class="flex min-w-0 flex-1 flex-col">
-      <div class="flex h-10 shrink-0 items-center gap-2.5 border-b border-line px-3">
+      <LabToolbar>
         <span class="font-mono font-semibold">{{ current.name }}</span>
         <span class="font-mono text-muted">{{ formatBytes(bytes.length) }} B · {{ current.archive }}</span>
         <LabBadge v-bind="statusOf(current)" />
         <div class="flex-1"></div>
-        <form class="flex items-center gap-2.5" @submit.prevent="jump">
+        <form class="flex items-center gap-2" @submit.prevent="jump">
           <LabField
             ref="gotoField"
             v-model="goto"
@@ -291,24 +320,8 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
           </LabField>
           <LabButton type="submit">Go</LabButton>
         </form>
-        <div
-          class="inline-flex overflow-hidden rounded-[5px] border border-line-strong bg-sunken"
-          role="group"
-          aria-label="Number format"
-        >
-          <button
-            v-for="mode in [false, true]"
-            :key="String(mode)"
-            type="button"
-            class="h-6 min-w-[30px] cursor-pointer border-r border-line px-[9px] text-ui last:border-r-0"
-            :class="decimal === mode ? 'bg-accent font-semibold text-accent-ink' : 'text-soft'"
-            :aria-pressed="decimal === mode"
-            @click="decimal = mode"
-          >
-            {{ mode ? "Dec" : "Hex" }}
-          </button>
-        </div>
-      </div>
+        <LabSegmented v-model="format" label="Number format" :options="FORMATS" />
+      </LabToolbar>
 
       <div
         ref="viewport"
@@ -384,12 +397,14 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
       </div>
     </section>
 
-    <aside aria-label="Byte inspector" class="flex w-[300px] shrink-0 flex-col border-l border-line bg-sunken">
-      <div class="flex h-10 shrink-0 items-center gap-2 border-b border-line px-3">
-        <PanelTitle>Selection</PanelTitle>
-        <div class="flex-1"></div>
+    <LabSidePanel aria-label="Byte inspector">
+      <LabPanelHeader title="Selection">
         <span class="font-mono font-semibold text-accent">{{ hex(cursor) }}</span>
-      </div>
+      </LabPanelHeader>
+      <LabOpenIn
+        :targets="[...(preview ? (['sprites'] as const) : []), ...(levelEntry ? (['levels'] as const) : [])]"
+        @open="$event === 'sprites' ? openInSprites() : openInLevels()"
+      />
       <div v-if="info" class="flex flex-col gap-1.5 border-b border-line px-3 py-2.5">
         <p class="text-meta text-muted">
           {{ current.archive }} at <span class="font-mono text-soft">{{ hex(info.archiveOffset) }}</span>
@@ -402,96 +417,82 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
         <p v-if="info.meaning" class="font-semibold text-ink">{{ info.meaning }}</p>
         <p v-if="info.detail" class="text-meta text-muted">{{ info.detail }}</p>
         <div v-if="info.swatches?.length" class="flex flex-wrap gap-1">
-          <span
-            v-for="(s, i) in info.swatches"
-            :key="i"
-            class="size-4 rounded-[3px] border border-line-strong"
-            :class="!s.color && 'checker'"
-            :style="{ background: s.color }"
-            :title="`colour ${s.index}`"
-          ></span>
+          <LabSwatch v-for="(s, i) in info.swatches" :key="i" :color="s.color" :title="`colour ${s.index}`" />
         </div>
         <LabButton v-if="info.jump !== undefined" class="self-start" @click="moveTo(info.jump ?? 0, true)"
           >Jump to {{ hex(info.jump, 4) }}</LabButton
         >
       </div>
       <div v-if="preview" class="flex flex-col gap-2 border-b border-line px-3 py-2.5">
-        <div class="relative flex h-[104px] items-center justify-center overflow-hidden rounded-[3px] checker">
+        <LabPicture height="104px">
           <PixelFrame :frame="preview.frame" :palette="swatchPalette" :scale="preview.scale" />
-          <span class="absolute top-1.5 right-1.5 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-2xs text-ink"
-            >{{ preview.frame.width }} × {{ preview.frame.height }}</span
-          >
-        </div>
+          <LabTag class="absolute top-1.5 right-1.5">{{ preview.frame.width }} × {{ preview.frame.height }}</LabTag>
+        </LabPicture>
         <div class="flex items-center gap-2">
           <span class="text-meta text-muted"
             >Frame <span class="font-mono text-ink">{{ preview.index }}</span> of {{ preview.count }}</span
           >
-          <div class="flex-1"></div>
-          <LabButton @click="openInSprites"><LabIcon name="sprites" :size="13" :stroke="2" />Open in Sprites</LabButton>
         </div>
       </div>
-      <dl
-        class="grid grid-cols-[86px_minmax(0,1fr)] gap-x-2 gap-y-[5px] border-b border-line px-3 py-2.5 font-mono text-ui"
-      >
-        <template v-for="[label, value] in values" :key="label">
-          <dt class="text-muted">{{ label }}</dt>
-          <dd class="whitespace-pre">{{ value }}</dd>
+      <div v-if="levelEntry" class="flex flex-col gap-2 border-b border-line px-3 py-2.5">
+        <template v-if="levelEntry.level">
+          <p class="font-semibold text-ink">{{ levelEntry.level.title || "Scene without a title" }}</p>
+          <p class="text-meta text-muted">
+            <span class="font-mono text-ink">{{ levelEntry.level.parts.length }}</span> parts · version
+            <span class="font-mono text-ink">0x{{ levelEntry.level.version.toString(16) }}</span>
+          </p>
         </template>
-      </dl>
-      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-3 py-2.5">
-        <PanelTitle>Markers in this file</PanelTitle>
-        <ul v-if="marked.markers.length" class="flex flex-col gap-0.5">
-          <li v-for="(m, i) in marked.markers" :key="i">
-            <div
-              v-if="m.error"
-              class="mb-1.5 flex items-start gap-2 rounded-md border border-error/40 bg-error/7 p-2"
-              role="alert"
-            >
-              <LabIcon name="warning" :size="14" :stroke="2" class="mt-px text-error" />
-              <div class="flex flex-1 flex-col gap-0.5">
+        <p v-else class="text-meta text-error">Can’t be read: {{ levelEntry.error }}</p>
+      </div>
+      <LabFacts class="border-b border-line px-3 py-1.5">
+        <LabFact v-for="[label, value] in values" :key="label" :label="label"
+          ><span class="whitespace-pre">{{ value }}</span></LabFact
+        >
+      </LabFacts>
+      <LabPanelBody>
+        <LabSection title="Markers in this file">
+          <ul v-if="marked.markers.length" class="-mx-3 flex flex-col">
+            <li v-for="(m, i) in marked.markers" :key="i">
+              <LabAlert v-if="m.error" class="mx-3 my-1.5">
                 <span
                   ><span v-if="m.offset !== undefined" class="font-mono text-error">{{ hex(m.offset, 4) }}</span>
                   decoder stopped {{ m.offset !== undefined ? "here" : "" }}</span
                 >
                 <span class="text-muted">{{ m.detail }}</span>
-              </div>
-              <LabButton v-if="m.offset !== undefined" class="h-[22px]! text-2xs!" @click="moveTo(m.offset ?? 0, true)"
-                >Jump</LabButton
+                <template v-if="m.offset !== undefined" #action>
+                  <LabButton class="h-[22px]! text-2xs!" @click="moveTo(m.offset ?? 0, true)">Jump</LabButton>
+                </template>
+              </LabAlert>
+              <LabListRow
+                v-else
+                :name="hex(m.offset ?? 0, 4)"
+                name-width="3.25rem"
+                :selected="here === m"
+                :indent="m.depth"
+                inset
+                @click="moveTo(m.offset ?? 0, true)"
               >
-            </div>
-            <button
-              v-else
-              type="button"
-              class="flex w-full cursor-pointer items-baseline gap-2 rounded px-1.5 py-0.5 text-left hover:bg-hover"
-              :class="here === m && 'bg-accent/12 shadow-[inset_2px_0_0_var(--color-accent)]'"
-              :style="{ paddingLeft: `${6 + m.depth * 14}px` }"
-              @click="moveTo(m.offset ?? 0, true)"
-            >
-              <span class="font-mono text-faint">{{ hex(m.offset ?? 0, 4) }}</span>
-              <span class="font-mono font-semibold text-partial">{{ m.label }}</span>
-              <span class="min-w-0 truncate text-meta text-muted" :title="m.detail">{{ m.detail }}</span>
-            </button>
-          </li>
-        </ul>
+                <span class="shrink-0 font-mono text-meta font-semibold text-partial">{{ m.label }}</span>
+                <span class="min-w-0 truncate text-meta text-muted" :title="m.detail">{{ m.detail }}</span>
+              </LabListRow>
+            </li>
+          </ul>
+        </LabSection>
         <p class="text-meta text-muted">
           {{
             marked.note ??
             "Markers come from decoders that ran on this file. Chunk headers are tinted blue; click one to jump to it."
           }}
         </p>
-      </div>
-    </aside>
+      </LabPanelBody>
+    </LabSidePanel>
   </div>
 
-  <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-    <LabIcon name="files" :size="28" class="text-faint" />
-    <p class="text-title font-semibold">No files loaded</p>
-    <p class="text-muted">Import the game’s RESOURCE files to inspect their bytes.</p>
-    <RouterLink
-      to="/"
-      class="mt-1 inline-flex h-[26px] items-center rounded-[5px] border border-accent bg-accent px-[9px] font-semibold text-accent-ink hover:bg-accent-hover"
-    >
-      Go to Import
-    </RouterLink>
-  </div>
+  <LabEmpty
+    v-else
+    icon="files"
+    title="No files loaded"
+    text="Import the game’s RESOURCE files to inspect their bytes."
+    import-link
+  />
 </template>

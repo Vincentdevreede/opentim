@@ -4,7 +4,11 @@ import { formatBytes } from "../../ui.ts";
 import LabButton from "../LabButton.vue";
 import LabIcon from "../LabIcon.vue";
 import PageHeader from "../PageHeader.vue";
-import PanelTitle from "../PanelTitle.vue";
+import LabBox from "../LabBox.vue";
+import LabDisclosure from "../LabDisclosure.vue";
+import LabAlert from "../LabAlert.vue";
+import RequirementList from "./RequirementList.vue";
+import LabListRow from "../LabListRow.vue";
 
 const OUTCOME = {
   read: { icon: "check", class: "text-decoded" },
@@ -21,65 +25,45 @@ const OUTCOME = {
 
   <div v-if="failure" class="min-h-0 flex-1 overflow-auto px-10 py-12">
     <div class="mx-auto flex max-w-[760px] flex-col gap-4">
-      <section role="alert" class="flex gap-3.5 rounded-[10px] border border-error/45 bg-error/7 p-5">
-        <LabIcon name="warning" :size="22" :stroke="2" class="mt-px text-error" />
-        <div class="flex flex-1 flex-col gap-2.5">
-          <div class="flex flex-col gap-1">
-            <h2 class="text-heading font-semibold text-error">{{ failure.title }}</h2>
-            <p class="text-lead">{{ failure.message }}</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <LabButton variant="primary" size="lg" @click="pickFiles"
-              ><LabIcon name="folder" :size="15" :stroke="2" />Select all RESOURCE files…</LabButton
-            >
-            <LabButton variant="ghost" size="lg" @click="dismiss">{{
-              staging ? "Back to the files found" : resources.length ? "Keep current files" : "Start over"
-            }}</LabButton>
-          </div>
+      <LabAlert large :title="failure.title">
+        <p class="text-lead">{{ failure.message }}</p>
+        <div class="mt-1 flex items-center gap-2">
+          <LabButton variant="primary" size="lg" @click="pickFiles"
+            ><LabIcon name="folder" />Select all RESOURCE files…</LabButton
+          >
+          <LabButton variant="ghost" size="lg" @click="dismiss">{{
+            staging ? "Back to the files found" : resources.length ? "Keep current files" : "Start over"
+          }}</LabButton>
         </div>
-      </section>
+      </LabAlert>
 
-      <section v-if="failure.received.length" class="overflow-hidden rounded-lg border border-line bg-sunken">
-        <div class="flex h-8 items-center border-b border-line px-3"><PanelTitle>What we received</PanelTitle></div>
-        <div
+      <LabBox v-if="failure.received.length" title="What we received">
+        <LabListRow
           v-for="item in failure.received"
           :key="item.name"
-          class="grid grid-cols-[20px_170px_minmax(0,1fr)_110px] items-center gap-x-3 border-b border-hover px-3 py-[9px] last:border-b-0"
+          :name="item.name"
+          name-width="170px"
+          class="last:border-b-0"
         >
-          <LabIcon :name="OUTCOME[item.outcome].icon" :size="16" :stroke="2.25" :class="OUTCOME[item.outcome].class" />
-          <span class="truncate font-mono" :class="item.outcome === 'skipped' && 'text-soft'">{{ item.name }}</span>
-          <span :class="item.outcome === 'skipped' ? 'text-muted' : 'text-soft'">{{ item.detail }}</span>
-          <span class="text-right font-mono text-muted">{{
-            item.size === undefined ? "—" : `${formatBytes(item.size)} B`
-          }}</span>
-        </div>
-      </section>
-
-      <section v-if="failure.requirements.length" class="overflow-hidden rounded-lg border border-line bg-sunken">
-        <div class="flex h-8 items-center border-b border-line px-3"><PanelTitle>Required to continue</PanelTitle></div>
-        <ul class="py-1">
-          <li v-for="req in failure.requirements" :key="req.label" class="flex items-center gap-2.5 px-3 py-[7px]">
-            <span class="w-11 text-right font-mono" :class="req.count ? 'text-decoded' : 'text-error'">{{
-              req.count
+          <span class="min-w-0 font-sans text-ui">{{ item.detail }}</span>
+          <template #lead>
+            <LabIcon :name="OUTCOME[item.outcome].icon" :class="OUTCOME[item.outcome].class" />
+          </template>
+          <template #end>
+            <span class="w-[110px] shrink-0 text-right font-mono text-meta text-muted">{{
+              item.size === undefined ? "—" : `${formatBytes(item.size)} B`
             }}</span>
-            <span>{{ req.label }}</span>
-            <span class="text-muted"
-              >—
-              <template v-for="(part, i) in req.hint.split('`')" :key="i"
-                ><span v-if="i % 2" class="font-mono">{{ part }}</span
-                ><template v-else>{{ part }}</template></template
-              >
-            </span>
-          </li>
-        </ul>
-      </section>
+          </template>
+        </LabListRow>
+      </LabBox>
 
-      <details v-if="failure.log.length" class="rounded-lg border border-line bg-sunken">
-        <summary class="cursor-pointer px-3 py-[9px] text-soft">Technical details</summary>
-        <pre class="border-t border-line px-3 py-2.5 font-mono text-meta whitespace-pre-wrap text-soft">{{
-          failure.log.join("\n")
-        }}</pre>
-      </details>
+      <LabBox v-if="failure.requirements.length" title="Required to continue">
+        <RequirementList :requirements="failure.requirements" />
+      </LabBox>
+
+      <LabDisclosure v-if="failure.log.length" title="Technical details">
+        <pre class="px-3 py-2.5 font-mono text-meta whitespace-pre-wrap text-soft">{{ failure.log.join("\n") }}</pre>
+      </LabDisclosure>
     </div>
   </div>
 </template>

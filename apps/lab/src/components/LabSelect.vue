@@ -16,6 +16,6 @@ const model = defineModel<string>({ required: true });
     >
       <option v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</option>
     </select>
-    <LabIcon name="chevronDown" :size="12" :stroke="2.5" class="pointer-events-none absolute right-2 text-muted" />
+    <LabIcon name="chevronDown" :size="12" class="pointer-events-none absolute right-2 text-muted" />
   </label>
 </template>

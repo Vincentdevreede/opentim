@@ -6,9 +6,13 @@ import { onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vu
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
 import LabIcon from "../components/LabIcon.vue";
-import LabKbd from "../components/LabKbd.vue";
-import PanelTitle from "../components/PanelTitle.vue";
+import LabPanelBody from "../components/LabPanelBody.vue";
+import LabPlaceholder from "../components/LabPlaceholder.vue";
 import { crumb } from "../ui.ts";
+import LabPanelHeader from "../components/LabPanelHeader.vue";
+import LabSidePanel from "../components/LabSidePanel.vue";
+import LabTag from "../components/LabTag.vue";
+import PageHeader from "../components/PageHeader.vue";
 
 // The world is drawn at twice its size, so its pixels stay visible.
 const WIDTH = 400;
@@ -102,43 +106,38 @@ watchEffect(() => (crumb.value = ["Sandbox", `${objects.value} objects`, running
 </script>
 
 <template>
-  <header class="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-3 pl-4">
-    <h1 class="text-title font-semibold">Sandbox</h1>
-    <div class="mx-1.5 h-5 w-px bg-line"></div>
-    <LabButton variant="primary" class="min-w-[84px]" :aria-pressed="running" @click="running = !running">
-      <LabIcon :name="running ? 'pause' : 'play'" :size="12" :stroke="2" />{{ running ? "Pause" : "Play" }}
-    </LabButton>
-    <LabButton :disabled="running" title="Advance one tick (.)" @click="step">
-      <LabIcon name="step" :size="13" :stroke="2" />Step
-    </LabButton>
-    <LabButton title="Reset to start (R)" @click="reset"
-      ><LabIcon name="reset" :size="13" :stroke="2" />Reset</LabButton
-    >
-    <div class="ml-1 flex h-[26px] items-center gap-1.5 rounded-[5px] border border-line bg-sunken px-2.5">
-      <span class="text-muted">tick</span>
-      <span class="min-w-12 text-right font-mono text-accent tabular">{{ String(tick).padStart(6, "0") }}</span>
-    </div>
-    <div class="flex-1"></div>
-    <span class="text-meta text-muted">
-      <LabKbd>Space</LabKbd> play · <LabKbd>.</LabKbd> step · <LabKbd>R</LabKbd> reset
-    </span>
+  <PageHeader title="Sandbox">
+    <template #controls>
+      <LabButton variant="primary" class="min-w-[84px]" :aria-pressed="running" @click="running = !running">
+        <LabIcon :name="running ? 'pause' : 'play'" :size="12" />{{ running ? "Pause" : "Play" }}
+      </LabButton>
+      <LabButton :disabled="running" title="Advance one tick (.)" @click="step">
+        <LabIcon name="step" :size="13" :stroke="2" />Step
+      </LabButton>
+      <LabButton title="Reset to start (R)" @click="reset"
+        ><LabIcon name="reset" :size="13" :stroke="2" />Reset</LabButton
+      >
+      <div class="ml-1 flex h-[26px] items-center gap-1.5 rounded-[5px] border border-line bg-sunken px-2.5">
+        <span class="text-muted">tick</span>
+        <span class="min-w-12 text-right font-mono text-accent tabular">{{ String(tick).padStart(6, "0") }}</span>
+      </div>
+    </template>
     <LabBadge
       status="hypothesis"
       label="engine prototype"
       title="The physics engine is a prototype; behaviour is not yet matched to the original game."
     />
-  </header>
+  </PageHeader>
 
   <div class="flex min-h-0 flex-1">
-    <aside aria-label="Parts" class="flex w-[220px] shrink-0 flex-col border-r border-line bg-sunken">
-      <div class="flex h-8 shrink-0 items-center border-b border-line px-3"><PanelTitle>Parts</PanelTitle></div>
-      <div class="p-2.5">
-        <div class="rounded-md border border-dashed border-line-strong px-3 py-4 text-center text-meta text-muted">
-          <p class="font-semibold text-soft">Needs to be built</p>
-          <p class="mt-1">Parts to drag onto the canvas, like balls, gears and walls.</p>
-        </div>
-      </div>
-    </aside>
+    <LabSidePanel side="left" width="220px" aria-label="Parts">
+      <LabPanelHeader title="Parts" />
+      <LabPanelBody>
+        <LabPlaceholder title="Needs to be built"
+          >Parts to drag onto the canvas, like balls, gears and walls.</LabPlaceholder
+        >
+      </LabPanelBody>
+    </LabSidePanel>
 
     <section class="flex min-w-0 flex-1 overflow-auto bg-sunken p-4">
       <div
@@ -146,21 +145,19 @@ watchEffect(() => (crumb.value = ["Sandbox", `${objects.value} objects`, running
         :style="{ width: `${WIDTH * SCALE}px`, height: `${HEIGHT * SCALE}px` }"
       >
         <div ref="container" class="absolute inset-0"></div>
-        <span
-          class="pointer-events-none absolute bottom-2 left-2 rounded-[3px] bg-sunken/85 px-1.5 py-px font-mono text-2xs text-soft"
-          >{{ SCALE }}× · {{ WIDTH }} × {{ HEIGHT }} world px · click to drop a ball</span
+        <LabTag class="pointer-events-none absolute bottom-2 left-2"
+          >{{ SCALE }}× · {{ WIDTH }} × {{ HEIGHT }} world px · click to drop a ball</LabTag
         >
       </div>
     </section>
 
-    <aside aria-label="Inspector" class="flex w-[300px] shrink-0 flex-col border-l border-line bg-sunken">
-      <div class="flex h-8 shrink-0 items-center border-b border-line px-3"><PanelTitle>Inspector</PanelTitle></div>
-      <div class="p-3">
-        <div class="rounded-md border border-dashed border-line-strong px-3 py-4 text-center text-meta text-muted">
-          <p class="font-semibold text-soft">Needs to be built</p>
-          <p class="mt-1">Select an object to see and edit its position, velocity and properties.</p>
-        </div>
-      </div>
-    </aside>
+    <LabSidePanel aria-label="Inspector">
+      <LabPanelHeader title="Inspector" />
+      <LabPanelBody>
+        <LabPlaceholder title="Needs to be built"
+          >Select an object to see and edit its position, velocity and properties.</LabPlaceholder
+        >
+      </LabPanelBody>
+    </LabSidePanel>
   </div>
 </template>

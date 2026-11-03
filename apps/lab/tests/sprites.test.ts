@@ -80,7 +80,13 @@ describe("statusOf", () => {
       status: "error",
       label: "decode error",
     });
-    expect(statusOf({ ...resource("L1.LEV", Uint8Array.of(1)), group: "level" })).toEqual({ status: "unsupported" });
+    expect(statusOf({ ...resource("L1.LEV", Uint8Array.of(1)), group: "level" })).toEqual({
+      status: "error",
+      label: "can’t read",
+    });
+    const scene = new Uint8Array(new Uint16Array([0xaced, 0x102, 67, 268, 1001, 0, 0, 0]).buffer);
+    expect(statusOf({ ...resource("TITLE.GKC", scene), group: "scene" })).toEqual({ status: "decoded" });
+    expect(statusOf({ ...resource("TIM.SX", Uint8Array.of(1)), group: "sound" })).toEqual({ status: "unsupported" });
   });
 });
 

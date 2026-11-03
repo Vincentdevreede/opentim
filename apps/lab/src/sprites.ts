@@ -1,5 +1,6 @@
 /** Decoding the sprite sheets, screens and palettes of the loaded files, for the Sprites page. */
 
+import { readLevel } from "@opentim/content";
 import { FormatError, decodeImage, readPalette, type Frame, type Image } from "@opentim/resources";
 import type { Resource } from "./importer.ts";
 import { SUPPORT, type Confidence } from "./kinds.ts";
@@ -65,9 +66,30 @@ export const badgeOf = (d: Decoded): Status =>
       ? { status: "unsupported", label: "not an image" }
       : { status: "error", label: "decode error" };
 
+const levelStatus = new WeakMap<Resource, Status>();
+
+/** Whether a level or scene reads, in either layout, to its last byte. */
+function readsAsLevel(resource: Resource): Status {
+  let status = levelStatus.get(resource);
+  if (!status) {
+    const reads = (["tim", "toons"] as const).some((layout) => {
+      try {
+        readLevel(resource.data, { layout, name: resource.name });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    status = reads ? { status: "decoded" } : { status: "error", label: "can’t read" };
+    levelStatus.set(resource, status);
+  }
+  return status;
+}
+
 /** The badge of a resource: what its decoder made of it, or else what the lab can do with its kind. */
 export function statusOf(resource: Resource): Status {
   if (isImage(resource)) return badgeOf(decode(resource));
+  if (resource.group === "level" || resource.group === "scene") return readsAsLevel(resource);
   if (resource.group === "palette")
     return paletteColors(resource) ? { status: "decoded" } : { status: "error", label: "decode error" };
   return { status: SUPPORT[resource.group].status };

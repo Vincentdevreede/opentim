@@ -20,3 +20,6 @@ export const spritesView = ref<"parts" | "images">("parts");
 
 /** The id of the part selected on the Sprites page. */
 export const selectedPart = ref<string>();
+
+/** The level file selected on the Levels page, like `L7.LEV`. */
+export const selectedLevel = ref<string>();
