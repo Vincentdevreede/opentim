@@ -4,6 +4,7 @@ import { selectionPatterns } from "./behaviour-contact-selection-patterns.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Finding } from "./behaviour.ts";
+import type { ContactOutline } from "./behaviour-contact-outline.ts";
 
 export interface ContactSelection extends Finding {
   previousContactField: number;
@@ -16,11 +17,25 @@ export interface ContactSelection extends Finding {
   candidateGates: string[];
   previousContactGates: string[];
   excludedTypePairs?: [number, number][];
+  candidateFilter?: {
+    routine: number;
+    requiredSubjectType: number;
+    headField: number;
+    nextField: number;
+    excludesWhen: "candidateOccursInSubjectList";
+  };
+  motionAngleSource?: {
+    routine: number;
+    subjectGlobal: number;
+    outputGlobal: number;
+    refresh: "atEntryAndAfterEachSuccessfulPass";
+  };
   passes: {
     role: "firstContactTest" | "secondContactTest";
     routine: number;
     previousContactBounds: "strict";
     listCandidateBounds: "strict" | "inclusive";
+    outlineMode?: ContactOutline["mode"];
   }[];
   selection: "laterAcceptedContactsCanReplaceEarlierOnes";
   normalReturnValues: [0, 1];
@@ -60,7 +75,13 @@ export function addContactSelection(codes: Map<number, RoutineCode>, summaries: 
       candidate.contactBounds.objectGlobal !== bound.get("globalF")
     )
       continue;
+    const motion = summaries.get(bound.get("calleeB")!);
     const filter = summaries.get(bound.get("calleeI")!);
+    const membership = summaries.get(bound.get("calleeD")!);
+    const list = membership?.contactSmall?.kind === "typed-list-membership" ? membership.contactSmall : undefined;
+    const membershipPurpose = list
+      ? "The candidate is not found in the subject's type-specific contact list."
+      : "The first read-only candidate filter returns zero.";
     const excluded = filter?.kind === "contact-type-filter";
     const purpose =
       "Tests the previous contact first, then eligible listed parts in order, using two contact tests; the second admits touching rectangle boundaries in the global-list search. Later accepted contacts can replace earlier contacts.";
@@ -78,20 +99,41 @@ export function addContactSelection(codes: Map<number, RoutineCode>, summaries: 
       purpose,
       contactSelection: {
         ...finding,
+        ...(motion?.contactMotionAngle?.wrapper
+          ? {
+              motionAngleSource: {
+                routine: motion.address,
+                subjectGlobal: bound.get("globalA")!,
+                outputGlobal: bound.get("globalE")!,
+                refresh: "atEntryAndAfterEachSuccessfulPass" as const,
+              },
+            }
+          : {}),
         previousContactField: 132,
         outlineField: 130,
         flagsField: 8,
         ignoredMask: 8192,
+        ...(list && membership
+          ? {
+              candidateFilter: {
+                routine: membership.address,
+                requiredSubjectType: list.requiredType,
+                headField: list.headField,
+                nextField: list.nextField,
+                excludesWhen: "candidateOccursInSubjectList" as const,
+              },
+            }
+          : {}),
         headMask: 12288,
         nextMask: 4096,
         ordering: "previousContactThenGlobalLists",
         previousContactGates: [
           "The previous contact pointer is nonzero.",
-          "The first read-only candidate filter returns zero.",
+          membershipPurpose,
           "The previous contact has an outline pointer and its ignored flag is clear.",
         ],
         candidateGates: [
-          "The first read-only candidate filter returns zero.",
+          membershipPurpose,
           "The candidate differs from the subject and from the previous contact.",
           "The candidate has an outline pointer and its ignored flag is clear.",
           ...(excluded ? ["The unordered type-pair exclusion helper returns zero."] : []),
@@ -112,12 +154,14 @@ export function addContactSelection(codes: Map<number, RoutineCode>, summaries: 
             routine: first.address,
             previousContactBounds: "strict",
             listCandidateBounds: "strict",
+            ...(first.contactOutline ? { outlineMode: first.contactOutline.mode } : {}),
           },
           {
             role: "secondContactTest",
             routine: second.address,
             previousContactBounds: "strict",
             listCandidateBounds: "inclusive",
+            ...(second.contactOutline ? { outlineMode: second.contactOutline.mode } : {}),
           },
         ],
         selection: "laterAcceptedContactsCanReplaceEarlierOnes",

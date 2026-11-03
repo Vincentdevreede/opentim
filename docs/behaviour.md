@@ -689,6 +689,36 @@ The scanner's zero-outline return is certified separately. It still stores the a
 contact context before returning zero. The caller may use this bypass only when the extracted conditions already
 prove the outline pointer is zero. No outline, collision or successful-contact input is supplied by the analyser.
 
-These contracts do not yet express the complete two outline searches as closed geometric predicates. Their nested
-edge order, movement-angle calculation, contact-side decisions and final chosen position remain unresolved where
-needed by a caller. New state-preservation evidence is not a claim that an incomplete animation walk is complete.
+The two `contactOutline` relations now check the complete edge and vertex loops, including their angle gates,
+endpoint extension, both endpoint tests and position correction. They preserve the encoded order: a successful
+correction changes the inputs to later pairs, while some edge coordinates retain earlier snapshots. Closing edges
+use the remembered first point. The finite-loop interpretation assumes valid separate outline storage and counts
+between two and 32766; it does not promise termination for arbitrary corrupt counts.
+
+The first pass tests candidate edges against moving subject vertices. The reverse pass tests subject edges against
+moving candidate vertices. Both reject the extended endpoint and can restore the previous position after a failed
+correction while still recording a contact. Flag mask `0xfff9` clears bits two and four, preserving bit one. The
+contact pointer, angle, edge index and accumulating side bytes retain their exact branch conditions. The reverse
+side comparison uses a centre saved before geometry refresh; the forward helper reads the refreshed centre.
+
+`contactSmall` certifies endpoint extension, direction-dependent side marking and the typed linked-list membership
+filter. The latter tests type 17 (the bucket) and its selected list; a list member is not given a physical meaning
+that the instructions do not establish. A wrong type or empty list returns zero. A nonempty list remains conditional
+on its actual members, and cyclic lists need not terminate.
+
+`contactMotionAngle` records the entire movement-angle wrapper, integer backend, shift, signed long quotient and
+code-segment table reference. The wrapper sign-extends wrapped position differences. Their magnitudes are at most
+32768, so the ratio index is proved to lie between zero and 511. Equal magnitudes bypass division and lookup. The
+loaded table words are included as an initial image snapshot, not assumed immutable runtime constants. Wider
+arbitrary long inputs have separate qualifications; no host trigonometric function replaces the game calculation.
+The candidate scanner links its angle context to this wrapper at entry and after successful passes.
+
+Callers can use two narrower outline contracts when their existing conditions prove the inputs: zero displacement
+in both contact-context words returns zero without nonprivate writes; a nonzero probe performs no nonprivate
+writes but still has an unknown contact result. The calling frame must be established. A near call requires an
+immediately preceding `PUSH CS` on its sole incoming edge. These facts never supply a runtime collision, infer
+zero displacement from velocity alone or preserve stale context through an unknown call.
+
+The relations are symbolic contracts, with confidence, instruction evidence and explicit storage assumptions.
+Unknown level geometry, selected contacts and indirect callbacks can still stop animation walks. A complete
+geometric relation is not a claim that every part's triggered animation is now known.

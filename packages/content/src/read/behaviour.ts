@@ -724,6 +724,30 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const pointerRegisters = new Set<string>();
   let uncertainEffects = code.status !== "complete";
   const instructions = new Map(code.instructions.map((i) => [i.address, i]));
+  const precedingByEnd = new Map(code.instructions.map((i) => [i.address + i.size, i]));
+  const incomingEdges = new Map<number, typeof code.edges>();
+  for (const edge of code.edges) {
+    if (edge.to == null) continue;
+    const edges = incomingEdges.get(edge.to) ?? [];
+    edges.push(edge);
+    incomingEdges.set(edge.to, edges);
+  }
+  const farBridges = new Set(
+    code.instructions
+      .filter((i) => {
+        const previous = precedingByEnd.get(i.address);
+        const incoming = incomingEdges.get(i.address) ?? [];
+        return (
+          previous?.mnemonic === "push" &&
+          previous.operands[0]?.kind === "register" &&
+          previous.operands[0].name === "cs" &&
+          previous.flow === "next" &&
+          incoming.length === 1 &&
+          incoming[0]?.from === previous.address
+        );
+      })
+      .map((i) => i.address),
+  );
   const sparseSwitches = new Map(
     code.edges
       .filter((edge) => edge.search)
@@ -1422,12 +1446,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
   };
   const angleFrameMatches = (engine: EngineSummary | undefined, i: Instruction): boolean => {
-    if (!engine || !["angle-sector", "saved-angle-gate"].includes(engine.kind)) return true;
-    const previous = code.instructions.find((p) => p.address + p.size === i.address);
+    if (!engine || !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind)) return true;
+    const previous = precedingByEnd.get(i.address);
     const segmentPush =
       previous?.mnemonic === "push" && previous.operands[0]?.kind === "register" && previous.operands[0].name === "cs";
-    const incoming = code.edges.filter((edge) => edge.to === i.address);
-    const farBridge = segmentPush && incoming.length === 1 && incoming[0]!.from === previous.address;
+    const farBridge = farBridges.has(i.address);
     const convention = engine.returnConvention;
     return (
       !!convention &&
@@ -2860,13 +2883,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const summary = i.target && options.summaries?.get(i.target.address);
       // A PUSH CS immediately before a near CALL supplies the far return frame, not an argument.
       const args = [...s.stack];
-      const last = code.instructions.find((p) => p.address + p.size === i.address);
-      if (
-        !i.far &&
-        last?.mnemonic === "push" &&
-        last.operands[0]?.kind === "register" &&
-        last.operands[0].name === "cs"
-      ) {
+      const last = precedingByEnd.get(i.address);
+      const nearFarBridge = farBridges.has(i.address);
+      if (!i.far && nearFarBridge) {
         args.pop();
         s.stack.pop();
         const sp = registerRead("sp", s).value;
@@ -3097,14 +3116,119 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         if (sp.kind === "stack")
           registerWrite("sp", tracked({ ...sp, displacement: sp.displacement + stackBytes }, [evidenceOf(i)]), state);
       };
+      const checkedFarFrame = !!i.far || nearFarBridge;
+      const membership = engine?.contactSmall;
+      if (
+        engine &&
+        membership?.kind === "typed-list-membership" &&
+        checkedFarFrame &&
+        engine.returnConvention?.kind === "far" &&
+        engine.returnConvention.stackBytes === 0
+      ) {
+        const ownerField = (offset: number): Expression => ({ kind: "field", object: "part", offset, width: 16 });
+        const wrongType = formalPredicate(
+          {
+            kind: "compare",
+            operator: "!=",
+            left: ownerField(membership.typeField),
+            right: constant(membership.requiredType),
+            signed: false,
+          },
+          args,
+          engine.argumentOffset,
+          s,
+          membership.ownerArgument,
+        );
+        const emptyList = formalPredicate(
+          {
+            kind: "compare",
+            operator: "==",
+            left: ownerField(membership.headField),
+            right: constant(0),
+            signed: false,
+          },
+          args,
+          engine.argumentOffset,
+          s,
+          membership.ownerArgument,
+        );
+        if (entails(wrongType, s) || entails(emptyList, s)) {
+          const selected: EngineSummary = {
+            ...engine,
+            kind: "empty-contact-membership",
+            purpose: "Returns zero because the owner has another type or its selected contact list is empty.",
+            returns: [
+              {
+                confidence: engine.confidence,
+                evidence: engine.evidence,
+                assumptions: engine.assumptions,
+                register: "ax",
+                value: constant(0),
+                condition: { kind: "true" },
+              },
+            ],
+          };
+          if (applyEngine(selected, args, s, i)) {
+            returnedStack(s);
+            enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: s });
+            continue;
+          }
+        }
+      }
+      const outline = engine?.contactOutline;
+      if (
+        engine &&
+        outline &&
+        engine.returnConvention?.kind === "far" &&
+        engine.returnConvention.stackBytes === 0 &&
+        checkedFarFrame
+      ) {
+        const still = entails(formalPredicate(outline.zeroMovementCondition, args, engine.argumentOffset, s), s);
+        const probe = entails(formalPredicate(outline.probeCondition, args, engine.argumentOffset, s), s);
+        if (still || probe) {
+          const selected: EngineSummary = {
+            ...engine,
+            ...outline,
+            contactOutline: undefined,
+            contactSearch: undefined,
+            globalObjectWrites: undefined,
+            kind: still ? "stationary-outline-search" : "outline-search-probe",
+            purpose: still
+              ? "Returns zero without nonprivate writes because both recorded movement words are zero."
+              : "Tests the outlines in probe mode, preserving nonprivate memory; the contact result still depends on the recorded geometry.",
+            writes: [],
+            returns: still ? [{ ...outline, register: "ax", value: constant(0), condition: { kind: "true" } }] : [],
+            calls: still
+              ? [outline.helpers.classifier]
+              : [outline.helpers.classifier, outline.helpers.extend, outline.helpers.segment],
+            assumptions: [
+              ...outline.assumptions,
+              still
+                ? "The caller already establishes zero displacement in both contact-context words. No commit can refresh those words, so zero is invariant until a normal return."
+                : "The caller already establishes a nonzero probe argument. Every reached success returns before any nonprivate commit; earlier geometric helper outputs stay in the private frame.",
+            ],
+            footprint: {
+              complete: true,
+              partMemoryComplete: true,
+              preservesArgumentMemory: true,
+              preservesPartState: true,
+              unknownEffects: [],
+            },
+          };
+          if (applyEngine(selected, args, s, i)) {
+            returnedStack(s);
+            enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: s });
+            continue;
+          }
+        }
+      }
       const emptyContact = engine?.contactSearch?.emptyReturn;
       if (
         engine &&
         emptyContact &&
         engine.returnConvention?.kind === "far" &&
         engine.returnConvention.stackBytes === 0 &&
-        (i.far ||
-          (last?.mnemonic === "push" && last.operands[0]?.kind === "register" && last.operands[0].name === "cs"))
+        checkedFarFrame
       ) {
         const condition = formalPredicate(
           {
@@ -3161,8 +3285,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         bypass &&
         engine.returnConvention?.kind === "far" &&
         engine.returnConvention.stackBytes === 0 &&
-        (i.far ||
-          (last?.mnemonic === "push" && last.operands[0]?.kind === "register" && last.operands[0].name === "cs"))
+        checkedFarFrame
       ) {
         const selected = bypass.cases.find((c) =>
           entails(formalPredicate(c.condition, args, bypass.argumentOffset, s, bypass.ownerArgument), s),

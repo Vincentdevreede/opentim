@@ -92,3 +92,11 @@ export type { ContactSegmentTest } from "./read/behaviour-contact-segment.ts";
 export type { ContactArithmetic } from "./read/behaviour-contact-arithmetic.ts";
 export type { ContactSelection } from "./read/behaviour-contact-selection.ts";
 export type { EmptyContactReturn } from "./read/behaviour-contact-empty.ts";
+export type {
+  ContactOutline,
+  OutlineFormulae,
+  OutlineContext,
+  OutlinePoint,
+} from "./read/behaviour-contact-outline.ts";
+export type { ContactSmallRelation } from "./read/behaviour-contact-small.ts";
+export type { ContactMotionAngle } from "./read/behaviour-contact-motion-angle.ts";
