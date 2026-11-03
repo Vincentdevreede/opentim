@@ -87,6 +87,9 @@ importers:
       '@opentim/resources':
         specifier: workspace:*
         version: link:../../packages/resources
+      '@opentim/sound':
+        specifier: workspace:*
+        version: link:../../packages/sound
       '@opentim/theme':
         specifier: workspace:*
         version: link:../../packages/theme
@@ -182,6 +185,19 @@ importers:
         version: 5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))
 
   packages/resources:
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))
+
+  packages/sound:
+    dependencies:
+      '@opentim/resources':
+        specifier: workspace:*
+        version: link:../resources
     devDependencies:
       typescript:
         specifier: ^7.0.2

@@ -16,6 +16,7 @@
     "@opentim/content": "workspace:*",
     "@opentim/engine": "workspace:*",
     "@opentim/resources": "workspace:*",
+    "@opentim/sound": "workspace:*",
     "@opentim/theme": "workspace:*",
     "pixi.js": "^8.22.0",
     "vue": "^3.5.44",

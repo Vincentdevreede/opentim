@@ -38,7 +38,7 @@ const FILES: NavItem[] = [
 ];
 const RESOURCES: NavItem[] = [
   { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true },
-  { to: "/audio", label: "Audio", icon: "audio", needsFiles: true, planned: true },
+  { to: "/audio", label: "Audio", icon: "audio", needsFiles: true },
   { to: "/levels", label: "Levels", icon: "levels", needsFiles: true },
 ];
 const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox", needsFiles: true }];
@@ -52,6 +52,9 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites)" },
   { keys: ["H"], action: "Flip horizontally (Sprites)" },
   { keys: ["O"], action: "Show the previous frame faintly (Sprites)" },
+  { keys: ["/"], action: "Filter sounds (Audio)" },
+  { keys: ["↑", "↓"], action: "Previous or next sound (Audio)" },
+  { keys: ["Space"], action: "Play or pause the sample (Audio)" },
   { keys: ["G"], action: "Go to offset (Files)" },
   { keys: ["←", "→", "↑", "↓"], action: "Move the byte selection (Files)" },
   { keys: ["PgUp", "PgDn"], action: "Move one screen (Files)" },

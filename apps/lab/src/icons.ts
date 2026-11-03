@@ -37,6 +37,8 @@ export const ICONS = {
   chevronLeft: ["m15 6-6 6 6 6"],
   chevronRight: ["m9 6 6 6-6 6"],
   chevronDown: ["m6 9 6 6 6-6"],
+  loop: ["m17 2 4 4-4 4", "M3 11V9a3 3 0 0 1 3-3h15", "m7 22-4-4 4-4", "M21 13v2a3 3 0 0 1-3 3H3"],
+  volume: ["M11 5 6 9H3v6h3l5 4z", "M15.5 8.5a5 5 0 0 1 0 7"],
   expandAll: ["m7 15 5 5 5-5", "m7 9 5-5 5 5"],
   collapseAll: ["m7 20 5-5 5 5", "m7 4 5 5 5-5"],
   flip: ["M12 3v18", "M8 7 3 12l5 5z", "m16 7 5 5-5 5z"],

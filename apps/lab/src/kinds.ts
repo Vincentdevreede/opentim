@@ -43,7 +43,10 @@ export const SUPPORT: Record<KindGroup, { status: Confidence; note: string }> = 
     status: "decoded",
     note: "Read to the last byte, as a level without a title. View it in Levels.",
   },
-  sound: { status: "unsupported", note: "Not decoded in the lab yet. Raw bytes only." },
+  sound: {
+    status: "partial",
+    note: "Read. Samples play in Audio, and MIDI through the game’s AdLib driver on an emulated chip.",
+  },
   other: { status: "unsupported", note: "Unknown format. Raw bytes only." },
 };
 

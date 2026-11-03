@@ -7,6 +7,7 @@ const KINDS: Record<string, ResourceKind> = {
   PAL: "palette",
   FNT: "font",
   SX: "audio",
+  RAW: "audio",
   LEV: "level",
   TIM: "level",
   GKC: "scene",

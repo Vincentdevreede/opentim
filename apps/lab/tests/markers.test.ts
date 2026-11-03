@@ -41,7 +41,7 @@ describe("markersOf", () => {
   });
 
   it("explains files without markers", () => {
-    expect(markersOf(resource("TIM.SX", "sound", Uint8Array.of(1))).note).toMatch(/No decoder reads/);
+    expect(markersOf(resource("UNKNOWN.DAT", "other", Uint8Array.of(1))).note).toMatch(/No decoder reads/);
     const text = Uint8Array.from("\r\n Start  Stop", (c) => c.charCodeAt(0));
     expect(markersOf(resource("TOONS.BMP", "sprites", text)).note).toMatch(/text/);
   });

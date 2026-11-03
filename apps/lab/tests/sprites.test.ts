@@ -86,7 +86,9 @@ describe("statusOf", () => {
     });
     const scene = new Uint8Array(new Uint16Array([0xaced, 0x102, 67, 268, 1001, 0, 0, 0]).buffer);
     expect(statusOf({ ...resource("TITLE.GKC", scene), group: "scene" })).toEqual({ status: "decoded" });
-    expect(statusOf({ ...resource("TIM.SX", Uint8Array.of(1)), group: "sound" })).toEqual({ status: "unsupported" });
+    expect(statusOf({ ...resource("UNKNOWN.DAT", Uint8Array.of(1)), group: "other" })).toEqual({
+      status: "unsupported",
+    });
   });
 });
 
