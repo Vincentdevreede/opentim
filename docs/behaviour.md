@@ -653,3 +653,42 @@ colour relative to that root. Each checked mesh edge joins opposite colours and 
 zero. Pruned branches from blocked or initially visited targets do not break that proof. This includes ordinary plus-one
 or minus-one movement through an otherwise idle reset-built mesh. It does not apply to multiple input seeds, a checked
 same-direction peer edge, changed direct links, or the self-negative word 0x8000.
+
+## Shared contact searches
+
+The reader now separates three contact contracts. `contactBounds` records the ordered scratch-coordinate
+calculations, including wrapped subtraction, signed half dimensions, signed minima and word absolute values.
+The source dimensions remain explicit: the supplied TIM 1 builds use current frame dimensions for their centres,
+whereas Even More uses the separate stored dimensions. These formulas prepare bounds; they do not establish a hit.
+
+`contactSelection` checks the complete candidate-scanner graph. The previous contact is tested first, followed by
+eligible members of the selected global lists. The first contact test requires strict rectangle overlap. The
+second also requires strict overlap for the previous contact, but admits touching rectangle boundaries for a listed
+candidate. Both tests can run for one candidate, and accepted updates can change the subject and scratch bounds
+before later candidates. The report therefore does not call this a first-hit or nearest-contact search. Even More's
+scanner additionally excludes four unordered type pairs through its checked scalar filter. TIM 1 has no corresponding
+call in this scanner. The remaining first candidate filter is retained as a read-only helper result.
+
+`contactSegment` describes the endpoint test's actual integer calculations. Coefficients and the determinant wrap
+to words. The nonzero-determinant case uses full signed word products, wrapped long subtraction and a separately
+certified signed long quotient, rounded towards zero; the output takes its low word. The division proof uses a
+32-iteration restoring-division invariant, never sampled machine states. The zero-determinant case tests the encoded
+sum of two products and chooses either the first segment's second endpoint or the origin. This unusual branch is
+preserved directly. The output is written before four inclusive coordinate-range tests decide acceptance, so a
+false result does not mean the output buffer is untouched.
+
+A separate pointer-provenance proof bounds the contact searches' memory effects over every CFG edge. Identical
+argument, global and local pointer origins survive joins; ambiguous origins fail the proof. Complete callee
+footprints are composed, private output buffers must stay inside the frame, and volatile registers and local pointer
+facts are discarded across calls. This proves state preservation while retaining potential writes to position,
+drawing geometry, contact fields and flags. A global subject can alias the caller, so those fields are invalidated
+in every possible part, including the owner. They are never promoted to preserved inputs merely because the helper
+was passed a scalar probe flag.
+
+The scanner's zero-outline return is certified separately. It still stores the argument pointer in the global
+contact context before returning zero. The caller may use this bypass only when the extracted conditions already
+prove the outline pointer is zero. No outline, collision or successful-contact input is supplied by the analyser.
+
+These contracts do not yet express the complete two outline searches as closed geometric predicates. Their nested
+edge order, movement-angle calculation, contact-side decisions and final chosen position remain unresolved where
+needed by a caller. New state-preservation evidence is not a claim that an incomplete animation walk is complete.

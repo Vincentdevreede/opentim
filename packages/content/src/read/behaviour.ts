@@ -1594,6 +1594,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         preserve.add(offset);
       invalidateSelectedPartFields(engine.partGraph.fields, s, i, engine.evidence, preserve);
     }
+    if (engine.globalObjectWrites?.length) {
+      invalidateSelectedPartFields(
+        engine.globalObjectWrites,
+        s,
+        i,
+        engine.evidence,
+        new Set(),
+        `the contact subject selected through engine globals at ${hex(i.address)}`,
+      );
+    }
     if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
       for (const key of s.memory.keys()) {
         const split = key.lastIndexOf(":"),
@@ -3051,6 +3061,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         engine.footprint.complete &&
         engine.footprint.preservesArgumentMemory &&
         !engine.writes.length &&
+        !engine.globalObjectWrites?.length &&
         !engine.returns.length &&
         !engine.numeric &&
         summary &&
@@ -3086,6 +3097,64 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         if (sp.kind === "stack")
           registerWrite("sp", tracked({ ...sp, displacement: sp.displacement + stackBytes }, [evidenceOf(i)]), state);
       };
+      const emptyContact = engine?.contactSearch?.emptyReturn;
+      if (
+        engine &&
+        emptyContact &&
+        engine.returnConvention?.kind === "far" &&
+        engine.returnConvention.stackBytes === 0 &&
+        (i.far ||
+          (last?.mnemonic === "push" && last.operands[0]?.kind === "register" && last.operands[0].name === "cs"))
+      ) {
+        const condition = formalPredicate(
+          {
+            kind: "compare",
+            operator: "==",
+            left: { kind: "field", object: "part", offset: emptyContact.outlineField, width: 16 },
+            right: constant(0),
+            signed: false,
+          },
+          args,
+          emptyContact.argumentOffset,
+          s,
+        );
+        if (entails(condition, s)) {
+          const selected: EngineSummary = {
+            ...engine,
+            ...emptyContact,
+            kind: "empty-contact-search",
+            contactSearch: undefined,
+            globalObjectWrites: undefined,
+            purpose:
+              "Stores the passed part as the engine contact subject and returns zero because it has no outline pointer.",
+            calls: [],
+            writes: [
+              {
+                ...emptyContact,
+                root: "global",
+                path: [],
+                offset: emptyContact.subjectGlobal,
+                width: 16,
+                value: { kind: "field", object: "argument", offset: emptyContact.argumentOffset, width: 16 },
+                condition: { kind: "true" },
+              },
+            ],
+            returns: [{ ...emptyContact, register: "ax", value: constant(0), condition: { kind: "true" } }],
+            footprint: {
+              complete: true,
+              partMemoryComplete: true,
+              preservesArgumentMemory: true,
+              preservesPartState: true,
+              unknownEffects: [],
+            },
+          };
+          if (applyEngine(selected, args, s, i)) {
+            returnedStack(s);
+            enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: s });
+            continue;
+          }
+        }
+      }
       const bypass = engine?.shortCircuit;
       if (
         engine &&

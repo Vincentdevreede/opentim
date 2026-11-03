@@ -5,6 +5,11 @@ import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { discoverAngleGate } from "./behaviour-angle-gate.ts";
 import { discoverAngleClassifier } from "./behaviour-angle.ts";
+import { discoverContactBounds, type ContactBounds } from "./behaviour-contact-bounds.ts";
+import { addContactEffectSummaries, type ContactSearch, type ContactObjectWrite } from "./behaviour-contact-effects.ts";
+import { discoverContactScalar } from "./behaviour-contact-scalars.ts";
+import { addContactSegmentSummaries, type ContactSegmentTest } from "./behaviour-contact-segment.ts";
+import { addContactSelection, type ContactSelection } from "./behaviour-contact-selection.ts";
 import { addBufferEffectSummaries } from "./behaviour-buffer-effects.ts";
 import { discoverConstructorEffects } from "./behaviour-constructor-effects.ts";
 import { addGearSummaries } from "./behaviour-gear.ts";
@@ -50,6 +55,11 @@ export interface EngineReturn extends Finding {
 }
 
 export interface EngineSummary extends Finding {
+  contactBounds?: ContactBounds;
+  contactSearch?: ContactSearch;
+  globalObjectWrites?: ContactObjectWrite[];
+  contactSegment?: ContactSegmentTest;
+  contactSelection?: ContactSelection;
   shortCircuit?: ConnectionBypass;
   listConsumer?: ExternalListConsumer;
   listConsumerScope?: ListConsumerCall;
@@ -2239,5 +2249,14 @@ export function discoverEngineSummaries(
     const gate = discoverAngleGate(code, codes);
     if (gate) summaries.set(code.address, gate);
   }
+  for (const code of codes.values()) {
+    const bounds = discoverContactBounds(code, codes);
+    if (bounds) summaries.set(code.address, bounds);
+    const scalar = discoverContactScalar(code);
+    if (scalar) summaries.set(code.address, scalar);
+  }
+  addContactSegmentSummaries(codes, summaries);
+  addContactEffectSummaries(codes, summaries, layout);
+  addContactSelection(codes, summaries);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }
