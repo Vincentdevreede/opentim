@@ -80,3 +80,9 @@ export {
 } from "./read/behaviour-walk-validation.ts";
 export { createEvidenceWriter, restoreEvidenceDocument, EVIDENCE_ENCODING } from "./read/behaviour-evidence.ts";
 export { discoverCreationDefaults, type CreationDefault, type CreationField } from "./read/behaviour-creation.ts";
+
+export type { GearPropagationRelation, GearAdvanceRelation, GearConflictValue } from "./read/behaviour-gear-model.ts";
+export type { GearRunContract } from "./read/behaviour-gear-run.ts";
+export type { GearDescription, GearDriverDescription } from "./read/describe-gear.ts";
+export type { GearScheduling } from "./read/behaviour-gear-scheduling.ts";
+export type { GearConnections } from "./read/behaviour-gear-connections.ts";

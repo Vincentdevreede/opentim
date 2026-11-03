@@ -4,6 +4,11 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
+import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
+import { discoverGearRun, type GearRunContract } from "./behaviour-gear-run.ts";
+import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-scheduling.ts";
+import type { GearConflictValue } from "./behaviour-gear-model.ts";
+import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
 import { unpackLzexe } from "./lzexe.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
@@ -106,6 +111,8 @@ export interface CallbackReference extends Finding, CodeAddress {
   role: string;
 }
 export interface RoutineAnalysis extends RoutineCode {
+  gearRun?: GearRunContract;
+  derivedValues?: GearConflictValue[];
   analysisWork?: { visits: number; limit: number; pendingPaths: number };
   objectPointer: Finding & { argumentOffset: number; argumentBase?: number; registers: string[] };
   writes: FieldWrite[];
@@ -123,6 +130,9 @@ export interface RoutineAnalysis extends RoutineCode {
   uncertainEffects: boolean;
 }
 export interface PartBehaviour {
+  gearConnections?: GearConnections;
+  gearRun?: GearRunContract;
+  derivedValues?: GearConflictValue[];
   id: string;
   type: number;
   frameCount?: number;
@@ -136,6 +146,7 @@ export interface PartBehaviour {
   uncertainties: string[];
 }
 export interface BehaviourReport {
+  gearScheduling?: GearScheduling[];
   listId: string;
   imageLength: number;
   dataSegment: number;
@@ -464,6 +475,8 @@ interface Location {
   evidence: Evidence[];
 }
 export interface RoutineOptions {
+  codes?: Map<number, RoutineCode>;
+  layout?: BehaviourLayout;
   dataSegment?: number;
   stateCount?: number;
   /** Inferred from an actual callback dispatch or a caller passing an object, never from its type number. */
@@ -677,6 +690,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const carryNeeded = liveCarryOutputs(code);
   const stateOffset = options.stateOffset ?? 0x0c;
   const argumentOffset = options.argumentOffset ?? 6;
+  const gearRun =
+    options.codes && options.layout && options.objectArgument !== "collider" && argumentOffset === 6
+      ? discoverGearRun(code, options.codes, options.engineSummaries ?? new Map(), options.layout)
+      : undefined;
+  const derivedValues: GearConflictValue[] = [];
   const writes: FieldWrite[] = [];
   const outcomes: RoutineOutcome[] = [];
   const iterationOutcomes: IterationOutcome[] = [];
@@ -2299,6 +2317,65 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           ? start >= -0x8000 && end >= -0x8000 && end <= 0x7fff
           : start >= 0 && end >= 0 && end <= 0xffff;
         if (active && safe && (counted.minimumCounter === undefined || start >= counted.minimumCounter)) {
+          let gearConflict: GearConflictValue | undefined;
+          if (
+            gearRun &&
+            start === 0 &&
+            counted.header === gearRun.scan.header &&
+            counted.exit === gearRun.scan.exit &&
+            counted.limit === 4 &&
+            counted.step === 1
+          ) {
+            const owner = registerRead("si", s);
+            const movement = memoryAt(owner, gearRun.deltaField, 16, s);
+            if (
+              owner.value.kind === "pointer" &&
+              owner.value.object === "part" &&
+              owner.value.displacement === 0 &&
+              entails(
+                {
+                  kind: "compare",
+                  operator: "!=",
+                  left: asExpression(movement.value),
+                  right: constant(0),
+                  signed: false,
+                },
+                s,
+              )
+            ) {
+              const links = gearRun.links.map((offset) => memoryAt(owner, offset, 16, s));
+              gearConflict = {
+                value: {
+                  kind: "field",
+                  object: `gear connection conflict at ${hex(code.address)}`,
+                  offset: 0,
+                  width: 16,
+                },
+                routine: code.address,
+                instruction: counted.header,
+                snapshot: "beforeRootConnectionScan",
+                owner: "part",
+                ownerMovement: asExpression(movement.value),
+                ownerMarkedBeforeScan: true,
+                rootSlots: [...gearRun.links],
+                rootMode: 2,
+                rootSkipsBlocked: false,
+                initialAccumulator: 0,
+                values: [0, 1],
+                relation: gearRun.propagationRelation,
+                confidence: "inferred",
+                evidence: uniqueEvidence([
+                  ...gearRun.evidence,
+                  ...movement.evidence,
+                  ...links.flatMap((link) => link.evidence),
+                ]),
+                assumptions: [
+                  ...gearRun.assumptions,
+                  "This symbolic register result is defined by the certified ordered connection relation on the heap before the scan. It is not an independently assignable part field or an assumed external trigger.",
+                ],
+              };
+            }
+          }
           const empty = counted.emptyConnections;
           if (empty) {
             let gate = constant(1);
@@ -2352,24 +2429,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           for (const effect of counted.possibleFields) {
             if (effect.partGraph) {
               const preserved =
-                effect.preservesNonzeroOwner &&
-                entails(
-                  {
-                    kind: "compare",
-                    operator: "!=",
-                    left: asExpression(
-                      memoryAt(
-                        tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }),
-                        effect.offset,
-                        effect.width,
-                        s,
-                      ).value,
-                    ),
-                    right: constant(0),
-                    signed: false,
-                  },
-                  s,
-                );
+                (gearConflict !== undefined && effect.offset === gearRun!.flagsField) ||
+                (effect.preservesNonzeroOwner &&
+                  entails(
+                    {
+                      kind: "compare",
+                      operator: "!=",
+                      left: asExpression(
+                        memoryAt(
+                          tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }),
+                          effect.offset,
+                          effect.width,
+                          s,
+                        ).value,
+                      ),
+                      right: constant(0),
+                      signed: false,
+                    },
+                    s,
+                  ));
               invalidateSelectedPartFields([effect], s, i, counted.evidence, new Set(preserved ? [effect.offset] : []));
               continue;
             }
@@ -2431,6 +2509,19 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           for (const name of counted.writtenRegisters)
             registerWrite(name, tracked(unknown("A bounded loop changes this register"), counted.evidence), s);
           write(counted.counter, tracked(constant(unsigned(end, 16)), counted.evidence), s, i);
+          if (gearConflict) {
+            registerWrite(gearRun!.scan.accumulatorRegister, tracked(gearConflict.value, gearConflict.evidence), s);
+            s.conditions.push({
+              kind: "compare",
+              operator: "<=",
+              left: gearConflict.value,
+              right: constant(1),
+              signed: false,
+            });
+            s.assumptions = [...new Set([...s.assumptions, ...gearConflict.assumptions])];
+            s.evidence.push(...gearConflict.evidence);
+            derivedValues.push(gearConflict);
+          }
           s.flags = undefined;
           s.carry = undefined;
           usedLoops.push(counted);
@@ -3417,6 +3508,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [JSON.stringify(item), item])).values()];
   return {
     ...code,
+    ...(gearRun ? { gearRun } : {}),
+    ...(derivedValues.length ? { derivedValues: dedup(derivedValues) } : {}),
     status: code.status === "error" ? "error" : uncertainEffects ? "partial" : code.status,
     uncertainties: [...diagnostics],
     objectPointer: {
@@ -3795,6 +3888,8 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       maxVisits: counts.has(address) ? 4000 : 800,
       code,
       engineSummaries,
+      codes,
+      layout,
       ...(callbackSlots.get(address)?.size === 1 &&
       callbackSlots.get(address)!.has(0) &&
       layout.callbacks[0]?.objectSource?.path.length === 1
@@ -3943,9 +4038,18 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
           evidence: write.evidence,
         });
     }
+    const gearRun = owned.find((routine) => routine.gearRun)?.gearRun;
+    const resetCode = codes.get(resetAddress);
+    const gearConnections =
+      gearRun && resetCode ? discoverGearConnections(resetCode, codes, gearRun, layout) : undefined;
     return {
       id: part.id,
       type: part.type,
+      ...(gearRun ? { gearRun } : {}),
+      ...(gearConnections ? { gearConnections } : {}),
+      ...(owned.some((routine) => routine.derivedValues?.length)
+        ? { derivedValues: owned.flatMap((routine) => routine.derivedValues ?? []) }
+        : {}),
       frameCount: stateCountOf(part),
       routines,
       stateWrites,
@@ -3960,9 +4064,29 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
             .some((f) => f.offset === w.offset),
       ),
       triggers,
-      uncertainties: [...new Set(owned.flatMap((r) => r.uncertainties))],
+      uncertainties: [
+        ...new Set([
+          ...owned.flatMap((r) => r.uncertainties),
+          ...(gearRun && !gearConnections
+            ? [
+                "The gear run relation is certified, but the reset-time direct connection builder was not found with a complete proof.",
+              ]
+            : []),
+        ]),
+      ],
     };
   });
+  const gearScheduling = discoverGearScheduling(
+    image,
+    codes,
+    layout,
+    parts.flatMap((part) => (part.gearRun ? [part.gearRun] : [])),
+  );
+  for (const part of parts)
+    if (part.gearRun && !gearScheduling.some((finding) => finding.gearRun === part.gearRun!.address))
+      part.uncertainties.push(
+        "The gear callback is certified, but its engine scheduling regions were not found with a complete proof.",
+      );
   const relatedObjectEffects: BehaviourReport["relatedObjectEffects"] = [];
   const predicates = (p: Predicate): Predicate[] => (p.kind === "and" ? p.terms.flatMap(predicates) : [p]);
   for (const source of parts)
@@ -4009,6 +4133,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     }
   return {
     listId: list.list.id,
+    ...(gearScheduling.length ? { gearScheduling } : {}),
     imageLength: image.length,
     dataSegment: list.dataSegment,
     layout,

@@ -1,4 +1,5 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
+import { describeGear, type GearDescription } from "./describe-gear.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -107,6 +108,7 @@ export interface DescribedEffect extends Finding {
 }
 
 export interface PartBehaviourDescription extends Finding {
+  gear?: GearDescription;
   type: number;
   id: string;
   summary: string;
@@ -1391,6 +1393,12 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
       return "the recorded calculation";
     }
     const name = nameOf(expression);
+    if (
+      part.derivedValues?.some(
+        (value) => value.value.object === expression.object && value.value.offset === expression.offset,
+      )
+    )
+      return "the connection-conflict result";
     if (expression.object === "address of part") return "the part's address";
     if (expression.object !== "part") return "a linked object's recorded value";
     if (name === "state") return "the frame";
@@ -1833,6 +1841,35 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
     }
     const stableStates = stableStatesOf(report, part);
     const effects = effectsOf(report, part);
+    const gear = describeGear(part, report.gearScheduling, report.relatedObjectEffects);
+    if (gear)
+      for (const description of [
+        gear.activation,
+        gear.connections,
+        gear.conflict,
+        gear.withoutConflict,
+        gear.withConflict,
+        gear.cycles,
+        ...gear.scheduling.map((finding) => finding.description),
+      ])
+        effects.push({
+          kind: "helper",
+          description,
+          confidence: gear.confidence,
+          evidence: gear.evidence,
+          assumptions: gear.assumptions,
+        });
+    if (gear)
+      for (const driver of gear.drivers)
+        effects.push({
+          kind: "related-object",
+          description: driver.description,
+          confidence: driver.confidence,
+          evidence: driver.evidence,
+          assumptions: driver.assumptions,
+          condition: driver.write.condition,
+          routine: driver.write.routine,
+        });
     const animations: AnimationDescription[] = [];
     const run = part.routines.find((item) => item.slot === 1);
     const add = (id: string, trigger: AnimationTrigger, stable?: StableStateDescription, created = false) => {
@@ -2073,6 +2110,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
     return {
       id: part.id,
       type: part.type,
+      ...(gear ? { gear } : {}),
       summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
       rest,
       ...(creation ? { creation } : {}),

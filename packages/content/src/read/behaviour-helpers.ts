@@ -11,6 +11,7 @@ import { addGearSummaries } from "./behaviour-gear.ts";
 import { addOwnedConstructors } from "./behaviour-owned-constructors.ts";
 import { addSuccessfulConstructors } from "./behaviour-successful-constructors.ts";
 import { addStatePreservingForwarders } from "./behaviour-forwarders.ts";
+import type { GearPropagationRelation, GearAdvanceRelation } from "./behaviour-gear-model.ts";
 import type { ListConsumerCall } from "./behaviour-list-calls.ts";
 import type { ExternalListConsumer } from "./behaviour-list-consumers.ts";
 import { proveOverlapProducer, type OverlapProducer } from "./behaviour-overlap-producer.ts";
@@ -81,6 +82,8 @@ export interface EngineSummary extends Finding {
     };
   };
   partGraph?: Finding & {
+    propagation?: GearPropagationRelation;
+    advancement?: GearAdvanceRelation;
     objectArguments: number[];
     fields: { offset: number; width: number }[];
     recursiveCalls: number[];
