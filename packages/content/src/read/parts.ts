@@ -102,12 +102,18 @@ export function readProgramParts(
   return { list: { id: list, game: GAMES[list].game, parts }, records, table, dataSegment: ds };
 }
 
-/** Reads the parts of TIM 2 from its resources, by name. */
-export function readTim2Parts(resource: (name: string) => Uint8Array | undefined): PartList {
+/**
+ * Reads the parts of TIM 2 from its resources, by name. A part without an id in `part-ids.ts` stops the read, so a
+ * committed list never gets one; with `keepUnknown`, it gets `part-<number>` instead, so a viewer can show it as new.
+ */
+export function readTim2Parts(
+  resource: (name: string) => Uint8Array | undefined,
+  { keepUnknown = false }: { keepUnknown?: boolean } = {},
+): PartList {
   const info = resource("INFO.RES");
   if (!info) throw new Error("No INFO.RES, so not TIM 2");
   const parts = [...readPartNames(info)].map(([type, name]): Part => {
-    const id = TIM2_IDS[type];
+    const id = TIM2_IDS[type] ?? (keepUnknown ? `part-${type}` : undefined);
     if (!id) throw new Error(`TIM 2 part ${type} (${name}) has no id in part-ids.ts`);
     const anm = resource(`PART${type}.ANM`);
     const sheets = anm ? animationSheets(anm) : resource(`PART${type}.BMP`) ? [`PART${type}`] : [];
