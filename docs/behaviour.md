@@ -389,6 +389,12 @@ of the rope's first part, which is often the caller. The rope reversal swaps the
 `0x6c` and the rope records of every pulley on the rope, then the rope's own ends, and notifies its first part; that
 notification only queues screen rectangles. Each summary requires its callee to change no part or record.
 
+The belt end check builds on them. It calls a search through the parts lists when a belt end is missing, which
+hit-tests each listed part against the point in two globals. A hit can swap the ends of that part's belt record or
+turn one of its ropes around, so the check may write what the rope reversal writes plus the belt ends at `0x04` and
+`0x06`. The hit test, the search and the check have their own summaries, each requiring its callees' summaries;
+the list helpers they use only read.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

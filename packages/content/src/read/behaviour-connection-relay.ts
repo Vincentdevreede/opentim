@@ -7,14 +7,29 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Evidence, Expression } from "./behaviour.ts";
-import { ropeGeometryPatterns, ropeReversePatterns } from "./behaviour-relay-patterns.ts";
+import {
+  beltEndsPatterns,
+  hitTestPatterns,
+  ropeGeometryPatterns,
+  ropeReversePatterns,
+  searchPatterns,
+} from "./behaviour-relay-patterns.ts";
 
 type Field = { offset: number; width: number };
 export interface ConnectionPatterns {
   ropeGeometry: string[];
   ropeReverse: string[];
+  hitTest?: string[];
+  search?: string[];
+  beltEnds?: string[];
 }
-const PATTERNS: ConnectionPatterns = { ropeGeometry: ropeGeometryPatterns, ropeReverse: ropeReversePatterns };
+const PATTERNS: ConnectionPatterns = {
+  ropeGeometry: ropeGeometryPatterns,
+  ropeReverse: ropeReversePatterns,
+  hitTest: hitTestPatterns,
+  search: searchPatterns,
+  beltEnds: beltEndsPatterns,
+};
 
 /** Part fields that point to rope, belt and pulley records: a belt at 0x54, ropes at 0x66 and 0x68. */
 const RECORD_LINKS = [0x54, 0x66, 0x68];
@@ -101,6 +116,66 @@ function connection(
   };
 }
 
+/** The distinct fields of several lists. */
+const union = (...lists: Field[][]): Field[] => [
+  ...new Map(lists.flat().map((field) => [`${field.offset}:${field.width}`, field])).values(),
+];
+
+/**
+ * A routine whose own writes go only to records reached through a part's links, and whose calls are summarised:
+ * it may write whatever those callees write. A callee that is passed a record writes that record's fields.
+ */
+function composite(
+  code: RoutineCode,
+  kind: string,
+  purpose: string,
+  argumentOffset: number,
+  ownRecordFields: Field[],
+  connected: EngineSummary[],
+  recordArguments: EngineSummary[],
+): EngineSummary {
+  const callees = [...connected, ...recordArguments];
+  const evidence = [...proof(code), ...callees.flatMap((callee) => callee.evidence)];
+  const assumptions = [...new Set([RECORDS, CHAINS, ...callees.flatMap((callee) => callee.assumptions)])];
+  const globals = callees.some((callee) => callee.footprint.unknownGlobalEffects?.length);
+  const note = "A called notification may queue screen rectangles in global storage.";
+  return {
+    confidence: "inferred",
+    evidence,
+    assumptions,
+    address: code.address,
+    kind,
+    purpose,
+    argumentOffset,
+    argumentKind: "object",
+    writes: [],
+    returns: [],
+    calls: code.calls.flatMap((call) => (call.target ? [call.target.address] : [])),
+    returnConvention: { kind: "far", stackBytes: 0 },
+    footprint: {
+      complete: !globals,
+      partMemoryComplete: true,
+      preservesArgumentMemory: true,
+      preservesPartState: true,
+      unknownEffects: globals ? [note] : [],
+      unknownPartEffects: [],
+      unknownGlobalEffects: globals ? [note] : [],
+    },
+    connected: {
+      confidence: "inferred",
+      evidence,
+      assumptions,
+      partFields: union(...callees.map((callee) => callee.connected?.partFields ?? [])),
+      recordFields: union(
+        ownRecordFields,
+        ...callees.map((callee) => callee.connected?.recordFields ?? []),
+        ...recordArguments.map((callee) => callee.writes.filter((write) => write.root === "argument")),
+      ).map(({ offset, width }) => ({ offset, width })),
+      recordLinks: RECORD_LINKS,
+    },
+  };
+}
+
 /** Adds the rope helpers' summaries when their complete instruction graphs and callees are proved. */
 export function addConnectionSummaries(
   codes: Map<number, RoutineCode>,
@@ -144,5 +219,60 @@ export function addConnectionSummaries(
           ),
         );
     }
+  }
+  const of = (bound: Map<string, number>, name: string, kind?: string) => {
+    const summary = summaries.get(bound.get(name)!);
+    return kind === undefined || summary?.kind === kind ? summary : undefined;
+  };
+  for (const code of codes.values()) {
+    const bound = patterns.hitTest && match(code, patterns.hitTest);
+    const reverse = bound && of(bound, "ropeReverse", "rope-reversal");
+    if (reverse)
+      summaries.set(
+        code.address,
+        composite(
+          code,
+          "part-hit-test",
+          "Tests whether a point hits a part, its belt end or a rope end; it can swap the belt's ends or turn a rope around.",
+          8,
+          words(0x04, 0x06),
+          [],
+          [reverse],
+        ),
+      );
+  }
+  for (const code of codes.values()) {
+    const bound = patterns.search && match(code, patterns.search);
+    const hit = bound && of(bound, "hitTest", "part-hit-test");
+    if (bound && hit && inert(of(bound, "listHead"), false) && inert(of(bound, "listNext"), false))
+      summaries.set(
+        code.address,
+        composite(
+          code,
+          "part-hit-search",
+          "Walks the parts lists and hit-tests each part until one is hit.",
+          6,
+          [],
+          [hit],
+          [],
+        ),
+      );
+  }
+  for (const code of codes.values()) {
+    const bound = patterns.beltEnds && match(code, patterns.beltEnds);
+    const search = bound && of(bound, "search", "part-hit-search");
+    if (bound && search && inert(of(bound, "pointCheck"), false))
+      summaries.set(
+        code.address,
+        composite(
+          code,
+          "belt-end-check",
+          "Checks a belt's two ends, searching the parts lists for an end that is missing.",
+          6,
+          [],
+          [search],
+          [],
+        ),
+      );
   }
 }

@@ -59,6 +59,39 @@ describe("rope and belt helper summaries", () => {
     expect(summary.connected?.recordLinks).toEqual([0x54, 0x66, 0x68]);
   });
 
+  it("builds a hit test from a proved rope reversal, turning the rope's own fields into record fields", () => {
+    const reversal = helper(0x80, {
+      kind: "rope-reversal",
+      writes: [
+        {
+          ...fact,
+          root: "argument",
+          path: [],
+          offset: 0x02,
+          width: 16,
+          value: { kind: "unknown", reason: "end", width: 16 },
+          condition: { kind: "true" },
+        },
+      ],
+      connected: { ...fact, partFields: [{ offset: 0x5a, width: 16 }], recordFields: [], recordLinks: [0x66] },
+    });
+    const hitPattern = pattern.replace("$ropePoint", "$ropeReverse");
+    const summaries = new Map([[0x80, reversal]]);
+    addConnectionSummaries(routine(), summaries, { ropeGeometry: [], ropeReverse: [], hitTest: [hitPattern] });
+    const summary = summaries.get(0)!;
+    expect(summary.kind).toBe("part-hit-test");
+    expect(summary.writes).toEqual([]);
+    expect(summary.connected?.partFields).toEqual([{ offset: 0x5a, width: 16 }]);
+    expect(summary.connected?.recordFields).toEqual([
+      { offset: 0x04, width: 16 },
+      { offset: 0x06, width: 16 },
+      { offset: 0x02, width: 16 },
+    ]);
+    const plain = new Map([[0x80, helper(0x80)]]);
+    addConnectionSummaries(routine(), plain, { ropeGeometry: [], ropeReverse: [], hitTest: [hitPattern] });
+    expect(plain.has(0)).toBe(false);
+  });
+
   it("makes no summary when the callee writes a part or the instruction graph differs", () => {
     const writing = helper(0x80, {
       writes: [
