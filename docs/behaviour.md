@@ -344,6 +344,11 @@ walk follows each value those bits allow that has a frame, under the condition t
 records them as `stop.branches` of kind `state`. No value is preferred; a level picks one. In Even More this lets 41
 electric switch walks end in every case.
 
+When a seed does not fix the state at all, and the part shows its state as one of at most 16 frames, the walk
+follows each frame as a starting state in the same way: a state with no frame cannot be drawn, so the frames are
+exactly the states a part can be in. Parts drawn without frames, like the conveyor belt and the gear, are not
+bounded this way and keep stopping. In Even More this lets 149 walks end in every case, up from 62.
+
 When the next state depends on a value no rule fixes, like the state-control value at `0x12`, the stop lists the
 writes to that field the analysis found as `stop.producers`: the part's own routines, its creation default and other
 parts that write it through a link, each with its value, condition and proof. The jack-in-the-box, for example, gets

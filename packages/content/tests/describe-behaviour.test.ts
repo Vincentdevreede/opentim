@@ -379,6 +379,14 @@ describe("descriptions from extracted behaviour rules", () => {
     ]);
     const wide = walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]);
     expect(wide.stop?.branches).toBeUndefined();
+    const none = walkBehaviourRules(data, 39, []);
+    expect(none.stop?.branches?.map((branch) => [branch.condition, branch.walk.states])).toEqual([
+      [test(12, "==", 0), [0, 1, 1]],
+      [test(12, "==", 1), [1, 1]],
+      [test(12, "==", 2), [2, 2]],
+    ]);
+    data.parts[0]!.frameCount = 0;
+    expect(walkBehaviourRules(data, 39, []).stop?.branches).toBeUndefined();
   });
 
   it("lists where a stopping field's value comes from without claiming every writer", () => {

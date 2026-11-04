@@ -840,23 +840,28 @@ export function walkBehaviourRules(
   if (stateOffset === undefined)
     return { ...base("unresolved", "The state field was not established."), confidence: "unresolved" };
   /**
-   * When the seed fixes all but at most three bits of the state, the possible starting states are exactly those
-   * bits' combinations that have a frame. Each is walked as its own case; no value is preferred.
+   * The starting states a seed allows, each walked as its own case; no value is preferred. When the seed fixes all
+   * but at most three bits, they are those bits' combinations that have a frame. When it fixes none, and the part
+   * shows its state as one of at most 16 frames, they are its frames.
    */
   const possibleStates = (partial: Bits): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
     const depth = options.branchDepth ?? 2;
     const open = ~partial.mask & 0xffff;
     const openBits = [...Array(16).keys()].filter((bit) => open & (1 << bit));
-    if (!partial.mask || !openBits.length || openBits.length > 3 || depth <= 0) return undefined;
     const frameCount = (part as WithFrameCount).frameCount;
-    const values = [...Array(1 << openBits.length).keys()]
-      .map((choice) =>
-        openBits.reduce(
-          (value, bit, n) => (choice & (1 << n) ? value | (1 << bit) : value),
-          partial.value & partial.mask,
-        ),
-      )
-      .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
+    if (!openBits.length || depth <= 0) return undefined;
+    const framed = !partial.mask && frameCount !== undefined && frameCount > 1 && frameCount <= 16;
+    if (!framed && (!partial.mask || openBits.length > 3)) return undefined;
+    const values = framed
+      ? [...Array(frameCount).keys()]
+      : [...Array(1 << openBits.length).keys()]
+          .map((choice) =>
+            openBits.reduce(
+              (value, bit, n) => (choice & (1 << n) ? value | (1 << bit) : value),
+              partial.value & partial.mask,
+            ),
+          )
+          .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
     if (values.length < 2) return undefined;
     return values.map((value) => {
       const condition: Predicate = {
