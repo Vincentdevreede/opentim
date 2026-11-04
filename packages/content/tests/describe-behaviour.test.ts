@@ -409,6 +409,15 @@ describe("descriptions from extracted behaviour rules", () => {
       ["bounce", constant(1)],
       ["electric-motor", constant(0xffff)],
     ]);
+    // Each number a writer gives is followed on its own; any other value keeps the stop.
+    const branches = walk.stop?.branches ?? [];
+    expect(branches.map((branch) => branch.condition)).toEqual([
+      test(0x12, "==", 1),
+      test(0x12, "==", 0xffff),
+      { kind: "and", terms: [test(0x12, "!=", 1), test(0x12, "!=", 0xffff)] },
+    ]);
+    expect(branches[0]!.walk.states.slice(0, 3)).toEqual([0, 1, 2]);
+    expect(branches[2]!.walk.stop?.kind).toBe("state");
   });
 
   it("does not branch on an opaque deciding value", () => {

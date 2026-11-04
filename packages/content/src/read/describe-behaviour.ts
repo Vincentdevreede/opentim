@@ -881,6 +881,79 @@ export function walkBehaviourRules(
       return { condition, walk };
     });
   };
+  /** The plain numbers the writers found give the one unknown part field, when there are a few. */
+  const producedValues = (
+    fields: { object: string; offset: number; width: number }[],
+    producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
+  ): number[] | undefined => {
+    const [field] = fields;
+    if (fields.length !== 1 || field!.object !== "part") return undefined;
+    const mask = field!.width === 8 ? 0xff : 0xffff;
+    const values = [
+      ...new Set(
+        producers.flatMap((producer) =>
+          producer.offset === field!.offset && producer.value.kind === "constant" ? [producer.value.value & mask] : [],
+        ),
+      ),
+    ].sort((a, b) => a - b);
+    return values.length >= 1 && values.length <= 6 ? values : undefined;
+  };
+  /**
+   * When the next state depends on a part field the walk doesn't know, but the writers found give it a few plain
+   * numbers, each number is followed as its own conditional walk from this frame. The writers aren't proved to be all
+   * of them, so a last branch keeps the stop for any other value.
+   */
+  const valueBranches = (
+    fields: { object: string; offset: number; width: number }[],
+    producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
+    run: number,
+  ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
+    const depth = options.branchDepth ?? 2;
+    const values = producedValues(fields, producers);
+    if (!values || depth <= 0) return undefined;
+    const field = fields[0]!;
+    return values.map((value) => {
+      const condition: Predicate = {
+        kind: "compare",
+        operator: "==",
+        left: { kind: "field", object: "part", offset: field.offset, width: field.width },
+        right: { kind: "constant", value, width: field.width },
+        signed: false,
+      };
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", field.offset, bits(value, field.width === 8 ? 0xff : 0xffff, field.width));
+      // The branch carries the field it sets, also when the walk doesn't track it otherwise.
+      const carried = definitions.some(
+        (d) => d.object === "part" && d.offset === field.offset && d.width === field.width,
+      )
+        ? definitions
+        : [...definitions, { object: "part", offset: field.offset, width: field.width }];
+      const walk = walkBehaviourRules(report, partType, fieldsOf(seeded, carried, proof), {
+        maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
+        condition: { kind: "and", terms: [...constraints, condition] },
+        branchDepth: depth - 1,
+      });
+      return { condition, walk };
+    });
+  };
+  /** The branch for any value the writers found don't give: the walk stops there as before. */
+  const otherValue = (
+    field: { object: string; offset: number; width: number },
+    producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
+    stopped: BehaviourWalk,
+  ): { condition: Predicate; walk: BehaviourWalk } => ({
+    condition: {
+      kind: "and",
+      terms: producedValues([field], producers)!.map((value) => ({
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "field", object: "part", offset: field.offset, width: field.width },
+        right: { kind: "constant", value, width: field.width },
+        signed: false,
+      })),
+    },
+    walk: stopped,
+  });
   const state = readField(bindings, "part", stateOffset, 16);
   if (!known(state)) {
     const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
@@ -1085,7 +1158,7 @@ export function walkBehaviourRules(
       const description = `At frame ${current}, the next state depends on ${unknownWords(expression, report, part, bindings)} that is not established.`;
       const fields = unknownFields([expression], bindings);
       const producers = producersOf(report, part, fields);
-      return {
+      const stopped: BehaviourWalk = {
         ...base("unresolved", description),
         confidence: "unresolved",
         stop: {
@@ -1097,6 +1170,10 @@ export function walkBehaviourRules(
         },
         evidence: evidence(proof.evidence, ...candidates.map((rule) => rule.evidence)),
       };
+      const byValue = valueBranches(fields, producers, run);
+      return byValue
+        ? { ...stopped, stop: { ...stopped.stop!, branches: [...byValue, otherValue(fields[0]!, producers, stopped)] } }
+        : stopped;
     }
     const next = outcomes[0]!;
     if (outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {

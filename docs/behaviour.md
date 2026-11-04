@@ -506,6 +506,18 @@ A loop's own evidence now cites the calls in its body rather than copying the ca
 keeps its evidence in `helpers`. Findings that say the same thing are kept once, whichever path proved them. Both keep
 the reports and the analysis time small.
 
+### The control value's known numbers
+
+Many parts move their frame by a control value, as in "frame + control value", that other parts and their own
+routines set. When a walk reaches such a step without knowing the value, it lists the writes it found. Proving those
+are all the writers isn't possible yet: hundreds of routines still have unfinished effects, and any of them could
+write the field. So the walk branches on what it does know: when the unknown is one field of the part and the writers
+found give between one and six plain numbers, each number is followed as its own conditional walk from that frame,
+and a last branch for any other value keeps the stop. Nothing is claimed about which values occur.
+
+For the teeter-totter the writers give 0 (its own run), 1 and -1 (its rope, a bounce, the windmill and the motors).
+In each recorded build 27 walks that stopped now reach the end in some of their branches.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
