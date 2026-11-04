@@ -67,9 +67,16 @@ index. Sparse switches require a bounded key search, comparison and parallel tar
 summarised directly as cases and a default. Bounded counting loops can also be summarised when a unique unit update
 occurs on every path, the counter cannot wrap, every path balances the stack, and the body preserves the owner's
 state. Other back edges require an invariant and become unknown exits. Summarised loops are not unrolled.
-The limits are 12,000 decoded instructions per routine, 1,800 call-graph entries, 4,000 symbolic visits per callback,
+The limits are 12,000 decoded instructions per routine, 1,800 call-graph entries, 10,000 symbolic visits per callback,
 800 per helper, and 96 expression-tree nodes. Exhaustion is a diagnostic and an unresolved result. These limits
 bound browser work; they are not claims of completeness.
+
+A visit is one instruction on one path, and a part list's loop body is followed again for every path that reaches it.
+The run routines of the teapot, the vacuum cleaner and the cat blow or chase the parts their search finds, with about
+twenty paths into the list and several branches in its body. They need 5,900 to 8,400 visits, so the callback limit
+is 10,000. Each iteration outcome keeps only the writes to the listed member, since the owner's fields are already in
+the routine's own outcomes. In Even More this completes 32 more recorded animations; reading a build takes about two
+seconds longer.
 
 ## Extracting and validating
 

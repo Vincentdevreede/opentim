@@ -2136,7 +2136,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const object = before.slice(0, separator),
         offset = Number(before.slice(separator + 1)),
         width = Number(key.slice(split + 1));
-      if (["stack", "data"].includes(object)) continue;
+      // An iteration outcome says what happens to the listed member; the owner's fields are in the routine's outcomes.
+      if (object !== s.observationObject) continue;
       const value = asExpression(final.value);
       fields.push({
         object,
@@ -3770,7 +3771,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         "Symbolic path budget reached; remaining path conditions are unresolved",
       );
   }
-  const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [JSON.stringify(item), item])).values()];
+  // Evidence is told apart by its addresses; its bytes and text follow from them and would only make the keys long.
+  const key = (item: unknown) =>
+    JSON.stringify(item, (name, value: unknown) =>
+      name === "evidence" && Array.isArray(value) ? value.map((e: { address?: number }) => e?.address) : value,
+    );
+  const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [key(item), item])).values()];
   return {
     ...code,
     ...(gearRun ? { gearRun } : {}),
@@ -4150,7 +4156,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       stateOffset,
       argumentOffset,
       summaries,
-      maxVisits: counts.has(address) ? 4000 : 800,
+      maxVisits: counts.has(address) ? 10_000 : 800,
       code,
       engineSummaries,
       codes,
