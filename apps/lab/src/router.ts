@@ -3,6 +3,7 @@ import AudioPage from "./pages/AudioPage.vue";
 import FilesPage from "./pages/FilesPage.vue";
 import ImportPage from "./pages/ImportPage.vue";
 import LevelsPage from "./pages/LevelsPage.vue";
+import MissingPage from "./pages/MissingPage.vue";
 import PartsPage from "./pages/PartsPage.vue";
 import SandboxPage from "./pages/SandboxPage.vue";
 import SpritesPage from "./pages/SpritesPage.vue";
@@ -17,5 +18,7 @@ export const router = createRouter({
     { path: "/files", component: FilesPage },
     { path: "/audio", component: AudioPage },
     { path: "/sandbox", component: SandboxPage },
+    // Any other address, like a page from another branch, gets an empty state instead of an empty page.
+    { path: "/:missing(.*)*", component: MissingPage },
   ],
 });
