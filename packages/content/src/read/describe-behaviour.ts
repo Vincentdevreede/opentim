@@ -56,6 +56,11 @@ export interface BehaviourWalk extends Finding {
     description: string;
     evidence: Evidence[];
     fields?: { object: string; offset: number; width: number }[];
+    /**
+     * When an unknown input decides between rules, the walk that follows each of them, under that rule's own
+     * condition. The input is not chosen: every branch stays conditional, and the walk itself stays unresolved.
+     */
+    branches?: { condition: Predicate; walk: BehaviourWalk }[];
   };
   timingReason: string;
 }
@@ -705,7 +710,7 @@ export function walkBehaviourRules(
   report: BehaviourReport,
   partType: number,
   seed: KnownField[],
-  options: { maxRunCalls?: number; condition?: Predicate } = {},
+  options: { maxRunCalls?: number; condition?: Predicate; branchDepth?: number } = {},
 ): BehaviourWalk {
   const part = report.parts.find((item) => item.type === partType);
   if (!part) throw new Error(`No behaviour for part type ${partType}`);
@@ -801,6 +806,44 @@ export function walkBehaviourRules(
     };
   }
   states.push(state.value);
+  /**
+   * Follows each rule an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
+   * fields may decide; the deciding terms then hold for the rest of that branch, as far as its own writes keep them.
+   */
+  const branchesAt = (
+    outcomes: { rule: WithUpdates; next: Bindings; destination: ReturnType<typeof valueOf> }[],
+    guards: WithUpdates[],
+    run: number,
+  ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
+    const depth = options.branchDepth ?? 2;
+    if (!guards.length || depth <= 0 || outcomes.length > 6) return undefined;
+    const deciding = guards
+      .flatMap((rule) => predicateTerms(rule.condition))
+      .filter((term) => predicateOf(term, bindings, constraints) === undefined);
+    if (!deciding.length || !deciding.every(inputPredicate)) return undefined;
+    const seen = new Set<string>();
+    const branches: { condition: Predicate; walk: BehaviourWalk }[] = [];
+    for (const { rule, next } of outcomes) {
+      const key = JSON.stringify([rule.condition, signature(next)]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const kept = retainConstraints(
+        completeRuleEffects(rule, routine)
+          ? [...constraints, ...predicateTerms(rule.condition).filter(inputPredicate)]
+          : [],
+        rule.updates ?? routine?.writes ?? [],
+        stateOffset,
+        rule.to,
+      );
+      const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, finding([proof, rule])), {
+        maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
+        condition: { kind: "and", terms: kept },
+        branchDepth: depth - 1,
+      });
+      branches.push({ condition: rule.condition, walk });
+    }
+    return branches.length > 1 ? branches : undefined;
+  };
   const walkSignature = () => JSON.stringify([signature(bindings), constraints]);
   const seen = new Map([[walkSignature(), 0]]);
   const max = options.maxRunCalls ?? 256;
@@ -876,7 +919,8 @@ export function walkBehaviourRules(
       };
     }
     const next = outcomes[0]!;
-    if (outcomes.some((outcome) => signature(outcome.next) !== signature(next.next)))
+    if (outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
+      const branches = branchesAt(outcomes, unknownGuards, run);
       return {
         ...base(
           "unresolved",
@@ -897,8 +941,10 @@ export function walkBehaviourRules(
             ),
             bindings,
           ),
+          ...(branches ? { branches } : {}),
         },
       };
+    }
     if ((part as WithFrameCount).frameCount && next.destination.value >= (part as WithFrameCount).frameCount!)
       return { ...base("unresolved", "The next state has no known visible frame."), confidence: "unresolved" };
     proof = finding([proof, ...candidates]);

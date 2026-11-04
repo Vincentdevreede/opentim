@@ -324,6 +324,13 @@ analysis limit stops the walk with a specific reason and relevant instruction ev
 an unspecified input frame; this does not invent frame zero. Durations remain run invocations unless a game-step
 relationship has independent evidence.
 
+When an unknown input field decides between rules that lead to different fields, the walk still stops there, but
+`stop.branches` follows each rule as its own walk under that rule's condition. Only plain comparisons of input fields
+may decide, and a branch keeps its condition only as far as its own writes leave the tested fields unchanged.
+Branches nest up to two decisions deep; deeper ones only repeat a rewritten test. The walk's status stays `unresolved`: no input value is chosen, so a
+branch describes what happens if the level supplies that case, not what a loaded level does. In Even More 92 walks
+branch this way, 16 of them end in every branch.
+
 The comparison report separates complete matches from actual code triggers, reset or documented stable endings,
 and conditional input cases. One-frame recordings are counted separately from animations. A missing compatible
 start is unavailable, not a successful empty prefix. Unknown starting conditions and repeated external writes cannot

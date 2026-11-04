@@ -289,6 +289,43 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(walkBehaviourRules(data, 39, [known(12, 0)])).toMatchObject({ states: [0, 1, 1], status: "rest" });
   });
 
+  it("follows each rule an unknown input chooses, as a conditional branch with its own ending", () => {
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), test(8, "==", 0))),
+      rule(constant(2), both(test(12, "==", 0), test(8, "!=", 0))),
+      rule(field(12), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk).toMatchObject({ states: [0], status: "unresolved", stop: { kind: "ambiguity" } });
+    const branches = walk.stop!.branches!;
+    expect(branches.map((branch) => [branch.condition, branch.walk.states, branch.walk.status])).toEqual([
+      [both(test(12, "==", 0), test(8, "==", 0)), [1, 1], "rest"],
+      [both(test(12, "==", 0), test(8, "!=", 0)), [2, 2], "rest"],
+    ]);
+    expect(walkBehaviourRules(data, 39, [known(12, 0)], { branchDepth: 0 }).stop?.branches).toBeUndefined();
+  });
+
+  it("does not branch on a deciding value that is not a plain input field", () => {
+    const hidden: Expression = { kind: "field", object: "part", offset: 8, width: 16, unresolved: true };
+    const guard = (operator: string): Predicate => ({
+      kind: "compare",
+      left: hidden,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), guard("=="))),
+      rule(constant(2), both(test(12, "==", 0), guard("!="))),
+      rule(field(12), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.status).toBe("unresolved");
+    expect(walk.stop?.branches).toBeUndefined();
+  });
+
   it("does not join an unknown guard when its other exit is missing", () => {
     const data = report([rule(constant(1), test(8, "==", 0)), rule(field(12), test(12, "==", 1))]);
     expect(walkBehaviourRules(data, 39, [known(12, 0)])).toMatchObject({ states: [0], status: "unresolved" });
