@@ -1227,9 +1227,12 @@ function producerPartitions(
     }
   for (const transition of part.transitions as WithUpdates[])
     for (const write of transition.updates ?? []) remember(write);
+  // Only the state-related fields a constructor sets take part in input cases; the zero words of a fresh part would
+  // otherwise crowd the bounded case list without saying anything about the run guards' inputs.
+  const creationRoles = new Set(["previousState", "savedState", "stateDelta", "savedStateDelta", "control", "trigger"]);
   for (const source of report.creation ?? [])
     if (source.partType === part.type)
-      for (const field of source.fields)
+      for (const field of source.fields.filter((item) => creationRoles.has(item.name)))
         remember({
           ...field,
           object: "part",

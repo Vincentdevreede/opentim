@@ -628,6 +628,28 @@ describe("creation defaults and related input conditions", () => {
     expect(descriptions.join(" ")).not.toContain("value is a linked object's recorded value");
   });
 
+  it("does not split input cases on the zero words of a fresh part", () => {
+    const step: Expression = { kind: "binary", operator: "+", left: field(12), right: field(0x30), width: 16 };
+    const data = report([rule(step, test(0x30, "!=", 0)), rule(field(12), test(0x30, "==", 0))]);
+    data.creation = [
+      {
+        ...proof,
+        routine: 500,
+        partType: 39,
+        source: "constructor",
+        uncertainties: [],
+        fields: [
+          { ...proof, name: "state", offset: 12, width: 16, value: 0 },
+          { ...proof, name: "+0x30", offset: 0x30, width: 16, value: 7 },
+        ],
+      },
+    ];
+    const cases = describeBehaviour(data).parts[0]!.animations.filter((animation) => animation.initial === "run-guard");
+    expect(cases.some((animation) => animation.initialFields?.some((f) => f.offset === 0x30 && f.value === 7))).toBe(
+      false,
+    );
+  });
+
   it("keeps a creation state separate from a loaded level's unknown reset value", () => {
     const data = report(
       [rule(constant(2), test(12, "==", 1)), rule(constant(0), test(12, "==", 2)), rule(field(12), test(12, "==", 0))],

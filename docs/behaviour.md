@@ -369,7 +369,9 @@ step at `0x12`. A factory with an owned constructor proves no zero words. The co
 zeros, follows masked assignments and complete owner calls, and drops any word a call may replace; unnamed words are
 reported by offset, like `+0x96`. The result still describes a fresh construction before level overrides rather than a
 loaded level's rest. A fresh part is not what the v25 recordings show for every part: a running motor, for example,
-has power and a belt that a new one lacks, so such a recording stays an input case.
+has power and a belt that a new one lacks, so such a recording stays an input case. Input cases still split only on the
+state-related fields a constructor sets (previous and saved state, step, control and trigger), so the zero words
+do not crowd out the bounded list of cases.
 
 ## Saved evidence
 
