@@ -23,6 +23,7 @@ import {
 } from "./library.ts";
 import { crumb, dragging } from "./ui.ts";
 import LabDot from "./components/LabDot.vue";
+import LabEmpty from "./components/LabEmpty.vue";
 
 interface NavItem {
   to: string;
@@ -188,7 +189,16 @@ const activeClass =
       </nav>
 
       <main class="flex min-w-0 flex-1 flex-col">
-        <RouterView />
+        <RouterView v-slot="{ Component, route }">
+          <LabEmpty
+            v-if="route.meta.needsFiles && !hasFiles"
+            icon="sandbox"
+            title="No files loaded"
+            text="Import the game’s RESOURCE files to use the Sandbox."
+            import-link
+          />
+          <component :is="Component" v-else />
+        </RouterView>
       </main>
     </div>
 
