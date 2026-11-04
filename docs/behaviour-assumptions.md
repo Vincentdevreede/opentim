@@ -9,6 +9,11 @@ Each assumption is written here exactly as the analysis states it on every findi
 traced back to this page. A test (`packages/content/tests/behaviour-assumptions.test.ts`) fails when the wording in the
 code and on this page drift apart.
 
+Every other assumption the analysis states is in [the generated list](behaviour-assumptions-all.md), with how many
+findings and which parts use it. Run `pnpm --filter @opentim/content list-assumptions --check` with the game folders
+after changing the analysis: it fails when a new assumption appears that isn't listed yet, so it can be added there or,
+when it is a real decision, here.
+
 If an assumption turns out to be wrong, the findings that state it can be wrong too. Removing it from the code makes
 those findings unresolved again, which is safe.
 
