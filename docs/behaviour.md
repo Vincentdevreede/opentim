@@ -467,6 +467,19 @@ the scissors keep their frame. This needs four stated assumptions:
 In each recorded build 4 more recorded animations now match completely, 14 more walks end and 11 more end in every
 branch.
 
+### The outline search
+
+The teeter-totter finds the parts lying on it with an outline search. It clears the owner's found list at `0x78`,
+walks the parts lists its caller's mask allows, tests every edge of each part's outline against a shape the caller
+gives, and puts each part with a crossing edge at the front of the list. The reader checks its complete instruction
+graph (three compiler forms over the eleven builds) and its list helpers. Unlike the other overlap queries it does not
+skip the owner, so the list may hold the teeter-totter itself.
+
+A loop over such a list is still proved, with two extra rules. The body may never write a listed part's state, and
+every other field it writes on a listed part counts as a possible write to the owner too. The teeter-totter keeps its
+frame, and forgets the positions it writes on the parts lying on it. In each recorded build this removes 24
+unresolved transitions and 9 more walks end.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

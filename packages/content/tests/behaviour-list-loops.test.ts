@@ -16,6 +16,7 @@ function fixture(
     skipAlternative?: boolean;
     volatileOwner?: boolean;
     field?: number;
+    memberField?: number;
   } = {},
 ) {
   const field = options.field ?? 0x70;
@@ -35,7 +36,7 @@ function fixture(
   bytes.push(0x8b, options.volatileOwner ? 0x7f : 0x7c, field, 0xeb, 0);
   const firstJump = bytes.length - 1,
     body = bytes.length;
-  bytes.push(...(options.ownerWrite ? [0xc7, 0x44, 12, 1, 0] : [0xc7, 0x45, 12, 1, 0]));
+  bytes.push(...(options.ownerWrite ? [0xc7, 0x44, 12, 1, 0] : [0xc7, 0x45, options.memberField ?? 12, 1, 0]));
   if (options.linkWrite) bytes.push(0xc7, 0x45, field, 0, 0);
   if (options.helperCall) bytes.push(0x57, 0x9a, 0x10, 1, 0, 0, 0x59);
   if (options.unknownCall) bytes.push(0x9a, 0x10, 1, 0, 0);
@@ -97,10 +98,19 @@ describe("overlap-list invariants", () => {
     expect(result.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(false);
   });
 
-  it("requires the overlap query to exclude its owner", () => {
+  it("refuses a state write on listed parts when the query may list the owner", () => {
     const { image, helpers, query } = fixture();
     query.list!.excludesArgument = false;
     expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
+  });
+
+  it("lets a query that may list the owner change other fields of listed parts, as possible owner fields too", () => {
+    const { image, helpers, query } = fixture({ memberField: 0x24 });
+    query.list!.excludesArgument = false;
+    const [loop] = discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12);
+    expect(loop?.possibleFields).toContainEqual(expect.objectContaining({ object: "other", offset: 0x24 }));
+    expect(loop?.possibleFields).toContainEqual(expect.objectContaining({ object: "part", offset: 0x24 }));
+    expect(loop?.assumptions.join(" ")).toContain("may list the owner");
   });
 
   it.each([{ ownerWrite: true }, { linkWrite: true }, { missingProgress: true }, { unknownCall: true }])(

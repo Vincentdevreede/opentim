@@ -23,6 +23,7 @@ import { discoverFirstContactResponse, type ContactResponseFirst } from "./behav
 import { discoverContactResponsePair, type ContactResponsePair } from "./behaviour-contact-response-pair.ts";
 import { addConnectionSummaries } from "./behaviour-connection-relay.ts";
 import { addRopeCutSummary } from "./behaviour-rope-cut.ts";
+import { addOutlineSearchSummary } from "./behaviour-outline-search.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
 import { addContactMotionAngleSummaries, type ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
@@ -2358,5 +2359,6 @@ export function discoverEngineSummaries(
   addConnectionSummaries(codes, summaries);
   // The rope cut uses the rope geometry summary the connection summaries add.
   addRopeCutSummary(codes, summaries);
+  addOutlineSearchSummary(codes, summaries);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

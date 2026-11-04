@@ -315,7 +315,7 @@ export function discoverListLoops(
         (call) =>
           call.instruction < head.address &&
           call.target &&
-          helpers.get(call.target.address)?.list?.excludesArgument &&
+          helpers.get(call.target.address)?.list &&
           helpers.get(call.target.address)?.list?.headField === headField &&
           helpers.get(call.target.address)?.list?.nextField === nextField,
       )
@@ -334,6 +334,9 @@ export function discoverListLoops(
         return stackOwner || (!volatile.includes(owner) && register(argument, owner));
       });
     const externalSource = !globalSource && !queries.length && externalEntry?.headInstruction === head.address;
+    // A query that may list the owner: a listed part can then be the owner, so the body must keep listed parts'
+    // state, and every field it writes on a listed part may be the owner's.
+    const inclusive = queries.some((call) => !helpers.get(call.target!.address)!.list!.excludesArgument);
     if (!globalSource && !externalSource && !queries.length) continue;
     const querySites = new Set(queries.map((call) => call.instruction));
     const uncovered = globalSource || externalSource ? [] : [code.address],
@@ -404,9 +407,13 @@ export function discoverListLoops(
         : "The overlap query's finite list is acyclic, its nodes are complete distinct part objects, and no body operation changes the traversed next links.",
       ...(globalSource
         ? []
-        : [
-            "The query excludes the owner. Writes to a listed object's state therefore do not change the owner's state.",
-          ]),
+        : inclusive
+          ? [
+              "The query may list the owner. The body never writes a listed part's state, so the owner keeps its state; other fields it writes on listed parts may be the owner's.",
+            ]
+          : [
+              "The query excludes the owner. Writes to a listed object's state therefore do not change the owner's state.",
+            ]),
       "Private stack and global storage are separate from part objects. The C calling convention preserves SI, DI, BP and DS.",
     ]);
     const proof = [
@@ -539,11 +546,16 @@ export function discoverListLoops(
             invalid = true;
             break;
           }
-          if (root === "part" && overlaps(write.offset, write.width, stateOffset)) {
+          if (
+            (root === "part" || (inclusive && root === "other")) &&
+            overlaps(write.offset, write.width, stateOffset)
+          ) {
             invalid = true;
             break;
           }
           fields.push({ object: root, root, offset: write.offset, width: write.width });
+          if (inclusive && root === "other")
+            fields.push({ object: "part", root: "part", offset: write.offset, width: write.width });
         }
         if (invalid) break;
         unknownGlobals ||= !!callee.footprint.unknownGlobalEffects?.length;
@@ -575,6 +587,7 @@ export function discoverListLoops(
             !root ||
             root === "unknown" ||
             (root === "part" && overlaps(dest.displacement, dest.width, stateOffset)) ||
+            (inclusive && root === "other" && overlaps(dest.displacement, dest.width, stateOffset)) ||
             (globalSource && root === "other") ||
             ((root === "other" || (globalSource && root === "part")) &&
               overlaps(dest.displacement, dest.width, nextField))
@@ -583,6 +596,8 @@ export function discoverListLoops(
             break;
           }
           fields.push({ object: root, root, offset: dest.displacement, width: dest.width, operand: dest });
+          if (inclusive && root === "other")
+            fields.push({ object: "part", root: "part", offset: dest.displacement, width: dest.width });
         } else {
           invalid = true;
           break;
