@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { ICONS, type IconName } from "../icons.ts";
 
-withDefaults(defineProps<{ name: IconName; size?: number; stroke?: number }>(), { size: 14, stroke: 2 });
+/** With `filled` the shape is filled too, like a bookmark that is set. */
+withDefaults(defineProps<{ name: IconName; size?: number; stroke?: number; filled?: boolean }>(), {
+  size: 14,
+  stroke: 2,
+  filled: false,
+});
 </script>
 
 <template>
@@ -9,7 +14,7 @@ withDefaults(defineProps<{ name: IconName; size?: number; stroke?: number }>(), 
     :width="size"
     :height="size"
     viewBox="0 0 24 24"
-    fill="none"
+    :fill="filled ? 'currentColor' : 'none'"
     stroke="currentColor"
     :stroke-width="stroke"
     stroke-linecap="round"

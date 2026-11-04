@@ -74,6 +74,25 @@ describe("level files", () => {
     expect(level.fields.find((f) => f.key === "gravity")).toEqual({ key: "gravity", offset: 87, size: 2, value: 272 });
   });
 
+  it("records every field of a part with where it is, covering the part's bytes", () => {
+    const data = bytes(0xaced, 0x102, "T", "G", 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, ...part(1, 40, 136));
+    const [p] = readLevel(data).parts;
+    let at = p!.offset;
+    for (const f of p!.fields) {
+      expect(f.offset).toBe(at);
+      at += f.size;
+    }
+    expect(at).toBe(p!.offset + p!.length);
+    expect(p!.fields.find((f) => f.key === "position.x")).toEqual({
+      key: "position.x",
+      offset: p!.offset + 20,
+      size: 2,
+      value: 40,
+    });
+    expect(p!.fields.find((f) => f.key === "belt.at.y")).toMatchObject({ size: 1, value: 0 });
+    expect(p!.fields.find((f) => f.key === "plugs.1")).toMatchObject({ size: 2, value: NONE });
+  });
+
   it("reads belts, ropes, links and the pulley's extra word", () => {
     const belt = part(8, -1, -1, 1, b(0), b(0), 0, 1, 2, 0, b(0), b(0), 0, b(0), b(0), NONE, NONE, NONE, NONE);
     const rope = part(
