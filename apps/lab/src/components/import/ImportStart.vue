@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import logo from "@opentim/theme/opentim-logo.png";
 import { computed, ref } from "vue";
-import { catalogEntry, editionHint, editionLanguages, editionName, type Edition } from "../../edition.ts";
+import {
+  catalogEntry,
+  editionHint,
+  editionLanguages,
+  editionName,
+  isProgramName,
+  type Edition,
+} from "../../edition.ts";
 import { CONFIDENCE_HELP, GROUPS, type Confidence } from "../../kinds.ts";
 import {
   canAddFiles,
@@ -21,6 +28,7 @@ import {
   saving,
   staging,
 } from "../../library.ts";
+import { listIdOf, readLoadedParts } from "../../parts.ts";
 import { dragging, formatBytes } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabFact from "../LabFact.vue";
@@ -73,9 +81,28 @@ const done = computed(() => progress.value.filter((f) => f.state === "done"));
 const percent = computed(() =>
   total.value ? Math.round((done.value.reduce((sum, f) => sum + f.size, 0) / total.value) * 100) : 0,
 );
+/** The parts of the staged files, once they are all read; the program may come last. */
+const stagedParts = computed(() => {
+  const s = staging.value;
+  if (reading.value || !s) return undefined;
+  const exe = s.files.find((f) => isProgramName(f.name));
+  return readLoadedParts(listIdOf(s.edition), s.resources, exe && { name: exe.name, data: exe.data });
+});
 const counts = computed(() => {
   const list = reading.value ? foundSoFar.value : (staging.value?.resources ?? []);
-  return GROUPS.map((g) => ({ ...g, count: list.filter((r) => r.group === g.id).length }));
+  const kinds = GROUPS.map((g) => ({
+    id: g.id as string,
+    label: g.label,
+    count: String(list.filter((r) => r.group === g.id).length),
+  }));
+  // The parts come right after the sprites, as in the menu.
+  const parts = {
+    id: "parts",
+    label: "Parts",
+    count: reading.value ? "…" : String(stagedParts.value?.list.parts.length ?? 0),
+  };
+  const at = kinds.findIndex((k) => k.id === "sprites") + 1;
+  return [...kinds.slice(0, at), parts, ...kinds.slice(at)];
 });
 </script>
 
@@ -95,7 +122,7 @@ const counts = computed(() => {
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-auto px-10 pt-10 pb-8">
-    <div class="mx-auto grid max-w-[1120px] grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] items-start gap-4">
+    <div class="mx-auto grid max-w-[1120px] grid-cols-[minmax(0,1fr)_340px] items-start gap-4">
       <section aria-labelledby="pick-title" class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
           <img :src="logo" alt="OpenTIM" class="mb-2 block w-[260px] rounded-lg border border-line-strong" />
@@ -221,7 +248,7 @@ const counts = computed(() => {
             </div>
           </div>
 
-          <LabBox well class="grid grid-cols-7">
+          <LabBox well class="grid grid-cols-8">
             <div
               v-for="g in counts"
               :key="g.id"
@@ -387,7 +414,8 @@ const counts = computed(() => {
               <span class="font-mono text-ink">RESOURCE.001</span> and
               <span class="font-mono text-ink">RESOURCE.MAP</span>, and the language files, like
               <span class="font-mono text-ink">GERMAN.RES</span> or <span class="font-mono text-ink">ENGLISH.DAT</span>.
-              Add the program, <span class="font-mono text-ink">TIM.EXE</span>, to read the parts from it.
+              Add the game’s program too: <span class="font-mono text-ink">TIM.EXE</span>,
+              <span class="font-mono text-ink">TIM2.EXE</span> or <span class="font-mono text-ink">TOONS.EXE</span>.
             </div>
           </LabBox>
           <LabBox class="flex flex-col gap-1.5 p-3">

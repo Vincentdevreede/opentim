@@ -6,6 +6,7 @@ import {
   audioSections,
   decodeEntry,
   duration,
+  firstSoundOf,
   itemName,
   matches,
   rawSample,
@@ -45,6 +46,15 @@ describe("audioSections", () => {
       ["TIM.SX", ["BELT", "#19"]],
       ["Samples", ["SX_3002.RAW", "SX_3010.RAW"]],
     ]);
+  });
+
+  it("opens a bank at its first sound and a sample file at itself", () => {
+    const tim = resource("TIM.SX", bank);
+    const raw = resource("SX_3002.RAW", Uint8Array.of(128));
+    const all = [raw, tim];
+    expect(firstSoundOf(tim, all)).toBe(audioSections(all)[0]!.items[0]!.key);
+    expect(firstSoundOf(raw, all)).toBe("SX_3002.RAW");
+    expect(firstSoundOf({ ...raw, name: "OTHER.BIN", group: "other" }, all)).toBeUndefined();
   });
 
   it("reports a bank it can't read", () => {

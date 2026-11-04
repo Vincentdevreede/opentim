@@ -65,10 +65,18 @@ const matches = (e: LevelEntry) => {
   const q = query.value.trim().toLowerCase();
   return !q || e.resource.name.toLowerCase().includes(q) || (e.level?.title ?? "").toLowerCase().includes(q);
 };
-const sections = computed(() => [
-  { label: "Levels", ext: ".LEV", items: entries.value.filter((e) => e.kind === "level" && matches(e)) },
-  { label: "Scenes", ext: ".GKC", items: entries.value.filter((e) => e.kind === "scene" && matches(e)) },
-]);
+/** The levels and the scenes that match the filter, with how many there are in all. */
+const sections = computed(() =>
+  (
+    [
+      { label: "Levels", kind: "level" },
+      { label: "Scenes", kind: "scene" },
+    ] as const
+  ).map(({ label, kind }) => {
+    const all = entries.value.filter((e) => e.kind === kind);
+    return { label, total: all.length, items: all.filter(matches) };
+  }),
+);
 
 const current = computed(
   () => entries.value.find((e) => e.resource.name === selectedLevel.value) ?? entries.value.find((e) => e.level),
@@ -178,7 +186,11 @@ onBeforeUnmount(() => {
         </LabToolbar>
         <div class="min-h-0 flex-1 overflow-auto pb-2">
           <template v-for="section in sections" :key="section.label">
-            <LabListHeading v-if="section.items.length" :title="section.label" :meta="section.ext" />
+            <LabListHeading
+              v-if="section.items.length"
+              :title="section.label"
+              :meta="`${section.items.length} of ${section.total}`"
+            />
             <LabListRow
               v-for="e in section.items"
               :key="e.resource.name"

@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
 import LabEmpty from "../components/LabEmpty.vue";
+import LabListHeading from "../components/LabListHeading.vue";
 import LabListRow from "../components/LabListRow.vue";
 import LabSegmented from "../components/LabSegmented.vue";
 import LabFact from "../components/LabFact.vue";
@@ -19,7 +20,8 @@ import { edition, program, resources, selected } from "../library.ts";
 import { listIdOf, partName, readLoadedParts } from "../parts.ts";
 import { headerBytes, markerAt, markersOf } from "../markers.ts";
 import { decode, imagePalette, isImage, paletteColors, statusOf } from "../sprites.ts";
-import { crumb, formatBytes, hex, openAt, openSprite, selectedLevel } from "../ui.ts";
+import { firstSoundOf } from "../audio.ts";
+import { crumb, formatBytes, hex, openAt, openSprite, selectedLevel, selectedSound } from "../ui.ts";
 import LabNoMatch from "../components/LabNoMatch.vue";
 import LabPanelHeader from "../components/LabPanelHeader.vue";
 import LabPicture from "../components/LabPicture.vue";
@@ -29,7 +31,7 @@ import LabToolbar from "../components/LabToolbar.vue";
 import LabSwatch from "../components/LabSwatch.vue";
 import LabSection from "../components/LabSection.vue";
 import LabPanelBody from "../components/LabPanelBody.vue";
-import LabOpenIn from "../components/LabOpenIn.vue";
+import LabOpenIn, { type OpenTarget } from "../components/LabOpenIn.vue";
 
 /** Bytes per row grow with the available width, in groups of this size. */
 const GROUP = 8;
@@ -121,6 +123,23 @@ function openInLevels() {
   if (!current.value) return;
   selectedLevel.value = current.value.name;
   void router.push("/levels");
+}
+/** The sound the Audio page opens at for the current resource, when it lists one from it. */
+const sound = computed(() => (current.value ? firstSoundOf(current.value, resources.value) : undefined));
+function openInAudio() {
+  if (!sound.value) return;
+  selectedSound.value = sound.value;
+  void router.push("/audio");
+}
+const openTargets = computed<OpenTarget[]>(() => [
+  ...(preview.value ? (["sprites"] as const) : []),
+  ...(levelEntry.value ? (["levels"] as const) : []),
+  ...(sound.value ? (["audio"] as const) : []),
+]);
+function openIn(target: OpenTarget) {
+  if (target === "sprites") openInSprites();
+  else if (target === "levels") openInLevels();
+  else if (target === "audio") openInAudio();
 }
 const inRange = (offset: number) =>
   !!info.value?.range && offset >= info.value.range[0] && offset < info.value.range[1];
@@ -285,6 +304,7 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
         <LabSearch v-model="query" label="Filter resources" placeholder="Any resource…" class="flex-1" />
       </LabToolbar>
       <div class="min-h-0 flex-1 overflow-auto pb-2">
+        <LabListHeading title="Resources" :meta="`${list.length} of ${resources.length}`" />
         <LabListRow
           v-for="r in list"
           :key="r.name"
@@ -402,10 +422,7 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
       <LabPanelHeader title="Selection">
         <span class="font-mono font-semibold text-accent">{{ hex(cursor) }}</span>
       </LabPanelHeader>
-      <LabOpenIn
-        :targets="[...(preview ? (['sprites'] as const) : []), ...(levelEntry ? (['levels'] as const) : [])]"
-        @open="$event === 'sprites' ? openInSprites() : openInLevels()"
-      />
+      <LabOpenIn :targets="openTargets" @open="openIn" />
       <div v-if="info" class="flex flex-col gap-1.5 border-b border-line px-3 py-2.5">
         <p class="text-meta text-muted">
           {{ current.archive }} at <span class="font-mono text-soft">{{ hex(info.archiveOffset) }}</span>

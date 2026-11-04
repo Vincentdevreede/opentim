@@ -86,6 +86,14 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 
 const parts = computed(() => (list.value ? findParts(list.value.parts, query.value, order.value) : []));
 const withFrames = computed(() => list.value?.parts.filter((p) => p.frames.length).length ?? 0);
+/** The file the parts were read from, when they were read from the loaded files and compared with our list. */
+const readFrom = computed(() => {
+  const l = loaded.value;
+  if (!l || l.source === "committed") return undefined;
+  return l.source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
+});
+/** The numbers of the parts that aren't the same as in our list. */
+const differs = computed(() => new Set(loaded.value?.differs ?? []));
 const currentPart = computed(
   () => list.value?.parts.find((p) => p.id === selectedPart.value) ?? parts.value[0] ?? list.value?.parts[0],
 );
@@ -125,6 +133,14 @@ onBeforeUnmount(() => (crumb.value = []));
     <template v-if="list" #subtitle>
       <span class="font-mono text-ink">{{ list.parts.length }}</span> parts ·
       <span class="font-mono text-ink">{{ withFrames }}</span> with frames
+      <template v-if="readFrom">
+        · read from <span class="font-mono text-ink">{{ readFrom }}</span> ·
+        <template v-if="differs.size">
+          <span class="font-mono text-ink">{{ differs.size }}</span> differ from our list</template
+        >
+        <template v-else>the same as our list</template>
+      </template>
+      <template v-else-if="loaded?.problem"> · from our list: {{ loaded.problem }}</template>
     </template>
   </PageHeader>
 
@@ -162,7 +178,13 @@ onBeforeUnmount(() => (crumb.value = []));
               }}</span>
               <LabTag class="absolute top-1 left-1">{{ p.type }}</LabTag>
               <LabDot
-                v-if="!p.frames.length"
+                v-if="differs.has(p.type)"
+                status="partial"
+                class="absolute top-1.5 right-1.5"
+                :title="`Not the same as in our list${p.frames.length ? '' : '. No frames in the list yet'}`"
+              />
+              <LabDot
+                v-else-if="!p.frames.length"
                 status="unsupported"
                 class="absolute top-1.5 right-1.5"
                 title="No frames in the list yet"
@@ -199,7 +221,7 @@ onBeforeUnmount(() => (crumb.value = []));
     :title="resources.length ? 'No parts list for these files' : 'No files loaded'"
     :text="
       resources.length
-        ? 'The lab has parts lists for TIM 1, Even More and TIM 2. These files aren’t recognised as one of them.'
+        ? 'The lab has parts lists for TIM 1, Even More and TIM 2, and these files aren’t from one of them.'
         : 'Import the game’s RESOURCE files to see its parts.'
     "
     :import-link="!resources.length"

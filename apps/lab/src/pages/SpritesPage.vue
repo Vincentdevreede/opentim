@@ -73,7 +73,7 @@ onBeforeUnmount(() => (crumb.value = []));
 <template>
   <PageHeader title="Sprites">
     <template #subtitle>
-      <span class="font-mono text-ink">{{ entries.length }}</span> image files ·
+      <span class="font-mono text-ink">{{ entries.length }}</span> images ·
       <span class="font-mono text-ink">{{ totalSprites }}</span> sprites
       <template v-if="errors">
         · <span class="text-error">{{ errors }} decode {{ errors === 1 ? "error" : "errors" }}</span></template
@@ -82,17 +82,13 @@ onBeforeUnmount(() => (crumb.value = []));
   </PageHeader>
 
   <div v-if="hasContent" class="flex min-h-0 flex-1">
-    <LabSidePanel side="left" width="404px" aria-label="Image files">
+    <LabSidePanel side="left" width="404px" aria-label="Images">
       <LabToolbar>
-        <LabSearch v-model="query" label="Search image files by name" placeholder="File name…" class="min-w-0 flex-1" />
+        <LabSearch v-model="query" label="Search images by name" placeholder="File name…" class="min-w-0 flex-1" />
       </LabToolbar>
       <div class="min-h-0 flex-1 overflow-auto px-2.5 pb-2.5">
         <div class="grid grid-cols-3 gap-2">
-          <LabListHeading
-            title="Image files"
-            :meta="`${images.length} of ${entries.length}`"
-            class="col-span-3 -mx-2.5"
-          />
+          <LabListHeading title="Images" :meta="`${images.length} of ${entries.length}`" class="col-span-3 -mx-2.5" />
           <LabCard
             v-for="e in images"
             :key="e.resource.name"
@@ -129,7 +125,7 @@ onBeforeUnmount(() => (crumb.value = []));
               >
             </span>
           </LabCard>
-          <LabNoMatch v-if="!images.length" what="image files" :query="query" class="col-span-3" />
+          <LabNoMatch v-if="!images.length" what="images" :query="query" class="col-span-3" />
         </div>
       </div>
     </LabSidePanel>
