@@ -20,6 +20,21 @@ export const OUTLINE_SEARCH_ASSUMPTIONS = [
 const proof = (code: RoutineCode): Evidence[] =>
   code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
+/**
+ * The instructions that store to memory outside the stack frame: the compact evidence a caller's findings carry. The
+ * summary itself keeps the whole routine.
+ */
+const stores = (code: RoutineCode): Evidence[] =>
+  code.instructions
+    .filter(
+      (i) =>
+        i.flow === "next" &&
+        !["cmp", "test", "push"].includes(i.mnemonic) &&
+        i.operands[0]?.kind === "memory" &&
+        !(i.operands[0].segment === "ss" && i.operands[0].base.join() === "bp"),
+    )
+    .map(({ address, bytes, text }) => ({ address, bytes, text }));
+
 function match(code: RoutineCode, patterns: string[]): Map<string, number> | undefined {
   if (code.status !== "complete") return undefined;
   for (const pattern of patterns) {
@@ -56,7 +71,7 @@ export function addOutlineSearchSummary(
     const assumptions = [...new Set([...OUTLINE_SEARCH_ASSUMPTIONS, ...head.assumptions, ...next.assumptions])];
     const link = (root: "argument" | "unknown"): EngineWrite => ({
       confidence: "inferred",
-      evidence: proof(code),
+      evidence: stores(code),
       assumptions: OUTLINE_SEARCH_ASSUMPTIONS,
       root,
       ...(root === "unknown" ? { selection: "overlap-candidate" as const } : {}),
@@ -97,7 +112,7 @@ export function addOutlineSearchSummary(
         nextField: FOUND,
         excludesArgument: false,
         confidence: "checked",
-        evidence,
+        evidence: stores(code),
         assumptions: [
           "The list describes the parts accepted during this search; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],

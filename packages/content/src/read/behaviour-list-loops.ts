@@ -562,7 +562,8 @@ export function discoverListLoops(
         if (invalid) break;
         unknownGlobals ||= !!callee.footprint.unknownGlobalEffects?.length;
         for (const assumption of callee.assumptions) assumptions.add(assumption);
-        proof.push(...callee.evidence);
+        // The callee's own summary keeps its evidence; the loop cites the call.
+        proof.push(evidence(i));
         for (const name of volatile) {
           roots.set(name, "unknown");
           changed.add(name);

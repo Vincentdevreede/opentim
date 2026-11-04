@@ -26,6 +26,7 @@ import {
 import { discoverExternalListConsumers } from "./behaviour-list-consumers.ts";
 import { discoverListConsumerCalls, type ListConsumerCall } from "./behaviour-list-calls.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
+import { discoverFindFirstLoops, FIND_FIRST_ASSUMPTION } from "./behaviour-find-first-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
 import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour-scalars.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
@@ -184,10 +185,10 @@ const textOf = (value: unknown) => {
 const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
 const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
 /**
- * A private local a list scan left behind. It is one value for conditions, but it may point to any part, the owner
- * included, so it never becomes the address of an object of its own.
+ * A private local or register a list scan or find-first loop left behind. It is one value for conditions, but it may
+ * point to any part, the owner included, so it never becomes the address of an object of its own.
  */
-const scanLocal = (object: string) => object.startsWith("local after list scan at ");
+const scanLocal = (object: string) => /^local after (list scan|find-first loop) at /.test(object);
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
 const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
 const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
@@ -473,6 +474,8 @@ interface AbstractState {
   observationExit?: number;
   observationObject?: string;
   observationGuard?: Predicate;
+  /** The heads of find-first walks this path follows for any member. */
+  findFirst?: Set<number>;
   assumptions: string[];
 }
 interface Location {
@@ -521,6 +524,7 @@ const clone = (s: AbstractState): AbstractState => ({
   visited: new Set(s.visited),
   assumptions: [...s.assumptions],
   fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
+  findFirst: s.findFirst && new Set(s.findFirst),
 });
 const wordOfByte: Record<string, string> = {
   al: "ax",
@@ -710,6 +714,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const controlFlowJoins: NonNullable<RoutineAnalysis["controlFlowJoins"]> = [];
   const provenLoops = discoverCountedLoops(code, options.engineSummaries ?? new Map(), stateOffset);
   const loopsByHeader = new Map(provenLoops.map((loop) => [loop.header, loop]));
+  const findFirstLoops = discoverFindFirstLoops(code, options.engineSummaries ?? new Map());
   const usedLoops: LoopSummary[] = [];
   const firstArgumentOffset = code.instructions.some((instruction) => instruction.mnemonic === "retf") ? 6 : 4;
   const listLoopsByHeader = new Map(
@@ -1056,6 +1061,24 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       base.flatMap((v) => v.evidence),
     );
   };
+  /**
+   * A path's evidence without repeats, kept per path list and extended as the path grows, so the findings along a long
+   * path don't each go through the whole list again. A path only ever appends to its list.
+   */
+  const pathEvidence = new WeakMap<Evidence[], { length: number; byAddress: Map<number, Evidence> }>();
+  const evidenceOfPath = (list: Evidence[], extra: Evidence[]): Evidence[] => {
+    let cached = pathEvidence.get(list);
+    if (!cached || cached.length > list.length) {
+      cached = { length: 0, byAddress: new Map() };
+      pathEvidence.set(list, cached);
+    }
+    for (let n = cached.length; n < list.length; n++) cached.byAddress.set(list[n]!.address, list[n]!);
+    cached.length = list.length;
+    if (!extra.length) return [...cached.byAddress.values()];
+    const byAddress = new Map(cached.byAddress);
+    for (const item of extra) byAddress.set(item.address, item);
+    return [...byAddress.values()];
+  };
   const finding = (value: Expression, condition: Predicate, s: AbstractState, extra: Evidence[]): Finding => ({
     confidence: containsUnknown(value) || uncertainPredicate(condition) || s.uncertain ? "unresolved" : "inferred",
     assumptions: [
@@ -1063,7 +1086,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       "Memory not written on this path retains its input value.",
       ...s.assumptions,
     ],
-    evidence: uniqueEvidence([...s.evidence, ...extra]),
+    evidence: evidenceOfPath(s.evidence, extra),
   });
   const equalities = new WeakMap<Predicate[], { length: number; values: Map<string, Expression> }>();
   const fieldIdentity = (value: Extract<Expression, { kind: "field" }>) =>
@@ -2218,6 +2241,37 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       transitions.push(transition);
     }
   };
+  const splitKey = (key: string): [string, number, number] => {
+    const parts = key.split(":"),
+      width = Number(parts.pop()),
+      offset = Number(parts.pop());
+    return [parts.join(":"), offset, width];
+  };
+  /**
+   * The fields a pass that goes on may change, split into the owner's and the member's, or undefined when one could be
+   * the owner's state, or the member could be the owner.
+   */
+  const findFirstFields = (loop: NonNullable<ReturnType<typeof findFirstLoops.get>>, s: AbstractState) => {
+    const owner: { offset: number; width: number }[] = [],
+      member: { offset: number; width: number }[] = [];
+    const isOwner = (register: string) => {
+      const value = registerRead(register, s).value;
+      return value.kind === "pointer" && value.object === "part" && value.displacement === 0;
+    };
+    const add = (register: string, offset: number, width: number) => {
+      if (register === loop.node) member.push({ offset, width });
+      else if (isOwner(register) && (offset + width / 8 <= stateOffset || offset >= stateOffset + 2))
+        owner.push({ offset, width });
+      else return false;
+      return true;
+    };
+    for (const write of loop.passWrites) if (!add(write.register, write.offset, write.width)) return undefined;
+    for (const call of loop.passCalls)
+      for (const write of call.callee.writes)
+        if (write.root === "argument" && !add(call.register, write.offset, write.width)) return undefined;
+    if (member.length && !loop.excludesOwner) return undefined;
+    return { owner, member };
+  };
   while (queue.length && visits++ < maxVisits) {
     const readyTail = visits > maxVisits * 0.75 ? queue.findIndex((item) => tails.has(item.at)) : -1;
     const item = readyTail < 0 ? queue.pop()! : queue.splice(readyTail, 1)[0]!;
@@ -2232,6 +2286,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (s.observationOnly && i.address === s.observationExit) {
       recordIteration(s, i);
       continue;
+    }
+    const findFirst = findFirstLoops.get(i.address);
+    if (findFirst && s.visited.has(i.address) && s.findFirst?.has(i.address) && !s.observationOnly) {
+      const node = registerRead(findFirst.node, s).value;
+      // A pass that moved on changed nothing; the walk for any member already covers what follows.
+      if (!(node.kind === "constant" && node.value === 0)) continue;
+      // A pass that stops cleared the pointer: the test at the head now leaves the loop.
+      s.visited.delete(findFirst.header);
+      s.visited.delete(findFirst.branch);
     }
     if (s.visited.has(i.address)) {
       if (s.observationOnly) {
@@ -2403,6 +2466,83 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.carry = undefined;
       usedListLoops.push(list);
       enqueue({ at: list.exit, state: s });
+      continue;
+    }
+    const passFields =
+      findFirst && !s.observationOnly && !s.findFirst?.has(i.address) ? findFirstFields(findFirst, s) : undefined;
+    if (findFirst && passFields) {
+      // Either the passes that go on change only these fields and no member is acted on, or one member, any of them,
+      // is acted on once after them.
+      const forget = (target: AbstractState) => {
+        // The owner's fields a pass may change: later reads give the one value they have after the loop.
+        for (const field of passFields.owner) {
+          for (const key of [...target.memory.keys()]) {
+            const [object, offset, width] = splitKey(key);
+            if (object === "part" && offset < field.offset + field.width / 8 && field.offset < offset + width / 8)
+              target.memory.delete(key);
+          }
+          target.fieldHavoc = [
+            ...(target.fieldHavoc ?? []),
+            { offset: field.offset, width: field.width, address: i.address, exceptOwner: false },
+          ];
+        }
+        for (const field of passFields.member) {
+          for (const key of [...target.memory.keys()]) {
+            const [object, offset, width] = splitKey(key);
+            if (
+              !["part", "stack", "data"].includes(object) &&
+              offset < field.offset + field.width / 8 &&
+              field.offset < offset + width / 8
+            )
+              target.memory.delete(key);
+          }
+          target.fieldHavoc = [
+            ...(target.fieldHavoc ?? []),
+            { offset: field.offset, width: field.width, address: i.address, exceptOwner: true },
+          ];
+        }
+        // Registers and locals a pass may change hold one value each after the loop, never used as an address.
+        const loopValue = (what: string, offset: number, width: number) =>
+          tracked({
+            ...field(`local after find-first loop at ${hex(i.address)}: ${what}`, offset, width),
+            unresolved: true,
+          } as Expression);
+        for (const name of findFirst.registers) registerWrite(name, loopValue(`register ${name}`, 0, 16), target);
+        for (const operand of findFirst.locals)
+          write(operand, loopValue("local", operand.displacement, operand.width), target, i);
+        if (findFirst.globals) {
+          for (const key of [...target.memory.keys()]) if (key.startsWith("data:")) target.memory.delete(key);
+          target.globalHavocAt = i.address;
+        }
+        target.flags = undefined;
+        target.carry = undefined;
+        target.assumptions = [...new Set([...target.assumptions, FIND_FIRST_ASSUMPTION])];
+        target.evidence.push(...findFirst.evidence);
+      };
+      const none = clone(s);
+      forget(none);
+      registerWrite(findFirst.node, tracked(constant(0), findFirst.evidence), none);
+      enqueue({ at: findFirst.exit, state: none });
+      const member = clone(s);
+      forget(member);
+      const name = `member found by the loop at ${hex(i.address)}`;
+      registerWrite(
+        findFirst.node,
+        tracked(
+          {
+            kind: "pointer",
+            object: name,
+            displacement: 0,
+            width: 16,
+            addressValue: { ...field(`${name} link`, 0), unresolved: true } as Expression,
+          },
+          findFirst.evidence,
+        ),
+        member,
+      );
+      member.visited.delete(i.address);
+      member.findFirst = new Set([...(member.findFirst ?? []), i.address]);
+      enqueue({ at: i.address, state: member });
       continue;
     }
     const counted = loopsByHeader.get(i.address);
@@ -3781,11 +3921,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         "Symbolic path budget reached; remaining path conditions are unresolved",
       );
   }
-  // Evidence is told apart by its addresses; its bytes and text follow from them and would only make the keys long.
+  // Findings that say the same thing are duplicates whichever path proved them; one path's evidence is enough.
   const key = (item: unknown) =>
-    JSON.stringify(item, (name, value: unknown) =>
-      name === "evidence" && Array.isArray(value) ? value.map((e: { address?: number }) => e?.address) : value,
-    );
+    JSON.stringify(item, (name, value: unknown) => (name === "evidence" ? undefined : value));
   const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [key(item), item])).values()];
   return {
     ...code,
@@ -4166,7 +4304,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       stateOffset,
       argumentOffset,
       summaries,
-      maxVisits: counts.has(address) ? 10_000 : 800,
+      maxVisits: counts.has(address) ? 12_000 : 800,
       code,
       engineSummaries,
       codes,

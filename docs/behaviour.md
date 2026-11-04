@@ -67,14 +67,14 @@ index. Sparse switches require a bounded key search, comparison and parallel tar
 summarised directly as cases and a default. Bounded counting loops can also be summarised when a unique unit update
 occurs on every path, the counter cannot wrap, every path balances the stack, and the body preserves the owner's
 state. Other back edges require an invariant and become unknown exits. Summarised loops are not unrolled.
-The limits are 12,000 decoded instructions per routine, 1,800 call-graph entries, 10,000 symbolic visits per callback,
+The limits are 12,000 decoded instructions per routine, 1,800 call-graph entries, 12,000 symbolic visits per callback,
 800 per helper, and 96 expression-tree nodes. Exhaustion is a diagnostic and an unresolved result. These limits
 bound browser work; they are not claims of completeness.
 
 A visit is one instruction on one path, and a part list's loop body is followed again for every path that reaches it.
 The run routines of the teapot, the vacuum cleaner and the cat blow or chase the parts their search finds, with about
-twenty paths into the list and several branches in its body. They need 5,900 to 8,400 visits, so the callback limit
-is 10,000. Each iteration outcome keeps only the writes to the listed member, since the owner's fields are already in
+twenty paths into the list and several branches in its body. They need 5,900 to 8,400 visits, and the cat's run with its find-first loop 10,100, so
+the callback limit is 12,000. Each iteration outcome keeps only the writes to the listed member, since the owner's fields are already in
 the routine's own outcomes. In Even More this completes 32 more recorded animations; reading a build takes about two
 seconds longer.
 
@@ -482,6 +482,29 @@ every other field it writes on a listed part counts as a possible write to the o
 frame, and forgets the positions it writes on the parts lying on it. Its assumptions are listed in
 [the decided assumptions](behaviour-assumptions.md). In each recorded build this removes 24
 unresolved transitions and 9 more walks end.
+
+### Find-first loops
+
+The cat looks through the parts its search found, one by one, until one is a mouse close enough to chase; then it
+moves, picks its frame and stops looking. A pass that goes on may still change things: it marks the cat and a mouse it
+passes, and plays a sound. The reader proves such a loop from its code. A pass that goes on to the next member may
+change only fields of the owner other than its state, fields of the member, private locals, registers and globals;
+every other write and every other call lies on a path that clears the member pointer and so ends the walk. Writes to
+the member are allowed only when the list comes from a search that leaves out the owner on every path.
+
+Then the loop either goes on to the end of the list or acts once for one member, whichever it is. At the loop head the
+analysis follows two cases instead of the passes: no member acted on, and one member, an opaque `member found by the
+loop`, acted on. Both start from the state after any number of passes: what a pass may change is forgotten, the
+owner's fields read as their value after the loop, and its locals and registers as one named value each, never used as
+an address. A pass that goes on is then covered by those two cases and is not followed again. If a pass that goes on
+could change the owner's state, the loop keeps needing an invariant.
+
+This finishes the cat's run routine in every build. Its walks still stop where the cat tests whether its new position
+is blocked, since that test's result is an unknown value.
+
+A loop's own evidence now cites the calls in its body rather than copying the called summaries' evidence; each summary
+keeps its evidence in `helpers`. Findings that say the same thing are kept once, whichever path proved them. Both keep
+the reports and the analysis time small.
 
 ## Saved evidence
 

@@ -34,6 +34,21 @@ const union = (...lists: Field[][]): Field[] => [
   ...new Map(lists.flat().map(({ offset, width }) => [`${offset}:${width}`, { offset, width }])).values(),
 ];
 
+/**
+ * The instructions that store to memory outside the stack frame: the compact evidence a caller's findings carry. The
+ * summary itself keeps the whole routine.
+ */
+const stores = (code: RoutineCode): Evidence[] =>
+  code.instructions
+    .filter(
+      (i) =>
+        i.flow === "next" &&
+        !["cmp", "test", "push"].includes(i.mnemonic) &&
+        i.operands[0]?.kind === "memory" &&
+        !(i.operands[0].segment === "ss" && i.operands[0].base.join() === "bp"),
+    )
+    .map(({ address, bytes, text }) => ({ address, bytes, text }));
+
 function match(code: RoutineCode, patterns: string[]): Map<string, number> | undefined {
   if (code.status !== "complete") return undefined;
   for (const pattern of patterns) {
@@ -79,7 +94,7 @@ export function addRopeCutSummary(
     const note = "The cut saves and restores a global word, and the list insertion can change a global list head.";
     const unknownWrites: EngineWrite[] = [...partFields, ...recordFields].map((field) => ({
       confidence: "inferred",
-      evidence: proof(code),
+      evidence: stores(code),
       assumptions: ROPE_CUT_ASSUMPTIONS,
       root: "unknown",
       path: [],
@@ -116,7 +131,14 @@ export function addRopeCutSummary(
         unknownPartEffects: [],
         unknownGlobalEffects: [note],
       },
-      connected: { confidence: "inferred", evidence, assumptions, partFields, recordFields, recordLinks: RECORD_LINKS },
+      connected: {
+        confidence: "inferred",
+        evidence: stores(code),
+        assumptions,
+        partFields,
+        recordFields,
+        recordLinks: RECORD_LINKS,
+      },
     });
   }
 }
