@@ -199,6 +199,7 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
           :meta="item.type === 'bank' ? String(item.entry.id) : formatBytes(item.resource.data.length)"
           :status="statusOf(item).status"
           :status-title="statusOf(item).label"
+          :aria-description="statusOf(item).label"
           :selected="item.key === current.key"
           :data-sound="item.key === current.key ? 'selected' : ''"
           @click="pick(item)"

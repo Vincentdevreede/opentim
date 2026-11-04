@@ -1,3 +1,4 @@
+import type { Confidence as FindingConfidence } from "@opentim/content";
 import type { ResourceKind } from "@opentim/resources";
 
 export type Confidence = "decoded" | "partial" | "hypothesis" | "unsupported" | "error";
@@ -9,6 +10,13 @@ export const CONFIDENCE_TIPS: Record<Confidence, string> = {
   hypothesis: "A guess: it fits what is known, but isn’t confirmed.",
   unsupported: "Not supported yet.",
   error: "Can’t be read.",
+};
+
+/** How sure a finding of the behaviour analysis is, for the tip of its mark. */
+export const FINDING_TIPS: Record<FindingConfidence, string> = {
+  checked: "Checked: follows directly from the instructions",
+  inferred: "Inferred: follows from the analysis, with the assumptions it lists",
+  unresolved: "Unresolved: the analysis can’t tell",
 };
 
 /** The groups the lab shows resources in. Rare kinds are folded into "other". */

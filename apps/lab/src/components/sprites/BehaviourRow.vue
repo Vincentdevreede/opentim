@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Confidence } from "@opentim/content";
 import { ref } from "vue";
+import { FINDING_TIPS } from "../../kinds.ts";
 import LabInfo from "../LabInfo.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
@@ -26,6 +27,7 @@ function toggle() {
       role="button"
       tabindex="0"
       :aria-expanded="open"
+      :aria-description="FINDING_TIPS[confidence]"
       @click="toggle"
       @keydown.enter.space.prevent="open = !open"
     >

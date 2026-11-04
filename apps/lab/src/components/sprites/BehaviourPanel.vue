@@ -254,7 +254,7 @@ const more = computed(() => {
               v-if="g.changes.length && g.kept"
               class="flex h-7 items-center gap-2 border-t border-line-soft pr-3 pl-[30px] text-meta text-faint"
             >
-              <ConfidenceMark confidence="inferred" />
+              <ConfidenceMark confidence="inferred" focusable />
               otherwise no change · {{ g.kept }} {{ g.kept === 1 ? "path" : "paths" }}
             </div>
             <template
@@ -375,24 +375,24 @@ const more = computed(() => {
       <LabDisclosure :title="`More · ${more} findings`">
         <ul class="flex flex-col gap-1 p-3 font-mono text-meta break-words text-muted">
           <li v-for="(t, i) in part.triggers" :key="`t${i}`" class="flex gap-1.5">
-            <ConfidenceMark :confidence="t.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="t.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">trigger</span> {{ t.routine }}: {{ t.name
               }}<template v-if="t.condition"> when {{ t.condition }}</template></span
             >
           </li>
           <li v-for="c in part.counters" :key="c.field" class="flex gap-1.5">
-            <ConfidenceMark :confidence="c.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="c.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">counter</span> {{ c.field }} = {{ c.updates.join(", ")
               }}<template v-if="c.comparisons.length"> · {{ c.comparisons.join(", ") }}</template></span
             >
           </li>
           <li v-for="u in part.uncertainties" :key="u" class="flex gap-1.5">
-            <ConfidenceMark confidence="unresolved" class="mt-1.5" /><span
+            <ConfidenceMark confidence="unresolved" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">open</span> {{ u }}</span
             >
           </li>
           <li v-for="l in gear?.text.limits ?? []" :key="l" class="flex gap-1.5">
-            <ConfidenceMark :confidence="gear!.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="gear!.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">gear</span> {{ l }}</span
             >
           </li>
@@ -401,7 +401,7 @@ const more = computed(() => {
             ><span><span class="font-sans text-faint">analysis</span> {{ howRead }}</span>
           </li>
           <li v-if="timing" class="flex gap-1.5">
-            <ConfidenceMark :confidence="summary!.timing.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="summary!.timing.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">timing</span> {{ timing }}</span
             >
           </li>

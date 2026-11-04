@@ -83,7 +83,7 @@ const dump = computed(() => {
           <LabFact v-for="{ field, value, tip } in g.rows" :key="field.offset" align="right">
             <template #label>
               <span class="flex items-center gap-2 self-center">
-                <ConfidenceMark :confidence="KNOWN[field.known].mark" :title="KNOWN[field.known].tip" />
+                <ConfidenceMark :confidence="KNOWN[field.known].mark" :title="KNOWN[field.known].tip" focusable />
                 {{ field.name }}
                 <LabInfo :text="tip" />
               </span>

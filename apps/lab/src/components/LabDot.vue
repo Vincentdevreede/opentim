@@ -5,9 +5,13 @@ import LabTip from "./LabTip.vue";
 /**
  * A small round dot that shows a state at a glance, in the colours of the status badges. `accent` marks something
  * waiting on the user, `none` is an empty ring for nothing yet. Under the pointer it lights up and says what it means,
- * in `title` or else in the words for its state.
+ * in `title` or else in the words for its state. With `focusable` the keyboard reaches it too; leave it off for a dot inside
+ * a button, and give the button the words instead.
  */
-defineProps<{ status: Confidence | "accent" | "none"; title?: string }>();
+withDefaults(defineProps<{ status: Confidence | "accent" | "none"; title?: string; focusable?: boolean }>(), {
+  title: undefined,
+  focusable: false,
+});
 
 const COLORS: Record<Confidence | "accent" | "none", string> = {
   decoded: "bg-decoded",
@@ -27,7 +31,7 @@ const TIPS: Record<Confidence | "accent" | "none", string> = {
 
 <template>
   <span class="inline-flex shrink-0">
-    <LabTip :text="title ?? TIPS[status]" :focusable="false">
+    <LabTip :text="title ?? TIPS[status]" :focusable="focusable">
       <!-- The hover area is larger than the dot, without taking more room. -->
       <span class="-m-[5px] grid size-4 cursor-help place-items-center rounded-full transition-colors hover:bg-ink/12">
         <span class="inline-block size-1.5 rounded-full" :class="COLORS[status]" aria-hidden="true"></span>
