@@ -99,8 +99,12 @@ const counts = computed(() => {
   const parts = {
     id: "parts",
     label: "Parts",
-    // The committed list stands in when the parts can't be read from the files; it says nothing about these files.
-    count: reading.value ? "…" : stagedParts.value?.problem ? "?" : String(stagedParts.value?.list.parts.length ?? 0),
+    // Without a parts list for the game, or with only the committed list standing in, the files' count isn't known.
+    count: reading.value
+      ? "…"
+      : !stagedParts.value || stagedParts.value.problem
+        ? "?"
+        : String(stagedParts.value.list.parts.length),
   };
   const at = kinds.findIndex((k) => k.id === "sprites") + 1;
   return [...kinds.slice(0, at), parts, ...kinds.slice(at)];
