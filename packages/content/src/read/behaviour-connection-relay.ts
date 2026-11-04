@@ -10,6 +10,7 @@ import type { Evidence, Expression } from "./behaviour.ts";
 import {
   beltEndsPatterns,
   hitTestPatterns,
+  relayPatterns,
   ropeGeometryPatterns,
   ropeReversePatterns,
   searchPatterns,
@@ -22,6 +23,7 @@ export interface ConnectionPatterns {
   hitTest?: string[];
   search?: string[];
   beltEnds?: string[];
+  relay?: string[];
 }
 const PATTERNS: ConnectionPatterns = {
   ropeGeometry: ropeGeometryPatterns,
@@ -29,6 +31,7 @@ const PATTERNS: ConnectionPatterns = {
   hitTest: hitTestPatterns,
   search: searchPatterns,
   beltEnds: beltEndsPatterns,
+  relay: relayPatterns,
 };
 
 /** Part fields that point to rope, belt and pulley records: a belt at 0x54, ropes at 0x66 and 0x68. */
@@ -151,13 +154,15 @@ function composite(
   ownRecordFields: Field[],
   connected: EngineSummary[],
   recordArguments: EngineSummary[],
+  ownPartFields: Field[] = [],
+  argumentWrites: EngineWrite[] = [],
 ): EngineSummary {
   const callees = [...connected, ...recordArguments];
   const evidence = [...proof(code), ...callees.flatMap((callee) => callee.evidence)];
   const assumptions = [...new Set([RECORDS, CHAINS, ...callees.flatMap((callee) => callee.assumptions)])];
   const globals = callees.some((callee) => callee.footprint.unknownGlobalEffects?.length);
   const note = "A called notification may queue screen rectangles in global storage.";
-  const partFields = union(...callees.map((callee) => callee.connected?.partFields ?? []));
+  const partFields = union(ownPartFields, ...callees.map((callee) => callee.connected?.partFields ?? []));
   const recordFields = union(
     ownRecordFields,
     ...callees.map((callee) => callee.connected?.recordFields ?? []),
@@ -172,7 +177,7 @@ function composite(
     purpose,
     argumentOffset,
     argumentKind: "object",
-    writes: unknownWrites(code, [...partFields, ...recordFields]),
+    writes: [...argumentWrites, ...unknownWrites(code, [...partFields, ...recordFields])],
     returns: [],
     calls: code.calls.flatMap((call) => (call.target ? [call.target.address] : [])),
     returnConvention: { kind: "far", stackBytes: 0 },
@@ -180,7 +185,7 @@ function composite(
       complete: !globals,
       partMemoryComplete: true,
       // A reached pulley can be the argument part itself.
-      preservesArgumentMemory: partFields.length === 0,
+      preservesArgumentMemory: partFields.length === 0 && argumentWrites.length === 0,
       preservesPartState: true,
       unknownEffects: globals ? [note] : [],
       unknownPartEffects: [],
@@ -295,5 +300,46 @@ export function addConnectionSummaries(
           [],
         ),
       );
+  }
+  for (const code of codes.values()) {
+    const bound = patterns.relay && match(code, patterns.relay);
+    if (!bound) continue;
+    const geometry = of(bound, "ropeGeometry", "rope-geometry");
+    const ends = of(bound, "beltEnds", "belt-end-check");
+    // The belt geometry update only writes its argument, the belt record.
+    const belt = of(bound, "beltGeometry");
+    const beltRecord =
+      !!belt &&
+      belt.footprint.partMemoryComplete === true &&
+      !belt.connected &&
+      belt.writes.length > 0 &&
+      belt.writes.every((write) => write.root === "argument" && !write.path.length);
+    if (!geometry || !ends || !belt || !beltRecord) continue;
+    const owner: EngineWrite = {
+      confidence: "inferred",
+      evidence: proof(code),
+      assumptions: [],
+      root: "argument",
+      argumentOffset: 6,
+      path: [],
+      offset: 0x14,
+      width: 8,
+      value: { kind: "field", object: "argument", offset: 8, width: 8 },
+      condition: { kind: "unknown", reason: "The owner gets the byte unless its type is the one the code excludes." },
+    };
+    summaries.set(
+      code.address,
+      composite(
+        code,
+        "related-byte-propagation",
+        "Copies the caller's byte to the owner and to the parts at the other end of its belt and ropes, updating the belt and rope geometry on the way.",
+        6,
+        [],
+        [ends],
+        [belt, geometry],
+        [{ offset: 0x14, width: 8 }],
+        [owner],
+      ),
+    );
   }
 }

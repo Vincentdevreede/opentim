@@ -395,6 +395,14 @@ turn one of its ropes around, so the check may write what the rope reversal writ
 `0x06`. The hit test, the search and the check have their own summaries, each requiring its callees' summaries;
 the list helpers they use only read.
 
+The byte relay is the last piece. It copies a byte to field `0x14` of the owner and of the parts at the other end of
+its ropes and belt, a value the electric parts pass along, and updates the belt and rope geometry on the way.
+Its summary combines the belt geometry update, the belt end check and the rope geometry update, each proved as
+above. A call can therefore change only `0x14`, the rope end words `0x96` and `0x9c` and the pulley links in a
+part, plus fields of belt, rope and pulley records. The owner's state, step, flags and position stay known. In Even
+More this frees 62 trigger walks, and about 25 routines per build now have complete effects. All eleven builds
+match one of the relay's two compiler forms.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

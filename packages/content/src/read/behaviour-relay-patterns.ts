@@ -1758,3 +1758,208 @@ pop si
 pop bp
 retf`,
 ];
+
+/** Complete compiler forms of the byte relay through belts and ropes. */
+export const relayPatterns = [
+  `push bp
+mov bp,sp
+sub sp,#4
+push si
+push di
+mov di,16:ss[bp+6]
+cmp 16:ds[di+4],#49
+je @LA
+mov al,8:ss[bp+8]
+mov 8:ds[di+20],al
+LA: cmp 16:ds[di+4],#7
+jne @LC
+mov ax,16:ds[di+104]
+mov si,ax
+or ax,ax
+jne @LB
+jmp @LK
+LB: mov bx,16:ds[si+0]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+jmp @LK
+LC: mov ax,16:ds[di+84]
+mov 16:ss[bp+-4],ax
+or ax,ax
+je @LE
+cmp 16:ds[{gA}],#4096
+jne @LD
+push ax
+push cs
+call $beltGeometry
+pop cx
+push 16:ss[bp+-4]
+push cs
+call $beltEnds
+pop cx
+or ax,ax
+je @LE
+jmp @LD
+LD: mov bx,16:ss[bp+-4]
+mov bx,16:ds[bx+2]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+LE: cmp 16:ds[{gA}],#8192
+jne @LG
+mov ax,16:ds[di+102]
+mov si,ax
+or ax,ax
+je @LF
+mov bx,16:ds[si+0]
+mov al,8:ds[bx+20]
+mov ah,#0
+or ax,ax
+jne @LF
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+push si
+push cs
+call $ropeGeometry
+pop cx
+LF: mov ax,16:ds[di+104]
+mov si,ax
+or ax,ax
+je @LK
+mov bx,16:ds[si+0]
+mov al,8:ds[bx+20]
+mov ah,#0
+or ax,ax
+jne @LK
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+push si
+push cs
+call $ropeGeometry
+pop cx
+jmp @LK
+LG: mov 16:ss[bp+-2],#0
+jmp @LJ
+LH: mov bx,16:ss[bp+-2]
+shl bx,#1
+mov ax,16:ds[bx+di+102]
+mov si,ax
+or ax,ax
+je @LI
+mov bx,16:ds[si+0]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+push si
+push cs
+call $ropeGeometry
+pop cx
+LI: inc 16:ss[bp+-2]
+LJ: cmp 16:ss[bp+-2],#2
+jl @LH
+LK: pop di
+pop si
+mov sp,bp
+pop bp
+retf`,
+  `push bp
+mov bp,sp
+sub sp,#4
+push si
+push di
+mov di,16:ss[bp+6]
+cmp 16:ds[di+4],#49
+je @LA
+mov al,8:ss[bp+8]
+mov 8:ds[di+20],al
+LA: cmp 16:ds[di+4],#7
+jne @LC
+mov ax,16:ds[di+104]
+mov si,ax
+or ax,ax
+je @LB
+mov bx,16:ds[si+0]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+LB: jmp @LM
+LC: mov ax,16:ds[di+84]
+mov 16:ss[bp+-4],ax
+or ax,ax
+je @LF
+cmp 16:ds[{gA}],#4096
+jne @LE
+push 16:ss[bp+-4]
+push cs
+call $beltGeometry
+pop cx
+push 16:ss[bp+-4]
+push cs
+call $beltEnds
+pop cx
+or ax,ax
+je @LD
+mov bx,16:ss[bp+-4]
+mov bx,16:ds[bx+2]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+LD: jmp @LF
+LE: mov bx,16:ss[bp+-4]
+mov bx,16:ds[bx+2]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+LF: cmp 16:ds[{gA}],#8192
+jne @LI
+mov ax,16:ds[di+102]
+mov si,ax
+or ax,ax
+je @LG
+mov bx,16:ds[si+0]
+mov al,8:ds[bx+20]
+mov ah,#0
+or ax,ax
+jne @LG
+mov bx,16:ds[si+0]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+push si
+push cs
+call $ropeGeometry
+pop cx
+LG: mov ax,16:ds[di+104]
+mov si,ax
+or ax,ax
+je @LH
+mov bx,16:ds[si+0]
+mov al,8:ds[bx+20]
+mov ah,#0
+or ax,ax
+jne @LH
+mov bx,16:ds[si+0]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+push si
+push cs
+call $ropeGeometry
+pop cx
+LH: jmp @LM
+LI: mov 16:ss[bp+-2],#0
+jmp @LL
+LJ: mov bx,16:ss[bp+-2]
+shl bx,#1
+mov ax,16:ds[bx+di+102]
+mov si,ax
+or ax,ax
+je @LK
+mov bx,16:ds[si+0]
+mov al,8:ss[bp+8]
+mov 8:ds[bx+20],al
+push si
+push cs
+call $ropeGeometry
+pop cx
+LK: inc 16:ss[bp+-2]
+LL: cmp 16:ss[bp+-2],#2
+jl @LJ
+LM: pop di
+pop si
+mov sp,bp
+pop bp
+retf`,
+];
