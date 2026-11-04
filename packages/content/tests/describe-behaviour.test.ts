@@ -435,6 +435,20 @@ describe("descriptions from extracted behaviour rules", () => {
     );
   });
 
+  it("knows a field a branch tested for one number, so the next step can use it", () => {
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), test(0x40, "==", 3)), [write(0x30, field(0x40))]),
+      rule(constant(2), both(test(12, "==", 0), test(0x40, "!=", 3))),
+      rule(constant(2), both(test(12, "==", 1), test(0x30, "==", 3))),
+      rule(constant(0), both(test(12, "==", 1), test(0x30, "!=", 3))),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    const tested = walk.stop?.branches?.find((branch) => JSON.stringify(branch.condition).includes('"value":3'));
+    expect(tested?.walk.states.slice(0, 2)).toEqual([1, 2]);
+    expect(tested?.walk.status).toBe("rest");
+  });
+
   it("does not branch on an opaque deciding value", () => {
     const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
     const guard = (operator: string): Predicate => ({

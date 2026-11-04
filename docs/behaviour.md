@@ -525,6 +525,10 @@ the same next frame, it now goes on with that frame and keeps only the field bit
 set differently is forgotten. That only drops knowledge, so it claims nothing false, and the frames the walk shows are
 the same for every way. In each recorded build 13 more walks end, and 2 more recorded animations match completely.
 
+Within a branch, the condition of its rule holds. A part field that condition tests for one number therefore has
+that number before the step, and the step and its next frame are worked out again with it, like a counter that
+counts down from a tested value. That removes 48 of the stops at the branch depth limit in Even More.
+
 Raising the branch depth from two to three or four was measured too: it changes no walk's ending and makes the
 descriptions half again to twice as large, so it stays at two.
 

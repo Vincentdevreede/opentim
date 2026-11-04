@@ -478,6 +478,28 @@ function fieldDefinitions(
     for (const item of transition.updates ?? []) add(item.object, item.offset, item.width);
   return [...fields.values()];
 }
+/**
+ * The bindings with each part field a condition tests for one number set to that number, or the same bindings when it
+ * sets none. Only plain fields of the part count, whose value the walk doesn't know yet.
+ */
+function withEqualities(bindings: Bindings, condition: Predicate): Bindings {
+  let result = bindings;
+  for (const term of predicateTerms(condition)) {
+    if (term.kind !== "compare" || term.operator !== "==") continue;
+    const [field, number] =
+      term.left.kind === "field" && term.right.kind === "constant"
+        ? [term.left, term.right]
+        : term.right.kind === "field" && term.left.kind === "constant"
+          ? [term.right, term.left]
+          : [];
+    if (!field || !number || field.kind !== "field" || number.kind !== "constant") continue;
+    if (field.object !== "part" || field.unresolved || ![8, 16].includes(field.width)) continue;
+    if (known(readField(result, "part", field.offset, field.width))) continue;
+    if (result === bindings) result = new Map(bindings);
+    writeField(result, "part", field.offset, bits(number.value & full(field.width), full(field.width), field.width));
+  }
+  return result;
+}
 /** The field bits several bindings agree on; a field they set differently is left out. */
 function agreedBindings(list: Bindings[]): Bindings {
   const [first, ...rest] = list;
@@ -1088,7 +1110,16 @@ export function walkBehaviourRules(
       return undefined;
     const seen = new Set<string>();
     const branches: { condition: Predicate; walk: BehaviourWalk }[] = [];
-    for (const { rule, next } of outcomes) {
+    for (const outcome of outcomes) {
+      const { rule } = outcome;
+      // Within this branch the rule's condition holds, so a part field it tests for one number has that number before
+      // the step; the step and the next frame are worked out again with it, like a counter that counts down.
+      const pre = withEqualities(bindings, rule.condition);
+      let next = outcome.next;
+      if (pre !== bindings) {
+        next = ruleBindings(rule, pre, routine);
+        writeField(next, "part", stateOffset, valueOf(rule.to, pre));
+      }
       const key = JSON.stringify([rule.condition, signature(next)]);
       if (seen.has(key)) continue;
       seen.add(key);
