@@ -766,3 +766,43 @@ calling frame or table reference declines the summary. `collisionDispatch.respon
 relations to response routines through their direct call graph. These links establish reachability, not execution,
 argument identity through an arbitrary wrapper, or the complete physics of a response. Their field predicates apply
 to the helper's actual argument when reached. The larger rotation and momentum calculations remain open.
+
+## Collision velocity and position responses
+
+The response contracts retain integer arithmetic as named computed stages and ordered stores. A stage is defined
+from its declared inputs or earlier stages; it is not an independently assignable part field. Word and long results
+wrap before later comparisons. Products use signed word operands, shifts preserve the encoded sign and rounding,
+and fixed-point positions retain their low and high word stores. These relations are extracted from complete
+routine graphs and their checked arithmetic dependencies. The library does not execute them on a game object.
+
+`rotationScalar` describes the two coefficient lookups. The optional phase addition wraps before four logical
+right shifts. Indices in the upper half are folded using 4096 minus the index, giving a proved range from zero to
+2048 inclusive. The report retains the 2049 loaded table words as snapshot evidence and keeps later reads dependent
+on runtime table stability. `contactRotation` records the two full signed products for each output, wrapped long
+addition or subtraction, arithmetic shift by fourteen and low-word results. Both input coordinates are read before
+either output is stored. The second store replaces any overlapping bytes of the first, including when the output
+words overlap by one byte.
+
+The arithmetic helpers include the compiler's near-call adapters that build a far return frame internally. Their
+logical calling convention is proved from the complete adapter and shift body. A scalar, rotation or response
+contract is applied only when the caller supplies its required frame. The generic analyser retains precise state
+preservation and possible write footprints, while numeric results that need the larger stage relations remain
+unresolved in that analyser. No synthetic coefficient, runtime contact or velocity is supplied to complete a walk.
+
+`collisionDispatch.responses` links each selected response directly to its numerical relation, field footprint,
+plain-word description and evidence. Missing contracts remain explicit unresolved entries. Per-part contact
+summaries expose those descriptions conditionally on the selected response route and callback return. Before a
+response footprint is applied, potentially aliased cached part fields are invalidated, including fields of an owner
+that could be the related argument or recorded partner. Fields outside the complete footprint retain their values.
+
+The reflected response records a further difference between games. TIM 1 always applies the encoded scaling and
+word damping; Even More can bypass that step when the owner's record field six is zero and has an additional type
+59 coefficient exception. The two-part exchange uses a separation threshold of 512 in TIM 1 and 1024 in Even More.
+Even More additionally suppresses one separation candidate when its signed absolute horizontal component exceeds
+the vertical component, before the final control-mask override. These differences are retained in the relations.
+
+The exchange also has a genuine normal-return requirement: the signed long sum of the two record weights must be
+nonzero before division. Its ordered contract retains that gate and the field writes preceding it. Until the generic
+caller analysis can compose this requirement, the exchange relation remains metadata-only and grants no caller
+state-preservation shortcut. The resource wrapper's unresolved globals also remain explicit. Full numerical
+relations live in the report's helper and dispatcher contracts; per-part descriptions refer to them by routine.

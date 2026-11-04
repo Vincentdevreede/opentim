@@ -1,0 +1,166 @@
+/** Complete compiler forms for word-table coefficients and two-output integer rotation. */
+export const rotationPatterns = [
+  `push bp
+mov bp,sp
+sub sp,#12
+push si
+push di
+mov si,16:ss[bp+6]
+mov di,16:ss[bp+8]
+push 16:ss[bp+10]
+callf $calleeA
+pop cx
+mov 16:ss[bp+-2],ax
+push 16:ss[bp+10]
+callf $calleeB
+pop cx
+mov 16:ss[bp+-4],ax
+push 16:ss[bp+-2]
+push 16:ds[si+0]
+callf $calleeC
+pop cx
+pop cx
+push ax
+push dx
+push 16:ss[bp+-4]
+push 16:ds[di+0]
+callf $calleeC
+pop cx
+pop cx
+pop bx
+pop cx
+sub cx,ax
+sbb bx,dx
+mov 16:ss[bp+-6],bx
+mov 16:ss[bp+-8],cx
+push 16:ss[bp+-4]
+push 16:ds[si+0]
+callf $calleeC
+pop cx
+pop cx
+push ax
+push dx
+push 16:ss[bp+-2]
+push 16:ds[di+0]
+callf $calleeC
+pop cx
+pop cx
+pop bx
+pop cx
+add cx,ax
+adc bx,dx
+mov 16:ss[bp+-10],bx
+mov 16:ss[bp+-12],cx
+mov dx,16:ss[bp+-6]
+mov ax,16:ss[bp+-8]
+mov cl,#14
+call $calleeD
+mov 16:ds[si+0],ax
+mov dx,16:ss[bp+-10]
+mov ax,16:ss[bp+-12]
+mov cl,#14
+call $calleeD
+mov 16:ds[di+0],ax
+pop di
+pop si
+mov sp,bp
+pop bp
+retf`,
+  `push bp
+mov bp,sp
+sub sp,#12
+push si
+push di
+mov si,16:ss[bp+6]
+mov di,16:ss[bp+8]
+push 16:ss[bp+10]
+callf $calleeA
+pop cx
+mov 16:ss[bp+-2],ax
+push 16:ss[bp+10]
+callf $calleeB
+pop cx
+mov 16:ss[bp+-4],ax
+push 16:ss[bp+-2]
+push 16:ds[si+0]
+callf $calleeC
+pop cx
+pop cx
+push ax
+push dx
+push 16:ss[bp+-4]
+push 16:ds[di+0]
+callf $calleeC
+pop cx
+pop cx
+pop bx
+pop cx
+sub cx,ax
+sbb bx,dx
+mov 16:ss[bp+-6],bx
+mov 16:ss[bp+-8],cx
+push 16:ss[bp+-4]
+push 16:ds[si+0]
+callf $calleeC
+pop cx
+pop cx
+push ax
+push dx
+push 16:ss[bp+-2]
+push 16:ds[di+0]
+callf $calleeC
+pop cx
+pop cx
+pop bx
+pop cx
+add cx,ax
+adc bx,dx
+mov 16:ss[bp+-10],bx
+mov 16:ss[bp+-12],cx
+mov dx,16:ss[bp+-6]
+mov ax,16:ss[bp+-8]
+mov cl,#14
+callf $calleeD
+mov 16:ds[si+0],ax
+mov dx,16:ss[bp+-10]
+mov ax,16:ss[bp+-12]
+mov cl,#14
+callf $calleeD
+mov 16:ds[di+0],ax
+pop di
+pop si
+mov sp,bp
+pop bp
+retf`,
+];
+export const scalarPatterns = [
+  `mov bx,sp
+mov ax,16:ss[bx+4]
+shr ax,#1
+shr ax,#1
+shr ax,#1
+shr ax,#1
+test ax,#2048
+je @labelAK
+neg ax
+add ax,#4096
+labelAK: mov bx,ax
+shl bx,#1
+mov ax,16:cs[bx+{table}]
+retf`,
+  `mov bx,sp
+mov ax,16:ss[bx+4]
+add ax,#49152
+shr ax,#1
+shr ax,#1
+shr ax,#1
+shr ax,#1
+test ax,#2048
+je @labelAL
+neg ax
+add ax,#4096
+labelAL: mov bx,ax
+shl bx,#1
+mov ax,16:cs[bx+{table}]
+retf`,
+];
