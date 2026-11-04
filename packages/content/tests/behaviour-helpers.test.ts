@@ -538,6 +538,12 @@ describe("structural engine summaries", () => {
         partMemoryComplete: true,
       });
       expect(summary.factory!.noConstructor.initialState).toEqual({ offset: 0x0c, value: 0 });
+      // Every other word the zero fill covers and no success path writes is known zero too.
+      const zero = summary.factory!.noConstructor.zeroWords!;
+      expect(zero).toContain(0x0c);
+      expect(zero.every((offset) => offset % 2 === 0 && offset + 2 <= summary.allocationSize!)).toBe(true);
+      for (const w of summary.factory!.noConstructor.writes)
+        expect(zero.some((offset) => offset < w.offset + w.width / 8 && w.offset < offset + 2)).toBe(false);
       expect(summary.footprint.preservesPartState).toBe(false);
       expect(
         summary.factory!.noConstructor.evidence.some((e) => e.bytes.length === 4 && e.text.includes("type 2")),

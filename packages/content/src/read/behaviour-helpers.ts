@@ -111,6 +111,11 @@ export interface EngineSummary extends Finding {
       writes: EngineWrite[];
       freshFieldsOnly: true;
       initialState?: { offset: number; value: 0 };
+      /**
+       * Every word offset of the new part that the allocator's zero fill covers and that no success path of the
+       * factory writes, so a fresh part holds zero there when the constructor starts.
+       */
+      zeroWords?: number[];
     };
   };
   partGraph?: Finding & {
@@ -1169,6 +1174,11 @@ export function specializeNullConstructor(
     ]);
   let budget = 1024;
   let stateChanged = !!owned;
+  /** The bytes of the new part that a success path may write, from the factory's own stores and its callees. */
+  const written = new Set<number>();
+  const mark = (offset: number, width: number) => {
+    for (let byte = offset; byte < offset + width / 8; byte++) written.add(byte);
+  };
   if (owned) {
     proof.push(...owned.evidence);
     for (const assumption of owned.assumptions) assumptions.add(assumption);
@@ -1213,6 +1223,8 @@ export function specializeNullConstructor(
       )
         return undefined;
     }
+    if (explicitWrite(instruction) && isMemory(instruction.operands[0], object))
+      mark(instruction.operands[0].displacement, instruction.operands[0].width);
     if (
       explicitWrite(instruction) &&
       isMemory(instruction.operands[0], object) &&
@@ -1261,6 +1273,7 @@ export function specializeNullConstructor(
               w.offset + w.width / 8 <= summary.allocationSize!,
           )
         ) {
+          for (const w of callee.writes) mark(w.offset, w.width);
           if (
             stateOffset !== undefined &&
             callee.writes.some((w) => w.offset < stateOffset + 2 && stateOffset < w.offset + w.width / 8)
@@ -1323,6 +1336,13 @@ export function specializeNullConstructor(
   }
   if (!noConstructorTypes.length) return undefined;
   proof.push(...allocationClosure.flatMap((c) => c.instructions.map(evidence)), ...pointerEvidence);
+  for (const w of summary.writes) mark(w.offset, w.width);
+  // With an owned constructor, the factory itself may write any field before it returns, so no word is known.
+  const zeroWords = owned
+    ? undefined
+    : Array.from({ length: Math.floor((summary.allocationSize ?? 0) / 2) }, (_, n) => n * 2).filter(
+        (offset) => !written.has(offset) && !written.has(offset + 1),
+      );
   const stateUntouched =
     !stateChanged &&
     stateOffset !== undefined &&
@@ -1340,6 +1360,7 @@ export function specializeNullConstructor(
       writes: summary.writes,
       freshFieldsOnly: true,
       ...(stateUntouched ? { initialState: { offset: stateOffset, value: 0 as const } } : {}),
+      ...(zeroWords?.length ? { zeroWords } : {}),
       footprint: {
         complete: false,
         partMemoryComplete: true,

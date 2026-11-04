@@ -336,9 +336,14 @@ updates, and rejects absolute-state exceptions or untracked effects. The phase c
 algebra is never emitted as an assumed starting frame. A recording chooses its own base and phase only during
 validation; its fields never seed a description. Every selected state must still have valid frame data.
 
-Creation analysis can use a zero state word only when the factory's cleared-allocation proof explicitly establishes
-that word. It follows masked assignments and complete owner calls from that fact. Other unassigned fields remain
-unknown, and the result still describes a fresh construction before level overrides rather than a loaded level's rest.
+Creation analysis starts from the factory's cleared allocation. The allocator fills the whole new part with zeros, and
+`zeroWords` lists every word of it that no success path of the factory writes: not its own stores, nor those of the
+helpers it calls. Both games allocate 162 bytes and leave 68 words zero, among them the belt link at `0x54` and the
+step at `0x12`. A factory with an owned constructor proves no zero words. The constructor relation starts from these
+zeros, follows masked assignments and complete owner calls, and drops any word a call may replace; unnamed words are
+reported by offset, like `+0x96`. The result still describes a fresh construction before level overrides rather than a
+loaded level's rest. A fresh part is not what the v25 recordings show for every part: a running motor, for example,
+has power and a belt that a new one lacks, so such a recording stays an input case.
 
 ## Saved evidence
 
