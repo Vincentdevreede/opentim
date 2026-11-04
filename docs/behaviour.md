@@ -445,6 +445,28 @@ bounded summary: the callbacks can change fields `0x08`, `0x0c`, `0x12`, `0x20`,
 other parts and field `0x0e` of their rope records. Walks that stop went from 287 to 241 in Even More and from 246 to
 200 in TIM 1, and those walks now reach a branch with a known condition instead. No recording comparison changed.
 
+### The scissors' rope cut
+
+When the scissors close, their run routine calls a rope cut. It walks the parts list for ropes, tests each against the
+cutting edge and splits a rope it crosses into two: the part factory makes a new rope and two rope ends, and the cut
+relinks the parts and pulleys on the old rope. The reader checks the cut's complete instruction graph (eight compiler
+forms over the eleven builds, all writing the same fields) and the summaries of the eight routines it calls.
+
+On existing parts a cut can change only the rope and pulley links `0x5a`, `0x5c`, `0x66` and `0x68`, the list links
+the insertion rewrites on the new piece's neighbours, and what the rope geometry update names. On the cut rope's own
+record it changes the far end `0x04`, the slot byte `0x0b` and the two end points. It never changes a part's state, so
+the scissors keep their frame. This needs four stated assumptions:
+
+- A new rope piece the part factory makes gets fresh memory: it never overlaps an existing part, a rope record or
+  other storage, and releasing a piece that was never linked changes nothing else.
+- A rope end's slot number, in bytes `0x0a` and `0x0b` of its rope record, is 0 or 1: one of the part's two rope
+  links.
+- Rope, belt and pulley records are allocations of their own and never overlap a part.
+- The parts list and a pulley chain each end, without cycles.
+
+In each recorded build 4 more recorded animations now match completely, 14 more walks end and 11 more end in every
+branch.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
