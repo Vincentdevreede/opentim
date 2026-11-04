@@ -87,6 +87,11 @@ export interface EngineSummary extends Finding {
     recordFields: { offset: number; width: number }[];
     /** The part fields that point to records: a belt at 0x54, ropes at 0x66 and 0x68. */
     recordLinks: number[];
+    /**
+     * The argument, by its offset, that the named part fields are never written on. When a caller passes its own part
+     * there, it keeps those fields; other parts still forget them.
+     */
+    exceptArgument?: number;
   };
   contactRotation?: ContactRotation;
   rotationScalar?: RotationScalar;

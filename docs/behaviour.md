@@ -408,6 +408,29 @@ part, plus fields of belt, rope and pulley records. The owner's state, step, fla
 More this frees 62 trigger walks, and about 25 routines per build now have complete effects. All eleven builds
 match one of the relay's two compiler forms.
 
+### The rope connection query
+
+The connection query asks the part at the other end of each rope what to do. It calls that part type's rope callback,
+the far pointer in field 54 of the type table entry, so the analysis can't follow the call itself. The reader instead
+checks that the call goes through that table (by the data segment in TIM 1 and by an explicit segment in Even More),
+analyses every rope callback in the table and takes the union of what they write. The teeter-totter's callback asks
+its own ropes again, so the union is repeated until it stops growing. A callback may write fields of its own part,
+which is the part at the other end, and fields of that part's rope, belt and pulley records. If any callback writes
+anything else or has unfinished effects, the query keeps its old open summary.
+
+Three assumptions make this sound. They are stated on the summary and on every finding that uses it:
+
+- A rope ties two different parts, so the part at the other end of a rope is never the part that asks.
+- Ropes between parts never form a loop, so a chain of questions along ropes never comes back to the part that asked.
+- A rope end's slot number is one of the part's two rope links, so indexing the links at `0x66` by it reaches a rope
+  record.
+
+With these, `connected.exceptArgument` names the argument that is the asking part. When a caller passes its own part
+there, it keeps its own fields and forgets them only on other parts. In all eleven builds the query now has a
+bounded summary: the callbacks can change fields `0x08`, `0x0c`, `0x12`, `0x20`, `0x2a`, `0x2c`, `0x44` and `0x46` of
+other parts and field `0x0e` of their rope records. Walks that stop went from 287 to 241 in Even More and from 246 to
+200 in TIM 1, and those walks now reach a branch with a known condition instead. No recording comparison changed.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
@@ -571,8 +594,8 @@ The flag is not given a gameplay meaning beyond its checked branch role.
 
 `shortCircuit` records these conditions, results and the complementary unresolved case. A caller uses a bypass only
 when its existing input relations establish the entire guard and its far-return frame is correct. Unknown connections
-are not assumed null and do not cause speculative path expansion. The remaining query may call the peer type's rope
-callback and can change part states. No general state-preservation or resolved indirect target is claimed for it.
+are not assumed null and do not cause speculative path expansion. The remaining query calls the peer type's rope
+callback; [the rope connection query](#the-rope-connection-query) bounds what those callbacks may change.
 
 ## Fresh lists passed to another routine
 

@@ -5,6 +5,7 @@
  */
 
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
+import { ropeCallbackWrites, ropeDispatchSummary } from "./behaviour-rope-dispatch.ts";
 import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
 import { discoverGearRun, type GearRunContract } from "./behaviour-gear-run.ts";
 import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-scheduling.ts";
@@ -1647,12 +1648,17 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     if (engine.connected) {
       // Parts reached through ropes, belts or pulleys may be the owner itself, so their fields are forgotten everywhere.
+      const asking =
+        engine.connected.exceptArgument === undefined
+          ? undefined
+          : formalArgument(args, engine.argumentOffset, engine.connected.exceptArgument).value;
+      const askingIsOwner = asking?.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
       invalidateSelectedPartFields(
         engine.connected.partFields,
         s,
         i,
         engine.connected.evidence,
-        new Set(),
+        new Set(askingIsOwner ? engine.connected.partFields.map((field) => field.offset) : []),
         `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
       );
       // Rope, belt and pulley records are separate allocations; only objects reached through those links can be one.
@@ -4167,7 +4173,84 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     }
     return routine;
   };
+  addRopeDispatch();
   for (const callbacks of references.values()) for (const callback of callbacks) summarise(callback.address);
+
+  /**
+   * Bounds the rope connection query by what the rope callbacks it can reach write, read from the type table slot it
+   * calls. A callback that itself asks along a rope makes this recursive, so the bound is repeated until it is stable;
+   * every round must classify every callback, or the query keeps its unbounded summary.
+   */
+  function addRopeDispatch() {
+    for (const query of [...engineSummaries.values()].filter((summary) => summary.kind === "connection-query")) {
+      const code = codes.get(query.address);
+      const dispatch = code?.instructions.find((i) => i.flow === "call" && !i.target && i.far);
+      const operand = dispatch?.operands[0];
+      // The table is in the segment the call uses: one loaded into ES just before it, or the data segment. Either way
+      // its start, the displacement less the rope slot's field, must be the program's type table.
+      const before = code?.instructions.filter((i) => dispatch && i.address < dispatch.address) ?? [];
+      const loadEs = before.findLast(
+        (i) => i.mnemonic === "mov" && i.operands[0]?.kind === "register" && i.operands[0].name === "es",
+      );
+      const loadDx =
+        loadEs &&
+        before
+          .filter((i) => i.address < loadEs.address)
+          .findLast((i) => i.mnemonic === "mov" && i.operands[0]?.kind === "register" && i.operands[0].name === "dx");
+      const ropeField = layout.callbacks.find((callback) => callback.role === "rope")?.field;
+      if (!code || operand?.kind !== "memory" || ropeField === undefined) continue;
+      const base =
+        operand.segment === "ds"
+          ? list.dataSegment * 16
+          : operand.segment === "es" && loadEs?.operands[1]?.kind === "register" && loadEs.operands[1].name === "dx"
+            ? loadDx?.operands[1]?.kind === "immediate"
+              ? loadDx.operands[1].value * 16
+              : undefined
+            : undefined;
+      if (base === undefined || base + operand.displacement - ropeField !== list.table) continue;
+      const word = (at: number) => image[at]! | (image[at + 1]! << 8);
+      const targets = [
+        ...new Set(
+          list.records.map((record) => {
+            const at = list.table + record.type * 58 + ropeField;
+            return word(at + 2) * 16 + word(at);
+          }),
+        ),
+      ];
+      if (!targets.every((target) => entries.has(target))) continue;
+      const original = query;
+      type Fields = NonNullable<ReturnType<typeof ropeCallbackWrites>>;
+      const merge = (lists: Fields[]): Fields => ({
+        partFields: [...new Map(lists.flatMap((l) => l.partFields).map((f) => [`${f.offset}:${f.width}`, f])).values()],
+        recordFields: [
+          ...new Map(lists.flatMap((l) => l.recordFields).map((f) => [`${f.offset}:${f.width}`, f])).values(),
+        ],
+        globals: lists.some((l) => l.globals),
+      });
+      const key = (fields: Fields) =>
+        JSON.stringify(
+          [fields.partFields, fields.recordFields].map((items) => items.map((f) => `${f.offset}:${f.width}`).sort()),
+        );
+      let fields: Fields = { partFields: [], recordFields: [], globals: false };
+      let accepted = false;
+      for (let round = 0; round < 5; round++) {
+        summaries.clear();
+        const analyses = targets.map((target) => summarise(target));
+        const each = analyses.map((analysis) => ropeCallbackWrites([analysis]));
+        const union = merge([fields, ...each.filter((item): item is Fields => !!item)]);
+        if (round > 0 && each.every(Boolean) && key(union) === key(fields)) {
+          accepted = true;
+          break;
+        }
+        fields = union;
+        engineSummaries.set(query.address, ropeDispatchSummary(original, fields, analyses, 8));
+      }
+      if (!accepted) engineSummaries.set(query.address, original);
+      const at = helpers.findIndex((helper) => helper.address === query.address);
+      if (at >= 0) helpers[at] = engineSummaries.get(query.address)!;
+    }
+    summaries.clear();
+  }
   for (const [address, code] of codes)
     if (!summaries.has(address))
       summaries.set(address, {

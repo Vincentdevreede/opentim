@@ -66,6 +66,17 @@ describe("writes through ropes, belts and pulleys", () => {
     expect(final("referenced-by(part+0x66)", 0x14)?.kind).not.toBe("constant");
   });
 
+  it("keeps the caller's own fields when it passed its own part as the asking argument", () => {
+    const { final } = analyse({
+      ...fact,
+      partFields: [{ offset: 0x30, width: 16 }],
+      recordFields: [],
+      recordLinks: [0x66],
+      exceptArgument: 6,
+    });
+    expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
+  });
+
   it("keeps everything when the helper names no connected writes", () => {
     const { final } = analyse();
     expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
