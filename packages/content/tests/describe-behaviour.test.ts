@@ -306,8 +306,66 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(walkBehaviourRules(data, 39, [known(12, 0)], { branchDepth: 0 }).stop?.branches).toBeUndefined();
   });
 
-  it("does not branch on a deciding value that is not a plain input field", () => {
-    const hidden: Expression = { kind: "field", object: "part", offset: 8, width: 16, unresolved: true };
+  it("continues past a rule whose only unresolved part is a written value when the run covers every path", () => {
+    const unknownValue: Expression = { kind: "unknown", reason: "A scan result", width: 16 };
+    const step = {
+      ...rule(constant(1), test(12, "==", 0), [write(0x20, unknownValue)]),
+      confidence: "unresolved" as const,
+    };
+    const data = report([step, rule(field(12), test(12, "==", 1))]);
+    const settled = {
+      ...proof,
+      effectsComplete: true,
+      condition: { kind: "true" },
+      fields: [],
+      returnValue: constant(0),
+      confidence: "inferred",
+    };
+    Object.assign(data.routines[0]!, { uncertainties: [], outcomes: [settled] as never });
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x20, 5)]);
+    expect(walk).toMatchObject({ states: [0, 1, 1], status: "rest", confidence: "inferred" });
+    expect(walk.fields.find((field) => field.offset === 0x20)).toBeUndefined();
+    Object.assign(data.routines[0]!, { uncertainties: ["Back edge requires a loop invariant"] });
+    expect(walkBehaviourRules(data, 39, [known(12, 0)]).stop?.kind).toBe("effects");
+  });
+
+  it("branches on a value the same run computed without carrying it into later runs", () => {
+    const scanned: Expression = {
+      kind: "field",
+      object: "part after unresolved write at 0x50",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    const scan = (operator: string): Predicate => ({
+      kind: "compare",
+      left: scanned,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), scan("=="))),
+      rule(constant(2), both(test(12, "==", 0), scan("!="))),
+      rule(field(12), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      outcomes: [
+        { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+      ],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+      [[1, 1], "rest"],
+      [[2, 2], "rest"],
+    ]);
+  });
+
+  it("does not branch on an opaque deciding value", () => {
+    const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
     const guard = (operator: string): Predicate => ({
       kind: "compare",
       left: hidden,

@@ -331,6 +331,13 @@ Branches nest up to two decisions deep; deeper ones only repeat a rewritten test
 branch describes what happens if the level supplies that case, not what a loaded level does. In Even More 92 walks
 branch this way, 16 of them end in every branch.
 
+A rule whose only unresolved parts are the values it writes still fixes the state path when the run routine has no
+open uncertainty and every outcome has complete effects. The walk then forgets those fields and continues, with the
+rule counted as inferred for the path. A guard may also test a value the same run computed, like the mouse motor's
+step after its contact scan. Such a test can split a walk into branches, but it is not carried into later runs,
+because each run scans again. An opaque unknown in a guard, an unknown destination or a routine whose paths are not
+all analysed still stops the walk.
+
 The comparison report separates complete matches from actual code triggers, reset or documented stable endings,
 and conditional input cases. One-frame recordings are counted separately from animations. A missing compatible
 start is unavailable, not a successful empty prefix. Unknown starting conditions and repeated external writes cannot

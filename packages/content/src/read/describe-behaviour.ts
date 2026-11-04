@@ -482,6 +482,31 @@ function applyWrites(bindings: Bindings, writes: FieldWrite[]): Bindings {
   for (const write of writes) writeField(next, write.object, write.offset, valueOf(write.value, bindings));
   return next;
 }
+/**
+ * True when an expression or predicate contains an unknown value, or, unless `fields` is false, a reference to a field
+ * whose value an earlier unresolved write in the same routine replaced.
+ */
+function containsUnknown(value: Expression | Predicate, fields = true): boolean {
+  switch (value.kind) {
+    case "unknown":
+      return true;
+    case "field":
+      return fields && !!value.unresolved;
+    case "binary":
+      return containsUnknown(value.left, fields) || containsUnknown(value.right, fields);
+    case "table":
+      return containsUnknown(value.index, fields);
+    case "compare":
+      return containsUnknown(value.left, fields) || containsUnknown(value.right, fields);
+    case "and":
+      return value.terms.some((term) => containsUnknown(term, fields));
+    default:
+      return false;
+  }
+}
+/** A comparison whose only unknowns are fields the same run rewrote, like the result of a contact scan. */
+const runValuePredicate = (predicate: Predicate) =>
+  predicate.kind === "compare" && containsUnknown(predicate) && !containsUnknown(predicate, false);
 function completeRuleEffects(rule: WithUpdates, routine?: RoutineAnalysis): boolean {
   if (routine?.uncertainEffects !== true) return true;
   const matching =
@@ -807,6 +832,31 @@ export function walkBehaviourRules(
   }
   states.push(state.value);
   /**
+   * A rule whose only unresolved parts are written field values still fixes the state path when the routine's analysis
+   * covers every path with complete effects: those fields are forgotten, and its destination and guard are exact.
+   */
+  const settledRoutine =
+    !!routine &&
+    (routine.uncertainties ?? []).length === 0 &&
+    routine.uncertainEffects !== true &&
+    !!routine.outcomes?.length &&
+    routine.outcomes.every((outcome) => outcome.effectsComplete === true);
+  // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
+  // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
+  const settledPath = (rule: WithUpdates) =>
+    settledRoutine && !containsUnknown(rule.to) && !containsUnknown(rule.condition, false);
+  const pathFinding = (rule: WithUpdates): Finding =>
+    rule.confidence === "unresolved" && settledPath(rule)
+      ? {
+          confidence: "inferred",
+          evidence: rule.evidence,
+          assumptions: [
+            ...rule.assumptions,
+            "Fields this rule writes with unresolved values are forgotten; its destination and guard do not depend on them.",
+          ],
+        }
+      : rule;
+  /**
    * Follows each rule an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
    * fields may decide; the deciding terms then hold for the rest of that branch, as far as its own writes keep them.
    */
@@ -820,7 +870,10 @@ export function walkBehaviourRules(
     const deciding = guards
       .flatMap((rule) => predicateTerms(rule.condition))
       .filter((term) => predicateOf(term, bindings, constraints) === undefined);
-    if (!deciding.length || !deciding.every(inputPredicate)) return undefined;
+    // Input fields and values the run itself computed may decide. Only input tests carry over into later runs; the
+    // next run computes its own values again.
+    if (!deciding.length || !deciding.every((term) => inputPredicate(term) || runValuePredicate(term)))
+      return undefined;
     const seen = new Set<string>();
     const branches: { condition: Predicate; walk: BehaviourWalk }[] = [];
     for (const { rule, next } of outcomes) {
@@ -879,7 +932,7 @@ export function walkBehaviourRules(
         evidence: evidence(proof.evidence, ...unknownGuards.map((rule) => rule.evidence)),
       };
     }
-    if (candidates.some((rule) => rule.confidence === "unresolved")) {
+    if (candidates.some((rule) => rule.confidence === "unresolved" && !settledPath(rule))) {
       const description = `Frame ${current} reaches a call or other operation whose field effects remain unresolved.`;
       const expressions = candidates.flatMap((rule) => [
         rule.to,
@@ -947,7 +1000,7 @@ export function walkBehaviourRules(
     }
     if ((part as WithFrameCount).frameCount && next.destination.value >= (part as WithFrameCount).frameCount!)
       return { ...base("unresolved", "The next state has no known visible frame."), confidence: "unresolved" };
-    proof = finding([proof, ...candidates]);
+    proof = finding([proof, ...candidates.map(pathFinding)]);
     constraints = retainConstraints(
       candidates.every((rule) => completeRuleEffects(rule, routine)) ? constraints : [],
       candidates.flatMap((rule) => rule.updates ?? routine?.writes ?? []),
@@ -956,7 +1009,7 @@ export function walkBehaviourRules(
     );
     bindings = next.next;
     states.push(next.destination.value);
-    proofs.push(finding(candidates));
+    proofs.push(finding(candidates.map(pathFinding)));
     const id = walkSignature();
     const prior = seen.get(id);
     if (prior !== undefined) return base(prior === states.length - 2 ? "rest" : "loop", undefined, prior);
