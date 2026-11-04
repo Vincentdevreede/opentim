@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Frame as Bitmap } from "@opentim/resources";
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
 import LabCard from "../components/LabCard.vue";
 import LabEmpty from "../components/LabEmpty.vue";
@@ -15,6 +15,7 @@ import ImageDetail from "../components/sprites/ImageDetail.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
+import { readBehaviourInBackground, type BehaviourResult } from "../behaviour.ts";
 import type { Resource } from "../importer.ts";
 import { edition, program, resources, selected } from "../library.ts";
 import {
@@ -53,6 +54,30 @@ const { colorsOf, choose } = usePalettes();
 
 const loaded = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 const list = computed(() => loaded.value?.list);
+/** The names of the parts, by type. */
+const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p).name])));
+/** What the program does with the parts, read in the background once the parts come from the program. */
+const behaviour = shallowRef<BehaviourResult | { status: "reading" }>();
+watch(
+  () => [program.value?.data, loaded.value?.program] as const,
+  ([data, parts]) => {
+    behaviour.value = undefined;
+    if (!data || !parts) return;
+    behaviour.value = { status: "reading" };
+    void readBehaviourInBackground(data, parts).then((result) => {
+      if (program.value?.data === data) behaviour.value = result;
+    });
+  },
+  { immediate: true },
+);
+/** Why there is no behaviour to show, when there can't be any. */
+const noBehaviour = computed(() => {
+  const l = loaded.value;
+  if (!l || l.program) return undefined;
+  if (l.list.id === "tim2") return "The lab reads behaviour from the programs of TIM 1 and Even More only, so far.";
+  return l.problem ?? "The parts weren’t read from the program.";
+});
+
 // A link to a sprite of an image file opens that file.
 if (startSprite !== undefined) spritesView.value = "images";
 /** Which detail is shown: the selected part, or the selected image file. */
@@ -241,6 +266,10 @@ onBeforeUnmount(() => (crumb.value = []));
       v-if="view === 'parts' && list && currentPart"
       :part="currentPart"
       :sheet-sprites="sheetSprites"
+      :record="loaded?.records.get(currentPart.type)"
+      :behaviour="behaviour"
+      :no-behaviour="noBehaviour"
+      :part-names="partNames"
       :gallery-palette="AUTO"
       @open-sheet="openSheet"
       @view-bytes="(file) => viewBytes(resources.find((r) => r.name === file)!)"

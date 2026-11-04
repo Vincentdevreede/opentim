@@ -22,6 +22,89 @@ export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);
+
+export { decodeInstruction, operandText, type CodeAddress, type Instruction, type Operand } from "./read/x86.ts";
+export { readRoutineCode, type RoutineCode } from "./read/behaviour-code.ts";
+export {
+  readBehaviour,
+  analyseRoutine,
+  type BehaviourReport,
+  type PartBehaviour,
+  type RoutineAnalysis,
+  type CallbackReference,
+  type Confidence,
+  type Evidence,
+  type Expression,
+  type Predicate,
+  type FieldWrite,
+  type Transition,
+  type Counter,
+  type Trigger,
+} from "./read/behaviour.ts";
+export { findBehaviourTiming, type BehaviourTiming } from "./read/behaviour-timing.ts";
+export { discoverBehaviourLayout, type BehaviourLayout } from "./read/behaviour-layout.ts";
+export { measuredClips, validateMeasuredPart, type MeasurementCoverage } from "./read/behaviour-validation.ts";
+
+export {
+  describeBehaviour,
+  walkBehaviourRules,
+  type BehaviourDescription,
+  type PartBehaviourDescription,
+  type BehaviourWalk,
+  type AnimationDescription,
+  type AnimationTrigger,
+  type RestDescription,
+  type KnownField,
+  type FrameVisit,
+  type DescribedEffect,
+} from "./read/describe-behaviour.ts";
+export {
+  discoverEngineSummaries,
+  type EngineSummary,
+  type EngineWrite,
+  type EngineReturn,
+  type EnginePointer,
+} from "./read/behaviour-helpers.ts";
+export { discoverBehaviourLifecycle, type BehaviourLifecycle } from "./read/behaviour-lifecycle.ts";
+export { discoverCountedLoops, type LoopSummary } from "./read/behaviour-loops.ts";
+export type { RoutineOutcome } from "./read/behaviour.ts";
+export type { LayoutField, FieldContext, CallbackObjectSource } from "./read/behaviour-layout.ts";
+
+export { compareMeasuredWalks, type WalkMatch } from "./read/behaviour-walk-validation.ts";
+export { discoverListLoops, type ListLoopSummary } from "./read/behaviour-list-loops.ts";
+export { discoverLifecycleFieldRoles } from "./read/behaviour-lifecycle.ts";
+export {
+  validateDescribedWalks,
+  type DescribedWalkCoverage,
+  type DescribedWalkMatch,
+} from "./read/behaviour-walk-validation.ts";
+export { createEvidenceWriter, restoreEvidenceDocument, EVIDENCE_ENCODING } from "./read/behaviour-evidence.ts";
+export { discoverCreationDefaults, type CreationDefault, type CreationField } from "./read/behaviour-creation.ts";
+
+export type { GearPropagationRelation, GearAdvanceRelation, GearConflictValue } from "./read/behaviour-gear-model.ts";
+export type { GearRunContract } from "./read/behaviour-gear-run.ts";
+export { describeGear, type GearDescription, type GearDriverDescription } from "./read/describe-gear.ts";
+export type { GearScheduling } from "./read/behaviour-gear-scheduling.ts";
+export type { GearConnections } from "./read/behaviour-gear-connections.ts";
+export type { ContactBounds } from "./read/behaviour-contact-bounds.ts";
+export type { ContactSearch, ContactObjectWrite } from "./read/behaviour-contact-effects.ts";
+export type { ContactSegmentTest } from "./read/behaviour-contact-segment.ts";
+export type { ContactArithmetic } from "./read/behaviour-contact-arithmetic.ts";
+export type { ContactSelection } from "./read/behaviour-contact-selection.ts";
+export type { EmptyContactReturn } from "./read/behaviour-contact-empty.ts";
+export type {
+  ContactOutline,
+  OutlineFormulae,
+  OutlineContext,
+  OutlinePoint,
+} from "./read/behaviour-contact-outline.ts";
+export type { ContactSmallRelation } from "./read/behaviour-contact-small.ts";
+export type { ContactMotionAngle } from "./read/behaviour-contact-motion-angle.ts";
+
+export type { CollisionDispatch, CollisionTarget } from "./read/behaviour-collision-dispatch.ts";
+
+export type { ContactResponse } from "./read/behaviour-contact-response.ts";
+
 export {
   LEVEL_MAGIC,
   LevelError,
