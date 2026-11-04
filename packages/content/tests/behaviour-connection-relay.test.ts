@@ -49,7 +49,9 @@ describe("rope and belt helper summaries", () => {
     const summary = summaries.get(0)!;
     expect(summary.kind).toBe("rope-geometry");
     expect(summary.footprint).toMatchObject({ partMemoryComplete: true, preservesPartState: true });
-    expect(summary.writes.map((write) => [write.root, write.offset])).toEqual([
+    expect(
+      summary.writes.filter((write) => write.root === "argument").map((write) => [write.root, write.offset]),
+    ).toEqual([
       ["argument", 0x14],
       ["argument", 0x16],
       ["argument", 0x18],
@@ -80,7 +82,8 @@ describe("rope and belt helper summaries", () => {
     addConnectionSummaries(routine(), summaries, { ropeGeometry: [], ropeReverse: [], hitTest: [hitPattern] });
     const summary = summaries.get(0)!;
     expect(summary.kind).toBe("part-hit-test");
-    expect(summary.writes).toEqual([]);
+    expect(summary.writes.every((write) => write.root === "unknown")).toBe(true);
+    expect(summary.footprint.preservesArgumentMemory).toBe(false);
     expect(summary.connected?.partFields).toEqual([{ offset: 0x5a, width: 16 }]);
     expect(summary.connected?.recordFields).toEqual([
       { offset: 0x04, width: 16 },

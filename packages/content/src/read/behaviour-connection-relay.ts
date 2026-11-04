@@ -99,7 +99,7 @@ function connection(
     purpose,
     argumentOffset: 6,
     argumentKind: "object",
-    writes,
+    writes: [...writes, ...unknownWrites(code, [...partFields, ...recordFields])],
     returns: [],
     calls: code.calls.flatMap((call) => (call.target ? [call.target.address] : [])),
     returnConvention: { kind: "far", stackBytes: 0 },
@@ -114,6 +114,24 @@ function connection(
     },
     connected: { confidence: "inferred", evidence, assumptions, partFields, recordFields, recordLinks: RECORD_LINKS },
   };
+}
+
+/**
+ * Connected fields also as writes to an unknown object, so analyses that read only `writes` stay conservative: such a
+ * write never counts as preserving a field.
+ */
+function unknownWrites(code: RoutineCode, fields: Field[]): EngineWrite[] {
+  return fields.map((field) => ({
+    confidence: "inferred",
+    evidence: proof(code),
+    assumptions: [RECORDS],
+    root: "unknown",
+    path: [],
+    offset: field.offset,
+    width: field.width,
+    value: unknown("A part or record reached through a rope, belt or pulley may get a new value here.", field.width),
+    condition: { kind: "unknown", reason: "The field is written on some paths through the routine." },
+  }));
 }
 
 /** The distinct fields of several lists. */
@@ -139,6 +157,12 @@ function composite(
   const assumptions = [...new Set([RECORDS, CHAINS, ...callees.flatMap((callee) => callee.assumptions)])];
   const globals = callees.some((callee) => callee.footprint.unknownGlobalEffects?.length);
   const note = "A called notification may queue screen rectangles in global storage.";
+  const partFields = union(...callees.map((callee) => callee.connected?.partFields ?? []));
+  const recordFields = union(
+    ownRecordFields,
+    ...callees.map((callee) => callee.connected?.recordFields ?? []),
+    ...recordArguments.map((callee) => callee.writes.filter((write) => write.root === "argument")),
+  ).map(({ offset, width }) => ({ offset, width }));
   return {
     confidence: "inferred",
     evidence,
@@ -148,14 +172,15 @@ function composite(
     purpose,
     argumentOffset,
     argumentKind: "object",
-    writes: [],
+    writes: unknownWrites(code, [...partFields, ...recordFields]),
     returns: [],
     calls: code.calls.flatMap((call) => (call.target ? [call.target.address] : [])),
     returnConvention: { kind: "far", stackBytes: 0 },
     footprint: {
       complete: !globals,
       partMemoryComplete: true,
-      preservesArgumentMemory: true,
+      // A reached pulley can be the argument part itself.
+      preservesArgumentMemory: partFields.length === 0,
       preservesPartState: true,
       unknownEffects: globals ? [note] : [],
       unknownPartEffects: [],
@@ -165,12 +190,8 @@ function composite(
       confidence: "inferred",
       evidence,
       assumptions,
-      partFields: union(...callees.map((callee) => callee.connected?.partFields ?? [])),
-      recordFields: union(
-        ownRecordFields,
-        ...callees.map((callee) => callee.connected?.recordFields ?? []),
-        ...recordArguments.map((callee) => callee.writes.filter((write) => write.root === "argument")),
-      ).map(({ offset, width }) => ({ offset, width })),
+      partFields,
+      recordFields,
       recordLinks: RECORD_LINKS,
     },
   };
