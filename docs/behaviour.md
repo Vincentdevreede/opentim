@@ -373,6 +373,15 @@ has power and a belt that a new one lacks, so such a recording stays an input ca
 state-related fields a constructor sets (previous and saved state, step, control and trigger), so the zero words
 do not crowd out the bounded list of cases.
 
+## Writes through ropes, belts and pulleys
+
+Some helpers write beyond their argument: fields of parts they reach through ropes, belts or pulleys, and fields of
+the rope, belt and pulley records on the way. A summary names those in `connected`: the part fields, the record fields
+and the part fields that link to records (a belt at `0x54`, ropes at `0x66` and `0x68`). A caller forgets the named
+part fields on every tracked object, the owner included, because a reached part can be the owner. It forgets the
+record fields only on objects reached through those links, because the records are separate allocations. Every other
+field stays known, so the helper no longer makes the caller lose the owner's state and step.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

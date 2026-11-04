@@ -1645,6 +1645,35 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         preserve.add(offset);
       invalidateSelectedPartFields(engine.partGraph.fields, s, i, engine.evidence, preserve);
     }
+    if (engine.connected) {
+      // Parts reached through ropes, belts or pulleys may be the owner itself, so their fields are forgotten everywhere.
+      invalidateSelectedPartFields(
+        engine.connected.partFields,
+        s,
+        i,
+        engine.connected.evidence,
+        new Set(),
+        `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
+      );
+      // Rope, belt and pulley records are separate allocations; only objects reached through those links can be one.
+      const link = new RegExp(
+        `\\+0x(${engine.connected.recordLinks.map((offset) => offset.toString(16)).join("|")})\\)$`,
+      );
+      for (const key of [...s.memory.keys()]) {
+        const parts = key.split(":"),
+          width = Number(parts.pop()),
+          offset = Number(parts.pop()),
+          object = parts.join(":");
+        if (
+          link.test(object) &&
+          engine.connected.recordFields.some(
+            (field) => offset < field.offset + field.width / 8 && field.offset < offset + width / 8,
+          )
+        )
+          s.memory.delete(key);
+      }
+      s.assumptions = [...new Set([...s.assumptions, ...engine.connected.assumptions])];
+    }
     if (engine.globalObjectWrites?.length) {
       invalidateSelectedPartFields(
         engine.globalObjectWrites,

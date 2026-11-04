@@ -76,6 +76,17 @@ export interface EngineSummary extends Finding {
   contactSelection?: ContactSelection;
   contactSmall?: ContactSmallRelation;
   contactResponse?: ContactResponse;
+  /**
+   * What the routine may write beyond its argument: fields of parts it reaches through ropes, belts or pulleys, and
+   * fields of the rope, belt or pulley records reached through those links. A caller forgets these fields on every such
+   * object, the owner included for part fields, and keeps every other field.
+   */
+  connected?: Finding & {
+    partFields: { offset: number; width: number }[];
+    recordFields: { offset: number; width: number }[];
+    /** The part fields that point to records: a belt at 0x54, ropes at 0x66 and 0x68. */
+    recordLinks: number[];
+  };
   contactRotation?: ContactRotation;
   rotationScalar?: RotationScalar;
   contactResponseFirst?: ContactResponseFirst;
