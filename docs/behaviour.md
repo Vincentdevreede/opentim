@@ -518,6 +518,16 @@ and a last branch for any other value keeps the stop. Nothing is claimed about w
 For the teeter-totter the writers give 0 (its own run), 1 and -1 (its rope, a bounce, the windmill and the motors).
 In each recorded build 27 walks that stopped now reach the end in some of their branches.
 
+### Ways that lead to the same frame
+
+When several rules apply at a step and the walk can't tell which, it used to branch or stop. When they all lead to
+the same next frame, it now goes on with that frame and keeps only the field bits all of them agree on; a field they
+set differently is forgotten. That only drops knowledge, so it claims nothing false, and the frames the walk shows are
+the same for every way. In each recorded build 13 more walks end, and 2 more recorded animations match completely.
+
+Raising the branch depth from two to three or four was measured too: it changes no walk's ending and makes the
+descriptions half again to twice as large, so it stays at two.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

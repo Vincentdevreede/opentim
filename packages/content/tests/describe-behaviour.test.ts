@@ -420,6 +420,21 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(branches[2]!.walk.stop?.kind).toBe("state");
   });
 
+  it("goes on without a branch when the rules that apply all lead to the same frame", () => {
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), test(0x40, "==", 0)), [write(0x30, constant(1))]),
+      rule(constant(1), both(test(12, "==", 0), test(0x40, "!=", 0)), [write(0x30, constant(2))]),
+      rule(field(12), test(12, "==", 1)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.stop).toBeUndefined();
+    expect(walk.states.slice(0, 2)).toEqual([0, 1]);
+    expect(walk.status).toBe("rest");
+    expect(walk.assumptions).toContain(
+      "The rules that apply here lead to the same next frame; the fields they set differently are forgotten.",
+    );
+  });
+
   it("does not branch on an opaque deciding value", () => {
     const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
     const guard = (operator: string): Predicate => ({

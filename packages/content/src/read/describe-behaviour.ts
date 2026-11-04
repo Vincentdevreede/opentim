@@ -478,6 +478,21 @@ function fieldDefinitions(
     for (const item of transition.updates ?? []) add(item.object, item.offset, item.width);
   return [...fields.values()];
 }
+/** The field bits several bindings agree on; a field they set differently is left out. */
+function agreedBindings(list: Bindings[]): Bindings {
+  const [first, ...rest] = list;
+  const agreed: Bindings = new Map();
+  for (const [key, bits] of first!) {
+    let mask = bits.mask;
+    for (const other of rest) {
+      const item = other.get(key);
+      mask = item && item.width === bits.width ? mask & item.mask & ~(item.value ^ bits.value) : 0;
+      if (!mask) break;
+    }
+    if (mask) agreed.set(key, { value: bits.value & mask, mask, width: bits.width });
+  }
+  return agreed;
+}
 function fieldsOf(
   bindings: Bindings,
   definitions: { object: string; offset: number; width: number }[],
@@ -1175,8 +1190,19 @@ export function walkBehaviourRules(
         ? { ...stopped, stop: { ...stopped.stop!, branches: [...byValue, otherValue(fields[0]!, producers, stopped)] } }
         : stopped;
     }
-    const next = outcomes[0]!;
-    if (outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
+    let next = outcomes[0]!;
+    // Rules that all lead to the same frame need no branch: the walk goes on with what they agree on.
+    const sameFrame =
+      outcomes.length > 1 &&
+      outcomes.every((outcome) => known(outcome.destination) && outcome.destination.value === next.destination.value);
+    if (sameFrame && outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
+      next = { ...next, next: agreedBindings(outcomes.map((outcome) => outcome.next)) };
+      proof = finding(
+        [proof],
+        ["The rules that apply here lead to the same next frame; the fields they set differently are forgotten."],
+      );
+    }
+    if (!sameFrame && outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
       const branches = branchesAt(outcomes, unknownGuards, run);
       return {
         ...base(
