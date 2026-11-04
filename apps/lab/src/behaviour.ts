@@ -88,9 +88,10 @@ export interface WalkPath {
   frames: number[];
   /**
    * How it ends: it rests on its last frame, loops back to the frame at `loopFrom`, runs past the steps the analysis
-   * follows, holds or cycles a frame it is given, splits on a condition, or stops where the analysis can't follow.
+   * follows, holds or cycles a frame it is given, continues like another branch of the same walk, splits on a
+   * condition, or stops where the analysis can't follow.
    */
-  end: "rest" | "loop" | "limit" | "hold" | "cycle" | "branches" | "stop";
+  end: "rest" | "loop" | "limit" | "hold" | "cycle" | "joins" | "branches" | "stop";
   /** For a loop, the index in `frames` it goes back to. */
   loopFrom?: number;
   /** For a cycle, how many frames it goes through and in which direction. */
@@ -510,16 +511,23 @@ function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0
             ? "loop"
             : walk.status === "limit"
               ? "limit"
-              : walk.stop?.branches?.length
-                ? "branches"
-                : "stop";
+              : walk.status === "joins"
+                ? "joins"
+                : walk.stop?.branches?.length
+                  ? "branches"
+                  : "stop";
   return {
     confidence: walk.confidence,
     frames,
     end,
     loopFrom: walk.status === "loop" ? walk.loopStart : undefined,
     cycle: p?.kind === "cycle" ? { period: p.period, direction: p.direction } : undefined,
-    reason: end === "stop" || end === "branches" ? (walk.stop?.description ?? walk.reason) : undefined,
+    reason:
+      end === "stop" || end === "branches"
+        ? (walk.stop?.description ?? walk.reason)
+        : end === "joins"
+          ? walk.reason
+          : undefined,
     branches,
   };
 }

@@ -357,5 +357,6 @@ describe("endText", () => {
     expect(endText(path("loop", [0, 1, 2], { loopFrom: 1 }))).toBe("loops to 1");
     expect(endText(path("cycle", [], { cycle: { period: 4, direction: -1 } }))).toBe("cycles 4 frames down");
     expect(endText(path("stop", [3]))).toBe("stops");
+    expect(endText(path("joins", [2]))).toBe("continues like another way");
   });
 });

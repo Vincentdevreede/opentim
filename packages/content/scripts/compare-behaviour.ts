@@ -141,7 +141,9 @@ function writeDescriptionMarkdown(path: string, description: BehaviourDescriptio
             ? walk.reason
             : walk.status === "loop"
               ? "The walk repeats."
-              : "The ending is stable.";
+              : walk.status === "joins"
+                ? "The walk continues like another branch."
+                : "The ending is stable.";
         const text = `${trigger} ${states} ${stopping ?? ""}`;
         if (seen.has(text)) continue;
         seen.add(text);

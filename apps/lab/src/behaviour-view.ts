@@ -381,6 +381,8 @@ export function endText(path: WalkPath): string {
         "  ",
         " ",
       );
+    case "joins":
+      return "continues like another way";
     case "branches":
       return `${path.branches.length} ways`;
     case "stop":

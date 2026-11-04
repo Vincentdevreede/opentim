@@ -364,6 +364,42 @@ describe("descriptions from extracted behaviour rules", () => {
     ]);
   });
 
+  it("ends a branch that reaches a state another branch of the same walk already follows", () => {
+    const scanned: Expression = {
+      kind: "field",
+      object: "part after unresolved write at 0x50",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    const scan = (operator: string): Predicate => ({
+      kind: "compare",
+      left: scanned,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), scan("=="))),
+      rule(constant(2), both(test(12, "==", 0), scan("!="))),
+      rule(constant(2), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      outcomes: [
+        { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+      ],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    // The first branch goes 1 then 2 and holds there; the second starts at 2, which the first already follows.
+    expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+      [[1, 2, 2], "rest"],
+      [[2], "joins"],
+    ]);
+  });
+
   it("walks each starting state a partly known seed allows, keeping only states with a frame", () => {
     const data = report(
       [rule(constant(1), test(12, "==", 0)), rule(field(12), test(12, "==", 1)), rule(field(12), test(12, "==", 2))],

@@ -33,7 +33,8 @@ export interface FrameVisit extends Finding {
 }
 
 export interface BehaviourWalk extends Finding {
-  status: "rest" | "loop" | "unresolved" | "limit";
+  /** `joins` ends a branch that reaches a state another branch of the same walk already follows from there on. */
+  status: "rest" | "loop" | "unresolved" | "limit" | "joins";
   states: number[];
   /** A proved identity rule can hold an unspecified input frame without selecting a number for it. */
   parameterised?:
@@ -841,8 +842,15 @@ export function walkBehaviourRules(
   report: BehaviourReport,
   partType: number,
   seed: KnownField[],
-  options: { maxRunCalls?: number; condition?: Predicate; branchDepth?: number } = {},
+  options: {
+    maxRunCalls?: number;
+    condition?: Predicate;
+    branchDepth?: number;
+    /** The states the walks of one tree have followed, shared by its branches, with the frame each was at. */
+    explored?: Map<string, number>;
+  } = {},
 ): BehaviourWalk {
+  const explored = options.explored ?? new Map<string, number>();
   const part = report.parts.find((item) => item.type === partType);
   if (!part) throw new Error(`No behaviour for part type ${partType}`);
   const stateOffset = stateOffsetOf(report);
@@ -914,6 +922,7 @@ export function walkBehaviourRules(
         maxRunCalls: options.maxRunCalls,
         condition: { kind: "and", terms: [...constraints, condition] },
         branchDepth: depth - 1,
+        explored,
       });
       return { condition, walk };
     });
@@ -969,6 +978,7 @@ export function walkBehaviourRules(
         maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
         condition: { kind: "and", terms: [...constraints, condition] },
         branchDepth: depth - 1,
+        explored,
       });
       return { condition, walk };
     });
@@ -1135,13 +1145,27 @@ export function walkBehaviourRules(
         maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
         condition: { kind: "and", terms: kept },
         branchDepth: depth - 1,
+        explored,
       });
       branches.push({ condition: rule.condition, walk });
     }
     return branches.length > 1 ? branches : undefined;
   };
   const walkSignature = () => JSON.stringify([signature(bindings), constraints]);
-  const seen = new Map([[walkSignature(), 0]]);
+  const joined = (id: string): BehaviourWalk | undefined =>
+    explored.has(id)
+      ? {
+          ...base(
+            "joins",
+            `From frame ${explored.get(id)} on, it continues exactly like another branch of the same walk, which follows it from there.`,
+          ),
+        }
+      : undefined;
+  const startId = walkSignature();
+  const joinedAtStart = options.explored ? joined(startId) : undefined;
+  if (joinedAtStart) return joinedAtStart;
+  explored.set(startId, states.at(-1)!);
+  const seen = new Map([[startId, 0]]);
   const max = options.maxRunCalls ?? 256;
   for (let run = 0; run < max; run++) {
     const current = states.at(-1)!;
@@ -1274,6 +1298,9 @@ export function walkBehaviourRules(
     const id = walkSignature();
     const prior = seen.get(id);
     if (prior !== undefined) return base(prior === states.length - 2 ? "rest" : "loop", undefined, prior);
+    const join = joined(id);
+    if (join) return join;
+    explored.set(id, states.at(-1)!);
     seen.set(id, states.length - 1);
   }
   return { ...base("limit", `The walk reached its limit of ${max} run invocations.`), confidence: "unresolved" };
@@ -1872,6 +1899,7 @@ function walkWords(walk: BehaviourWalk): string {
   const prefix = labels.join(", ") + (walk.frames.length > 12 ? ", followed by the remaining recorded frames" : "");
   if (walk.status === "rest") return `Shows ${prefix}, then holds the last frame.`;
   if (walk.status === "loop") return `Shows ${prefix}, then repeats its proved cycle.`;
+  if (walk.status === "joins") return `Shows ${prefix}, then continues like another branch of the same walk.`;
   return `Known prefix: ${prefix}. ${walk.reason ?? "The continuation remains unresolved."}`;
 }
 function triggerWords(trigger: AnimationTrigger, report: BehaviourReport): string {

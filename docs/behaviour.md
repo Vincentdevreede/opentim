@@ -529,6 +529,12 @@ Within a branch, the condition of its rule holds. A part field that condition te
 that number before the step, and the step and its next frame are worked out again with it, like a counter that
 counts down from a tested value. That removes 48 of the stops at the branch depth limit in Even More.
 
+The branches of one walk also share what they have followed. A branch that reaches a state, with the same known
+fields and kept conditions, that another branch of the same walk already follows from there on ends as `joins`: it
+continues exactly like that branch, so it isn't followed twice. The lab shows it as "continues like another way". In
+each recorded build 3 more walks end in every branch. With joins, a branch depth of four adds only 2 walks in Even
+More for descriptions 40% larger, so the depth stays at two.
+
 Raising the branch depth from two to three or four was measured too: it changes no walk's ending and makes the
 descriptions half again to twice as large, so it stays at two.
 
