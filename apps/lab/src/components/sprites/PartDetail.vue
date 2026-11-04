@@ -2,7 +2,7 @@
 import type { Part, Placement, TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, watch, watchEffect } from "vue";
-import type { BehaviourResult } from "../../behaviour.ts";
+import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import { outlineShape } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { compose, drawOrder, partName, sheetFile, type SpriteOf } from "../../parts.ts";
@@ -51,6 +51,8 @@ const props = defineProps<{
   record?: TypeRecord;
   /** The analysis of what the program does with the parts. */
   behaviour?: BehaviourResult | { status: "reading" };
+  /** The walks from the parts' triggers, read after the rest. */
+  walks?: WalksResult | { status: "reading" };
   /** Why there is no analysis, when there can't be one. */
   noBehaviour?: string;
   /** The names of the parts, by type. */
@@ -445,6 +447,7 @@ const sideTabs = computed(() => [
         <BehaviourPanel
           v-if="side === 'behaviour'"
           :result="behaviour"
+          :walks="walks"
           :unavailable="noBehaviour"
           :type="part.type"
           :frames="part.frames.map((f) => f.id)"

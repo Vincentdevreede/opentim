@@ -5,7 +5,10 @@
 
 import { describeGear } from "@opentim/content";
 import type {
+  AnimationDescription,
+  BehaviourDescription,
   BehaviourReport,
+  BehaviourWalk,
   Confidence,
   Evidence,
   Expression,
@@ -73,6 +76,42 @@ export interface Write extends Finding {
   target: string;
   value: string;
   condition: string;
+}
+
+/** Where a walk starts: from how the part was placed, after it is created, from a resting state, or while it runs. */
+export type WalkStart = AnimationDescription["initial"];
+
+/** The frames a part shows after a trigger, as far as the analysis can follow them, and how that ends. */
+export interface WalkPath {
+  confidence: Confidence;
+  /** The states it shows in order, which are its frames. */
+  frames: number[];
+  /**
+   * How it ends: it rests on its last frame, loops back to the frame at `loopFrom`, runs past the steps the analysis
+   * follows, holds or cycles a frame it is given, splits on a condition, or stops where the analysis can't follow.
+   */
+  end: "rest" | "loop" | "limit" | "hold" | "cycle" | "branches" | "stop";
+  /** For a loop, the index in `frames` it goes back to. */
+  loopFrom?: number;
+  /** For a cycle, how many frames it goes through and in which direction. */
+  cycle?: { period: number; direction: 1 | -1 };
+  /** Why it stops or splits, in the analysis's own words. */
+  reason?: string;
+  /** When an unknown input decides between rules: the path under each condition, as the terms of that condition. */
+  branches: { condition: string[]; path: WalkPath }[];
+}
+
+/** What follows one trigger: its name, where it starts, under which condition, and the path of frames. */
+export interface Walk extends WalkPath {
+  /** The short name of the trigger, like `run` or `bounce`. */
+  trigger: string;
+  start: WalkStart;
+  /** The terms of the condition the trigger needs; empty when it always runs. */
+  condition: string[];
+  /** The trigger in the analysis's own words. */
+  about: string;
+  /** What the analysis says about the walk as a whole. */
+  description?: string;
 }
 
 export interface PartSummary {
@@ -440,10 +479,87 @@ function summarisePart(
   };
 }
 
+/** How deep branches go in the summary: a branch of a branch, and no further. */
+const BRANCH_DEPTH = 2;
+
+/** The terms of a condition as text, so the tab can tidy them and drop the ones that say nothing. */
+function termsOf(p: Predicate | undefined, write: ReturnType<typeof writer>): string[] {
+  if (!p || p.kind === "true") return [];
+  if (p.kind === "and") return p.terms.flatMap((t) => termsOf(t, write));
+  return [write.predicate(p)];
+}
+
+function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0): WalkPath {
+  const frames = walk.frames.map((f) => f.state);
+  const branches =
+    depth < BRANCH_DEPTH
+      ? (walk.stop?.branches ?? []).map((b) => ({
+          condition: termsOf(b.condition, write),
+          path: pathOf(b.walk, write, depth + 1),
+        }))
+      : [];
+  const p = walk.parameterised;
+  const end: WalkPath["end"] =
+    p?.kind === "hold"
+      ? "hold"
+      : p?.kind === "cycle"
+        ? "cycle"
+        : walk.status === "rest"
+          ? "rest"
+          : walk.status === "loop"
+            ? "loop"
+            : walk.status === "limit"
+              ? "limit"
+              : walk.stop?.branches?.length
+                ? "branches"
+                : "stop";
+  return {
+    confidence: walk.confidence,
+    frames,
+    end,
+    loopFrom: walk.status === "loop" ? walk.loopStart : undefined,
+    cycle: p?.kind === "cycle" ? { period: p.period, direction: p.direction } : undefined,
+    reason: end === "stop" || end === "branches" ? (walk.stop?.description ?? walk.reason) : undefined,
+    branches,
+  };
+}
+
+/** The walks of a part, one for each trigger and starting case the analysis follows. */
+function walksOf(animations: readonly AnimationDescription[], write: ReturnType<typeof writer>): Walk[] {
+  return animations.map((a) => ({
+    ...pathOf(a.walk, write),
+    trigger:
+      a.trigger.kind === "run" || a.trigger.kind === "input-case"
+        ? "run"
+        : a.trigger.kind === "related-write"
+          ? // Another part's routine writes this one, like "A recorded effect of explosion".
+            a.trigger.name.replace(/^A recorded effect of /, "by ")
+          : roleOf(a.trigger.name),
+    start: a.initial,
+    condition: termsOf(a.inputCondition ?? a.trigger.condition, write),
+    about: a.trigger.name,
+    description: a.description,
+  }));
+}
+
+/** The writer for a part: with the names of the gear's neighbours when it is a gear. */
+function partWriter(part: PartBehaviour, fields: readonly { offset: number; name: string }[]) {
+  const own = new Map(gearSlots(part).map((s) => [s.offset, s.name]));
+  return writer(fields, own);
+}
+
+/** The walks from the triggers of each part, by type, from the report's description. */
+export function summariseWalks(report: BehaviourReport, description: BehaviourDescription): Record<number, Walk[]> {
+  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const animations = new Map(description.parts.map((d) => [d.type, d.animations]));
+  return Object.fromEntries(
+    report.parts.map((p) => [p.type, walksOf(animations.get(p.type) ?? [], partWriter(p, fields))]),
+  );
+}
+
 /** The summary of a behaviour report, for the lab. */
 export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   const fields = report.layout.fields.map(({ offset, name, confidence }) => ({ offset, name, confidence }));
-  const write = writer(fields);
   const stateOffset = fields.find((f) => f.name === "state")?.offset ?? 0x0c;
   const { pit, cycle } = report.timing;
   const timing: Timing = {
@@ -459,10 +575,7 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
     fields,
     timing,
     parts: Object.fromEntries(
-      report.parts.map((p) => {
-        const own = new Map(gearSlots(p).map((s) => [s.offset, s.name]));
-        return [p.type, summarisePart(p, own.size ? writer(fields, own) : write, stateOffset, report)];
-      }),
+      report.parts.map((p) => [p.type, summarisePart(p, partWriter(p, fields), stateOffset, report)]),
     ),
     assumptions: report.assumptions,
   };
@@ -485,34 +598,63 @@ export function statesText(states: readonly number[] | null): string {
 export type BehaviourResult =
   { status: "done"; summary: BehaviourSummary; seconds: number } | { status: "error"; message: string };
 
+/** The walks of every part, by type, which take a few more seconds to read after the rest. */
+export type WalksResult =
+  { status: "done"; walks: Record<number, Walk[]>; seconds: number } | { status: "error"; message: string };
+
 /** What the worker is asked: the program as it ships, and what was read from it before. */
 export interface BehaviourRequest {
   program: Uint8Array;
   parts: ProgramParts;
 }
 
-/** The behaviour of a program, once per program: a later call gets the same answer, unless the read failed. */
-const results = new WeakMap<Uint8Array, Promise<BehaviourResult>>();
+/** What the worker answers: first the behaviour, then the walks. */
+export type BehaviourMessage = { kind: "behaviour"; result: BehaviourResult } | { kind: "walks"; result: WalksResult };
 
-/** Reads the behaviour of a program in a worker. */
-export function readBehaviourInBackground(program: Uint8Array, parts: ProgramParts): Promise<BehaviourResult> {
-  let result = results.get(program);
-  if (!result) {
-    result = new Promise((resolve) => {
-      const worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
-      const done = (r: BehaviourResult) => {
-        resolve(r);
+/** The behaviour and the walks of a program, once per program: a later call gets the same answers, unless one failed. */
+const results = new WeakMap<Uint8Array, { result: Promise<BehaviourResult>; walks: Promise<WalksResult> }>();
+
+/**
+ * Reads the behaviour of a program in a worker, then the walks from its triggers. The behaviour comes first, so it can
+ * show while the walks are still being read.
+ */
+export function readBehaviourInBackground(
+  program: Uint8Array,
+  parts: ProgramParts,
+): { result: Promise<BehaviourResult>; walks: Promise<WalksResult> } {
+  let reading = results.get(program);
+  if (!reading) {
+    let resolveResult!: (r: BehaviourResult) => void;
+    let resolveWalks!: (r: WalksResult) => void;
+    reading = {
+      result: new Promise((resolve) => (resolveResult = resolve)),
+      walks: new Promise((resolve) => (resolveWalks = resolve)),
+    };
+    const worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
+    const stop = (message: string) => {
+      resolveResult({ status: "error", message });
+      resolveWalks({ status: "error", message });
+      worker.terminate();
+    };
+    worker.onmessage = ({ data }: MessageEvent<BehaviourMessage>) => {
+      if (data.kind === "behaviour") {
+        resolveResult(data.result);
+        if (data.result.status === "error") stop(data.result.message);
+      } else {
+        resolveWalks(data.result);
         worker.terminate();
-      };
-      worker.onmessage = ({ data }: MessageEvent<BehaviourResult>) => done(data);
-      worker.onerror = (e) => done({ status: "error", message: e.message || "The analysis stopped." });
-      worker.postMessage({ program, parts } satisfies BehaviourRequest);
-    });
-    results.set(program, result);
+      }
+    };
+    // Settling a promise again does nothing, so a failure after the behaviour came only fails the walks.
+    worker.onerror = (e) => stop(e.message || "The analysis stopped.");
+    worker.postMessage({ program, parts } satisfies BehaviourRequest);
+    results.set(program, reading);
     // A failed read isn't kept, so a later call tries again.
-    void result.then((r) => {
-      if (r.status === "error") results.delete(program);
-    });
+    const forget = (r: { status: string }) => {
+      if (r.status === "error" && results.get(program) === reading) results.delete(program);
+    };
+    void reading.result.then(forget);
+    void reading.walks.then(forget);
   }
-  return result;
+  return reading;
 }

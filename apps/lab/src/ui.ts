@@ -19,8 +19,8 @@ export const dragging = ref(false);
 /** The id of the part selected on the Parts page. */
 export const selectedPart = ref<string>();
 
-/** How the behaviour tab lays out a part: by its routines, or by the states a change starts from. */
-export const behaviourLayout = ref<"routine" | "state">("routine");
+/** How the behaviour tab lays out a part: by its routines, by the states a change starts from, or by the walk from each trigger. */
+export const behaviourLayout = ref<"routine" | "state" | "walk">("routine");
 
 /** The sound selected on the Audio page: a bank's file name and the sound's id, or a sample's file name. */
 export const selectedSound = ref<string>();

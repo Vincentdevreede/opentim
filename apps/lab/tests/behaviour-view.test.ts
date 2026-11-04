@@ -1,8 +1,9 @@
 import type { Expression } from "@opentim/content";
 import { describe, expect, it } from "vitest";
-import { valueForState, writer, type Change, type PartSummary } from "../src/behaviour.ts";
+import { valueForState, writer, type Change, type PartSummary, type Walk } from "../src/behaviour.ts";
 import {
   changeRows,
+  endText,
   outlineShape,
   outlineSides,
   readTerm,
@@ -13,6 +14,7 @@ import {
   writeRows,
   tidyTerm,
   tidyTerms,
+  walkGroups,
 } from "../src/behaviour-view.ts";
 
 const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
@@ -285,5 +287,75 @@ describe("outlineShape", () => {
         { width: 8, height: 8 },
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("walkGroups", () => {
+  const walk = (
+    trigger: string,
+    start: Walk["start"],
+    frames: number[],
+    condition: string[],
+    more: Partial<Walk> = {},
+  ): Walk => ({
+    confidence: "inferred",
+    frames,
+    end: "rest",
+    branches: [],
+    trigger,
+    start,
+    condition,
+    about: trigger,
+    ...more,
+  });
+
+  it("puts walks that follow the same path into one row, with the terms they share and what each adds", () => {
+    const [group] = walkGroups([
+      walk("run", "run-guard", [0, 1], ["stateDelta != 0", "state == 0"]),
+      walk("run", "run-guard", [0, 1], ["stateDelta != 0", "state == 1"]),
+    ]);
+    expect(group!.rows).toHaveLength(1);
+    expect(group!.rows[0]).toMatchObject({ shared: ["stateDelta != 0"], variants: [["state == 0"], ["state == 1"]] });
+  });
+
+  it("lists run first, and the walks of a trigger in the order they start", () => {
+    const groups = walkGroups([
+      walk("bounce", "reset", [], []),
+      walk("run", "run-guard", [2], []),
+      walk("run", "reset", [0], []),
+    ]);
+    expect(groups.map((g) => g.trigger)).toEqual(["run", "bounce"]);
+    expect(groups[0]!.rows.map((r) => r.start)).toEqual(["reset", "run-guard"]);
+  });
+
+  it("tidies the conditions of branches", () => {
+    const [group] = walkGroups([
+      walk("run", "reset", [], [], {
+        end: "branches",
+        branches: [
+          {
+            condition: ["state == 0", "0 == 0"],
+            path: { confidence: "inferred", frames: [0], end: "stop", branches: [] },
+          },
+        ],
+      }),
+    ]);
+    expect(group!.rows[0]!.path.branches[0]!.condition).toEqual(["state == 0"]);
+  });
+});
+
+describe("endText", () => {
+  const path = (end: Walk["end"], frames: number[], more = {}) => ({
+    confidence: "inferred" as const,
+    frames,
+    end,
+    branches: [],
+    ...more,
+  });
+  it("says how a path ends in a few words", () => {
+    expect(endText(path("rest", [0, 1]))).toBe("rests");
+    expect(endText(path("loop", [0, 1, 2], { loopFrom: 1 }))).toBe("loops to 1");
+    expect(endText(path("cycle", [], { cycle: { period: 4, direction: -1 } }))).toBe("cycles 4 frames down");
+    expect(endText(path("stop", [3]))).toBe("stops");
   });
 });

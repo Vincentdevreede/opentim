@@ -1,16 +1,26 @@
-/** Reads the behaviour of the parts away from the page, because it takes seconds. */
+/** Reads the behaviour of the parts away from the page, because it takes seconds, and then the walks from them. */
 
-import { readBehaviour } from "@opentim/content";
-import { summariseBehaviour, type BehaviourRequest, type BehaviourResult } from "./behaviour.ts";
+import { describeBehaviour, readBehaviour, type BehaviourReport } from "@opentim/content";
+import { summariseBehaviour, summariseWalks, type BehaviourMessage, type BehaviourRequest } from "./behaviour.ts";
+
+const post = (message: BehaviourMessage) => (self as unknown as Worker).postMessage(message);
 
 self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
-  const started = performance.now();
-  let result: BehaviourResult;
+  let started = performance.now();
+  let report: BehaviourReport;
   try {
-    const summary = summariseBehaviour(readBehaviour(data.program, data.parts));
-    result = { status: "done", summary, seconds: (performance.now() - started) / 1000 };
+    report = readBehaviour(data.program, data.parts);
+    const summary = summariseBehaviour(report);
+    post({ kind: "behaviour", result: { status: "done", summary, seconds: (performance.now() - started) / 1000 } });
   } catch (error) {
-    result = { status: "error", message: (error as Error).message };
+    post({ kind: "behaviour", result: { status: "error", message: (error as Error).message } });
+    return;
   }
-  (self as unknown as Worker).postMessage(result);
+  started = performance.now();
+  try {
+    const walks = summariseWalks(report, describeBehaviour(report));
+    post({ kind: "walks", result: { status: "done", walks, seconds: (performance.now() - started) / 1000 } });
+  } catch (error) {
+    post({ kind: "walks", result: { status: "error", message: (error as Error).message } });
+  }
 };

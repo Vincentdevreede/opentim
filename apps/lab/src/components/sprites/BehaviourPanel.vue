@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
-import type { BehaviourResult } from "../../behaviour.ts";
-import { outlineSides, routineGroups, stateGroups, type ChangeRow, type WriteRow } from "../../behaviour-view.ts";
+import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
+import {
+  outlineSides,
+  routineGroups,
+  stateGroups,
+  walkGroups,
+  type ChangeRow,
+  type WriteRow,
+} from "../../behaviour-view.ts";
 import { behaviourLayout } from "../../ui.ts";
 import LabAlert from "../LabAlert.vue";
 import LabChip from "../LabChip.vue";
@@ -14,12 +21,15 @@ import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
 import BehaviourRow from "./BehaviourRow.vue";
+import BehaviourWalk from "./BehaviourWalk.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
-/** What the program does with a part, by routine or by the state a change starts from. */
+/** What the program does with a part, by routine, by the state a change starts from, or by the walk from a trigger. */
 const props = defineProps<{
   /** The analysis of the loaded program; undefined while it hasn't started. */
   result?: BehaviourResult | { status: "reading" };
+  /** The walks from the parts' triggers, which come after the rest. */
+  walks?: WalksResult | { status: "reading" };
   /** Why there is no analysis, when there can't be one. */
   unavailable?: string;
   type: number;
@@ -35,6 +45,7 @@ const emit = defineEmits<{ showFrame: [id: number] }>();
 const LAYOUTS = [
   { value: "routine" as const, label: "By routine" },
   { value: "state" as const, label: "By state" },
+  { value: "walk" as const, label: "By walk" },
 ];
 /** What a routine is likely for, from where the program calls it. */
 const ROLES: Record<string, string> = {
@@ -50,6 +61,13 @@ const summary = computed(() => (props.result?.status === "done" ? props.result.s
 const part = computed(() => summary.value?.parts[props.type]);
 const routines = computed(() => (part.value ? routineGroups(part.value) : []));
 const states = computed(() => (part.value ? stateGroups(part.value) : []));
+const walkList = computed(() => {
+  const w = props.walks?.status === "done" ? props.walks.walks[props.type] : undefined;
+  return w ? walkGroups(w) : [];
+});
+const walkCount = (rows: { variants: unknown[] }[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
+/** Whether a walk starts from the frame on the stage. */
+const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
 const sides = computed(() => (part.value ? outlineSides(part.value) : undefined));
 const draws = computed(() => routines.value.flatMap((g) => g.draws));
 const gear = computed(() => part.value?.gear);
@@ -281,6 +299,44 @@ const more = computed(() => {
             </template>
           </div>
         </section>
+      </div>
+
+      <div v-else-if="behaviourLayout === 'walk'" class="flex flex-col">
+        <p v-if="!props.walks || props.walks.status === 'reading'" class="flex items-center gap-2 text-muted">
+          <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
+          Following the frames from each trigger. This takes a few more seconds.
+        </p>
+        <LabAlert v-else-if="props.walks.status === 'error'" title="Couldn’t follow the walks">
+          <span class="font-mono text-meta break-words">{{ props.walks.message }}</span>
+        </LabAlert>
+        <p v-else-if="!walkList.length" class="text-muted">The analysis follows no walk for this part.</p>
+        <div v-else class="-mx-3 flex flex-col">
+          <section v-for="g in walkList" :key="g.trigger" class="flex flex-col">
+            <LabListRow :expanded="!closed.has(`walk ${g.trigger}`)" @click="toggle(`walk ${g.trigger}`)">
+              <span class="font-mono font-semibold text-ink">{{ g.trigger }}</span>
+              <template #end>
+                <LabChip tone="accent"
+                  >{{ walkCount(g.rows) }} {{ walkCount(g.rows) === 1 ? "walk" : "walks" }}</LabChip
+                >
+                <LabChip v-if="g.rows.length < walkCount(g.rows)" tone="faint">{{ g.rows.length }} paths</LabChip>
+              </template>
+            </LabListRow>
+            <div
+              v-if="!closed.has(`walk ${g.trigger}`)"
+              class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
+            >
+              <BehaviourWalk
+                v-for="row in g.rows"
+                :key="row.key"
+                :row="row"
+                :frames="frames"
+                :sides="sides"
+                :highlight="startsHere(row.path.frames)"
+                @show-frame="emit('showFrame', $event)"
+              />
+            </div>
+          </section>
+        </div>
       </div>
 
       <div v-else class="flex flex-col">

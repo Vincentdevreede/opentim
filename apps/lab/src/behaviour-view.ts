@@ -4,7 +4,15 @@
  */
 
 import type { Confidence } from "@opentim/content";
-import { statesText, type Change, type PartSummary, type Write } from "./behaviour.ts";
+import {
+  statesText,
+  type Change,
+  type PartSummary,
+  type Walk,
+  type WalkPath,
+  type WalkStart,
+  type Write,
+} from "./behaviour.ts";
 
 /** The least sure of a few findings. */
 export const weakest = (list: readonly Confidence[]): Confidence =>
@@ -292,3 +300,98 @@ export function stateGroups(part: PartSummary): { fromText: string; from: number
   const order = (from: number[] | null) => (from === null ? -1 : from.length ? from[0]! : Infinity);
   return [...groups.values()].sort((a, b) => order(a.from) - order(b.from));
 }
+
+/** Walks from the same trigger and start that follow the same path, as one row. */
+export interface WalkRow {
+  key: string;
+  trigger: string;
+  start: WalkStart;
+  /** The path, with the conditions of its branches tidied. */
+  path: WalkPath;
+  confidence: Confidence;
+  /** The terms every walk of the row needs, tidied. */
+  shared: string[];
+  /** What each walk adds to them, when there is more than one. */
+  variants: string[][];
+  /** The trigger and the walk in the analysis's own words, without repeats. */
+  about: string[];
+  descriptions: string[];
+}
+
+/** The order walks start in: from how the part was placed, after it is created, from rest, then while it runs. */
+const STARTS: WalkStart[] = ["reset", "creation", "documented-rest", "run-guard"];
+
+const tidyPath = (path: WalkPath): WalkPath => ({
+  ...path,
+  branches: path.branches.map((b) => ({ condition: tidyTerms(b.condition), path: tidyPath(b.path) })),
+});
+
+/** The walks of a part by trigger, `run` first, each with its rows in the order they start. */
+export function walkGroups(walks: readonly Walk[]): { trigger: string; rows: WalkRow[] }[] {
+  const rows = new Map<string, { walks: Walk[]; path: WalkPath }>();
+  for (const w of walks) {
+    const path = tidyPath(w);
+    const { confidence, frames, end, loopFrom, cycle, reason, branches } = path;
+    const key = `${w.trigger}|${w.start}|${JSON.stringify({ confidence, frames, end, loopFrom, cycle, reason, branches })}`;
+    const row = rows.get(key) ?? { walks: [], path: { confidence, frames, end, loopFrom, cycle, reason, branches } };
+    row.walks.push(w);
+    rows.set(key, row);
+  }
+  const groups = new Map<string, WalkRow[]>();
+  for (const [key, { walks: list, path }] of rows) {
+    const terms = list.map((w) => tidyTerms(w.condition));
+    const shared = terms[0]!.filter((t) => terms.every((x) => x.includes(t)));
+    const variants = list.length > 1 ? terms.map((x) => x.filter((t) => !shared.includes(t))) : [];
+    const first = list[0]!;
+    const row: WalkRow = {
+      key,
+      trigger: first.trigger,
+      start: first.start,
+      path,
+      confidence: weakest(list.map((w) => w.confidence)),
+      shared,
+      // Walks that differ in nothing the tab shows are one case.
+      variants: variants.some((v) => v.length) ? variants : [],
+      about: [...new Set(list.map((w) => w.about))],
+      descriptions: [...new Set(list.flatMap((w) => (w.description ? [w.description] : [])))],
+    };
+    groups.set(row.trigger, [...(groups.get(row.trigger) ?? []), row]);
+  }
+  return [...groups]
+    .map(([trigger, list]) => ({
+      trigger,
+      rows: list.sort((a, b) => STARTS.indexOf(a.start) - STARTS.indexOf(b.start)),
+    }))
+    .sort((a, b) => Number(b.trigger === "run") - Number(a.trigger === "run"));
+}
+
+/** How a path ends, in a few words. */
+export function endText(path: WalkPath): string {
+  switch (path.end) {
+    case "rest":
+      return path.frames.length ? "rests" : "rests as it is";
+    case "loop":
+      return `loops to ${path.frames[path.loopFrom ?? 0] ?? "the start"}`;
+    case "limit":
+      return "goes on";
+    case "hold":
+      return "keeps its frame";
+    case "cycle":
+      return `cycles ${path.cycle?.period ?? ""} frames ${path.cycle?.direction === -1 ? "down" : "up"}`.replace(
+        "  ",
+        " ",
+      );
+    case "branches":
+      return `${path.branches.length} ways`;
+    case "stop":
+      return "stops";
+  }
+}
+
+/** Where a walk starts, in a word. */
+export const START_WORDS: Record<WalkStart, string> = {
+  reset: "placed",
+  creation: "created",
+  "documented-rest": "at rest",
+  "run-guard": "running",
+};

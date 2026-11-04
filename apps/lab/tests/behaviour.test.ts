@@ -1,6 +1,14 @@
-import type { BehaviourReport, Expression, PartBehaviour, Predicate } from "@opentim/content";
+import type {
+  AnimationDescription,
+  BehaviourDescription,
+  BehaviourReport,
+  BehaviourWalk,
+  Expression,
+  PartBehaviour,
+  Predicate,
+} from "@opentim/content";
 import { describe, expect, it } from "vitest";
-import { statesText, summariseBehaviour, writer } from "../src/behaviour.ts";
+import { statesText, summariseBehaviour, summariseWalks, writer } from "../src/behaviour.ts";
 
 const fields = [
   { offset: 0x0c, name: "state" },
@@ -152,5 +160,91 @@ describe("summariseBehaviour", () => {
     expect(summary.timing.divisor).toBe(5041);
     expect(summary.timing.ticksPerSecond).toBeCloseTo(236.7, 1);
     expect(summary.timing.minimumTicks).toBe(8);
+  });
+});
+
+describe("summariseWalks", () => {
+  const visit = (state: number) => ({ ...finding, state, frame: state, atRun: 0, runCalls: 0 });
+  const walk = (more: Partial<BehaviourWalk>): BehaviourWalk => ({
+    ...finding,
+    status: "rest",
+    states: [],
+    frames: [],
+    runCalls: 0,
+    fields: [],
+    timingReason: "",
+    ...more,
+  });
+  const animation = (
+    kind: AnimationDescription["trigger"]["kind"],
+    name: string,
+    w: BehaviourWalk,
+    inputCondition?: Predicate,
+  ): AnimationDescription => ({
+    ...finding,
+    id: name,
+    initial: "run-guard",
+    prerequisites: [],
+    inputCondition,
+    trigger: { ...finding, kind, name, routine: 0x1d034, condition: { kind: "true" }, writes: [] },
+    walk: w,
+  });
+  const report = {
+    layout: { fields: fields.map((f) => ({ ...f, confidence: "checked", evidence: [], assumptions: [] })) },
+    parts: [{ type: 3, routines: [] }],
+  } as unknown as BehaviourReport;
+  const description = {
+    parts: [
+      {
+        type: 3,
+        animations: [
+          animation(
+            "input-case",
+            "If the state-control value is not 0",
+            walk({ status: "loop", frames: [visit(0), visit(1), visit(2)], loopStart: 1 }),
+            compare("!=", field(0x12), constant(0)),
+          ),
+          animation(
+            "callback",
+            "rope callback candidate",
+            walk({
+              status: "unresolved",
+              stop: {
+                kind: "state",
+                description: "The seed fixes only some bits of the state.",
+                evidence: [],
+                branches: [
+                  {
+                    condition: compare("==", field(0x0c), constant(0)),
+                    walk: walk({ status: "unresolved", frames: [visit(0)], reason: "Needs the control value." }),
+                  },
+                ],
+              },
+            }),
+          ),
+          animation(
+            "related-write",
+            "A recorded effect of explosion",
+            walk({ parameterised: { kind: "hold", state: field(0x0c) } }),
+          ),
+        ],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const [run, rope, explosion] = summariseWalks(report, description)[3]!;
+
+  it("names each walk by its trigger and writes its condition as terms", () => {
+    expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
+    expect(rope).toMatchObject({ trigger: "rope", condition: [] });
+    expect(explosion).toMatchObject({ trigger: "by explosion", end: "hold" });
+  });
+
+  it("keeps the frames, where a loop goes back to, and the path under each condition where it splits", () => {
+    expect(run).toMatchObject({ frames: [0, 1, 2], end: "loop", loopFrom: 1, branches: [] });
+    expect(rope).toMatchObject({
+      end: "branches",
+      reason: "The seed fixes only some bits of the state.",
+      branches: [{ condition: ["state == 0"], path: { frames: [0], end: "stop", reason: "Needs the control value." } }],
+    });
   });
 });
