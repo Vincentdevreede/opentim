@@ -148,6 +148,16 @@ const writeText = (w: WriteRow) =>
   isPoints(w)
     ? `${w.values.length} points ${w.values.join(" ")}`
     : `= ${w.values.length > 1 ? `${w.values.length} values` : w.values[0]}`;
+/**
+ * What an opened write row adds: each value with its condition, unless the row already shows every value; then only
+ * the condition they share, if there is one.
+ */
+const writeDetail = (w: WriteRow): string[] => {
+  const conditions = [...new Set(w.writes.map((x) => x.condition))];
+  if ((w.values.length === 1 || isPoints(w)) && conditions.length === 1)
+    return conditions[0] === "always" ? [] : [`when ${conditions[0]}`];
+  return w.writes.map((x) => `= ${x.value}${x.condition === "always" ? "" : ` when ${x.condition}`}`);
+};
 const writeTip = (w: WriteRow) =>
   isPoints(w)
     ? `${w.routine} sets the outline to ${w.values.length} points:\n${w.values.join(" ")}\n\nEdges run clockwise from the first point.`
@@ -156,16 +166,11 @@ const writeTip = (w: WriteRow) =>
         .concat("", `${w.writes.length} ${w.writes.length === 1 ? "path" : "paths"}, ${w.confidence}. Click for each.`)
         .join("\n");
 
-const legend = computed(() =>
-  [
-    "Read from the program’s instructions without running it" +
-      (props.result?.status === "done" ? `, in ${props.result.seconds.toFixed(1)} s.` : "."),
-    "State N shows frame N.",
-    "",
-    "● checked: follows from the instructions",
-    "◇ inferred: follows with the assumptions it lists",
-    "○ unresolved: the analysis can’t tell",
-  ].join("\n"),
+/** How the analysis was made, for the end of the findings. */
+const howRead = computed(
+  () =>
+    "read from the program’s instructions without running it" +
+    (props.result?.status === "done" ? `, in ${props.result.seconds.toFixed(1)} s` : ""),
 );
 const timing = computed(() => {
   const t = summary.value?.timing;
@@ -182,7 +187,8 @@ const more = computed(() => {
         p.counters.length +
         p.uncertainties.length +
         (p.gear?.text.limits.length ?? 0) +
-        (timing.value ? 1 : 0)
+        (timing.value ? 1 : 0) +
+        1
     : 0;
 });
 </script>
@@ -200,11 +206,7 @@ const more = computed(() => {
     <p v-else-if="!part" class="text-muted">The program has no behaviour for this part.</p>
 
     <template v-else>
-      <div class="flex items-center gap-2">
-        <LabSegmented v-model="behaviourLayout" label="Layout" :options="LAYOUTS" />
-        <div class="flex-1"></div>
-        <LabInfo :text="legend" />
-      </div>
+      <LabSegmented v-model="behaviourLayout" label="Layout" :options="LAYOUTS" full />
 
       <div v-if="behaviourLayout === 'routine'" class="-mx-3 flex flex-col">
         <section v-for="g in routines" :key="`${g.role} ${opens(g)}`" class="flex flex-col">
@@ -235,7 +237,7 @@ const more = computed(() => {
           </div>
           <div
             v-if="opens(g) && !closed.has(g.role)"
-            class="flex flex-col border-b border-line-soft pr-3 pb-1.5 pl-[30px] [&>*:first-child]:border-t-0"
+            class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
           >
             <BehaviourChange
               v-for="row in g.changes"
@@ -245,11 +247,12 @@ const more = computed(() => {
               :frames="frames"
               :sides="sides"
               :highlight="fromHere(row)"
+              indent
               @show-frame="emit('showFrame', $event)"
             />
             <div
               v-if="g.changes.length && g.kept"
-              class="flex h-7 items-center gap-2 border-t border-line-soft text-meta text-faint"
+              class="flex h-7 items-center gap-2 border-t border-line-soft pr-3 pl-[30px] text-meta text-faint"
             >
               <ConfidenceMark confidence="inferred" />
               otherwise no change · {{ g.kept }} {{ g.kept === 1 ? "path" : "paths" }}
@@ -261,15 +264,18 @@ const more = computed(() => {
               ] as const"
               :key="title"
             >
-              <PanelTitle v-if="list.length" class="block pt-2 pb-1">{{ title }}</PanelTitle>
-              <BehaviourRow v-for="w in list" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
-                <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
-                <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted">{{ writeText(w) }}</span>
-                <template #detail>
-                  <span v-for="(x, i) in w.writes" :key="i" class="break-words"
-                    ><span class="text-soft">= {{ x.value }}</span>
-                    <template v-if="x.condition !== 'always'"> when {{ x.condition }}</template></span
+              <PanelTitle v-if="list.length" class="block pt-2 pr-3 pb-1 pl-[30px]">{{ title }}</PanelTitle>
+              <BehaviourRow v-for="w in list" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)" indent>
+                <template #default="{ open }">
+                  <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
+                  <span
+                    class="min-w-0 flex-1 font-mono text-meta text-muted"
+                    :class="open ? 'break-words' : 'truncate'"
+                    >{{ writeText(w) }}</span
                   >
+                </template>
+                <template v-if="writeDetail(w).length" #detail>
+                  <span v-for="(t, i) in writeDetail(w)" :key="i" class="break-words">{{ t }}</span>
                 </template>
               </BehaviourRow>
             </template>
@@ -295,7 +301,7 @@ const more = computed(() => {
             </LabListRow>
             <div
               v-if="!closed.has(`state ${g.fromText}`)"
-              class="flex flex-col border-b border-line-soft pr-3 pb-1.5 pl-[30px] [&>*:first-child]:border-t-0"
+              class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
             >
               <BehaviourChange
                 v-for="row in g.rows"
@@ -305,22 +311,26 @@ const more = computed(() => {
                 :frames="frames"
                 :sides="sides"
                 :highlight="fromHere(row)"
+                indent
                 @show-frame="emit('showFrame', $event)"
               />
             </div>
           </section>
         </div>
         <LabSection v-if="draws.length" title="Draws" class="pt-3">
-          <div class="flex flex-col [&>*:first-child]:border-t-0">
+          <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
             <BehaviourRow v-for="w in draws" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
-              <span class="shrink-0 font-mono font-semibold text-accent">{{ w.routine }}</span>
-              <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
-              <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted">{{ writeText(w) }}</span>
-              <template #detail>
-                <span v-for="(x, i) in w.writes" :key="i" class="break-words"
-                  ><span class="text-soft">= {{ x.value }}</span>
-                  <template v-if="x.condition !== 'always'"> when {{ x.condition }}</template></span
+              <template #default="{ open }">
+                <span class="shrink-0 font-mono font-semibold text-accent">{{ w.routine }}</span>
+                <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
+                <span
+                  class="min-w-0 flex-1 font-mono text-meta text-muted"
+                  :class="open ? 'break-words' : 'truncate'"
+                  >{{ writeText(w) }}</span
                 >
+              </template>
+              <template v-if="writeDetail(w).length" #detail>
+                <span v-for="(t, i) in writeDetail(w)" :key="i" class="break-words">{{ t }}</span>
               </template>
             </BehaviourRow>
           </div>
@@ -331,7 +341,7 @@ const more = computed(() => {
         <template #action>
           <LabInfo :text="[gear.text.activation, '', ...gear.text.scheduling].join('\n')" />
         </template>
-        <div class="flex flex-col [&>*:first-child]:border-t-0">
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
           <BehaviourRow v-for="r in gearRows" :key="r.what" :confidence="gear.confidence" :tip="r.tip">
             <span class="shrink-0 font-mono text-ink">{{ r.what }}</span>
             <span class="shrink-0 font-mono text-accent">{{ r.then }}</span>
@@ -343,7 +353,7 @@ const more = computed(() => {
         </div>
         <template v-if="gear.drivers.length">
           <PanelTitle class="block pt-1.5">Driven by</PanelTitle>
-          <div class="flex flex-col [&>*:first-child]:border-t-0">
+          <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
             <BehaviourRow
               v-for="d in gear.drivers"
               :key="d.type"
@@ -385,6 +395,10 @@ const more = computed(() => {
             <ConfidenceMark :confidence="gear!.confidence" class="mt-1.5" /><span
               ><span class="font-sans text-faint">gear</span> {{ l }}</span
             >
+          </li>
+          <li class="flex gap-1.5">
+            <span class="w-1.5 shrink-0" aria-hidden="true"></span
+            ><span><span class="font-sans text-faint">analysis</span> {{ howRead }}</span>
           </li>
           <li v-if="timing" class="flex gap-1.5">
             <ConfidenceMark :confidence="summary!.timing.confidence" class="mt-1.5" /><span
