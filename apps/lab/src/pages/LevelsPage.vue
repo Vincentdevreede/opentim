@@ -271,12 +271,7 @@ onBeforeUnmount(() => {
   <LabEmpty
     v-else
     icon="levels"
-    :title="resources.length ? 'No levels in these files' : 'No files loaded'"
-    :text="
-      resources.length
-        ? 'The loaded files have no levels (.LEV) or scenes (.GKC).'
-        : 'Import the game’s RESOURCE files to see its levels.'
-    "
-    :import-link="!resources.length"
+    title="No levels in these files"
+    text="The loaded files have no levels (.LEV) or scenes (.GKC)."
   />
 </template>

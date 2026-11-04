@@ -15,8 +15,7 @@ export const router = createRouter({
     { path: "/levels", component: LevelsPage },
     { path: "/files", component: FilesPage },
     { path: "/audio", component: AudioPage },
-    // Locked until files are loaded, like its menu item; App shows the empty state in its place.
-    { path: "/sandbox", component: SandboxPage, meta: { needsFiles: true } },
+    { path: "/sandbox", component: SandboxPage },
     // Any other address, like a page from another branch, gets an empty state instead of an empty page.
     { path: "/:missing(.*)*", component: MissingPage },
   ],

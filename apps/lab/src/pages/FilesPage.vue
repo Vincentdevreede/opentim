@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import { useRouter } from "vue-router";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
-import LabEmpty from "../components/LabEmpty.vue";
 import LabListRow from "../components/LabListRow.vue";
 import LabSegmented from "../components/LabSegmented.vue";
 import LabFact from "../components/LabFact.vue";
@@ -487,12 +486,4 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
       </LabPanelBody>
     </LabSidePanel>
   </div>
-
-  <LabEmpty
-    v-else
-    icon="files"
-    title="No files loaded"
-    text="Import the game’s RESOURCE files to inspect their bytes."
-    import-link
-  />
 </template>

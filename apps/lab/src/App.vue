@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import pkg from "../package.json";
 import LabFact from "./components/LabFact.vue";
 import LabFacts from "./components/LabFacts.vue";
@@ -30,19 +30,23 @@ interface NavItem {
   label: string;
   icon: IconName;
   needsFiles?: boolean;
+  /** What the page is for, ending the sentence of its empty state while no files are loaded. */
+  forWhat?: string;
   planned?: boolean;
 }
 
 const FILES: NavItem[] = [
   { to: "/", label: "Import", icon: "import" },
-  { to: "/files", label: "Files", icon: "files", needsFiles: true },
+  { to: "/files", label: "Files", icon: "files", needsFiles: true, forWhat: "inspect their bytes" },
 ];
 const RESOURCES: NavItem[] = [
-  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true },
-  { to: "/audio", label: "Audio", icon: "audio", needsFiles: true },
-  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true },
+  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true, forWhat: "see their sprites" },
+  { to: "/audio", label: "Audio", icon: "audio", needsFiles: true, forWhat: "list and play its sounds" },
+  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, forWhat: "see its levels" },
 ];
-const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox", needsFiles: true }];
+const TOOLS: NavItem[] = [
+  { to: "/sandbox", label: "Sandbox", icon: "sandbox", needsFiles: true, forWhat: "use the Sandbox" },
+];
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Ctrl", "O"], action: "Open RESOURCE files" },
@@ -67,6 +71,9 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
 const router = useRouter();
 const showKeys = ref(false);
 const hasFiles = computed(() => resources.value.length > 0);
+const route = useRoute();
+/** The menu item of the page that is open, which says whether the page needs files. */
+const page = computed(() => [...FILES, ...RESOURCES, ...TOOLS].find((item) => item.to === route.path));
 const readingIndex = computed(() => progress.value.findIndex((f) => f.state !== "done") + 1 || progress.value.length);
 
 function onDragOver(e: DragEvent) {
@@ -189,16 +196,15 @@ const activeClass =
       </nav>
 
       <main class="flex min-w-0 flex-1 flex-col">
-        <RouterView v-slot="{ Component, route }">
-          <LabEmpty
-            v-if="route.meta.needsFiles && !hasFiles"
-            icon="sandbox"
-            title="No files loaded"
-            text="Import the game’s RESOURCE files to use the Sandbox."
-            import-link
-          />
-          <component :is="Component" v-else />
-        </RouterView>
+        <!-- A page that needs files shows this until they are loaded, so the pages don't each handle it. -->
+        <LabEmpty
+          v-if="page?.needsFiles && !hasFiles"
+          :icon="page.icon"
+          title="No files loaded"
+          :text="`Import the game’s RESOURCE files to ${page.forWhat}.`"
+          import-link
+        />
+        <RouterView v-else />
       </main>
     </div>
 

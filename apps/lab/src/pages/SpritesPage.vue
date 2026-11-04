@@ -288,12 +288,7 @@ onBeforeUnmount(() => (crumb.value = []));
   <LabEmpty
     v-else
     icon="sprites"
-    :title="resources.length ? 'No images in these files' : 'No files loaded'"
-    :text="
-      resources.length
-        ? 'The loaded files have no sprite sheets (.BMP) or screens (.SCR).'
-        : 'Import the game’s RESOURCE files to see their sprites.'
-    "
-    :import-link="!resources.length"
+    title="No images in these files"
+    text="The loaded files have no sprite sheets (.BMP) or screens (.SCR)."
   />
 </template>
