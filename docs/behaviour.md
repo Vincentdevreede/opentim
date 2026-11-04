@@ -382,6 +382,13 @@ part fields on every tracked object, the owner included, because a reached part 
 record fields only on objects reached through those links, because the records are separate allocations. Every other
 field stays known, so the helper no longer makes the caller lose the owner's state and step.
 
+Two rope helpers have such summaries, checked against their complete instruction graphs in every compiler form of the
+supplied builds (four forms of the geometry update, two of the reversal). The rope geometry update places a rope's
+ends in its own record, updates the rope record of every pulley on the way and sets the end words `0x96` and `0x9c`
+of the rope's first part, which is often the caller. The rope reversal swaps the links `0x5a` to `0x60`, `0x6a` and
+`0x6c` and the rope records of every pulley on the rope, then the rope's own ends, and notifies its first part; that
+notification only queues screen rectangles. Each summary requires its callee to change no part or record.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
