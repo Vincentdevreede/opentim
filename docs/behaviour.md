@@ -338,6 +338,12 @@ step after its contact scan. Such a test can split a walk into branches, but it 
 because each run scans again. An opaque unknown in a guard, an unknown destination or a routine whose paths are not
 all analysed still stops the walk.
 
+Some starts fix only part of the state. The electric switch's reset restores the frame saved in the level, so the
+program bounds the state but does not choose it. When at most three bits of the starting state are unknown, the
+walk follows each value those bits allow that has a frame, under the condition that the state has that value, and
+records them as `stop.branches` of kind `state`. No value is preferred; a level picks one. In Even More this lets 41
+electric switch walks end in every case.
+
 The comparison report separates complete matches from actual code triggers, reset or documented stable endings,
 and conditional input cases. One-frame recordings are counted separately from animations. A missing compatible
 start is unavailable, not a successful empty prefix. Unknown starting conditions and repeated external writes cannot

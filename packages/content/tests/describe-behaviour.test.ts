@@ -364,6 +364,23 @@ describe("descriptions from extracted behaviour rules", () => {
     ]);
   });
 
+  it("walks each starting state a partly known seed allows, keeping only states with a frame", () => {
+    const data = report(
+      [rule(constant(1), test(12, "==", 0)), rule(field(12), test(12, "==", 1)), rule(field(12), test(12, "==", 2))],
+      [],
+    );
+    const partial = { ...known(12, 0), knownMask: 0xfffc };
+    const walk = walkBehaviourRules(data, 39, [partial]);
+    expect(walk.stop?.kind).toBe("state");
+    expect(walk.stop?.branches?.map((branch) => [branch.condition, branch.walk.states, branch.walk.status])).toEqual([
+      [test(12, "==", 0), [0, 1, 1], "rest"],
+      [test(12, "==", 1), [1, 1], "rest"],
+      [test(12, "==", 2), [2, 2], "rest"],
+    ]);
+    const wide = walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]);
+    expect(wide.stop?.branches).toBeUndefined();
+  });
+
   it("does not branch on an opaque deciding value", () => {
     const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
     const guard = (operator: string): Predicate => ({

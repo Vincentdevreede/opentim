@@ -770,6 +770,43 @@ export function walkBehaviourRules(
   });
   if (stateOffset === undefined)
     return { ...base("unresolved", "The state field was not established."), confidence: "unresolved" };
+  /**
+   * When the seed fixes all but at most three bits of the state, the possible starting states are exactly those
+   * bits' combinations that have a frame. Each is walked as its own case; no value is preferred.
+   */
+  const possibleStates = (partial: Bits): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
+    const depth = options.branchDepth ?? 2;
+    const open = ~partial.mask & 0xffff;
+    const openBits = [...Array(16).keys()].filter((bit) => open & (1 << bit));
+    if (!partial.mask || !openBits.length || openBits.length > 3 || depth <= 0) return undefined;
+    const frameCount = (part as WithFrameCount).frameCount;
+    const values = [...Array(1 << openBits.length).keys()]
+      .map((choice) =>
+        openBits.reduce(
+          (value, bit, n) => (choice & (1 << n) ? value | (1 << bit) : value),
+          partial.value & partial.mask,
+        ),
+      )
+      .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
+    if (values.length < 2) return undefined;
+    return values.map((value) => {
+      const condition: Predicate = {
+        kind: "compare",
+        operator: "==",
+        left: { kind: "field", object: "part", offset: stateOffset, width: 16 },
+        right: { kind: "constant", value, width: 16 },
+        signed: false,
+      };
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", stateOffset, bits(value, 0xffff, 16));
+      const walk = walkBehaviourRules(report, partType, fieldsOf(seeded, definitions, proof), {
+        maxRunCalls: options.maxRunCalls,
+        condition: { kind: "and", terms: [...constraints, condition] },
+        branchDepth: depth - 1,
+      });
+      return { condition, walk };
+    });
+  };
   const state = readField(bindings, "part", stateOffset, 16);
   if (!known(state)) {
     const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
@@ -825,6 +862,19 @@ export function walkBehaviourRules(
         };
       }
     }
+    const levelStates = possibleStates(state);
+    if (levelStates)
+      return {
+        ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+        confidence: "unresolved",
+        stop: {
+          kind: "state",
+          description:
+            "The seed fixes only some bits of the state, as when the level saves the starting frame. Each value those bits allow is followed separately.",
+          evidence: [],
+          branches: levelStates,
+        },
+      };
     return {
       ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
       confidence: "unresolved",
