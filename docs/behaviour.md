@@ -78,6 +78,13 @@ is 10,000. Each iteration outcome keeps only the writes to the listed member, si
 the routine's own outcomes. In Even More this completes 32 more recorded animations; reading a build takes about two
 seconds longer.
 
+A list scan can leave a value in a private local, like the mouse's nearest part. That local is named
+`local after list scan at <header>` and marked unresolved: its value is unknown, but every later read gives the same
+value until the routine writes it again. A walk can therefore branch on a condition that tests it, as it does for
+other values the run computes. The local may point to any part, the owner included, so it is never used as the
+address of an object of its own; a write through it still loses the pointer. This removes the mouse's 15 stops on
+unresolved effects, and 7 stops in each recorded build turn into branches.
+
 ## Extracting and validating
 
 Run from the repository root with plain Node or the package scripts:

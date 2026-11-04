@@ -183,6 +183,11 @@ const textOf = (value: unknown) => {
 };
 const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
 const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
+/**
+ * A private local a list scan left behind. It is one value for conditions, but it may point to any part, the owner
+ * included, so it never becomes the address of an object of its own.
+ */
+const scanLocal = (object: string) => object.startsWith("local after list scan at ");
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
 const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
 const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
@@ -840,7 +845,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           width: 16,
           addressValue: value,
         };
-      if (value.kind === "field" && value.object !== "stack")
+      if (value.kind === "field" && value.object !== "stack" && !scanLocal(value.object))
         return {
           kind: "pointer",
           object: `referenced-by(${value.object}+${hex(value.offset)})`,
@@ -897,7 +902,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       currentSegment.value === (options.dataSegment ?? 0);
     if (normalData && base.length === 1 && base[0]?.value.kind === "field") {
       const ref = base[0].value;
-      if (ref.object !== "stack")
+      if (ref.object !== "stack" && !scanLocal(ref.object))
         return {
           object: `referenced-by(${ref.object}+${hex(ref.offset)})`,
           offset: operand.displacement,
@@ -2334,7 +2339,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                       width: 16,
                       addressValue: field(`nullable list selection at ${hex(list.header)}`, effect.offset),
                     }
-                  : unknown("The complete list scan may update this private field", effect.width),
+                  : // One value the scan leaves behind, like the nearest part it found: unknown, but the same on
+                    // every later read until the routine writes it again, so a condition can be decided on it.
+                    ({
+                      ...field(`local after list scan at ${hex(list.header)}`, effect.offset, effect.width),
+                      unresolved: true,
+                    } as Expression),
                 list.evidence,
                 i.address,
               ),

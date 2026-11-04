@@ -381,6 +381,15 @@ describe("selected list-member locals", () => {
     expect(routine.uncertainties).toEqual([]);
     expect(routine.iterationOutcomes?.some((outcome) => outcome.effectsComplete)).toBe(true);
   });
+  it("names an unproved local the scan leaves behind, so a later condition on it can be decided as one value", () => {
+    const { image, helpers } = selectionFixture({ unknownInitial: true });
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    const tested = routine.outcomes!.flatMap(
+      (outcome) => JSON.stringify(outcome.condition).match(/"object":"[^"]*"/g) ?? [],
+    );
+    expect(tested).toContain(`"object":"local after list scan at 0x${routine.listLoops![0]!.header.toString(16)}"`);
+    expect(JSON.stringify(routine.outcomes)).toContain('"unresolved":true');
+  });
   it.each([{ unknownInitial: true }, { scalarOverwrite: true }, { byteOverwrite: true }])(
     "does not promote an unproved pointer local %s",
     (options) => {
