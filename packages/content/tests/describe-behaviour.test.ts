@@ -381,6 +381,28 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(wide.stop?.branches).toBeUndefined();
   });
 
+  it("lists where a stopping field's value comes from without claiming every writer", () => {
+    const sum: Expression = { kind: "binary", operator: "+", left: field(12), right: field(0x12), width: 16 };
+    const data = report([rule(sum, test(0x12, "!=", 0)), rule(field(12), test(0x12, "==", 0))]);
+    data.routines[2]!.outcomes = [
+      { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [write(0x12, constant(1))] },
+    ] as never;
+    data.relatedObjectEffects = [
+      {
+        ...proof,
+        sourceType: 50,
+        sourcePart: "electric-motor",
+        write: { ...write(0x12, constant(0xffff)), object: "referenced-by(part+0x54)" },
+      },
+    ];
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.stop?.kind).toBe("state");
+    expect(walk.stop?.producers?.map((item) => [item.source, item.value])).toEqual([
+      ["bounce", constant(1)],
+      ["electric-motor", constant(0xffff)],
+    ]);
+  });
+
   it("does not branch on an opaque deciding value", () => {
     const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
     const guard = (operator: string): Predicate => ({

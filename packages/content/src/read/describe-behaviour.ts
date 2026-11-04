@@ -61,6 +61,17 @@ export interface BehaviourWalk extends Finding {
      * condition. The input is not chosen: every branch stays conditional, and the walk itself stays unresolved.
      */
     branches?: { condition: Predicate; walk: BehaviourWalk }[];
+    /**
+     * For a stop on a field's value: the writes to that field the analysis found, with their routines and values.
+     * They say where the value can come from; they are not proved to be every writer.
+     */
+    producers?: (Finding & {
+      source: string;
+      routine?: number;
+      offset: number;
+      value: Expression;
+      condition?: Predicate;
+    })[];
   };
   timingReason: string;
 }
@@ -695,6 +706,64 @@ function unknownWords(
   }
   return "a part-specific field";
 }
+/**
+ * The writes the analysis found to a part's own fields: by its routines, at creation, and by other parts through a
+ * link. Each keeps its routine, value, condition and proof. This lists sources; it does not prove there are no others.
+ */
+function producersOf(
+  report: BehaviourReport,
+  part: PartBehaviour,
+  fields: { object: string; offset: number; width: number }[],
+): NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]> {
+  const offsets = new Set(fields.filter((field) => field.object === "part").map((field) => field.offset));
+  const found = new Map<string, NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>[number]>();
+  const add = (item: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>[number]) => {
+    const key = JSON.stringify([item.source, item.offset, item.value, item.condition]);
+    if (!found.has(key)) found.set(key, item);
+  };
+  for (const callback of part.routines) {
+    const routine = report.routines.find((item) => item.address === callback.address);
+    const role = callback.role.replace(/ callback candidate$/, "");
+    for (const outcome of routine?.outcomes ?? [])
+      for (const write of outcome.fields)
+        if (write.object === "part" && offsets.has(write.offset))
+          add({
+            source: role,
+            routine: callback.address,
+            offset: write.offset,
+            value: write.value,
+            condition: outcome.condition,
+            confidence: write.confidence,
+            evidence: write.evidence,
+            assumptions: write.assumptions,
+          });
+  }
+  for (const creation of (report.creation ?? []).filter((item) => item.partType === part.type))
+    for (const field of creation.fields)
+      if (offsets.has(field.offset))
+        add({
+          source: "creation",
+          routine: creation.routine,
+          offset: field.offset,
+          value: { kind: "constant", value: field.value, width: field.width },
+          confidence: field.confidence,
+          evidence: field.evidence,
+          assumptions: field.assumptions,
+        });
+  for (const effect of report.relatedObjectEffects ?? [])
+    if ((effect.targetType === undefined || effect.targetType === part.type) && offsets.has(effect.write.offset))
+      add({
+        source: effect.sourcePart,
+        routine: effect.write.routine,
+        offset: effect.write.offset,
+        value: effect.write.value,
+        condition: effect.write.condition,
+        confidence: effect.confidence,
+        evidence: effect.evidence,
+        assumptions: effect.assumptions,
+      });
+  return [...found.values()];
+}
 function unknownFields(
   expressions: Expression[],
   bindings: Bindings,
@@ -1009,6 +1078,8 @@ export function walkBehaviourRules(
     if (outcomes.some((outcome) => !known(outcome.destination))) {
       const expression = outcomes.find((outcome) => !known(outcome.destination))!.rule.to;
       const description = `At frame ${current}, the next state depends on ${unknownWords(expression, report, part, bindings)} that is not established.`;
+      const fields = unknownFields([expression], bindings);
+      const producers = producersOf(report, part, fields);
       return {
         ...base("unresolved", description),
         confidence: "unresolved",
@@ -1016,7 +1087,8 @@ export function walkBehaviourRules(
           kind: "state",
           description,
           evidence: stoppingEvidence(candidates, [expression]),
-          fields: unknownFields([expression], bindings),
+          fields,
+          ...(producers.length ? { producers } : {}),
         },
         evidence: evidence(proof.evidence, ...candidates.map((rule) => rule.evidence)),
       };

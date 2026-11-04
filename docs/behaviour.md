@@ -344,6 +344,12 @@ walk follows each value those bits allow that has a frame, under the condition t
 records them as `stop.branches` of kind `state`. No value is preferred; a level picks one. In Even More this lets 41
 electric switch walks end in every case.
 
+When the next state depends on a value no rule fixes, like the state-control value at `0x12`, the stop lists the
+writes to that field the analysis found as `stop.producers`: the part's own routines, its creation default and other
+parts that write it through a link, each with its value, condition and proof. The jack-in-the-box, for example, gets
+its control value from a driving electric motor or windmill (−1, 0 or 1) or from a monkey bike or mouse motor that
+copies its own step. These are sources, not a proof that no other writer exists, so no value is chosen from them.
+
 The comparison report separates complete matches from actual code triggers, reset or documented stable endings,
 and conditional input cases. One-frame recordings are counted separately from animations. A missing compatible
 start is unavailable, not a successful empty prefix. Unknown starting conditions and repeated external writes cannot
