@@ -38,6 +38,7 @@ const FILES: NavItem[] = [
 ];
 const RESOURCES: NavItem[] = [
   { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true },
+  { to: "/parts", label: "Parts", icon: "parts", needsFiles: true },
   { to: "/audio", label: "Audio", icon: "audio", needsFiles: true },
   { to: "/levels", label: "Levels", icon: "levels", needsFiles: true },
 ];
@@ -45,13 +46,15 @@ const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox", n
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Ctrl", "O"], action: "Open RESOURCE files" },
-  { keys: ["/"], action: "Filter resources (Overview, Sprites, Levels)" },
+  { keys: ["/"], action: "Filter resources (Overview, Sprites, Parts, Levels)" },
   { keys: ["↑", "↓", "↵"], action: "Move and view bytes (Overview)" },
-  { keys: ["←", "→"], action: "Previous or next frame (Sprites)" },
-  { keys: ["Space"], action: "Play or pause the preview (Sprites)" },
-  { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites)" },
-  { keys: ["H"], action: "Flip horizontally (Sprites)" },
+  { keys: ["←", "→"], action: "Previous or next frame (Sprites, Parts)" },
+  { keys: ["Space"], action: "Play or pause the preview (Sprites, Parts)" },
+  { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites, Parts)" },
+  { keys: ["H"], action: "Flip horizontally (Sprites, Parts)" },
+  { keys: ["V"], action: "Flip vertically (Parts)" },
   { keys: ["O"], action: "Show the previous frame faintly (Sprites)" },
+  { keys: ["O"], action: "Show the outline reset sets (Parts)" },
   { keys: ["/"], action: "Filter sounds (Audio)" },
   { keys: ["↑", "↓"], action: "Previous or next sound (Audio)" },
   { keys: ["Space"], action: "Play or pause the sample (Audio)" },

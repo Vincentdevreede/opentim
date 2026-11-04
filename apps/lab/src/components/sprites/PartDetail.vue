@@ -56,7 +56,7 @@ const props = defineProps<{
   /** The names of the parts, by type. */
   partNames?: ReadonlyMap<number, string>;
 }>();
-const emit = defineEmits<{ openSheet: [file: string]; viewBytes: [file: string] }>();
+const emit = defineEmits<{ openSheet: [file: string, sprite: number]; viewBytes: [file: string] }>();
 
 type Strip = "frames" | "sprites";
 
@@ -83,8 +83,18 @@ const sprites = computed(() =>
   ),
 );
 const missingSheets = computed(() => props.part.sheets.filter((s) => !props.sheetSprites(s)));
-/** The sprite sheet the panel's buttons open: the one of the shown sprite, or else the part's first loaded sheet. */
-const sheet = computed(() => shownSprite.value?.sheet ?? props.part.sheets.find((s) => props.sheetSprites(s)));
+/**
+ * The sprite the panel's buttons open, with its sheet: the shown sprite, or the first loaded sprite of the shown frame,
+ * or else the first sprite of the part's first loaded sheet.
+ */
+const opened = computed(() => {
+  const shown = shownSprite.value;
+  if (shown) return { sheet: shown.sheet, sprite: shown.index };
+  const placed = placements.value.find((p) => props.sheetSprites(p.sheet));
+  if (placed) return { sheet: placed.sheet, sprite: placed.sprite };
+  const first = props.part.sheets.find((s) => props.sheetSprites(s));
+  return first === undefined ? undefined : { sheet: first, sprite: 0 };
+});
 const count = computed(() => (strip.value === "frames" ? props.part.frames.length : sprites.value.length));
 const player = usePlayer(count);
 const { position, playing, move } = player;
@@ -196,7 +206,7 @@ useSpriteKeys(player, count, zoom, (key) => {
   else if (key === "o" && shape.value) outline.value = !outline.value;
 });
 
-watchEffect(() => (crumb.value = ["Sprites", name.value.name, label.value].filter(Boolean)));
+watchEffect(() => (crumb.value = ["Parts", name.value.name, label.value].filter(Boolean)));
 
 const zoomOptions = ZOOMS.map((z) => ({ value: z, label: `${z}×` }));
 const SPRITE_COLUMNS: Column[] = [
@@ -420,11 +430,15 @@ const sideTabs = computed(() => [
 
     <LabSidePanel aria-label="Part data">
       <LabPanelHeader title="Part" :meta="part.id" />
-      <LabOpenIn v-if="sheet" :targets="['files']" @open="emit('viewBytes', sheetFile(sheet))">
-        <LabButton @click="emit('openSheet', sheetFile(sheet))"
-          ><LabIcon name="sprites" />Open {{ sheetFile(sheet) }}</LabButton
-        >
-      </LabOpenIn>
+      <LabOpenIn
+        v-if="opened"
+        :targets="['sprites', 'files']"
+        @open="
+          $event === 'sprites'
+            ? emit('openSheet', sheetFile(opened.sheet), opened.sprite)
+            : emit('viewBytes', sheetFile(opened.sheet))
+        "
+      />
       <LabTabs v-model="side" label="Part data" :options="sideTabs" />
 
       <LabPanelBody :key="side">
