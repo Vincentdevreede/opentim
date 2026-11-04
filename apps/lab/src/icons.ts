@@ -43,6 +43,7 @@ export const ICONS = {
   expandAll: ["m7 15 5 5 5-5", "m7 9 5-5 5 5"],
   collapseAll: ["m7 20 5-5 5 5", "m7 4 5 5 5-5"],
   flip: ["M12 3v18", "M8 7 3 12l5 5z", "m16 7 5 5-5 5z"],
+  bookmark: ["M6 3h12v18l-6-4-6 4z"],
   keyboard: [
     "M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z",
     "M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10",

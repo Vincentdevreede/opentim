@@ -56,6 +56,7 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["↑", "↓"], action: "Previous or next sound (Audio)" },
   { keys: ["Space"], action: "Play or pause the sample (Audio)" },
   { keys: ["G"], action: "Go to offset (Files)" },
+  { keys: ["B"], action: "Bookmark the selected bytes, or remove the bookmark (Files)" },
   { keys: ["←", "→", "↑", "↓"], action: "Move the byte selection (Files)" },
   { keys: ["PgUp", "PgDn"], action: "Move one screen (Files)" },
   { keys: ["Space"], action: "Play or pause (Sandbox)" },
