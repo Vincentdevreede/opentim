@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { Confidence } from "@opentim/content";
 import { ref } from "vue";
-import LabIcon from "../LabIcon.vue";
-import LabTip from "../LabTip.vue";
+import LabInfo from "../LabInfo.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
 /** One line of the behaviour tab, with a tip, that opens to show the paths it stands for. */
@@ -22,9 +21,7 @@ const open = ref(false);
     >
       <ConfidenceMark :confidence="confidence" />
       <slot />
-      <LabTip :text="tip" @click.stop>
-        <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
-      </LabTip>
+      <LabInfo :text="tip" @click.stop @keydown.stop />
     </div>
     <div v-if="$slots.below" class="-mt-1 cursor-pointer pr-5 pb-1 pl-3.5" @click="open = !open">
       <slot name="below" />

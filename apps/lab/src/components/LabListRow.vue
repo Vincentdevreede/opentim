@@ -20,6 +20,8 @@ withDefaults(
     meta?: string;
     /** The state the dot shows; without it there is no dot. */
     status?: Confidence;
+    /** What the dot says under the pointer, when the state's own words aren't enough. */
+    statusTitle?: string;
     selected?: boolean;
     /** Whether the row is open, for a row that opens; leave it out for a plain row. */
     expanded?: boolean;
@@ -34,6 +36,7 @@ withDefaults(
     text: undefined,
     meta: undefined,
     status: undefined,
+    statusTitle: undefined,
     selected: false,
     expanded: undefined,
     inset: false,
@@ -79,6 +82,6 @@ const clickable = "onClick" in useAttrs();
     <span v-else-if="text !== undefined" class="min-w-0 flex-1 truncate font-sans text-ui">{{ text }}</span>
     <span v-if="meta" class="shrink-0 text-muted">{{ meta }}</span>
     <slot name="end" />
-    <LabDot v-if="status" :status="status" />
+    <LabDot v-if="status" :status="status" :title="statusTitle" />
   </component>
 </template>

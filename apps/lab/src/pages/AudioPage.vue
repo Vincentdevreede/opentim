@@ -208,14 +208,13 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
                 ? 'bg-accent/12 text-ink shadow-[inset_2px_0_0_var(--color-accent)]'
                 : 'text-soft hover:bg-hover hover:text-ink'
             "
-            :title="statusOf(item).label"
             @click="pick(item)"
           >
             <span class="truncate font-mono">{{ itemName(item) }}</span>
             <span class="font-mono text-meta text-muted">{{
               item.type === "bank" ? item.entry.id : formatBytes(item.resource.data.length)
             }}</span>
-            <LabDot :status="statusOf(item).status" />
+            <LabDot :status="statusOf(item).status" :title="statusOf(item).label" />
           </button>
         </template>
         <p v-if="!shown.some((s) => s.items.length)" class="px-3 py-2 text-muted">

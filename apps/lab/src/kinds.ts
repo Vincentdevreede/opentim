@@ -2,6 +2,15 @@ import type { ResourceKind } from "@opentim/resources";
 
 export type Confidence = "decoded" | "partial" | "hypothesis" | "unsupported" | "error";
 
+/** What each status means, for the tip of a status dot or badge that has no words of its own. */
+export const CONFIDENCE_TIPS: Record<Confidence, string> = {
+  decoded: "Decoded: the lab reads it completely.",
+  partial: "Partly decoded: the lab reads some of it.",
+  hypothesis: "A guess: it fits what is known, but isn’t confirmed.",
+  unsupported: "Not supported yet.",
+  error: "Can’t be read.",
+};
+
 /** The groups the lab shows resources in. Rare kinds are folded into "other". */
 export type KindGroup = "sprites" | "screen" | "palette" | "level" | "scene" | "sound" | "other";
 

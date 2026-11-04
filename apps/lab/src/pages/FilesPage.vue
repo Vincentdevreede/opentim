@@ -291,6 +291,7 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
           :name="r.name"
           :meta="r.group"
           :status="statusOf(r).status"
+          :status-title="statusOf(r).label"
           :selected="r.name === current.name"
           :data-resource="r.name"
           @click="selected = r.name"

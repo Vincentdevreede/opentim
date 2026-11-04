@@ -145,14 +145,8 @@ const activeClass =
             >
               <LabIcon :name="item.icon" :size="18" :stroke="1.75" />{{ item.label }}
             </span>
-            <RouterLink
-              v-else
-              :to="item.to"
-              :class="navClass"
-              :active-class="activeClass"
-              :title="item.planned ? 'Planned' : undefined"
-            >
-              <LabDot v-if="item.planned" status="none" class="absolute top-1.5 right-[9px]" />
+            <RouterLink v-else :to="item.to" :class="navClass" :active-class="activeClass">
+              <LabDot v-if="item.planned" status="none" title="Planned" class="absolute top-1.5 right-[9px]" />
               <LabIcon :name="item.icon" :size="18" :stroke="1.75" />{{ item.label }}
             </RouterLink>
           </template>

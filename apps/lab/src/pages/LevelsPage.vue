@@ -186,8 +186,9 @@ onBeforeUnmount(() => {
               name-width="76px"
               :text="e.error ? 'can’t be read' : e.level?.title || (e.kind === 'scene' ? 'scene' : 'untitled')"
               :status="e.error ? 'error' : 'decoded'"
+              :status-title="e.error"
               :selected="e.resource.name === current?.resource.name"
-              :title="e.error ?? e.level?.goal"
+              :title="e.level?.goal"
               @click="pick(e.resource.name)"
             />
           </template>

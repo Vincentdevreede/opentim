@@ -1,6 +1,11 @@
 <script setup lang="ts">
-/** How sure a finding is: a round dot when checked, a diamond when inferred, a hollow circle when unresolved. */
-defineProps<{ confidence: "checked" | "inferred" | "unresolved" }>();
+import LabTip from "../LabTip.vue";
+
+/**
+ * How sure a finding is: a round dot when checked, a diamond when inferred, a hollow circle when unresolved. Under the
+ * pointer it lights up and explains itself, in `title` or else in the usual words.
+ */
+defineProps<{ confidence: "checked" | "inferred" | "unresolved"; title?: string }>();
 
 const MARKS = {
   checked: { class: "rounded-full bg-decoded", title: "Checked: follows directly from the instructions" },
@@ -13,9 +18,12 @@ const MARKS = {
 </script>
 
 <template>
-  <span
-    class="box-border inline-block size-1.5 shrink-0"
-    :class="MARKS[confidence].class"
-    :title="MARKS[confidence].title"
-  ></span>
+  <span class="inline-flex shrink-0">
+    <LabTip :text="title ?? MARKS[confidence].title" :focusable="false">
+      <!-- The hover area is larger than the mark, without taking more room. -->
+      <span class="-m-[5px] grid size-4 cursor-help place-items-center rounded-full transition-colors hover:bg-ink/12">
+        <span class="box-border inline-block size-1.5" :class="MARKS[confidence].class"></span>
+      </span>
+    </LabTip>
+  </span>
 </template>

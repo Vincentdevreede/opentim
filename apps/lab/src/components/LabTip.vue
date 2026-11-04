@@ -1,18 +1,35 @@
 <script setup lang="ts">
-import { nextTick, ref, useTemplateRef } from "vue";
+import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
 
 /**
  * A tip that shows next to its trigger as soon as the pointer is on it or it has keyboard focus. It is drawn on the
- * page itself, so a scrolling panel doesn't cut it off.
+ * page itself, so a scrolling panel doesn't cut it off. With `focusable` off, only the pointer shows it, for small marks
+ * that repeat down long lists; screen readers then read the text as the trigger's description. While it shows, the
+ * browser's own tooltip of a surrounding element, like a row's `title`, is held back, so the two don't show at once.
  */
-defineProps<{ text: string }>();
+withDefaults(defineProps<{ text: string; focusable?: boolean }>(), { focusable: true });
 
 const trigger = useTemplateRef<HTMLElement>("trigger");
 const tip = useTemplateRef<HTMLElement>("tip");
 const shown = ref(false);
 const at = ref({ left: 0, top: 0 });
+/** The surrounding element whose `title` is held back while the tip shows, with that title. */
+let heldBack: { element: Element; title: string } | undefined;
+
+function hide() {
+  shown.value = false;
+  // Vue sets the title again itself when it changes in the meantime; then that newer one stays.
+  if (heldBack && !heldBack.element.hasAttribute("title")) heldBack.element.setAttribute("title", heldBack.title);
+  heldBack = undefined;
+}
+onBeforeUnmount(hide);
 
 async function show() {
+  const owner = trigger.value?.parentElement?.closest("[title]");
+  if (owner && !heldBack) {
+    heldBack = { element: owner, title: owner.getAttribute("title")! };
+    owner.removeAttribute("title");
+  }
   shown.value = true;
   await nextTick();
   const t = trigger.value?.getBoundingClientRect();
@@ -28,12 +45,13 @@ async function show() {
   <span
     ref="trigger"
     class="inline-flex"
-    tabindex="0"
-    :aria-label="text"
+    :tabindex="focusable ? 0 : undefined"
+    :aria-label="focusable ? text : undefined"
+    :aria-description="focusable ? undefined : text"
     @mouseenter="show"
-    @mouseleave="shown = false"
+    @mouseleave="hide"
     @focus="show"
-    @blur="shown = false"
+    @blur="hide"
     ><slot
   /></span>
   <Teleport to="body">
