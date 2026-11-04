@@ -94,6 +94,15 @@ const pcm = computed<Pcm | undefined>(() => {
 const bankFile = computed(() => sections.value.find((s) => s.title !== "Samples")?.title);
 const soundCount = computed(() => all.value.filter((i) => i.type === "bank").length);
 const sampleCount = computed(() => all.value.filter((i) => i.type === "raw").length);
+/** With more than one bank loaded, a row names its bank too, as their sounds share one list. */
+const manyBanks = computed(() => sections.value.filter((s) => s.title !== "Samples").length > 1);
+/** The meta of a row: the sound's id, with its bank when that's needed, or the sample file's size. */
+const rowMeta = (item: AudioItem) =>
+  item.type === "raw"
+    ? formatBytes(item.resource.data.length)
+    : manyBanks.value
+      ? `${item.resource.name} · ${item.entry.id}`
+      : String(item.entry.id);
 
 /** How the lab plays an item: its sample as it is, its MIDI on the emulated AdLib, or not at all. */
 function statusOf(item: AudioItem): { status: Confidence; label: string } {
@@ -196,7 +205,7 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
           v-for="item in shown"
           :key="item.key"
           :name="itemName(item)"
-          :meta="item.type === 'bank' ? String(item.entry.id) : formatBytes(item.resource.data.length)"
+          :meta="rowMeta(item)"
           :status="statusOf(item).status"
           :status-title="statusOf(item).label"
           :aria-description="statusOf(item).label"
