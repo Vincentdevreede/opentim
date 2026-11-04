@@ -1,0 +1,14 @@
+/**
+ * The assumptions decided during the behaviour research, where the code alone can't settle a question. Each is stated
+ * on every finding that uses it, and explained in docs/behaviour-assumptions.md so it can be rechecked later.
+ */
+import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
+import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
+import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
+import { ROPE_ASSUMPTIONS } from "./behaviour-rope-dispatch.ts";
+
+export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
+  { title: "Ropes", assumptions: ROPE_ASSUMPTIONS },
+  { title: "The scissors' rope cut", assumptions: ROPE_CUT_ASSUMPTIONS },
+  { title: "The teeter-totter's search", assumptions: [...OUTLINE_SEARCH_ASSUMPTIONS, INCLUSIVE_LIST_ASSUMPTION] },
+];

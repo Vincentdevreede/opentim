@@ -432,7 +432,8 @@ its own ropes again, so the union is repeated until it stops growing. A callback
 which is the part at the other end, and fields of that part's rope, belt and pulley records. If any callback writes
 anything else or has unfinished effects, the query keeps its old open summary.
 
-Three assumptions make this sound. They are stated on the summary and on every finding that uses it:
+Three assumptions make this sound. They are stated on the summary and on every finding that uses it, and listed with
+how to recheck them in [the decided assumptions](behaviour-assumptions.md):
 
 - A rope ties two different parts, so the part at the other end of a rope is never the part that asks.
 - Ropes between parts never form a loop, so a chain of questions along ropes never comes back to the part that asked.
@@ -455,7 +456,8 @@ forms over the eleven builds, all writing the same fields) and the summaries of 
 On existing parts a cut can change only the rope and pulley links `0x5a`, `0x5c`, `0x66` and `0x68`, the list links
 the insertion rewrites on the new piece's neighbours, and what the rope geometry update names. On the cut rope's own
 record it changes the far end `0x04`, the slot byte `0x0b` and the two end points. It never changes a part's state, so
-the scissors keep their frame. This needs four stated assumptions:
+the scissors keep their frame. This needs four stated assumptions, listed with how to recheck them in
+[the decided assumptions](behaviour-assumptions.md):
 
 - A new rope piece the part factory makes gets fresh memory: it never overlaps an existing part, a rope record or
   other storage, and releasing a piece that was never linked changes nothing else.
@@ -477,7 +479,8 @@ skip the owner, so the list may hold the teeter-totter itself.
 
 A loop over such a list is still proved, with two extra rules. The body may never write a listed part's state, and
 every other field it writes on a listed part counts as a possible write to the owner too. The teeter-totter keeps its
-frame, and forgets the positions it writes on the parts lying on it. In each recorded build this removes 24
+frame, and forgets the positions it writes on the parts lying on it. Its assumptions are listed in
+[the decided assumptions](behaviour-assumptions.md). In each recorded build this removes 24
 unresolved transitions and 9 more walks end.
 
 ## Saved evidence

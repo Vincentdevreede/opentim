@@ -7,6 +7,10 @@ import type { Instruction, Operand } from "./x86.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
 
+/** Stated on a loop over a list whose query may hold the owner itself. */
+export const INCLUSIVE_LIST_ASSUMPTION =
+  "The query may list the owner. The body never writes a listed part's state, so the owner keeps its state; other fields it writes on listed parts may be the owner's.";
+
 export interface ListLoopSummary extends Finding {
   condition?: Predicate;
   header: number;
@@ -408,9 +412,7 @@ export function discoverListLoops(
       ...(globalSource
         ? []
         : inclusive
-          ? [
-              "The query may list the owner. The body never writes a listed part's state, so the owner keeps its state; other fields it writes on listed parts may be the owner's.",
-            ]
+          ? [INCLUSIVE_LIST_ASSUMPTION]
           : [
               "The query excludes the owner. Writes to a listed object's state therefore do not change the owner's state.",
             ]),
