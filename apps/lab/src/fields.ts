@@ -1,7 +1,7 @@
 /**
  * The fields of a resource: what each run of bytes means, as the decoders read it. The Files page draws them under the
- * hex view and explains the selected byte with them. Files without a decoder are read as little-endian words, with
- * runs of letters kept as text, so their numbers can still be read.
+ * hex view and explains the selected byte with them. Where no decoder knows the bytes, only runs of letters are read,
+ * as text.
  */
 
 import { readLevel, type LevelField, type LevelLayout } from "@opentim/content";
@@ -53,45 +53,30 @@ const hex = (n: number, width: number) => "0x" + n.toString(16).toUpperCase().pa
 const printable = (v: number | undefined) => v !== undefined && v >= 0x20 && v < 0x7f;
 const quote = (text: string) => `“${text}”`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/** Bytes searched for text at most, so a large unknown file can't make the page slow. */
+const MAX_TEXT_BYTES = 1 << 20;
 
 /**
- * Reads `data[start, end)` as little-endian u16 words, from `start`. Runs of letters stay text, cut to a whole number
- * of words so the words after them keep their alignment.
+ * The runs of letters in `data[start, end)` where no decoder knows the bytes, like `LZ91` in a program. The other
+ * bytes stay unread: the Bytes view can read them as numbers.
  */
-export function wordFields(data: Uint8Array, start = 0, end = data.length): Field[] {
+export function textFields(data: Uint8Array, start = 0, end = data.length): Field[] {
   const out: Field[] = [];
-  let at = start;
-  while (at < end) {
+  const stop = Math.min(end, start + MAX_TEXT_BYTES);
+  for (let at = start; at < stop;) {
     let run = at;
-    while (run < end && printable(data[run])) run++;
-    const letters = (run - at) & ~1;
-    if (letters >= MIN_TEXT) {
-      const text = String.fromCharCode(...data.subarray(at, at + letters));
+    while (run < stop && printable(data[run])) run++;
+    if (run - at >= MIN_TEXT)
       out.push({
         offset: at,
-        size: letters,
+        size: run - at,
         label: "text",
         name: "text",
-        value: quote(text),
+        value: quote(String.fromCharCode(...data.subarray(at, run))),
         kind: "text",
         type: "letters",
       });
-      at += letters;
-    } else if (at + 1 < end) {
-      out.push({
-        offset: at,
-        size: 2,
-        label: "",
-        name: "word",
-        value: String(u16(data, at)),
-        kind: "word",
-        type: "u16 LE",
-      });
-      at += 2;
-    } else {
-      out.push({ offset: at, size: 1, label: "", name: "byte", value: String(data[at]), kind: "word", type: "u8" });
-      at += 1;
-    }
+    at = Math.max(run, at + 1);
   }
   return out;
 }
@@ -219,13 +204,13 @@ function dataFields(all: Chunk[], chunk: Chunk, parent?: Chunk): Field[] {
   const start = chunk.offset + CHUNK_HEADER;
   const data = chunk.data;
   const at = (relative: number) => start + relative;
-  const words = () => wordFields(chunk.data, 0).map((f) => ({ ...f, offset: at(f.offset) }));
+  const unread = () => textFields(data).map((f) => ({ ...f, offset: at(f.offset) }));
 
   switch (chunk.tag) {
     case "INF:": {
-      if (parent?.tag === "SND:") return words();
+      if (parent?.tag === "SND:") return unread();
       const count = u16(data, 0);
-      if (data.length !== 2 + count * 4) return words();
+      if (data.length !== 2 + count * 4) return unread();
       const out: Field[] = [
         {
           offset: start,
@@ -255,7 +240,7 @@ function dataFields(all: Chunk[], chunk: Chunk, parent?: Chunk): Field[] {
       return out;
     }
     case "DIM:":
-      if (data.length !== 4) return words();
+      if (data.length !== 4) return unread();
       return ["width", "height"].map((dimension, i) => ({
         offset: at(i * 2),
         size: 2,
@@ -290,7 +275,7 @@ function dataFields(all: Chunk[], chunk: Chunk, parent?: Chunk): Field[] {
       if (parent?.tag === "PAL:") return colourFields(start, data);
       return pixelFields(chunk);
     case "DAT:":
-      if (parent?.tag !== "SND:" || data.length < 4) return words();
+      if (parent?.tag !== "SND:" || data.length < 4) return unread();
       return [
         {
           offset: start,
@@ -313,9 +298,9 @@ function dataFields(all: Chunk[], chunk: Chunk, parent?: Chunk): Field[] {
         blob(start + 4, data.length - 4, "sound", "the sound, packed as type 3"),
       ];
     case "TAG:":
-      return parent?.tag === "SND:" ? (tagFields(start, data) ?? words()) : words();
+      return parent?.tag === "SND:" ? (tagFields(start, data) ?? unread()) : unread();
     default:
-      return words();
+      return unread();
   }
 }
 
@@ -346,7 +331,7 @@ function colourFields(start: number, data: Uint8Array): Field[] {
 function pixelFields(chunk: Chunk): Field[] {
   const start = chunk.offset + CHUNK_HEADER;
   const data = chunk.data;
-  if (data.length < 5) return wordFields(data).map((f) => ({ ...f, offset: start + f.offset }));
+  if (data.length < 5) return textFields(data).map((f) => ({ ...f, offset: start + f.offset }));
   const unpacked = u32(data, 1);
   return [
     {
@@ -507,7 +492,60 @@ export function fieldsOf(resource: Resource, options: FieldOptions = {}): Field[
   } catch {
     chunks = undefined;
   }
-  return chunks?.length ? chunkFields(chunks, chunks) : wordFields(data);
+  if (chunks?.length) return chunkFields(chunks, chunks);
+  if (/\.(EXE)$/i.test(resource.name)) {
+    const header = programFields(data);
+    const end = header.at(-1) ? header.at(-1)!.offset + header.at(-1)!.size : 0;
+    return [...header, ...textFields(data, end)];
+  }
+  return textFields(data);
+}
+
+/** The fields of the DOS program header ("MZ"), and its table of relocations. */
+const MZ_FIELDS: [label: string, name: string, kind: FieldKind][] = [
+  ["magic", "magic", "id"],
+  ["last page", "bytes in the last page", "size"],
+  ["pages", "pages of 512 bytes", "size"],
+  ["relocs", "relocation count", "setting"],
+  ["header", "header size in paragraphs", "size"],
+  ["min alloc", "minimum extra paragraphs", "size"],
+  ["max alloc", "maximum extra paragraphs", "size"],
+  ["ss", "initial SS, relative", "position"],
+  ["sp", "initial SP", "position"],
+  ["checksum", "checksum", "setting"],
+  ["ip", "initial IP", "position"],
+  ["cs", "initial CS, relative", "position"],
+  ["reloc at", "relocation table offset", "position"],
+  ["overlay", "overlay number", "setting"],
+];
+
+export function programFields(data: Uint8Array): Field[] {
+  if (data.length < 28 || data[0] !== 0x4d || data[1] !== 0x5a) return [];
+  const out: Field[] = MZ_FIELDS.map(([label, name, kind], i) => ({
+    offset: i * 2,
+    size: 2,
+    label,
+    name,
+    value: i === 0 ? "MZ" : kind === "position" ? hex(u16(data, i * 2), 4) : String(u16(data, i * 2)),
+    kind,
+    type: "u16 LE",
+    group: "DOS program header",
+  }));
+  const count = u16(data, 6);
+  const table = u16(data, 24);
+  if (table < 28 || table + count * 4 > data.length) return out;
+  for (let i = 0; i < count; i++)
+    out.push({
+      offset: table + i * 4,
+      size: 4,
+      label: "reloc",
+      name: `relocation ${i}`,
+      value: `${hex(u16(data, table + i * 4 + 2), 4).slice(2)}:${hex(u16(data, table + i * 4), 4).slice(2)}`,
+      kind: "link",
+      type: "u16 offset, u16 segment",
+      group: "DOS relocations",
+    });
+  return table > 28 ? [...out.slice(0, 14), ...textFields(data, 28, table), ...out.slice(14)] : out;
 }
 
 /** The field holding the byte at `offset`, found by halving the sorted list. */

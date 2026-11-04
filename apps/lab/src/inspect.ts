@@ -74,7 +74,9 @@ export function inspectByte(
   fields: readonly Field[],
   palette?: Uint8Array,
 ): ByteInfo {
-  const info: ByteInfo = { archiveOffset: resource.offset + ENTRY_HEADER_SIZE + offset };
+  // A file of its own, like the game's program, isn't in an archive, so its offsets are its own.
+  const standalone = resource.archive === resource.name;
+  const info: ByteInfo = { archiveOffset: standalone ? offset : resource.offset + ENTRY_HEADER_SIZE + offset };
   const chunk = chunkAt(chunksOf(resource), offset);
   if (chunk) {
     const relative = offset - chunk.offset - CHUNK_HEADER;

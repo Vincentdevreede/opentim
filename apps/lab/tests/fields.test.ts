@@ -1,6 +1,6 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
-import { fieldAt, fieldsOf, firstFieldFrom, wordFields } from "../src/fields.ts";
+import { fieldAt, fieldsOf, firstFieldFrom, programFields, textFields } from "../src/fields.ts";
 import type { Resource } from "../src/importer.ts";
 
 const u16 = (...values: number[]) => new Uint8Array(new Uint16Array(values).buffer);
@@ -82,34 +82,49 @@ describe("fieldsOf", () => {
     ]);
   });
 
-  it("reads files without a decoder as words, and a broken level too", () => {
-    const fields = fieldsOf(resource("PART0.PAR", "other", Uint8Array.of(1, 0, 2)));
-    expect(fields.map((f) => [f.offset, f.size, f.value])).toEqual([
-      [0, 2, "1"],
-      [2, 1, "2"],
-    ]);
-    expect(fieldsOf(resource("L2.LEV", "level", Uint8Array.of(0xef, 0xac)))).toHaveLength(1);
+  it("leaves the bytes of files without a decoder unread, and of a broken level too", () => {
+    expect(fieldsOf(resource("PART0.PAR", "other", Uint8Array.of(1, 0, 2)))).toEqual([]);
+    expect(fieldsOf(resource("L2.LEV", "level", Uint8Array.of(0xef, 0xac)))).toEqual([]);
+    const unknown = resource("X.BMP", "sprites", writeChunk("ZZZ:", Uint8Array.of(0xff, 0xff)));
+    expect(fieldsOf(unknown).map((f) => f.label)).toEqual(["tag", "size"]);
   });
 });
 
-describe("wordFields", () => {
-  it("keeps runs of letters as text, cut to whole words", () => {
-    const data = Uint8Array.from([...text("PROPI"), 1, 0x10, 0x0b]);
-    expect(wordFields(data).map((f) => [f.offset, f.kind, f.value])).toEqual([
-      [0, "text", "“PROP”"],
-      [4, "word", String(0x149)],
-      [6, "word", String(0x0b10)],
+describe("textFields", () => {
+  it("reads runs of four letters or more as text and leaves the other bytes", () => {
+    const data = Uint8Array.from([...text("PROPI"), 1, ...text("ABC"), 0, ...text("WXYZ")]);
+    expect(textFields(data).map((f) => [f.offset, f.size, f.value])).toEqual([
+      [0, 5, "“PROPI”"],
+      [10, 4, "“WXYZ”"],
     ]);
+    expect(textFields(data, 1, 4)).toEqual([]);
   });
 });
 
 describe("fieldAt and firstFieldFrom", () => {
-  const fields = wordFields(new Uint8Array(10));
+  const fields = textFields(Uint8Array.from([...text("ABCD"), 0, ...text("EFGH"), 0, ...text("IJKL")]));
 
   it("find the field holding a byte and the first field from an offset", () => {
-    expect(fieldAt(fields, 5)?.offset).toBe(4);
-    expect(fieldAt(fields, 10)).toBeUndefined();
-    expect(firstFieldFrom(fields, 5)).toBe(2);
-    expect(firstFieldFrom(fields, 6)).toBe(3);
+    expect(fieldAt(fields, 6)?.offset).toBe(5);
+    expect(fieldAt(fields, 4)).toBeUndefined();
+    expect(firstFieldFrom(fields, 4)).toBe(1);
+    expect(firstFieldFrom(fields, 9)).toBe(2);
+  });
+});
+
+describe("programFields", () => {
+  it("reads the DOS program header and its relocations", () => {
+    const header = u16(0x5a4d, 0x50, 3, 1, 4, 0, 0xffff, 0x10, 0x200, 0, 0x100, 0x20, 28, 0);
+    const exe = Uint8Array.from([...header, ...u16(0x34, 0x1234), ...new Array(30).fill(0)]);
+    const fields = programFields(exe);
+    expect(fields.slice(0, 3).map((f) => [f.label, f.value])).toEqual([
+      ["magic", "MZ"],
+      ["last page", "80"],
+      ["pages", "3"],
+    ]);
+    expect(fields.find((f) => f.label === "ip")?.value).toBe("0x0100");
+    expect(fields.at(-1)).toMatchObject({ offset: 28, size: 4, value: "1234:0034", group: "DOS relocations" });
+    expect(programFields(Uint8Array.of(1, 2, 3))).toEqual([]);
+    expect(fieldsOf(resource("TIM.EXE", "other", exe)).at(-1)).toMatchObject({ offset: 28, label: "reloc" });
   });
 });

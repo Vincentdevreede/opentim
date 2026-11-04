@@ -10,16 +10,19 @@ import LabFact from "../components/LabFact.vue";
 import LabFacts from "../components/LabFacts.vue";
 import LabField from "../components/LabField.vue";
 import LabSearch from "../components/LabSearch.vue";
-import LabAlert from "../components/LabAlert.vue";
 import PageHeader from "../components/PageHeader.vue";
 import PixelFrame from "../components/PixelFrame.vue";
 import { bookmarks, bookmarksIn, removeBookmark, toggleBookmark, versionKey, type Bookmark } from "../bookmarks.ts";
 import { fieldAt, fieldsOf, firstFieldFrom, type Field, type FieldKind } from "../fields.ts";
+import type { Resource } from "../importer.ts";
+import { findAll, parseQuery } from "../search.ts";
+import FileStructure from "../components/files/FileStructure.vue";
+import LabListHeading from "../components/LabListHeading.vue";
 import { cssColor, inspectByte } from "../inspect.ts";
 import { layoutOf, readLevels } from "../levels.ts";
 import { edition, program, resources, selected } from "../library.ts";
 import { listIdOf, partName, readLoadedParts } from "../parts.ts";
-import { headerBytes, markerAt, markersOf } from "../markers.ts";
+import { headerBytes, markersOf } from "../markers.ts";
 import { decode, imagePalette, isImage, paletteColors, statusOf } from "../sprites.ts";
 import { crumb, formatBytes, hex, openAt, openSprite, selectedLevel } from "../ui.ts";
 import LabNoMatch from "../components/LabNoMatch.vue";
@@ -73,11 +76,91 @@ const scrollTop = ref(0);
 const viewHeight = ref(0);
 const viewWidth = ref(0);
 
-const list = computed(() => {
-  const q = query.value.trim().toUpperCase();
-  return resources.value.filter((r) => !q || r.name.includes(q));
+/** The game's program, like `TIM.EXE`, as a file of the list. It is only read as bytes, never run. */
+const programFile = computed<Resource | undefined>(() => {
+  const exe = program.value;
+  if (!exe) return undefined;
+  const name = exe.name.toUpperCase();
+  return { name, kind: "binary", group: "other", archive: name, offset: 0, data: exe.data };
 });
-const current = computed(() => resources.value.find((r) => r.name === selected.value) ?? resources.value[0]);
+const files = computed(() => (programFile.value ? [...resources.value, programFile.value] : resources.value));
+
+/** A search of the bytes, when the query is written like one: `"text"`, `ED AC` or `=408`. */
+const contentQuery = computed(() => parseQuery(query.value));
+/** Where the searched bytes are, in every file that has them. */
+const hitsByFile = computed(() => {
+  const q = contentQuery.value;
+  if (!q) return undefined;
+  const out = new Map<string, number[]>();
+  for (const r of files.value) {
+    const hits = findAll(r.data, q);
+    if (hits.length) out.set(r.name, hits);
+  }
+  return out;
+});
+
+/** Shows every bookmark of this version in the list, instead of the files. */
+const showMarks = ref(false);
+const version = computed(() => versionKey(edition.value));
+const allMarks = computed(() => bookmarks.value[version.value] ?? []);
+const filesWithMarks = computed(() => new Set(allMarks.value.map((b) => b.file)));
+
+const list = computed(() => {
+  const hits = hitsByFile.value;
+  if (hits) return files.value.filter((r) => hits.has(r.name));
+  const q = query.value.trim().toUpperCase();
+  return files.value.filter(
+    (r) =>
+      !q || r.name.includes(q) || allMarks.value.some((b) => b.file === r.name && b.name.toUpperCase().includes(q)),
+  );
+});
+/** Every bookmark, by file and offset; the search filters them by their name or file. */
+const markList = computed(() => {
+  const q = query.value.trim().toUpperCase();
+  return allMarks.value
+    .filter((b) => !q || b.name.toUpperCase().includes(q) || b.file.includes(q))
+    .sort((a, b) => a.file.localeCompare(b.file) || a.offset - b.offset);
+});
+const current = computed(() => files.value.find((r) => r.name === selected.value) ?? files.value[0]);
+
+const hitCount = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "hit" : "hits"}`;
+/** Opens a file, at the first searched byte when there is a search. */
+function openFile(r: Resource) {
+  if (r.name === current.value?.name) return;
+  openAt.value = hitsByFile.value?.get(r.name)?.[0];
+  selected.value = r.name;
+}
+/** Opens the file of a bookmark at its bytes. */
+function openMark(b: Bookmark) {
+  if (b.file === current.value?.name) return moveTo(b.offset, true);
+  openAt.value = b.offset;
+  selected.value = b.file;
+}
+
+/** How the Bytes view reads its cells: one byte each, or two as a little-endian word, from an even or odd byte. */
+const readAs = ref<"u8" | "u16" | "i16">("u8");
+const READ_AS = [
+  { value: "u8" as const, label: "u8", title: "One byte per cell" },
+  { value: "u16" as const, label: "u16", title: "Two bytes per cell, as a little-endian number" },
+  { value: "i16" as const, label: "i16", title: "Two bytes per cell, as a signed little-endian number" },
+];
+const wordStart = ref<"even" | "odd">("even");
+const WORD_STARTS = [
+  { value: "even" as const, label: "Even", title: "Words start on even offsets" },
+  { value: "odd" as const, label: "Odd", title: "Words start on odd offsets" },
+];
+/**
+ * The start the switch shows. In Fields it can't be switched: it shows where the words of the selected field start,
+ * the field's first byte, and even between fields.
+ */
+const shownStart = computed({
+  get: () => {
+    if (!showFields.value) return wordStart.value;
+    const field = fieldAt(fields.value, cursor.value);
+    return field && field.offset % 2 ? "odd" : "even";
+  },
+  set: (start: "even" | "odd") => (wordStart.value = start),
+});
 const bytes = computed(() => current.value?.data ?? new Uint8Array());
 /** Part names for the markers of a level, from the loaded part list. */
 const partList = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value)?.list);
@@ -103,6 +186,39 @@ const marked = computed(() =>
 const fields = computed(() =>
   current.value ? fieldsOf(current.value, { layout: levelLayout.value, nameOf: nameOf.value }) : [],
 );
+
+/** The searched bytes in this file, where each hit starts. */
+const hits = computed(() => hitsByFile.value?.get(current.value?.name ?? "") ?? []);
+/** Every byte of a hit, and the first and last byte of each, to draw them as bands. */
+const hitBand = computed(() => {
+  const size = contentQuery.value?.pattern.length ?? 0;
+  const bytes = new Set<number>();
+  const starts = new Set<number>();
+  const ends = new Set<number>();
+  for (const h of hits.value) {
+    for (let o = h; o < h + size; o++) bytes.add(o);
+    starts.add(h);
+    ends.add(h + size - 1);
+  }
+  return { bytes, starts, ends };
+});
+/** The hit at or before the selected byte, counting from 0, or -1 before the first. */
+const hitIndex = computed(() => hits.value.findLastIndex((h) => h <= cursor.value));
+/** Selects the next or the previous hit, round the end of the file. */
+function stepHit(direction: 1 | -1) {
+  const list = hits.value;
+  if (!list.length) return;
+  const at = hitIndex.value;
+  const onHit = list[at] === cursor.value;
+  const next = direction > 0 ? (at + 1) % list.length : onHit ? at - 1 : at;
+  moveTo(list[(next + list.length) % list.length]!, true);
+}
+/** Enter in the search: the next hit in this file, or the first file with hits. */
+function searchEnter(e: KeyboardEvent) {
+  if (hits.value.length) return stepHit(e.shiftKey ? -1 : 1);
+  const first = showMarks.value ? undefined : list.value[0];
+  if (first) openFile(first);
+}
 const headers = computed(() => headerBytes(marked.value.markers));
 const stoppedAt = computed(() => marked.value.markers.find((m) => m.error)?.offset);
 /** Colours for the swatches: a palette's own colours, or the palette an image gets in Sprites. */
@@ -116,7 +232,6 @@ const swatchPalette = computed(() => {
 const info = computed(() =>
   current.value ? inspectByte(current.value, cursor.value, fields.value, swatchPalette.value) : undefined,
 );
-const version = computed(() => versionKey(edition.value));
 /** The bookmarks in this file, by offset. */
 const marks = computed(() => (current.value ? bookmarksIn(bookmarks.value, version.value, current.value.name) : []));
 /** Every bookmarked byte, and the first and last byte of each bookmark, to draw them as bands. */
@@ -181,8 +296,6 @@ function openInLevels() {
 }
 const inRange = (offset: number) =>
   !!info.value?.range && offset >= info.value.range[0] && offset < info.value.range[1];
-/** The chunk the selected byte is in. */
-const here = computed(() => markerAt(marked.value.markers, cursor.value));
 const cellWidth = computed(() => (decimal.value ? 28 : 22));
 const rowWidth = (n: number) =>
   OFFSET_WIDTH + n * cellWidth.value + (n / GROUP - 1) * GROUP_GAP + ASCII_GUTTER + n * ASCII_WIDTH;
@@ -281,16 +394,29 @@ interface Cell {
   column: number;
 }
 
+/** A cell of the Bytes view: one byte, or two read as a word. */
+interface Unit {
+  offset: number;
+  size: 1 | 2;
+  /** The column of its first byte. */
+  column: number;
+  text: string;
+  /** A lone byte between words, at the edge of a row, a field or the file, drawn fainter. A field of one byte is whole. */
+  lone: boolean;
+}
+
 /** A run of cells in a row that belong to one field, or to none. */
 interface Segment {
   cells: Cell[];
   field?: Field;
+  /** Its bytes as the switches read them. */
+  units: Unit[];
   /** Set where the field shows its name and value. */
   label: boolean;
 }
 
 const rows = computed(() => {
-  const out: { offset: number; index: number; tall: boolean; cells: Cell[]; segments: Segment[] }[] = [];
+  const out: { offset: number; index: number; tall: boolean; cells: Cell[]; segments: Segment[]; units: Unit[] }[] = [];
   const end = bytes.value.length;
   const n = perRow.value;
   const list = fields.value;
@@ -307,20 +433,59 @@ const rows = computed(() => {
         const field = list[next];
         if (field && field.offset <= at) {
           const stop = Math.min(field.offset + field.size, until);
-          segments.push({ cells: cells.slice(at - offset, stop - offset), field, label: labelRow(field, n) === index });
+          const own = cells.slice(at - offset, stop - offset);
+          segments.push({ cells: own, units: unitsOf(own, field), field, label: labelRow(field, n) === index });
           if (field.offset + field.size <= until) next++;
           at = stop;
         } else {
           const stop = Math.min(field?.offset ?? until, until);
-          segments.push({ cells: cells.slice(at - offset, stop - offset), label: false });
+          const gap = cells.slice(at - offset, stop - offset);
+          segments.push({ cells: gap, units: unitsOf(gap), label: false });
           at = stop;
         }
       }
     }
-    out.push({ offset, index, tall: rowLayout.value.tall[index] === 1, cells, segments });
+    out.push({
+      offset,
+      index,
+      tall: rowLayout.value.tall[index] === 1,
+      cells,
+      segments,
+      units: showFields.value ? [] : unitsOf(cells),
+    });
   }
   return out;
 });
+
+/**
+ * Cells as bytes or as words: a row of the Bytes view, or a field or the bytes between fields in the Fields view. A
+ * word never runs over the end of either. In a field, words start on its first byte, as the decoder knows where it
+ * starts; elsewhere on an even offset, or an odd one when switched in the Bytes view. A field of one byte is whole,
+ * not a lone byte.
+ */
+function unitsOf(cells: Cell[], field?: Field): Unit[] {
+  const as = readAs.value;
+  if (as === "u8") return cells.map((c) => ({ ...c, size: 1, text: pad(c.value, 2), lone: false }));
+  const parity = field ? field.offset % 2 : showFields.value || wordStart.value === "even" ? 0 : 1;
+  const units: Unit[] = [];
+  for (let i = 0; i < cells.length;) {
+    const c = cells[i]!;
+    const next = cells[i + 1];
+    if (c.offset % 2 === parity && next) {
+      const word = c.value | (next.value << 8);
+      const value = as === "i16" ? (word << 16) >> 16 : word;
+      const text = decimal.value
+        ? String(value)
+        : (value < 0 ? "-" : "") + Math.abs(value).toString(16).toUpperCase().padStart(4, "0");
+      units.push({ offset: c.offset, size: 2, column: c.column, text, lone: false });
+      i += 2;
+    } else {
+      units.push({ offset: c.offset, size: 1, column: c.column, text: pad(c.value, 2), lone: field?.size !== 1 });
+      i++;
+    }
+  }
+  return units;
+}
 
 /** The colour of each kind of field, from the theme. */
 const KIND_COLORS: Record<FieldKind, string> = {
@@ -349,35 +514,61 @@ function rowMarked(offset: number) {
   return false;
 }
 /** Whether a byte is in a band: a bookmark or the selected field, drawn as one block over its bytes. */
-const inBand = (offset: number) => bookmarked.value.bytes.has(offset) || inRange(offset);
-/** The rounded sides of a byte: a band only rounds at its ends, at the end of a row and around the gap of a group. */
-function corners(cell: Cell) {
-  const { offset, column } = cell;
-  if (!inBand(offset)) return "rounded-[2px]";
-  const { starts, ends } = bookmarked.value;
-  const left = column % GROUP === 0 || !inBand(offset - 1) || starts.has(offset);
-  const right = groupEnd(column) || column === perRow.value - 1 || !inBand(offset + 1) || ends.has(offset);
+const inBand = (offset: number) =>
+  bookmarked.value.bytes.has(offset) || hitBand.value.bytes.has(offset) || inRange(offset);
+/**
+ * The rounded sides of a cell from its first to its last byte: a band only rounds at its ends, at the end of a row
+ * and around the gap of a group.
+ */
+function corners(first: Cell, last: Cell = first) {
+  if (!inBand(first.offset)) return "rounded-[2px]";
+  const marks = bookmarked.value;
+  const found = hitBand.value;
+  const at = first.offset;
+  const end = last.offset;
+  const left = first.column % GROUP === 0 || !inBand(at - 1) || marks.starts.has(at) || found.starts.has(at);
+  const right =
+    groupEnd(last.column) ||
+    last.column === perRow.value - 1 ||
+    !inBand(end + 1) ||
+    marks.ends.has(end) ||
+    found.ends.has(end);
   return [left && "rounded-l-[2px]", right && "rounded-r-[2px]"];
 }
-const cellClass = (cell: Cell) => [
-  ...cellWidthClass(cell),
-  corners(cell),
-  cell.offset === cursor.value
+/** The colours of a cell starting at a byte: selected, stopped, bookmarked, a hit, in the selected field or plain. */
+const stateClass = (offset: number, selected: boolean, zero: boolean) =>
+  selected
     ? "bg-accent font-bold text-accent-ink"
-    : cell.offset === stoppedAt.value
+    : offset === stoppedAt.value
       ? "bg-error/20 font-bold text-error hover:bg-raised-hover"
-      : bookmarked.value.bytes.has(cell.offset)
-        ? inRange(cell.offset)
+      : bookmarked.value.bytes.has(offset)
+        ? inRange(offset)
           ? "bg-accent/60 font-semibold text-ink"
           : "bg-accent/40 font-semibold text-ink hover:bg-accent/50"
-        : inRange(cell.offset)
-          ? "bg-accent/15 text-ink hover:bg-raised-hover"
-          : headers.value.has(cell.offset) && !showFields.value
-            ? "text-partial hover:bg-raised-hover"
-            : cell.value === 0
-              ? "text-faint hover:bg-raised-hover"
-              : "hover:bg-raised-hover",
-];
+        : hitBand.value.bytes.has(offset)
+          ? "bg-partial/35 font-semibold text-ink hover:bg-partial/45"
+          : inRange(offset)
+            ? "bg-accent/15 text-ink hover:bg-raised-hover"
+            : headers.value.has(offset) && !showFields.value
+              ? "text-partial hover:bg-raised-hover"
+              : zero
+                ? "text-faint hover:bg-raised-hover"
+                : "hover:bg-raised-hover";
+/** A cell of the Bytes view, a byte or a word, which is selected when it holds the selected byte. */
+function unitClass(unit: Unit, row: { cells: Cell[] }) {
+  const first = row.cells[unit.column]!;
+  const last = row.cells[unit.column + unit.size - 1]!;
+  const zero = first.value === 0 && last.value === 0;
+  return [
+    groupEnd(last.column) && "mr-2.5",
+    corners(first, last),
+    stateClass(unit.offset, cursor.value >= unit.offset && cursor.value < unit.offset + unit.size, zero),
+    unit.lone && cursor.value !== unit.offset && "opacity-50",
+  ];
+}
+/** The width of a cell: one column, or two for a word, with the gap of a group when a word crosses it. */
+const unitWidth = (unit: Unit) =>
+  unit.size === 1 ? "var(--cell)" : `calc(var(--cell) * 2${groupEnd(unit.column) ? ` + ${GROUP_GAP}px` : ""})`;
 /** Letters of a text field, one under each byte. */
 const letter = (v: number) => (printable(v) ? String.fromCharCode(v) : v === 0 ? "∅" : "·");
 
@@ -434,6 +625,18 @@ function jump() {
   if (!gotoInvalid.value) moveTo(n, true);
 }
 
+/** Selects the first byte of the next or the previous field. */
+function stepField(direction: 1 | -1) {
+  const list = fields.value;
+  const i = firstFieldFrom(list, cursor.value);
+  const inside = list[i] && list[i].offset <= cursor.value;
+  const target =
+    direction > 0
+      ? list[inside ? i + 1 : i]
+      : list[inside && list[i]!.offset === cursor.value ? i - 1 : inside ? i : i - 1];
+  if (target) moveTo(target.offset);
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement) {
     if (e.key === "Escape") e.target.blur();
@@ -448,6 +651,11 @@ function onKeydown(e: KeyboardEvent) {
     PageDown: screenBytes(),
   };
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    stepField(e.key === "ArrowRight" ? 1 : -1);
+    return;
+  }
   if (e.key === "g" || e.key === "G") {
     e.preventDefault();
     gotoField.value?.focus();
@@ -507,27 +715,64 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
   <div v-if="current" class="flex min-h-0 flex-1">
     <LabSidePanel side="left" aria-label="Resources">
       <LabToolbar>
-        <LabSearch v-model="query" label="Filter resources" placeholder="Any resource…" class="flex-1" />
+        <form class="flex min-w-0 flex-1" @submit.prevent @keydown.enter.prevent="searchEnter">
+          <LabSearch
+            v-model="query"
+            label="Filter files and bookmarks, or search the bytes"
+            :placeholder="showMarks ? 'Bookmark or file…' : 'File, bookmark, &quot;text&quot;, ED AC, =408'"
+            :title="'A file or bookmark name, or search the bytes: &quot;text&quot;, hex bytes like ED AC, or a number like =408'"
+            class="flex-1"
+          />
+        </form>
+        <LabButton
+          variant="ghost"
+          icon
+          :class="showMarks && 'text-accent!'"
+          :aria-pressed="showMarks"
+          :title="showMarks ? 'Show the files' : 'Show all bookmarks'"
+          @click="showMarks = !showMarks"
+          ><LabIcon name="bookmark" :filled="showMarks"
+        /></LabButton>
       </LabToolbar>
-      <div class="min-h-0 flex-1 overflow-auto pb-2">
+      <div v-if="showMarks" class="min-h-0 flex-1 overflow-auto pb-2">
+        <template v-for="(b, i) in markList" :key="`${b.file}@${b.offset}`">
+          <LabListHeading v-if="b.file !== markList[i - 1]?.file" :title="b.file" class="font-mono" />
+          <LabListRow
+            :name="hex(b.offset, 4)"
+            name-width="3.25rem"
+            :text="b.name"
+            :selected="b.file === current.name && markHere === b"
+            @click="openMark(b)"
+          />
+        </template>
+        <p v-if="!allMarks.length" class="px-3 py-2 text-meta text-muted">No bookmarks yet</p>
+        <LabNoMatch v-else-if="!markList.length" what="bookmarks" :query="query" />
+      </div>
+      <div v-else class="min-h-0 flex-1 overflow-auto pb-2">
         <LabListRow
           v-for="r in list"
           :key="r.name"
           :name="r.name"
-          :meta="r.group"
+          :meta="hitsByFile ? hitCount(hitsByFile.get(r.name)?.length ?? 0) : r === programFile ? 'program' : r.group"
           :status="statusOf(r).status"
           :selected="r.name === current.name"
           :data-resource="r.name"
-          @click="selected = r.name"
-        />
-        <LabNoMatch v-if="!list.length" what="resources" :query="query" />
+          @click="openFile(r)"
+        >
+          <template v-if="filesWithMarks.has(r.name)" #lead>
+            <LabIcon name="bookmark" filled :size="11" class="-ml-1 text-accent" />
+          </template>
+        </LabListRow>
+        <LabNoMatch v-if="!list.length" :what="hitsByFile ? 'files with these bytes' : 'files'" :query="query" />
       </div>
     </LabSidePanel>
 
     <section class="flex min-w-0 flex-1 flex-col">
       <LabToolbar>
         <span class="font-mono font-semibold">{{ current.name }}</span>
-        <span class="font-mono text-muted">{{ formatBytes(bytes.length) }} B · {{ current.archive }}</span>
+        <span class="font-mono text-muted"
+          >{{ formatBytes(bytes.length) }} B{{ current.archive === current.name ? "" : ` · ${current.archive}` }}</span
+        >
         <LabBadge v-bind="statusOf(current)" />
         <div class="flex-1"></div>
         <form class="flex items-center gap-2" @submit.prevent="jump">
@@ -545,8 +790,29 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
           </LabField>
           <LabButton type="submit">Go</LabButton>
         </form>
+        <template v-if="hits.length">
+          <span class="font-mono text-meta whitespace-nowrap text-muted"
+            >{{ hitIndex + 1 }} / {{ hits.length.toLocaleString("en-US") }}</span
+          >
+          <LabButton variant="ghost" icon title="Previous hit (Shift+Enter in the search)" @click="stepHit(-1)"
+            ><LabIcon name="chevronLeft"
+          /></LabButton>
+          <LabButton variant="ghost" icon title="Next hit (Enter in the search)" @click="stepHit(1)"
+            ><LabIcon name="chevronRight"
+          /></LabButton>
+        </template>
+      </LabToolbar>
+      <LabToolbar>
         <LabSegmented v-model="view" label="View" :options="VIEWS" />
         <LabSegmented v-model="format" label="Number format" :options="FORMATS" />
+        <div class="flex-1"></div>
+        <LabSegmented v-model="readAs" label="Read the bytes as" :options="READ_AS" />
+        <LabSegmented
+          v-model="shownStart"
+          label="Start the words on"
+          :options="WORD_STARTS.map((o) => ({ ...o, disabled: readAs === 'u8' || showFields }))"
+          :title="showFields ? 'In Fields, words start where each field starts' : undefined"
+        />
       </LabToolbar>
 
       <div
@@ -600,16 +866,17 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
                 >
                   <div class="flex h-5 items-center">
                     <button
-                      v-for="cell in seg.cells"
-                      :key="cell.offset"
+                      v-for="unit in seg.units"
+                      :key="unit.offset"
                       type="button"
-                      :data-offset="cell.offset"
+                      :data-offset="unit.offset"
                       class="h-[18px] shrink-0 cursor-pointer text-center leading-[18px] focus-visible:outline-offset-0"
-                      :class="cellClass(cell)"
-                      :aria-label="`Offset ${hex(cell.offset, 4)}, value ${hex(cell.value, 2)}`"
-                      @click="cursor = cell.offset"
+                      :class="unitClass(unit, row)"
+                      :style="{ width: unitWidth(unit) }"
+                      :aria-label="`Offset ${hex(unit.offset, 4)}, value ${unit.text}`"
+                      @click="cursor = unit.offset"
                     >
-                      {{ pad(cell.value, 2) }}
+                      {{ unit.text }}
                     </button>
                   </div>
                   <div
@@ -640,16 +907,17 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
               </template>
               <template v-else>
                 <button
-                  v-for="cell in row.cells"
-                  :key="cell.offset"
+                  v-for="unit in row.units"
+                  :key="unit.offset"
                   type="button"
-                  :data-offset="cell.offset"
+                  :data-offset="unit.offset"
                   class="mt-px h-[18px] shrink-0 cursor-pointer text-center leading-[18px] focus-visible:outline-offset-0"
-                  :class="cellClass(cell)"
-                  :aria-label="`Offset ${hex(cell.offset, 4)}, value ${hex(cell.value, 2)}`"
-                  @click="cursor = cell.offset"
+                  :class="unitClass(unit, row)"
+                  :style="{ width: unitWidth(unit) }"
+                  :aria-label="`Offset ${hex(unit.offset, 4)}, value ${unit.text}`"
+                  @click="cursor = unit.offset"
                 >
-                  {{ pad(cell.value, 2) }}
+                  {{ unit.text }}
                 </button>
               </template>
               <span v-if="!showFields" class="mt-px ml-3.5 flex border-l border-line pl-2.5">
@@ -780,42 +1048,14 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
           </ul>
           <p v-else class="text-meta text-muted">No bookmarks yet</p>
         </LabSection>
-        <LabSection title="Markers in this file">
-          <ul v-if="marked.markers.length" class="-mx-3 flex flex-col">
-            <li v-for="(m, i) in marked.markers" :key="i">
-              <LabAlert v-if="m.error" class="mx-3 my-1.5">
-                <span
-                  ><span v-if="m.offset !== undefined" class="font-mono text-error">{{ hex(m.offset, 4) }}</span>
-                  decoder stopped {{ m.offset !== undefined ? "here" : "" }}</span
-                >
-                <span class="text-muted">{{ m.detail }}</span>
-                <template v-if="m.offset !== undefined" #action>
-                  <LabButton class="h-[22px]! text-2xs!" @click="moveTo(m.offset ?? 0, true)">Jump</LabButton>
-                </template>
-              </LabAlert>
-              <LabListRow
-                v-else
-                :name="hex(m.offset ?? 0, 4)"
-                name-width="3.25rem"
-                :selected="here === m"
-                :indent="m.depth"
-                inset
-                @click="moveTo(m.offset ?? 0, true)"
-              >
-                <span class="shrink-0 font-mono text-meta font-semibold text-partial">{{ m.label }}</span>
-                <span class="min-w-0 truncate text-meta text-muted" :title="m.detail">{{ m.detail }}</span>
-              </LabListRow>
-            </li>
-          </ul>
-        </LabSection>
-        <p class="text-meta text-muted">
-          {{
-            marked.note ??
-            (showFields
-              ? "Markers come from decoders that ran on this file. Click one to jump to it."
-              : "Markers come from decoders that ran on this file. Chunk headers are tinted blue; click one to jump to it.")
-          }}
-        </p>
+        <FileStructure
+          :file="current.name"
+          :markers="marked.markers"
+          :fields="fields"
+          :cursor="cursor"
+          :note="marked.note"
+          @jump="moveTo($event, true)"
+        />
       </LabPanelBody>
     </LabSidePanel>
   </div>

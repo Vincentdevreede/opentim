@@ -89,9 +89,9 @@ describe("inspectByte", () => {
     expect(inspect(screen, 30).meaning).toBe("unpacked size: 1");
   });
 
-  it("reads a file without chunks as words", () => {
-    const text = resource("TOONS.BMP", "sprites", Uint8Array.of(13, 10, 32));
-    expect(inspect(text, 1)).toEqual({ archiveOffset: 118, meaning: "word: 2573", type: "u16 LE", range: [0, 2] });
-    expect(inspect(text, 2)).toMatchObject({ meaning: "byte: 32", range: [2, 3] });
+  it("reads letters in a file without chunks as text, and nothing else", () => {
+    const file = resource("TOONS.BMP", "sprites", Uint8Array.of(13, 10, 0x48, 0x4f, 0x4f, 0x50));
+    expect(inspect(file, 1)).toEqual({ archiveOffset: 118 });
+    expect(inspect(file, 3)).toMatchObject({ meaning: "text: “HOOP”", range: [2, 6] });
   });
 });
