@@ -148,3 +148,45 @@ describe("conditional input walk comparisons", () => {
     });
   });
 });
+
+describe("walks that start on an unknown frame", () => {
+  const equals = (offset: number, value: number) => ({
+    kind: "compare" as const,
+    operator: "==",
+    left: { kind: "field" as const, object: "part", offset, width: 16 },
+    right: { kind: "constant" as const, value, width: 16 },
+    signed: false,
+  });
+  /** A walk that follows each starting frame as a branch, like a reset that restores a level's saved frame. */
+  function branched(offset = 12): AnimationDescription {
+    const model = animation([]);
+    model.initialFields = [];
+    model.walk.status = "unresolved";
+    model.walk.runCalls = 0;
+    model.walk.stop = {
+      kind: "state",
+      description: "The starting frame is not known.",
+      evidence: [],
+      branches: [
+        { condition: equals(offset, 0), walk: { ...animation([0, 1, 0, 0]).walk } },
+        { condition: equals(offset, 1), walk: { ...animation([1, 0, 0]).walk } },
+      ],
+    };
+    return model;
+  }
+
+  it("compares the recording with the branch of its first frame", () => {
+    expect(compareMeasuredWalks([branched()], clip())).toMatchObject({ classification: "complete", prefixFrames: 3 });
+    const second = { ...clip(), frames: [1, 0].map((state) => ({ state, control: 1 })) };
+    expect(compareMeasuredWalks([branched()], second)).toMatchObject({ classification: "complete", prefixFrames: 2 });
+  });
+
+  it("chooses no branch for a frame the walk doesn't follow", () => {
+    const other = { ...clip(), frames: [2, 0].map((state) => ({ state, control: 1 })) };
+    expect(compareMeasuredWalks([branched()], other).classification).toBe("unavailable");
+  });
+
+  it("chooses no branch when the walk splits on something other than the frame", () => {
+    expect(compareMeasuredWalks([branched(18)], clip()).classification).toBe("unavailable");
+  });
+});

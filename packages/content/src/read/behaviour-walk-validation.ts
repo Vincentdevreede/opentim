@@ -80,14 +80,35 @@ function stateAt(walk: BehaviourWalk, index: number, parameter: number): number 
   const period = walk.states.length - 1 - walk.loopStart;
   return period > 0 ? walk.states[walk.loopStart + ((index - walk.loopStart) % period)] : undefined;
 }
+/**
+ * A walk that doesn't know the frame it starts on follows each frame the part can show as its own branch, under the
+ * condition "the state is that frame". The recording's first frame selects one of them; nothing else is chosen.
+ */
+function startingWalk(report: BehaviourReport | undefined, walk: BehaviourWalk, state: number): BehaviourWalk {
+  if (walk.states.length || walk.parameterised || !walk.stop?.branches?.length) return walk;
+  const offset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
+  const frames = walk.stop.branches.map(({ condition }) =>
+    condition.kind === "compare" &&
+    condition.operator === "==" &&
+    condition.left.kind === "field" &&
+    condition.left.object === "part" &&
+    condition.left.offset === offset &&
+    condition.right.kind === "constant"
+      ? condition.right.value
+      : undefined,
+  );
+  if (frames.some((frame) => frame === undefined)) return walk;
+  const branch = walk.stop.branches[frames.indexOf(state)]?.walk;
+  return branch?.states[0] === state ? branch : walk;
+}
 function matchWalk(
   report: BehaviourReport | undefined,
   animation: AnimationDescription,
   clip: MeasuredClip,
 ): DescribedWalkMatch | undefined {
-  const walk = animation.walk;
   if (!clip.frames.length) return undefined;
   const parameter = clip.frames[0]!.state;
+  const walk = startingWalk(report, animation.walk, parameter);
   if (!walk.parameterised && walk.states[0] !== parameter) return undefined;
   const recorded = recordedFields(report, clip);
   if (
@@ -234,7 +255,10 @@ export function validateDescribedWalks(
   const basisRank = { "reset-or-rest": 2, creation: 2, trigger: 1, "input-case": 0, unavailable: -1 };
   const matches = clips.map((clip): DescribedWalkMatch => {
     const candidates = part.animations
-      .filter((animation) => animation.walk.states.length || animation.walk.parameterised)
+      .filter(
+        (animation) =>
+          animation.walk.states.length || animation.walk.parameterised || animation.walk.stop?.branches?.length,
+      )
       .flatMap((animation) => {
         const match = matchWalk(report, animation, clip);
         return match ? [match] : [];

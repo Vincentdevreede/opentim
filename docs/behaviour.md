@@ -954,6 +954,31 @@ the input cases the second assumption leaves out. Since ropes may form a ring, t
 after it asks for real is one value of that run; the walk branches on it with the same numbers (see
 [the rope connection query](#the-rope-connection-query)).
 
+### Recordings that start on a branch
+
+The recording comparison listed 41 recordings in Even More and 13 in TIM 1 with no compatible start: the teeter-totter's
+tilt, the bellows' squeeze, the jack-in-the-box turned or flipped, the vacuum cleaner switched on or off from frames 6
+to 8, Mel Schlemming's end from frame 23 and the alligator's bite. None of them starts in a state a decided assumption
+rules out, and for each one a walk exists. They all had the same cause. A walk that doesn't know the frame it starts
+on, like the walk from a level reset or an input case that doesn't test the frame, follows each frame the part has as
+its own branch (see [frames a partly known state allows](#frames-a-partly-known-state-allows)). Such a walk has no
+first frame of its own, and the comparison only looked at walks that had one.
+
+The comparison now takes the branch for the recording's first frame. It does that only when every branch of the
+walk's first split is "the state is this frame", so it picks a frame the walk follows and decides nothing else; a split
+on any other field is left alone. Mel Schlemming's end and the vacuum cleaner's start then match completely, and so
+does the balloon's pop, which was a prefix before: the walk of the callback that pops it doesn't know its frame. The
+others agree for their first frames and then stop where the walk splits again on a field the recording does know,
+like the teeter-totter's and the jack-in-the-box's control value or the alligator's heat, or where a branch continues
+like another one, like the vacuum cleaner from frame 6. The tilt and the squeeze also have the recorder write the
+control value again after a few runs, which a single trigger can't describe.
+
+The flipped jack-in-the-box has a second gap: its input cases stop at 64 (it would have 184), and the cases of its
+flipped run, among them the one that wraps from frame 0 to 7, come after that limit.
+
+No recording now lacks a compatible start. Complete matches went from 444 to 456 in Even More and from 392 to 396 in
+TIM 1, the other recordings that had none are prefixes now, and none is different. The descriptions don't change.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
