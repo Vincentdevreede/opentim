@@ -922,6 +922,8 @@ export function walkBehaviourRules(
     explored?: Explored;
     /** A starting frame a level can save: it shows its own path, so it doesn't join another branch at its start. */
     levelStart?: boolean;
+    /** A case in the middle of a run, like an input case: it can start on any frame the part shows, not only a level's. */
+    midRun?: boolean;
   } = {},
 ): BehaviourWalk {
   const explored: Explored = options.explored ?? { states: new Map(), size: 0 };
@@ -976,7 +978,9 @@ export function walkBehaviourRules(
     const framed = frameCount !== undefined && frameCount > 1 && frameCount <= 32;
     if (!framed && !levelFrames && (!partial.mask || openBits.length > 3)) return undefined;
     const values = levelFrames
-      ? levelFrames.frames
+      ? options.midRun
+        ? (levelFrames.shown ?? levelFrames.frames)
+        : levelFrames.frames
       : framed
         ? [...Array(frameCount).keys()].filter((value) => (value & partial.mask) === (partial.value & partial.mask))
         : [...Array(1 << openBits.length).keys()]
@@ -2740,6 +2744,19 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         // A case a decided assumption rules out, like the monkey bike pedalling with its counter at 0, isn't walked.
         const offset = stateOffsetOf(report);
         if (offset !== undefined && impossibleState(part, offset, bindingsOf(input.fields))) return;
+        // Nor is a case that needs a frame the part doesn't have, like a frame above the fish bowl's last.
+        const frameCount = (part as WithFrameCount).frameCount;
+        if (offset !== undefined && frameCount && frameCount <= 32) {
+          const seeded = bindingsOf(input.fields);
+          const anyFrame = [...Array(frameCount).keys()].some((frame) => {
+            const fields = new Map(seeded);
+            const before = readField(fields, "part", offset, 16);
+            if (known(before) && before.value !== frame) return false;
+            writeField(fields, "part", offset, bits(frame, 0xffff, 16));
+            return predicateOf(input.condition, fields) !== false;
+          });
+          if (!anyFrame) return;
+        }
         const trigger: AnimationTrigger = {
           kind: "input-case",
           name: inputConditionWords(input.condition, report, part),
@@ -2749,7 +2766,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           writes: [],
           ...finding([input]),
         };
-        const walk = walkBehaviourRules(report, part.type, input.fields, { condition: input.condition });
+        const walk = walkBehaviourRules(report, part.type, input.fields, { condition: input.condition, midRun: true });
         animations.push({
           id: `run-guard-${index}`,
           initial: "run-guard",

@@ -735,6 +735,15 @@ own fields hold when its walk starts, as far as its writes leave those fields al
 isn't followed. When that leaves one frame, the walk follows it as the only way. In both recorded builds 20 more
 teeter-totter walks end in every branch, among them all of its bounce walks. No other part changes its counts.
 
+### Cases in the middle of a run
+
+A walk now leaves out starting frames that its own condition rules out ([starting frames a callback rules out](#starting-frames-a-callback-rules-out)). That
+showed two things. An input case describes the part in the middle of a run, where the belt can be on any of its 35
+frames, not only on the first frame of a block that a level starts it on. Input cases therefore start on every frame
+the part can show, and walks from a level's frame keep using the frames a level gives. And an input case that needs a
+frame the part doesn't have, like a frame above the fish bowl's last one, describes nothing the game can be in, so it
+is left out, like the cases a decided assumption rules out.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

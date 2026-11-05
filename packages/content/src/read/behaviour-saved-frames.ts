@@ -35,9 +35,12 @@ export const MOUSE_MOTOR_ASSUMPTION =
 export const ELECTRIC_MOTOR_ASSUMPTION =
   "A level starts the electric motor on one of its three frames, 0 to 2. Its run counts down within them, and every shipped level saves it on frame 0.";
 
-/** By part id: the frames a level can start a part on when its type has no frame list, and why. */
-export const LEVEL_FRAMES: ReadonlyMap<string, { frames: number[]; assumption: string }> = new Map([
-  ["conveyor-belt", { frames: [0, 7, 14, 21, 28], assumption: CONVEYOR_BELT_ASSUMPTION }],
+/**
+ * By part id: the frames a level can start a part on when its type has no frame list, and why. `shown` lists every
+ * frame it can show in the middle of a run, when that is more, like the belt's whole blocks.
+ */
+export const LEVEL_FRAMES: ReadonlyMap<string, { frames: number[]; shown?: number[]; assumption: string }> = new Map([
+  ["conveyor-belt", { frames: [0, 7, 14, 21, 28], shown: [...Array(35).keys()], assumption: CONVEYOR_BELT_ASSUMPTION }],
   ["gear", { frames: [0, 1, 2, 3], assumption: GEAR_ASSUMPTION }],
   ["mouse-motor", { frames: [0, 1], assumption: MOUSE_MOTOR_ASSUMPTION }],
   ["electric-motor", { frames: [0, 1, 2], assumption: ELECTRIC_MOTOR_ASSUMPTION }],

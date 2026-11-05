@@ -275,6 +275,16 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(cases.some((item) => item.trigger.name.includes("state-control value is 1"))).toBe(true);
   });
 
+  it("leaves out an input case that needs a frame the part doesn't have", () => {
+    const data = report([rule(field(12), test(12, "<=", 2)), rule(constant(0), test(12, ">", 2))]);
+    data.parts[0]!.frameCount = 3;
+    const names = describeBehaviour(data)
+      .parts[0]!.animations.filter((item) => item.trigger.kind === "input-case")
+      .map((item) => item.trigger.name);
+    expect(names.some((name) => name.includes("at most 2"))).toBe(true);
+    expect(names.some((name) => name.includes("above 2"))).toBe(false);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),
@@ -689,6 +699,11 @@ describe("descriptions from extracted behaviour rules", () => {
       const electric = walkBehaviourRules(drawn("electric-motor"), 39, []);
       expect(electric.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2]);
       expect(electric.assumptions).toContain(ELECTRIC_MOTOR_ASSUMPTION);
+    });
+
+    it("starts a case in the middle of a run on every frame the belt shows, not only a level's", () => {
+      const walk = walkBehaviourRules(drawn("conveyor-belt"), 39, [], { midRun: true });
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([...Array(35).keys()]);
     });
 
     it("still gives no starting frame to another part without a frame list", () => {
