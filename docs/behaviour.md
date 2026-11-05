@@ -627,7 +627,8 @@ These effects of other parts are left out, so they are known gaps:
 - The balloon's control value set to 1 by the explosion, the mouse motor the explosion starts, and the fish bowl and
   the dynamite it sets to frame 11 and 5: these change the frame, so they are walks, see
   [walks from other parts](#walks-from-other-parts).
-- The push on the bullet and on Mel Schlemming: their own rules read their velocity.
+- The push on the bullet and on Mel Schlemming: their own rules read their velocity, so these are walks, see
+  [hits found by a search's flags](#hits-found-by-a-searchs-flags).
 - The wall split: it writes the wall's position and size, but with values that depend on where the explosion is.
 - Every other per-member outcome, like those of the bellows, the fan, the teapot and the vacuum cleaner: each writes a
   value the analysis doesn't know, writes the state or a field the part's rules read, or depends on more than the
@@ -695,7 +696,8 @@ member outcome of another part's routine, like the lines in [effects of other pa
 
 - The source's tests on the member must name this part's type (`member type == 4`). A search can hold parts its owner
   never acts on: the candle's first loop sets `0x12` to 1 on every part its search finds, and that search keeps only
-  parts with a flag in field `0x0a` that the outcome doesn't show. Without a named type such an outcome gets no walk.
+  parts with a flag in field `0x0a` that the outcome doesn't show. Without a named type such an outcome gets no walk,
+  unless the search's own tests are known, see [hits found by a search's flags](#hits-found-by-a-searchs-flags).
 - The member's other tests are worked out for the type, with the type table and the decided assumption on the fixed
   list. What is left, like being mirrored or on the moving list, is a test on the part's own fields that the walk keeps.
   The source's tests of its own fields, like the explosion going to frame 2, are left out.
@@ -722,9 +724,60 @@ Behaviour tab by walk, under "hit by" and the parts that do it.
 Describing takes about 6.1 seconds for Even More instead of 5.6, and 5.5 for TIM 1 instead of 5.3. The recordings
 match as before: 556 and 468 complete, none different.
 
-The push on the bullet and on Mel Schlemming still gets no walk: no outcome of the jack-in-the-box's punch names their
-type. Neither does the candle's first loop name any type, so what it lights is left for a later change that reads the
-flag in field `0x0a` its search tests.
+The push on the bullet and on Mel Schlemming, and what the candle's first loop lights, are walks now too, see the next
+section.
+
+### Hits found by a search's flags
+
+The jack-in-the-box's punch sets the velocity of every part on the moving list that it finds, and the candle's first
+loop sets the control value at `0x12` to 1 on every part it finds that isn't lit yet. Neither names a type, so the rule
+above gave them no walk: a search may keep only some parts, by tests the loop's outcome doesn't show. The reader now
+reads those tests from the search itself.
+
+**The search's tests.** An overlap query (`behaviour-helpers.ts`) now lists the flag tests that decide whether it keeps
+a part (`memberTests`). Each is a `test word [part+X], mask` with a `je` or `jne` to the instruction after the link-in,
+or the form some builds use, a `je` over a `jmp` there. Every other conditional branch that follows a compare of the
+part's fields must only pick between two ways that meet again with no store outside the stack, like the wider box the
+search gives type 62. Otherwise, as for a type test that leaves a part out, the query gets no list. Compares of the
+position and size were already taken as the spatial test. In Even More (English floppy):
+
+- the search at `0x42da`, which the punch uses (call at `0x1b92f`), leaves out a part with `0x2000` in field `0x08`
+  (`0x430b`), and keeps the rest that overlap its box;
+- the search at `0x448e`, the candle's first (call at `0x19ab2`), leaves out the same parts (`0x44c0`) and keeps only
+  parts with `0x0004` in field `0x0a` (`0x44c7`) whose point lies in its box.
+
+TIM 1 (French) has both, at `0x370f` and `0x38ea`, in the jump-over form. The explosion's search at `0x417e` writes
+more fields after the link-in, so its tests are not read; it names its types anyway.
+
+**The flags a type gets.** The part factory now also lists the flags each type's constructor ORs into the new part in
+its first straight run of code, before any branch, call or return (`constructorFlags`). Only `0x0004` in field `0x0a`
+matters here: the constructors of the cannon (`0x162c9`), the dynamite (`0x16306`), the rocket (`0x1664f`) and the
+candle (`0x167ea`) set it, and the factory's own table gives it to no type.
+
+**The walk.** When a loop's outcome names no type, `hitsFromOthers` takes the tests of the searches that fill the list
+(those all of them make, when there are several). A part type gets the walk only when the program gives it every flag
+the search needs: from the factory's table or from its constructor. The walk keeps every test of the search on the
+part, so it still says "only when it has `0x0004` in field `0x0a`" and "only without `0x2000` in field `0x08`": a level
+stores these words, so a part may have other flags than its constructor gives. The part reader (`0x13653`) reads the
+second word into `0x08` (`0x1368f`) and, in a level of version `0x101` or later (`0x13692`), the third into `0x0a`
+(`0x136a4`), clearing only `0x0010` there (`0x136a9`). The rest is as for other hits.
+
+In Even More (English floppy) this adds 8 walks, all of which end:
+
+- the bullet, punched up and to the left or up and to the right (velocityX -2048 or 2048, velocityY -2048), only when on
+  the moving list (two walks);
+- Mel Schlemming, velocityY -4096 (one walk; the velocityX his rules don't read stays unknown, since a mirrored box
+  sets the other sign);
+- the cannon, the dynamite (with its stable state, two walks), the rocket and the candle: "Hit by a candle or a
+  rocket", control value 1 when it was 0. The rocket's run has the same first search.
+
+TIM 1 (French) gets the same walks for the parts it has, 7 in all. Walks that end, before and after: Even More 1,064
+and 1,072, TIM 1 902 and 909, and no part has a walk that stops.
+
+In the shipped levels (Even More, English floppy, and TIM 1, French), every cannon, candle, dynamite and rocket is
+saved with `0x0004` in its third flags word and no other part is, and no part is saved with `0x2000` in its second.
+No level saves a bullet, and the gun doesn't give the bullets it makes `0x1000`, so the bullet's walks may never
+happen in a game; the walk keeps the test.
 
 ### The outline search
 
