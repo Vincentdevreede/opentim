@@ -371,6 +371,29 @@ describe("descriptions from extracted behaviour rules", () => {
     ]);
   });
 
+  it("goes on past a helper that keeps the state, forgetting the other fields", () => {
+    const unresolved = {
+      ...rule(field(12), test(12, "==", 0), [write(0x62, { kind: "unknown", reason: "x", width: 16 } as never)]),
+      confidence: "unresolved" as const,
+    };
+    const data = report([unresolved]);
+    const outcome = (more: object) =>
+      ({ ...proof, condition: test(12, "==", 0), fields: [], returnValue: constant(0), ...more }) as never;
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      uncertainEffects: true,
+      returnPathsComplete: true,
+      outcomes: [outcome({ effectsComplete: false, keepsState: true })],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(4, 39)]);
+    expect([walk.states, walk.status]).toEqual([[0, 0, 0], "rest"]);
+    expect(walk.fields.find((item) => item.offset === 4)?.knownMask ?? 0).toBe(0);
+    // A path whose effects are incomplete for another reason still stops the walk.
+    (data.routines[0] as unknown as { outcomes: unknown[] }).outcomes = [outcome({ effectsComplete: false })];
+    expect(walkBehaviourRules(data, 39, [known(12, 0)]).stop?.kind).toBe("effects");
+  });
+
   it("ends a branch that reaches a state another branch of the same walk already follows", () => {
     const scanned: Expression = {
       kind: "field",

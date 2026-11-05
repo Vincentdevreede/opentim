@@ -1324,9 +1324,12 @@ export function walkBehaviourRules(
   const settledRoutine =
     !!routine &&
     (routine.uncertainties ?? []).length === 0 &&
-    routine.uncertainEffects !== true &&
     !!routine.outcomes?.length &&
-    routine.outcomes.every((outcome) => outcome.effectsComplete === true);
+    ((routine.uncertainEffects !== true && routine.outcomes.every((outcome) => outcome.effectsComplete === true)) ||
+      // A helper that keeps the state but not the other fields still fixes the state path. Such a rule's effects are
+      // incomplete, so the walk forgets every other field after it.
+      (routine.returnPathsComplete === true &&
+        routine.outcomes.every((outcome) => outcome.effectsComplete === true || outcome.keepsState === true)));
   // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
   // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
   const settledPath = (rule: WithUpdates) =>

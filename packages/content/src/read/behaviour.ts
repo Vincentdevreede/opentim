@@ -76,6 +76,11 @@ export interface Transition extends Finding {
 export interface RoutineOutcome extends Finding {
   /** No untracked object write or call can replace these final fields on this path. */
   effectsComplete?: boolean;
+  /**
+   * The effects are incomplete only because a helper kept the part's state without a complete footprint of its other
+   * fields: the final state is exact, and every other part field may have changed.
+   */
+  keepsState?: true;
   condition: Predicate;
   fields: FieldWrite[];
   returnValue: Expression;
@@ -2235,6 +2240,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const returned = registerRead("ax", s);
     outcomes.push({
       effectsComplete: !s.uncertain && s.partMemoryHavocAt === undefined,
+      ...(!s.uncertain && s.partMemoryHavocAt !== undefined ? { keepsState: true as const } : {}),
       condition,
       fields: updates,
       returnValue: asExpression(returned.value),

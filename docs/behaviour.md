@@ -663,6 +663,18 @@ every frame.
 All 11 walks of the pinball bumper now end. Over all parts, walks that end in every branch went from 429 to 435 in
 Even More, and walks that stop from 46 to 40. TIM 1 has no bumper and doesn't change.
 
+### Helpers that keep the state
+
+Some helpers are proved to keep the part's state, but not which of its other fields they change. The magnifying glass
+looks for a light source every run, and when it finds a part to heat it calls one (`0x793f`, Even More, English
+floppy) that updates the drawing of the part it is given. Its run then never writes its state, but the path through
+that helper has incomplete effects, so its walks stopped at once.
+
+Such a path is now marked `keepsState` in the routine's outcomes. When it is the only reason a routine's effects are
+incomplete (no other uncertainty, and every return path analysed), its rules still fix the state path: the destination
+is exact, and the walk forgets every other field after that step, since any of them may have changed. A path with any
+other gap still stops the walk. The magnifying glass's walks from its creation and from frame 0 now rest on frame 0.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
