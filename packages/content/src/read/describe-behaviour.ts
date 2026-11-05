@@ -4,7 +4,7 @@ import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-sav
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
-import { outlineObject, outlineWords } from "./describe-outline.ts";
+import { outlineObject, outlineTableWords, outlineWords } from "./describe-outline.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -3234,6 +3234,14 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   for (const callback of part.routines) {
     const routine = report.routines.find((routine) => routine.address === callback.address);
     for (const call of routine?.calls ?? []) if (call.target) visit(call.target.address, call.evidence, 0);
+    const copy = report.outlineTables?.find((item) => item.routine === callback.address);
+    if (copy)
+      effects.push({
+        kind: "outline",
+        description: outlineTableWords(copy),
+        routine: copy.routine,
+        ...finding([copy]),
+      });
     // Writes through the outline pointer change this part's own outline: one effect per path.
     const paths = new Map<string, FieldWrite[]>();
     for (const write of routine?.writes ?? [])

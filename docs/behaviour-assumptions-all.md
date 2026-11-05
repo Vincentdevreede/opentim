@@ -17,7 +17,7 @@ Program addresses are written as `<address>`, since they differ between builds. 
 findings stating the assumption in one build, then in how many of the builds read it appears. Parts are those whose
 own findings or routines state it; `none, shared` means only shared helpers and report-wide findings do.
 
-Read from 5 TIM 1 and 6 Even More builds: 261 assumptions, most used first.
+Read from 5 TIM 1 and 6 Even More builds: 262 assumptions, most used first.
 
 | Assumption | TIM 1 | Even More | Parts |
 | --- | --- | --- | --- |
@@ -224,6 +224,7 @@ Read from 5 TIM 1 and 6 Even More builds: 261 assumptions, most used first.
 | Every arithmetic expression wraps at its recorded width. The line solve sign-extends a wrapped word numerator with CWD. Endpoint extension excludes horizontal differences 1 and 65535, and equal table translation preserves that difference. Its nonzero negation therefore has magnitude at least two, excluding signed quotient overflow. A zero divisor takes the explicit restore branch. | 2 · 5/5 | 2 · 6/6 | none, shared |
 | Outlines use unsigned byte X/Y and a word orientation in four-byte records, in valid separate nonwrapping storage. Counts, outline pointers and point records are not changed by the complete callee footprints. The finite closed-polygon interpretation requires counts from two through 32766; arbitrary signed counts are not assigned that interpretation. | 2 · 5/5 | 2 · 6/6 | none, shared |
 | The normal-return set and endpoint checks do not establish that the arithmetic helpers return, that a quotient is representable, or that an accepted point is an ideal geometric intersection. | 2 · 5/5 | 2 · 6/6 | none, shared |
+| The outline tables keep the bytes the program ships with: no instruction found writes to them directly. | 2 · 5/5 | 2 · 6/6 | none, shared |
 | The symbolic objects naming boundary records, cached coordinates and helper output are explicitly declared loop-local or input symbols, not additional part fields or supplied game events. | 2 · 5/5 | 2 · 6/6 | none, shared |
 | The tested drawing flag selects the checked record field +0x16 containing linked frame pieces. | 2 · 5/5 | 2 · 6/6 | none, shared |
 | The two coordinate branches implement reflection relative to the object's horizontal extent. | 2 · 5/5 | 2 · 6/6 | none, shared |

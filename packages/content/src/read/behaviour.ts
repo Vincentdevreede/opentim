@@ -4,6 +4,7 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
+import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { ropeCallbackWrites, ropeDispatchSummary } from "./behaviour-rope-dispatch.ts";
 import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
@@ -181,6 +182,8 @@ export interface PartBehaviour {
 }
 export interface BehaviourReport {
   collisionDispatch?: CollisionDispatch[];
+  /** Callbacks that copy their outline from tables in the data segment, by routine. */
+  outlineTables?: OutlineTables[];
   gearScheduling?: GearScheduling[];
   listId: string;
   imageLength: number;
@@ -4926,6 +4929,23 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       }
     }
   const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list, engineSummaries);
+  const outlineField = layout.fields.find((f) => f.name === "outlinePoints")?.offset;
+  const outlineTables =
+    outlineField === undefined
+      ? []
+      : [...new Set(parts.flatMap((part) => part.routines.map((routine) => routine.address)))].flatMap((address) => {
+          const code = codes.get(address);
+          const tables =
+            code &&
+            readOutlineTables(
+              code,
+              image,
+              list.dataSegment,
+              { outline: outlineField, state: stateOffset },
+              codes.values(),
+            );
+          return tables ? [tables] : [];
+        });
   if (!collisionDispatch.length)
     for (const part of parts)
       part.uncertainties.push(
@@ -4935,6 +4955,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     listId: list.list.id,
     ...(gearScheduling.length ? { gearScheduling } : {}),
     collisionDispatch,
+    ...(outlineTables.length ? { outlineTables } : {}),
     imageLength: image.length,
     dataSegment: list.dataSegment,
     layout,

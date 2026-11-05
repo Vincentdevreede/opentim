@@ -1332,9 +1332,14 @@ Even More:
 - the conveyor belt and mouse motor: a rectangle as large as their frame;
 - the birdcage (12 corners), the bucket (6), the fish bowl (3), the generator and the jack-in-the-box (4).
 
-The curved pipe wall copies its 8 corners from one of four tables in the data segment, chosen by its frame (`0x1c83e`
-in Even More). It writes them through a copy of the pointer kept on the stack, which the reader doesn't follow, so
-that reset shows no outline line yet.
+The curved pipe wall and the electric switch copy their corners from tables in the data segment, chosen by their
+frame, in a loop through a copy of the outline pointer kept on the stack (`behaviour-outline-tables.ts`). The reader
+recognises that loop in both compiler forms (TIM 1 reloads `bx` before the second byte), follows every path from the
+entry to it to find which frame tests pick which table, and reads the tables' bytes. It gives up when a path does
+anything else, or when any instruction it read writes into a table by its address; the tables are then assumed to keep
+the bytes the program ships with. In Even More (`0x1c83e` and `0x1a64a`) and TIM 1 the curved pipe wall gets one
+8-corner outline for each of frames 0, 1 and 2 and one for any other frame (its four turns), and the switch a thin
+4-corner lever, at (8, 8) to (15, 9) on a frame below 4 and at (8, 23) to (15, 24) from frame 4 on.
 
 ### Writes on parts reached through ropes and belts
 
