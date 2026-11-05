@@ -70,6 +70,8 @@ interface Candidate {
   memberTerms: Predicate[];
   /** The types the source's tests name: the source's code must name a part's type to hit it. */
   types: Set<number>;
+  /** From the source's bounce callback: the part touched the source, rather than being in its list. */
+  touch: boolean;
 }
 
 /**
@@ -90,10 +92,20 @@ export function hitsFromOthers(
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
 
   const candidates: Candidate[] = [];
+  /**
+   * The contact dispatch calls the bounce callback of the type of the part a moving part touched, with the moving part
+   * as its argument (`collider`); `part` is the touched part, the source here. Its outcomes are the touching part's
+   * member outcomes.
+   */
+  const touches = (callback: { slot: number; address: number }) =>
+    callback.slot === 0
+      ? (routines.get(callback.address)?.outcomes ?? []).map((outcome) => ({ ...outcome, object: "collider" }))
+      : [];
   for (const source of report.parts)
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
-      for (const outcome of routines.get(callback.address)?.iterationOutcomes ?? []) {
+      const iterations = routines.get(callback.address)?.iterationOutcomes ?? [];
+      for (const outcome of [...iterations, ...touches(callback)]) {
         if (!outcome.effectsComplete || outcome.confidence === "unresolved") continue;
         const member = outcome.object;
         const writes = outcome.fields.filter((f) => f.object === member);
@@ -118,12 +130,13 @@ export function hitsFromOthers(
           writes,
           memberTerms,
           types,
+          touch: member === "collider",
         });
       }
     }
 
   for (const part of report.parts) {
-    const hits = new Map<string, { hit: PartHit; tests: Predicate[]; others: FieldWrite[][] }>();
+    const hits = new Map<string, { hit: PartHit; tests: Predicate[]; touch: boolean; others: FieldWrite[][] }>();
     const assumptions = new Set<string>();
     const fixed = startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
     const known = (member: string) =>
@@ -173,7 +186,7 @@ export function hitsFromOthers(
         condition: { kind: "true" },
       });
       const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
-      const key = JSON.stringify(sortedChanges.map((w) => [w.offset, w.width, w.value]));
+      const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value])]);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
       const proof = [
         ...c.outcome.assumptions,
@@ -205,15 +218,18 @@ export function hitsFromOthers(
           assumptions: [
             ...new Set([
               ...proof,
-              "The part is in the source's overlap list and the source's own fields meet the source's tests; that this happens in a level is not claimed.",
+              c.touch
+                ? "The part touches the source and the source's own fields meet the source's tests; that this happens in a level is not claimed."
+                : "The part is in the source's overlap list and the source's own fields meet the source's tests; that this happens in a level is not claimed.",
             ]),
           ],
           evidence,
         },
+        touch: c.touch,
         others: [others],
       });
     }
-    const list = [...hits.values()].map(({ hit, tests, others }) => {
+    const list = [...hits.values()].map(({ hit, tests, touch, others }) => {
       hit.condition = conjunction(tests);
       hit.conditionWords = tests.flatMap((t) => listFlagWords(t, "part") ?? []);
       // A field the rules don't read keeps the value every source gives it, or becomes unknown.
@@ -234,7 +250,8 @@ export function hitsFromOthers(
       }
       hit.sources.sort((a, b) => a.part.localeCompare(b.part));
       const names = [...new Set(hit.sources.map((s) => nameOf(s.part)))].map((n) => `${article(n)} ${n}`);
-      hit.name = `Hit by ${names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names[0]}`;
+      const listed = names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names[0];
+      hit.name = touch ? `Touching ${listed}` : `Hit by ${listed}`;
       return hit;
     });
     if (list.length || assumptions.size) result.set(part.type, { hits: list, assumptions: [...assumptions] });

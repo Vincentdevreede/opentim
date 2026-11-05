@@ -147,6 +147,44 @@ describe("walks from other parts that change a part's frame", () => {
     });
   });
 
+  it("walks a part that touches another part whose bounce callback changes it", () => {
+    // The contact dispatch calls the touched part's bounce callback with the touching part as `collider`.
+    const data = report();
+    const tack = { ...part("thumb-tack", 53, []), routines: [{ slot: 0, address: 600, role: "bounce", ...proof }] };
+    data.parts.push(tack as never);
+    const angle = (value: number) => compare(f("collider", 0x88), "==", c(value));
+    data.routines.push({
+      address: 600,
+      writes: [],
+      ...proof,
+      outcomes: [
+        {
+          ...proof,
+          effectsComplete: true,
+          condition: and(compare(f("collider", 4), "==", c(4)), angle(0x8000)),
+          fields: [write("collider", 0x12, c(1))],
+        },
+        // A path that also changes the thumb tack itself isn't a walk of the balloon alone.
+        {
+          ...proof,
+          effectsComplete: true,
+          condition: and(compare(f("collider", 4), "==", c(4)), angle(0x5e00)),
+          fields: [write("collider", 0x12, c(1)), write("part", 0x12, c(1))],
+        },
+      ],
+    } as never);
+    const balloon = hitsFromOthers(data, evaluateBehaviourCondition).get(4)!.hits;
+    const touch = balloon.find((hit) => hit.name === "Touching a thumb tack")!;
+    expect(touch).toMatchObject({
+      sources: [{ type: 53, part: "thumb-tack", routine: 600 }],
+      writes: [{ object: "part", offset: 0x12, value: c(1) }],
+      condition: compare(f("part", 0x88), "==", c(0x8000)),
+    });
+    expect(touch.assumptions.join(" ")).toContain("The part touches the source");
+    // The explosion's hit stays its own walk, though it writes the same.
+    expect(balloon.map((hit) => hit.name)).toContain("Hit by an explosion");
+  });
+
   it("splits the mouse motor's start by the step it gets, with the part's own test", () => {
     const motor = hits.get(6)!.hits;
     expect(motor.map((h) => h.writes.map((w) => [w.offset, w.value]))).toEqual([

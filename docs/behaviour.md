@@ -726,6 +726,24 @@ The push on the bullet and on Mel Schlemming still gets no walk: no outcome of t
 type. Neither does the candle's first loop name any type, so what it lights is left for a later change that reads the
 flag in field `0x0a` its search tests.
 
+### Walks from parts that touch
+
+The contact dispatch (`0x1078` and `0x10bc` in Even More) goes through the moving parts. For one that touched another
+part, it calls the bounce callback of the touched part's type, with the moving part as its argument: the analysis
+calls it `collider`, and `part` is the touched part. So a bounce callback's writes to `collider` are what the touched
+part does to the part that touches it.
+
+`hitsFromOthers` now also reads these outcomes, the same way as a loop's member outcomes: the tests on `collider` must
+name the part's type, every write must be to `collider`, and tests of the touched part itself are its own business. The
+walk is named "Touching a thumb tack" and kept apart from the "Hit by" walks, even when it writes the same. Its
+assumption says the part touches the source, not that a level makes it happen.
+
+In Even More the balloon gets "Touching a bullet, a gear, a scissors or a thumb tack": each sets its control value at
+`0x12` to 1, so it pops. The thumb tack does it only at contact angles `0x5e00`, `0x8000` and `0x9c90` (`0x1e2ce`),
+which the walk keeps as its condition. Mel Schlemming gets four walks for touching another Mel. TIM 1 has the bullet,
+gear and scissors for the balloon. Bounce outcomes that also change the touched part, like the trampoline's and the
+electric switch's, or that write values that aren't numbers, like the alligator's, get no walk.
+
 ### The outline search
 
 The teeter-totter finds the parts lying on it with an outline search. It clears the owner's found list at `0x78`,
