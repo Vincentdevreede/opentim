@@ -4,6 +4,8 @@
  * per-member outcome of another part's routine, worked out for this part's type. Only outcomes that write a field the
  * part's own rules read get a walk, and only when each such field gets a number. Outcomes that leave the part's
  * fields the same way, under the same tests of the part, share one walk, whichever part and path they come from.
+ * An outcome must name the part's type, or its search's flag tests must be known and the part's type given every flag
+ * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import {
@@ -60,6 +62,46 @@ function readsTable(value: Expression | Predicate): boolean {
   return false;
 }
 
+/** A flag test of a search on the member it keeps, like `(member + 0x0a & 0x0004) != 0`. */
+interface SearchTest extends Finding {
+  offset: number;
+  mask: number;
+  set: boolean;
+}
+const flagTest = (member: string, t: SearchTest): Predicate => ({
+  kind: "compare",
+  operator: t.set ? "!=" : "==",
+  left: {
+    kind: "binary",
+    operator: "&",
+    left: { kind: "field", object: member, offset: t.offset, width: 16 },
+    right: { kind: "constant", value: t.mask, width: 16 },
+    width: 16,
+  },
+  right: { kind: "constant", value: 0, width: 16 },
+  signed: false,
+});
+
+/**
+ * The flag tests on a member that the searches filling a loop's list make, when the reader has every such test of
+ * each search: only the tests all of them make, since the member may come from any of them.
+ */
+function searchTests(report: BehaviourReport, routine: number, header: number): SearchTest[] | undefined {
+  const code = report.routines.find((r) => r.address === routine);
+  const loop = code?.listLoops?.find((l) => l.header === header && l.source === "overlap-query");
+  if (!loop?.queries.length) return undefined;
+  let common: SearchTest[] | undefined;
+  for (const query of loop.queries) {
+    const target = code!.engineCalls?.find((c) => c.instruction === query)?.summary;
+    const tests = report.helpers?.find((h) => h.address === target && h.kind === "overlap-list")?.list?.memberTests;
+    if (!tests) return undefined;
+    common = common
+      ? common.filter((t) => tests.some((u) => u.offset === t.offset && u.mask === t.mask && u.set === t.set))
+      : tests;
+  }
+  return common;
+}
+
 interface Candidate {
   sourceType: number;
   sourcePart: string;
@@ -72,6 +114,8 @@ interface Candidate {
   types: Set<number>;
   /** From the source's bounce callback: the part touched the source, rather than being in its list. */
   touch: boolean;
+  /** Without a named type: the flag tests of the search that found the member, which the walk keeps. */
+  search?: SearchTest[];
 }
 
 /**
@@ -91,6 +135,11 @@ export function hitsFromOthers(
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
 
+  const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
+  /** Whether a new part of the type gets the bits: from the factory's table, or from its constructor's first run. */
+  const gives = (type: number, t: SearchTest) =>
+    ((factory?.startingWords?.find((w) => w.field === t.offset)?.values[type] ?? 0) & t.mask) === t.mask ||
+    !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const candidates: Candidate[] = [];
   /**
    * The contact dispatch calls the bounce callback of the type of the part a moving part touched, with the moving part
@@ -120,7 +169,13 @@ export function hitsFromOthers(
           else if (![...read].every((o) => o === "part")) open = true;
         }
         const types = new Set(memberTerms.flatMap((term) => namedType(term, member, typeOffset) ?? []));
-        if (open || !types.size) continue;
+        // Without a named type, every test the search makes on the member must be known: like the candle's first
+        // search, which keeps only parts with 0x0004 in field 0x0a.
+        const search =
+          types.size || member === "collider"
+            ? undefined
+            : searchTests(report, callback.address, "header" in outcome ? outcome.header : 0);
+        if (open || (!types.size && !search)) continue;
         candidates.push({
           sourceType: source.type,
           sourcePart: source.id,
@@ -131,6 +186,7 @@ export function hitsFromOthers(
           memberTerms,
           types,
           touch: member === "collider",
+          ...(search ? { search } : {}),
         });
       }
     }
@@ -153,9 +209,12 @@ export function hitsFromOthers(
       const kept: Predicate[] = [];
       let possible = true,
         byFixedList = false;
-      // The source's code must name this part's type: a search may hold parts the source never acts on.
-      if (!c.types.has(part.type)) continue;
-      for (const term of c.memberTerms) {
+      // The source's code must name this part's type: a search may hold parts the source never acts on. Or, when it
+      // names none, the program must give this type every flag the search needs: from the factory's table for the
+      // type, or from its constructor. The walk still keeps the search's tests, since a part may lose a flag.
+      if (c.types.size ? !c.types.has(part.type) : c.search!.some((t) => t.set && !gives(part.type, t))) continue;
+      const searchTerms = (c.search ?? []).map((t) => flagTest(c.member, t));
+      for (const term of [...c.memberTerms, ...searchTerms]) {
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
         const value = evaluate(typed, known(c.member));
         if (value === true) continue;
@@ -187,7 +246,19 @@ export function hitsFromOthers(
       });
       const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
       const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value])]);
-      const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
+      const given = (c.search ?? []).flatMap((t) =>
+        t.set
+          ? (factory?.constructorFlags ?? []).filter(
+              (f) => f.type === part.type && f.field === t.offset && (f.mask & t.mask) === t.mask,
+            )
+          : [],
+      );
+      const evidence = uniqueEvidence([
+        ...c.outcome.evidence,
+        ...c.writes.flatMap((w) => w.evidence),
+        ...(c.search ?? []).flatMap((t) => t.evidence),
+        ...given.flatMap((f) => f.evidence),
+      ]);
       const proof = [
         ...c.outcome.assumptions,
         ...c.writes.flatMap((w) => w.assumptions),

@@ -146,6 +146,11 @@ export interface EngineSummary extends Finding {
       values: number[];
     })[];
     constructors?: (Finding & { type: number; address: number })[];
+    /**
+     * Flags a type's constructor sets on the new part before its first branch, call or return, so every call sets
+     * them: the field, and the bits it ORs in. A later store may still clear them.
+     */
+    constructorFlags?: (Finding & { type: number; field: number; mask: number })[];
     ownedConstructors?: (Finding & { type: number; address: number })[];
     alwaysSuccessfulConstructors?: (Finding & { type: number; address: number })[];
     noConstructor: Finding & {
@@ -196,6 +201,12 @@ export interface EngineSummary extends Finding {
     confidence: Confidence;
     evidence: Evidence[];
     assumptions: string[];
+    /**
+     * Every test of a candidate's own fields that decides whether the query keeps it, apart from its position and
+     * size: a flag that must be set, like `0x0004` in field `0x0a`, or clear, like `0x2000` in field `0x08`. Only
+     * present when the reader accounts for every such test.
+     */
+    memberTests?: (Finding & { offset: number; mask: number; set: boolean })[];
   };
   footprint: {
     complete: boolean;
@@ -491,6 +502,71 @@ function doublyLinkedSplice(
     return { link, back, stores };
   }
   return undefined;
+}
+
+/**
+ * The tests of a candidate's own flags that skip it, read from every conditional branch that follows a compare or
+ * test of a candidate field. A `test word [node+X], mask` with a `je` or `jne` straight to the instruction after the
+ * link-in decides whether the candidate is kept. Any other compare of a candidate field must only pick between two
+ * ways that join again without a store outside the stack, like the wider box of one type: then it changes where the
+ * query looks, not which parts it keeps. Any other use gives no answer.
+ */
+function candidateFlagTests(
+  code: RoutineCode,
+  node: string,
+  insertion: Instruction[],
+): (Finding & { offset: number; mask: number; set: boolean })[] | undefined {
+  const last = insertion.at(-1)!;
+  const skip = last.address + last.size;
+  const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  const before = new Map(code.instructions.map((i) => [i.address + i.size, i]));
+  const tests: (Finding & { offset: number; mask: number; set: boolean })[] = [];
+  for (const branch of code.instructions) {
+    if (branch.flow !== "branch") continue;
+    const compare = before.get(branch.address);
+    const reads =
+      compare && ["cmp", "test"].includes(compare.mnemonic) && compare.operands.some((o) => isMemory(o, node));
+    if (!reads) continue;
+    // The flags must come from that compare alone.
+    if (code.edges.some((e) => e.to === branch.address && e.from !== compare.address)) return undefined;
+    const taken = code.edges.find((e) => e.from === branch.address && e.kind === "taken")?.to;
+    const tested = compare.operands[0];
+    // Some builds jump over a jump to the skip instead: `je kept; jmp skip; kept:`.
+    const over = byAddress.get(branch.address + branch.size);
+    const inverted =
+      over?.flow === "jump" &&
+      taken === over.address + over.size &&
+      code.edges.some((e) => e.from === over.address && e.to === skip) &&
+      code.edges.filter((e) => e.from === over.address).length === 1 &&
+      !code.edges.some((e) => e.to === over.address && e.from !== branch.address);
+    if (
+      (taken === skip || inverted) &&
+      compare.mnemonic === "test" &&
+      isMemory(tested, node) &&
+      tested.width === 16 &&
+      isImmediate(compare.operands[1]) &&
+      ["je", "jne"].includes(branch.mnemonic)
+    ) {
+      tests.push({
+        ...fact(inverted ? [compare, branch, over] : [compare, branch], "checked"),
+        offset: tested.displacement,
+        mask: compare.operands[1].value,
+        set: (branch.mnemonic === "je") !== inverted,
+      });
+      continue;
+    }
+    if (taken === undefined || taken === null || taken === skip) return undefined;
+    // The other way must run straight into the taken one, storing only into the stack.
+    let at = branch.address + branch.size;
+    for (let steps = 0; at !== taken; steps++) {
+      const step = byAddress.get(at);
+      if (!step || steps > 16 || step.flow !== "next") return undefined;
+      if (explicitWrite(step) && isMemory(step.operands[0]) && !stackMemory(step.operands[0])) return undefined;
+      if (implicitWrite(step)) return undefined;
+      at = step.address + step.size;
+    }
+  }
+  return tests;
 }
 
 function excludesOwner(code: RoutineCode, owner: string, node: string, insertion: number): Evidence[] | undefined {
@@ -1609,6 +1685,7 @@ export function discoverEngineSummaries(
       summary.kind = "overlap-list";
       summary.argumentKind = "object";
       const exclusion = excludesOwner(code, insertion.owner, insertion.node, insertion.instructions[0]!.address);
+      const memberTests = candidateFlagTests(code, insertion.node, insertion.instructions);
       summary.list = {
         headField: insertion.offset,
         nextField: insertion.offset,
@@ -1618,6 +1695,7 @@ export function discoverEngineSummaries(
         assumptions: [
           "The list describes nodes accepted during this query; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],
+        ...(memberTests ? { memberTests } : {}),
       };
       summary.purpose = pointBounds
         ? "Builds a linked list of other objects whose tested reference points lie inside the supplied bounds."

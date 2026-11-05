@@ -311,6 +311,54 @@ describe("structural engine summaries", () => {
     }
   });
 
+  it("reads the flag tests an overlap query keeps a part by, like the candle's search", () => {
+    const query = (typeTest: boolean) => {
+      const image = new Uint8Array(0x800);
+      head(image, 0x100);
+      next(image, 0x180, 0x100);
+      const b = build(0x300);
+      b.emit(0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x7e, 6, 0xc7, 0x45, 0x58, 0, 0, 0x0e);
+      b.call(0x100);
+      b.emit(0x8b, 0xf0, 0x3b, 0xfe);
+      b.branch(0x74, "skip");
+      // Only parts with 0x0004 in field 0x0a, and none with 0x2000 in field 0x08.
+      b.emit(0xf7, 0x44, 0x0a, 0x04, 0x00);
+      b.branch(0x74, "skip");
+      b.emit(0xf7, 0x44, 0x08, 0x00, 0x20);
+      b.branch(0x75, "skip");
+      // A type test that leaves a part out is a filter the reader can't place.
+      if (typeTest) {
+        b.emit(0x83, 0x7c, 0x04, 0x05);
+        b.branch(0x75, "skip");
+      }
+      b.emit(0x03, 0x44, 0x24, 0x03, 0x44, 0x26);
+      for (const arg of [0x0a, 0x0c, 0x0e, 0x10]) {
+        b.emit(0x3b, 0x46, arg);
+        b.branch(0x7c, "skip");
+      }
+      b.emit(0x8b, 0x45, 0x58, 0x89, 0x44, 0x58, 0x89, 0x75, 0x58);
+      b.label("skip");
+      b.emit(0x0e);
+      b.call(0x180);
+      b.emit(0x5f, 0x5e, 0x5d, 0xcb);
+      b.install(image);
+      return discoverEngineSummaries(
+        image,
+        codes(image, 0x100, 0x180, 0x300),
+        layout(0x24, 0x26),
+        undefined,
+        0x40,
+      ).find((s) => s.address === 0x300)!;
+    };
+    const summary = query(false);
+    expect(summary.kind).toBe("overlap-list");
+    expect(summary.list!.memberTests!.map(({ offset, mask, set }) => ({ offset, mask, set }))).toEqual([
+      { offset: 0x0a, mask: 4, set: true },
+      { offset: 8, mask: 0x2000, set: false },
+    ]);
+    expect(query(true).list!.memberTests).toBeUndefined();
+  });
+
   it("bounds ordered insertion to its displaced forward and backward links", () => {
     for (const extraStateWrite of [false, true]) {
       const image = new Uint8Array(0x800);

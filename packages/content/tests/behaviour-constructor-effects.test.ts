@@ -82,8 +82,10 @@ function fixture(bytes: number[], options: { ownerHelper?: boolean; argumentWidt
   const initialSize = codes.size;
   discoverConstructorEffects(image, codes, summaries, layout, 0);
   expect(codes.size).toBe(initialSize);
+  lastFactory = factory.factory!;
   return factory.factory!.constructors!;
 }
+let lastFactory: NonNullable<EngineSummary["factory"]> | undefined;
 const prefix = [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6],
   suffix = [0x5f, 0x5e, 0x5d, 0xcb];
 describe("constructor write scopes", () => {
@@ -140,5 +142,19 @@ describe("constructor owner argument forwarding", () => {
     expect(fixture([...prefix, 0xc7, 0x46, 6, 0, 0, 0xff, 0x76, 6, ...call, ...suffix], { ownerHelper: true })).toEqual(
       [],
     );
+  });
+});
+
+describe("flags a constructor sets", () => {
+  const flags = (...bytes: number[]) => {
+    fixture([...prefix, ...bytes, ...suffix]);
+    return (lastFactory!.constructorFlags ?? []).map(({ type, field, mask }) => ({ type, field, mask }));
+  };
+  it("reads the flags ORed into the new part before any branch, like the candle's 0x0004 in field 0x0a", () => {
+    expect(flags(0x83, 0x4c, 0x0a, 0x04)).toEqual([{ type: 0, field: 0x0a, mask: 4 }]);
+  });
+  it("drops flags a later store replaces and flags after a branch", () => {
+    expect(flags(0x83, 0x4c, 0x0a, 0x04, 0xc7, 0x44, 0x0a, 0, 0)).toEqual([]);
+    expect(flags(0x74, 0x00, 0x83, 0x4c, 0x0a, 0x04)).toEqual([]);
   });
 });
