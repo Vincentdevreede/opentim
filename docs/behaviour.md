@@ -1396,6 +1396,10 @@ bits: "Sets flag 0x40 of the part's drawing flags", which the runs of the teeter
 and solar panel do. What `0x40`, `0x200`, `0x400` and `0x2000` mean isn't proved yet, so they stay numbers (the
 searches pass over a part with `0x2000`).
 
+A helper that only updates its part's fields used to be described as "Updates object fields whose meaning is not
+established" as soon as one field had no checked name. It now names the fields it can and gives the others by offset,
+like the eye hook's helper at `0x1aaaa`: "Updates fields 0x6a, 0x6b while preserving the state".
+
 ### Parts whose run keeps everything
 
 Most simple parts share one empty run routine (`0x29f` in Even More: it only sets up and restores `bp`), and the same

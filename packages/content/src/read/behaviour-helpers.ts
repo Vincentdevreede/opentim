@@ -852,11 +852,21 @@ function ownerPurpose(offsets: number[], layout: BehaviourLayout | undefined, pr
     contextCounter: "a counter",
     baseWidth: "base width",
     baseHeight: "base height",
+    savedState: "the saved state",
+    outlinePointCount: "the outline corner count",
   };
   const selected = offsets.map((offset) => layout?.fields.find((f) => f.offset === offset && names[f.name]));
-  if (selected.some((f) => !f)) return "Updates object fields whose meaning is not established.";
-  const keys = selected.map((f) => f!.name);
-  let labels = keys.map((key) => names[key]!);
+  // A field without a checked name is given by its offset.
+  const unnamed = [...new Set(offsets.filter((_, n) => !selected[n]))].sort((a, b) => a - b);
+  const keys = selected.flatMap((f) => (f ? [f.name] : []));
+  let labels = [
+    ...new Set(keys.map((key) => names[key]!)),
+    ...(unnamed.length
+      ? [
+          `field${unnamed.length > 1 ? "s" : ""} ${unnamed.map((o) => (o < 0 ? `-0x${(-o).toString(16)}` : `0x${o.toString(16)}`)).join(", ")}`,
+        ]
+      : []),
+  ];
   for (const [a, b, label] of [
     ["velocityX", "velocityY", "horizontal and vertical velocity"],
     ["positionX", "positionY", "position"],

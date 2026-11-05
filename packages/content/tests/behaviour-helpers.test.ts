@@ -522,7 +522,7 @@ describe("structural engine summaries", () => {
     const named = discoverEngineSummaries(image, codes(image, 0x100), known)[0]!;
     expect(named.purpose).toBe("Updates horizontal and vertical velocity while preserving the state.");
     const unnamed = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
-    expect(unnamed.purpose).toBe("Updates object fields whose meaning is not established.");
+    expect(unnamed.purpose).toBe("Updates fields 0x22, 0x24 while preserving the state.");
     expect(named.writes.map((w) => w.offset)).toEqual([0x22, 0x24]);
   });
 
