@@ -3779,6 +3779,45 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           continue;
         }
       }
+      // A helper that picks what it stores by tests of its part's fields, like the mouse motor's start, splits the pass
+      // on a member the loop observes by those tests, so each outcome knows the values stored on the member.
+      if (engine?.kind === "owner-field-update" && passesObservedMember && !pureReturnRelations) {
+        const splits = new Map<string, Extract<Predicate, { kind: "compare" }>>();
+        for (const effect of engine.writes) {
+          if (effect.root !== "argument" || effect.path.length || effect.argumentOffset !== engine.argumentOffset)
+            continue;
+          for (const term of effect.condition.kind === "and" ? effect.condition.terms : [effect.condition]) {
+            if (term.kind !== "compare") continue;
+            const mapped = formalPredicate(term, args, engine.argumentOffset, s) as Extract<
+              Predicate,
+              { kind: "compare" }
+            >;
+            if (entails(mapped, s) || !possible(conjunction([...s.conditions, mapped]))) continue;
+            const other = negate(mapped) as Extract<Predicate, { kind: "compare" }>;
+            const [a, b] = [JSON.stringify(mapped), JSON.stringify(other)];
+            splits.set(a < b ? a : b, a < b ? mapped : other);
+          }
+        }
+        if (splits.size && splits.size <= 2) {
+          const branches: AbstractState[] = [];
+          let declined = false;
+          for (let choice = 0; choice < 2 ** splits.size && !declined; choice++) {
+            const branch = clone(s);
+            [...splits.values()].forEach((test, n) => branch.conditions.push(choice & (2 ** n) ? negate(test) : test));
+            if (!possible(conjunction(branch.conditions))) continue;
+            if (!applyEngine(engine, args, branch, i)) declined = true;
+            else {
+              returnedStack(branch);
+              branches.push(branch);
+            }
+          }
+          if (!declined) {
+            for (const branch of branches)
+              enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: branch });
+            continue;
+          }
+        }
+      }
       if (engine && !pureReturnRelations && !preciseMemberRelations && applyEngine(engine, args, s, i)) {
         returnedStack(s);
         const next = i.segment * 16 + ((i.offset + i.size) & 0xffff);

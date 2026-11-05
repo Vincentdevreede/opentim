@@ -420,6 +420,46 @@ describe("structural engine summaries", () => {
     expect(summary.footprint).toMatchObject({ complete: true, partMemoryComplete: true, preservesPartState: true });
   });
 
+  it("gives a helper's stores the tests of the part's fields on every path to them, like the mouse motor's start", () => {
+    const image = new Uint8Array(0x800);
+    image.set(
+      [
+        ...[0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6],
+        // test word [si+0x08], 0x0010; je +7
+        ...[0xf7, 0x44, 0x08, 0x10, 0x00, 0x74, 0x07],
+        // mov word [si+0x12], 0xffff; jmp +5; mov word [si+0x12], 1
+        ...[0xc7, 0x44, 0x12, 0xff, 0xff, 0xeb, 0x05, 0xc7, 0x44, 0x12, 0x01, 0x00],
+        // mov word [si+0x96], 100; mov word [si+0x22], 1; or word [si+0x22], 2
+        ...[0xc7, 0x84, 0x96, 0x00, 0x64, 0x00, 0xc7, 0x44, 0x22, 1, 0, 0x83, 0x4c, 0x22, 2],
+        ...[0x5e, 0x5d, 0xcb],
+      ],
+      0x100,
+    );
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
+    expect(summary.kind).toBe("owner-field-update");
+    const flag = (operator: string) => ({
+      kind: "compare",
+      operator,
+      left: {
+        kind: "binary",
+        operator: "&",
+        left: { kind: "field", object: "part", offset: 8, width: 16 },
+        right: { kind: "constant", value: 0x10, width: 16 },
+        width: 16,
+      },
+      right: { kind: "constant", value: 0, width: 16 },
+      signed: false,
+    });
+    expect(summary.writes.map((w) => [w.offset, w.value, w.condition])).toEqual([
+      [0x12, { kind: "constant", value: 0xffff, width: 16 }, flag("!=")],
+      [0x12, { kind: "constant", value: 1, width: 16 }, flag("==")],
+      [0x96, { kind: "constant", value: 100, width: 16 }, { kind: "true" }],
+      // A store an `or` changes afterwards is not the last, and the `or` itself sets no value.
+      [0x22, { kind: "constant", value: 1, width: 16 }, expect.objectContaining({ kind: "unknown" })],
+      [0x22, expect.anything(), expect.objectContaining({ kind: "unknown" })],
+    ]);
+  });
+
   it("uses checked layout names in helper prose and keeps offsets in structured writes", () => {
     const image = new Uint8Array(0x800);
     image.set(

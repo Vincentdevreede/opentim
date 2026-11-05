@@ -42,6 +42,7 @@ import type { ExternalListConsumer } from "./behaviour-list-consumers.ts";
 import { proveOverlapProducer, type OverlapProducer } from "./behaviour-overlap-producer.ts";
 import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-connection-bypass.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
+import { ownerStoreConditions } from "./behaviour-owner-paths.ts";
 
 export type EnginePointer =
   | { kind: "argument"; argument: number; path: number[]; displacement?: number }
@@ -2057,6 +2058,24 @@ export function discoverEngineSummaries(
         direct.writes.some((w) => w.root !== "argument" || w.argumentOffset !== firstArgument(code) || w.path.length)
       )
         continue;
+      // A store reached under tests of the part's own fields keeps those tests, like the mouse motor's start.
+      const calleeAt = new Map(code.calls.map((call, n) => [call.instruction, callees[n]]));
+      const conditions = ownerStoreConditions(code, owner, stores, (call) => {
+        const callee = calleeAt.get(call.address);
+        return (
+          !!callee &&
+          (callee.footprint.complete || callee.footprint.partMemoryComplete === true) &&
+          callee.writes.every((w) => w.root === "global")
+        );
+      });
+      for (const write of direct.writes) {
+        const condition = conditions.get(write.evidence[0]!.address);
+        if (!condition) continue;
+        write.condition = condition;
+        write.assumptions = [
+          "Every path of the helper was followed: the store happens exactly when its tests of the part's fields hold, and it is the last store to that field.",
+        ];
+      }
       const fields = [
         ...new Set(stores.map((i) => (i.operands[0] as Extract<Operand, { kind: "memory" }>).displacement)),
       ].sort((a, b) => a - b);
