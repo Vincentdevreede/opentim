@@ -1240,6 +1240,20 @@ The curved pipe wall copies its 8 corners from one of four tables in the data se
 in Even More). It writes them through a copy of the pointer kept on the stack, which the reader doesn't follow, so
 that reset shows no outline line yet.
 
+### Parts whose run keeps everything
+
+Most simple parts share one empty run routine (`0x29f` in Even More: it only sets up and restores `bp`), and the same
+for their bounce, flip, resize and rope callbacks. Its only rule keeps the frame and writes nothing, so the description
+lists each of the part's frames (up to 32) as a resting frame: a walk from any of them rests at once. Nothing is
+assumed about which frame a level saves. A run that keeps the frame only under a test, or writes other fields, still
+gets its resting frames from its rules as before.
+
+In Even More this gives frame 0 as the resting frame of 16 parts with one frame: the bowling ball, basketball, rope,
+birdcage, bucket, eye hook, baseball, jack-o-lantern, heart, Christmas tree, pinball, tennis ball, cheese, thumb tack,
+pool ball and shamrock (11 of them in TIM 1). The walls, floors, pulley, belt, rope end, super ball and curved pipe wall
+share the empty run too, but the program draws them its own way, so they have no frame list to count and stay without
+one.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

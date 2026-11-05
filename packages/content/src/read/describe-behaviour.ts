@@ -2396,7 +2396,40 @@ function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableSta
   if (!run || stateOffset === undefined) return [];
   const initial = bindingsOf(metadataFields(report, part));
   const candidates = new Map<string, StableStateDescription>();
-  for (const rule of (part.transitions as WithUpdates[]).filter((item) => item.routine === run.address)) {
+  const runRules = (part.transitions as WithUpdates[]).filter((item) => item.routine === run.address);
+  // A run that always keeps the frame and every other field, like the empty run the balls share, rests on each of the
+  // part's frames (up to 32 of them).
+  const keeps =
+    runRules.length > 0 &&
+    runRules.every(
+      (rule) =>
+        rule.confidence !== "unresolved" &&
+        rule.condition.kind === "true" &&
+        rule.to.kind === "field" &&
+        rule.to.object === "part" &&
+        rule.to.offset === stateOffset &&
+        !rule.updates?.length,
+    );
+  const frameCount = (part as WithFrameCount).frameCount ?? 0;
+  if (keeps && frameCount <= 32)
+    for (const frame of Array(frameCount).keys()) {
+      const bindings = new Map(initial);
+      writeField(bindings, "part", stateOffset, bits(frame, 0xffff, 16));
+      const proof = finding(runRules, [
+        "These fields follow a stated run outcome; they are not claimed to be the level's reset values.",
+      ]);
+      const fields = fieldsOf(bindings, fieldDefinitions(report, part), proof);
+      const walk = walkBehaviourRules(report, part.type, fields, { maxRunCalls: 1 });
+      if (walk.status !== "rest") continue;
+      candidates.set(signature(bindings), {
+        state: frame,
+        frame: frameOf(part, frame),
+        fields,
+        origins: runRules.map((rule) => ({ condition: rule.condition, evidence: rule.evidence })),
+        ...finding([...runRules, walk], proof.assumptions),
+      });
+    }
+  for (const rule of runRules) {
     if (rule.confidence === "unresolved" || !rule.updates) continue;
     const state = valueOf(rule.to, initial);
     if (!known(state)) continue;

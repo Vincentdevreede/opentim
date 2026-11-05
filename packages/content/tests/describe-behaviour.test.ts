@@ -1268,6 +1268,16 @@ describe("creation defaults and related input conditions", () => {
     );
   });
 
+  it("rests on each frame when the run keeps every field", () => {
+    const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+    data.parts[0]!.frameCount = 3;
+    expect(describeBehaviour(data).parts[0]!.stableStates.map((stable) => stable.state)).toEqual([0, 1, 2]);
+    // A run that keeps the frame only under a test doesn't make every frame a resting frame.
+    const tested = report([rule(field(12), test(0x30, "==", 0)), rule(constant(0), test(0x30, "!=", 0))]);
+    tested.parts[0]!.frameCount = 3;
+    expect(describeBehaviour(tested).parts[0]!.stableStates.map((stable) => stable.state)).not.toContain(2);
+  });
+
   it("keeps a creation state separate from a loaded level's unknown reset value", () => {
     const data = report(
       [rule(constant(2), test(12, "==", 1)), rule(constant(0), test(12, "==", 2)), rule(field(12), test(12, "==", 0))],
