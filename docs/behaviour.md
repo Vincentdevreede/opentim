@@ -1313,6 +1313,26 @@ input cases less in each build: they were partitions by the counter value 5 that
 asked for, and the walk no longer stops there. Describing takes about 6.4 seconds for Even More and 6.9 for TIM 1,
 up from 6.3 and 5.7; most of it is the mouse motor's exact runs after a hit, up to the tree's budget.
 
+### Values a list scan leaves behind
+
+After the mouse motor's countdown ran out, the walk knew its control value at `0x12` was 0, but one run later it
+branched on "control value isn't 0" again. The cause is the run at `0x1bfb5`. With the control value at 0 it scans the
+parts lying on it (the list scan at `0x1bff5`), and a mouse there calls the start routine `0x1c074`, which sets the
+control value to 1 or -1 and the counter at `0x96` to 100. So after the scan the control value is one value of that
+run, `part after list scan at 0x1bff5`, and the run stores it back. The rule for "nothing found" tests that value for 0
+at `0x1c013` and keeps the frame, but its write stored the unresolved value, so the walk forgot the control value.
+
+A value a list scan, a find-first loop or a query leaves behind is named after that loop's or call's address, so within
+one run the same name is the same value. Now, when a rule's condition tests such a value for one number and the rule
+stores that same value in a field, the walk knows the field has that number. Nothing is chosen: the rule only applies
+when its condition holds. The rule where the scan found something still leaves the control value unknown (1 or -1 by
+the flag at `0x08`), and the counter after the scan stays unknown in both rules, since the run doesn't test it there.
+
+In Even More, after a hit the mouse motor now runs its 100 runs, rests on its frame with the control value at 0 and
+only splits on whether the list scan finds something, the restart that stays open. Mel's house's walks in Even More
+know more fields the same way. Walk endings don't change (Even More 521 end through branches and 577 end directly, TIM 1 450 and 476),
+nor do the recording comparisons (564 and 476 complete): the mouse motor's recordings stay prefixes for the restart.
+
 ### The recorder's normal seed
 
 The v25 recorder sets a part's normal seed on the part before each of its clips, and then the clip's own seed over it
