@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyseRoutine } from "../src/read/behaviour.ts";
 import { engineFromObjectRelation } from "../src/read/behaviour-geometry-relations.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
+import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 const proof = { confidence: "inferred" as const, evidence: [], assumptions: [] };
 const layout: BehaviourLayout = {
   ...proof,
@@ -94,5 +95,53 @@ describe("complete owner-field relations", () => {
     ]);
     const routine = analyseRoutine(image, { address: 0, segment: 0, offset: 0 });
     expect(engineFromObjectRelation(routine, layout, new Map())).toBeUndefined();
+  });
+});
+
+describe("relations that make a part copy", () => {
+  const copy = (kind = "part-copy"): EngineSummary => ({
+    ...proof,
+    address: 0x200,
+    kind,
+    purpose: "Synthetic part copy.",
+    argumentOffset: 6,
+    argumentKind: "object",
+    writes: [],
+    returns: [],
+    returnPointerClass: "nullable-fresh",
+    calls: [],
+    returnConvention: { kind: "far", stackBytes: 0 },
+    footprint: {
+      complete: false,
+      partMemoryComplete: true,
+      preservesArgumentMemory: true,
+      preservesPartState: true,
+      unknownEffects: [],
+    },
+  });
+  /** Copies the part, writes the copy's x and the part's width, and may store the copy's address in the part. */
+  function relation(helper: EngineSummary, storesCopy = false) {
+    const image = new Uint8Array(0x300);
+    const store = storesCopy ? [0x89, 0x7c, 0x50] : [];
+    image.set([
+      ...[0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6, 0x56, 0x9a, 0, 2, 0, 0, 0x59, 0x8b, 0xf8, 0x0b, 0xc0],
+      ...[0x74, 10 + store.length, 0xc7, 0x45, 0x1e, 5, 0, 0xc7, 0x44, 0x44, 3, 0, ...store],
+      ...[0x5f, 0x5e, 0x5d, 0xcb],
+    ]);
+    image[0x200] = 0xcb;
+    const helpers = new Map([[0x200, helper]]);
+    const routine = analyseRoutine(image, { address: 0, segment: 0, offset: 0 }, { engineSummaries: helpers });
+    return engineFromObjectRelation(routine, layout, helpers);
+  }
+
+  it("leaves out the writes to the fresh copy and keeps the part's", () => {
+    const engine = relation(copy());
+    expect(engine?.writes.map((write) => [write.root, write.offset])).toEqual([["argument", 0x44]]);
+    expect(engine?.assumptions.join(" ")).toContain("stay in that fresh memory");
+  });
+
+  it("refuses a copy whose address the part keeps, and memory that isn't a part copy", () => {
+    expect(relation(copy(), true)).toBeUndefined();
+    expect(relation(copy("nullable-allocation"))).toBeUndefined();
   });
 });

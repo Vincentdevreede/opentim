@@ -489,6 +489,41 @@ the scissors keep their frame. This needs four stated assumptions, listed with h
 In each recorded build 4 more recorded animations now match completely, 14 more walks end and 11 more end in every
 branch.
 
+### The explosion's wall split
+
+The explosion's run (`0x1a73a` in Even More, English floppy) finds the parts it hits with an overlap search and goes
+through them one by one. It sets a balloon's control value to 1, starts a mouse motor, makes a new explosion for
+dynamite, pushes loose parts away, and splits a brick or wood wall at `0x1a8ae`. The split copies the wall with the
+part copy at `0x66aa`, puts the copy on the parts list and shrinks the wall.
+
+The reader checks the part copy's complete instruction graph (three compiler forms over the eleven builds): it
+allocates the copy and its belt, rope and outline records from the allocator the part factory uses, only reads the
+source part, and on a failed allocation calls the release, whose graph is checked too. Its summary returns a fresh part
+or zero and changes no existing part. That rests on two decided assumptions, listed with how to recheck them in
+[the decided assumptions](behaviour-assumptions.md):
+
+- A part copy gets fresh memory, and so do the belt, rope and outline records it makes for the copy: none of it
+  overlaps an existing part, a rope, belt or pulley record or other storage.
+- Releasing a copy that was never linked, after one of its allocations failed, frees only the copy and the records it
+  made for it, and changes nothing else.
+
+A routine's return relation can now become a summary when it also writes to a part it made with the part factory or
+the part copy: those writes stay in the fresh part and are left out, as long as no kept write stores the new part's
+address. Putting the new part on the parts list may rewrite the list links of any part, so the summary names those.
+The wall split then has a summary of what it writes on the wall, and so does the dynamite case, which makes a new
+explosion with the factory.
+
+With both, the loop over the parts the explosion hits is proved like the other overlap list loops: the search leaves
+out the explosion, the body writes fields of the member, its own stack, globals and the parts list links of any part,
+and never the found list's next link at `0x78`. The explosion keeps its frame. All its walks end in both recorded builds, and in each 8 more
+recorded animations match completely. TIM 1 has the same routines at other addresses (French: run `0x18dd7`, split
+`0x18f4a`, copy `0x5a15`), and the run is proved in all eleven builds.
+
+The balloon's and the mouse motor's triggers "A recorded effect of explosion" are gone. They came from the first part
+the unproved loop met. A proved loop's effects on its members are kept as per member outcomes, but no part takes them
+as triggers yet, for any source part. Passing them on would add over a thousand trigger walks in Even More and make the
+description about twenty times slower, so it is left for a separate change.
+
 ### The outline search
 
 The teeter-totter finds the parts lying on it with an outline search. It clears the owner's found list at `0x78`,

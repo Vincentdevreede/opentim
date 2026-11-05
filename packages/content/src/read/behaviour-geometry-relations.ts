@@ -22,10 +22,15 @@ export function engineFromObjectRelation(
     const field = buffers.find((field) => object === `referenced-by(part+0x${field.offset.toString(16)})`);
     return field ? [field.offset] : undefined;
   };
-  const writes = routine.writes.filter((write) => write.object !== "stack");
+  const fresh = freshObjects(routine, helpers);
+  const isFresh = (object: string) => fresh.objects.has(object.replace(/^referenced-by\((.*)\+0x[0-9a-f]+\)$/, "$1"));
+  const freshWrites = routine.writes.filter((write) => isFresh(write.object));
+  const writes = routine.writes.filter((write) => write.object !== "stack" && !isFresh(write.object));
   if (
     !writes.length ||
-    writes.some((write) => write.object !== "part" && write.object !== "data" && !pathOf(write.object))
+    writes.some((write) => write.object !== "part" && write.object !== "data" && !pathOf(write.object)) ||
+    // A fresh part never reaches the caller: no kept write stores its address, and the summary returns nothing.
+    [...fresh.addresses].some((address) => writes.some((write) => JSON.stringify(write.value).includes(address)))
   )
     return;
   const used = buffers.filter((field) => writes.some((write) => pathOf(write.object)?.[0] === field.offset));
@@ -39,7 +44,12 @@ export function engineFromObjectRelation(
     return;
   const state = layout.fields.find((field) => field.name === "state");
   if (!state) return;
-  const nested = (routine.engineCalls ?? []).map((call) => helpers.get(call.summary));
+  // A factory call the analysis specialised to a type without a constructor has that case's footprint.
+  const nested = (routine.engineCalls ?? []).map((call) => {
+    const helper = helpers.get(call.summary);
+    const specialised = helper?.factory?.noConstructor;
+    return specialised && call.purpose !== helper.purpose ? { ...helper, ...specialised } : helper;
+  });
   if (
     nested.some(
       (helper) => !helper || (!helper.footprint.preservesArgumentMemory && !helper.footprint.partMemoryComplete),
@@ -47,6 +57,8 @@ export function engineFromObjectRelation(
   )
     return;
   const unknownGlobals = [...new Set(nested.flatMap((helper) => helper!.footprint.unknownGlobalEffects ?? []))];
+  // Putting a fresh part on a parts list rewrites the list links of its new neighbours, which may be any part.
+  const neighbours = freshWrites.length ? freshNeighbourWrites(routine, helpers, base) : [];
   const effects: EngineWrite[] = writes.map((write) => ({
     ...write,
     root: write.object === "data" ? "global" : "argument",
@@ -54,6 +66,7 @@ export function engineFromObjectRelation(
     path: write.object === "part" || write.object === "data" ? [] : pathOf(write.object)!,
     ...(pathOf(write.object) ? { separateStorage: "outline" as const } : {}),
   }));
+  effects.push(...neighbours);
   const returns = routine.instructions.filter((i) => i.flow === "return");
   if (!returns.length || returns.some((i) => !["ret", "retf"].includes(i.mnemonic))) return;
   const convention = (i: (typeof returns)[number]) => ({
@@ -69,6 +82,11 @@ export function engineFromObjectRelation(
       ...writes.flatMap((write) => write.assumptions),
       ...nested.flatMap((helper) => helper!.assumptions),
       "All owner writes have complete symbolic return coverage; unrelated object destinations are rejected.",
+      ...(freshWrites.length
+        ? [
+            "Writes to a part the routine makes or copies, and to its records, stay in that fresh memory and are left out; the part's address is not stored in a kept field.",
+          ]
+        : []),
       ...(used.length
         ? ["The discovered outline pointer is unchanged by this relation and denotes separate valid outline storage."]
         : []),
@@ -105,4 +123,37 @@ export function engineFromObjectRelation(
       unknownGlobalEffects: unknownGlobals,
     },
   };
+}
+
+/** The kinds of helper whose nonzero return is a part in fresh memory. */
+const FRESH_PART_KINDS = ["part-copy", "part-factory"];
+
+/**
+ * The names the routine analysis gives the parts its calls to a part copy or the part factory return, and the names
+ * of their addresses.
+ */
+function freshObjects(routine: RoutineAnalysis, helpers: Map<number, EngineSummary>) {
+  const objects = new Set<string>(),
+    addresses = new Set<string>();
+  for (const call of routine.engineCalls ?? []) {
+    const helper = helpers.get(call.summary);
+    if (!helper || !FRESH_PART_KINDS.includes(helper.kind) || helper.returnPointerClass !== "nullable-fresh") continue;
+    const at = `0x${call.instruction.toString(16)}`;
+    objects.add(`nullable allocation returned at ${at}`).add(`fresh object returned at ${at}`);
+    addresses.add(`nullable allocation result at ${at}`);
+  }
+  return { objects, addresses };
+}
+
+/** The list link writes of the routine's list insertions, on neighbours that may be any existing part. */
+function freshNeighbourWrites(
+  routine: RoutineAnalysis,
+  helpers: Map<number, EngineSummary>,
+  argumentOffset: number,
+): EngineWrite[] {
+  return (routine.engineCalls ?? []).flatMap((call) =>
+    (helpers.get(call.summary)?.writes ?? [])
+      .filter((write) => write.root === "argument" && write.path.some((offset) => offset < 0))
+      .map((write) => ({ ...write, argumentOffset, path: [-1] })),
+  );
 }
