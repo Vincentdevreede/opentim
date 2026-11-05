@@ -637,6 +637,15 @@ function impossibleState(part: PartBehaviour, stateOffset: number, bindings: Bin
     ? rule.assumption
     : undefined;
 }
+/** These fields know every bit the others know, with the same value. */
+function knowsAll(fields: Bindings, others: Bindings): boolean {
+  return [...others].every(([name, value]) => {
+    const other = fields.get(name);
+    return (
+      !value.mask || (!!other && (value.mask & ~other.mask) === 0 && ((value.value ^ other.value) & value.mask) === 0)
+    );
+  });
+}
 function signature(bindings: Bindings) {
   return JSON.stringify([...bindings].filter(([, value]) => value.mask).sort(([a], [b]) => a.localeCompare(b)));
 }
@@ -1231,60 +1240,113 @@ export function walkBehaviourRules(
     });
     return [{ condition: rule.condition, walk }];
   };
-  const state = readField(bindings, "part", stateOffset, 16);
-  if (!known(state)) {
-    const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
-    const identity = (expression: Expression) =>
-      expression.kind === "field" &&
-      expression.object === "part" &&
-      expression.offset === stateOffset &&
-      !expression.unresolved;
+  /**
+   * A rule whose only unresolved parts are written field values still fixes the state path when the routine's analysis
+   * covers every path with complete effects: those fields are forgotten, and its destination and guard are exact.
+   */
+  const settledRoutine =
+    !!routine &&
+    (routine.uncertainties ?? []).length === 0 &&
+    !!routine.outcomes?.length &&
+    ((routine.uncertainEffects !== true && routine.outcomes.every((outcome) => outcome.effectsComplete === true)) ||
+      // A helper that keeps the state but not the other fields still fixes the state path. Such a rule's effects are
+      // incomplete, so the walk forgets every other field after it.
+      (routine.returnPathsComplete === true &&
+        routine.outcomes.every((outcome) => outcome.effectsComplete === true || outcome.keepsState === true)));
+  // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
+  // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
+  const settledPath = (rule: WithUpdates) =>
+    settledRoutine && !containsUnknown(rule.to) && !containsUnknown(rule.condition, false);
+  const pathFinding = (rule: WithUpdates): Finding =>
+    rule.confidence === "unresolved" && settledPath(rule)
+      ? {
+          confidence: "inferred",
+          evidence: rule.evidence,
+          assumptions: [
+            ...rule.assumptions,
+            "Fields this rule writes with unresolved values are forgotten; its destination and guard do not depend on them.",
+          ],
+        }
+      : rule;
+  const identity = (expression: Expression) =>
+    expression.kind === "field" &&
+    expression.object === "part" &&
+    expression.offset === stateOffset &&
+    !expression.unresolved;
+  /**
+   * While the state is unknown: the rules that may apply, when every one keeps the state, with what the walk knows
+   * after one run. It is stable when each rule keeps at least what the walk knows, so every later run has these rules
+   * or fewer to choose from.
+   */
+  const keptState = (fields: Bindings, tests: Predicate[]) => {
+    const candidates = rules.filter((rule) => predicateOf(rule.condition, fields, tests) !== false);
     const domains = new Set(
       candidates.map((rule) =>
         rule.from === null ? "all" : JSON.stringify([...rule.from].sort((left, right) => left - right)),
       ),
     );
     if (
-      candidates.length &&
-      domains.size === 1 &&
-      guardCoverage(candidates, bindings, constraints, routine) &&
-      candidates.every((rule) => rule.confidence !== "unresolved" && identity(rule.to))
-    ) {
-      const starts = JSON.stringify([signature(bindings), constraints]);
-      const stable = candidates.every((rule) => {
-        const next = ruleBindings(rule, bindings, routine);
-        return (
-          JSON.stringify([
-            signature(next),
-            retainConstraints(
-              completeRuleEffects(rule, routine) ? constraints : [],
-              rule.updates ?? routine?.writes ?? [],
-              stateOffset,
-              rule.to,
-            ),
-          ]) === starts
-        );
-      });
-      if (stable) {
-        proof = finding(
-          [proof, ...candidates],
-          [
-            "The rule preserves any initial state in its stated source domain; no numeric starting state has been chosen.",
-          ],
-        );
-        const allowedStates = candidates.some((rule) => rule.from === null)
-          ? undefined
-          : [...new Set(candidates.flatMap((rule) => rule.from ?? []))];
-        return {
-          ...base("rest"),
-          runCalls: 1,
-          parameterised: {
-            kind: "hold",
-            state: { kind: "field", object: "part", offset: stateOffset, width: 16 },
-            ...(allowedStates ? { allowedStates } : {}),
-          },
-        };
+      !candidates.length ||
+      domains.size !== 1 ||
+      !guardCoverage(candidates, fields, tests, routine) ||
+      !candidates.every((rule) => (rule.confidence !== "unresolved" || settledPath(rule)) && identity(rule.to))
+    )
+      return undefined;
+    const nexts = candidates.map((rule) => ({
+      next: ruleBindings(rule, fields, routine),
+      kept: retainConstraints(
+        completeRuleEffects(rule, routine) ? tests : [],
+        rule.updates ?? routine?.writes ?? [],
+        stateOffset,
+        rule.to,
+      ),
+    }));
+    const texts = tests.map(textOf);
+    const stable = nexts.every(
+      ({ next, kept }) => knowsAll(next, fields) && texts.every((text) => kept.some((term) => textOf(term) === text)),
+    );
+    const later = intersect(nexts.map(({ next }) => next));
+    const kept = nexts[0]!.kept.filter((term) =>
+      nexts.every(({ kept }) => kept.some((other) => textOf(other) === textOf(term))),
+    );
+    return { candidates, stable, later, kept };
+  };
+  const state = readField(bindings, "part", stateOffset, 16);
+  if (!known(state)) {
+    let held = keptState(bindings, constraints);
+    let runCalls = 1;
+    // A rule with incomplete effects forgets the other fields first. The walk then knows at most what every rule
+    // leaves known, with the same state, so a hold from there one run later holds from here too.
+    if (held && !held.stable && knowsAll(bindings, held.later) && signature(held.later) !== signature(bindings)) {
+      const after = keptState(held.later, held.kept);
+      if (after?.stable) {
+        proof = finding([proof, ...held.candidates.map(pathFinding)]);
+        bindings = held.later;
+        constraints = held.kept;
+        held = after;
+        runCalls = 2;
       }
+    }
+    if (held?.stable) {
+      const { candidates } = held;
+      proof = finding(
+        [proof, ...candidates.map(pathFinding)],
+        [
+          "The rule preserves any initial state in its stated source domain; no numeric starting state has been chosen.",
+        ],
+      );
+      const allowedStates = candidates.some((rule) => rule.from === null)
+        ? undefined
+        : [...new Set(candidates.flatMap((rule) => rule.from ?? []))];
+      return {
+        ...base("rest"),
+        runCalls,
+        parameterised: {
+          kind: "hold",
+          state: { kind: "field", object: "part", offset: stateOffset, width: 16 },
+          ...(allowedStates ? { allowedStates } : {}),
+        },
+      };
     }
     const levelStates = possibleStates(state);
     if (levelStates)
@@ -1317,34 +1379,6 @@ export function walkBehaviourRules(
     };
   }
   states.push(state.value);
-  /**
-   * A rule whose only unresolved parts are written field values still fixes the state path when the routine's analysis
-   * covers every path with complete effects: those fields are forgotten, and its destination and guard are exact.
-   */
-  const settledRoutine =
-    !!routine &&
-    (routine.uncertainties ?? []).length === 0 &&
-    !!routine.outcomes?.length &&
-    ((routine.uncertainEffects !== true && routine.outcomes.every((outcome) => outcome.effectsComplete === true)) ||
-      // A helper that keeps the state but not the other fields still fixes the state path. Such a rule's effects are
-      // incomplete, so the walk forgets every other field after it.
-      (routine.returnPathsComplete === true &&
-        routine.outcomes.every((outcome) => outcome.effectsComplete === true || outcome.keepsState === true)));
-  // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
-  // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
-  const settledPath = (rule: WithUpdates) =>
-    settledRoutine && !containsUnknown(rule.to) && !containsUnknown(rule.condition, false);
-  const pathFinding = (rule: WithUpdates): Finding =>
-    rule.confidence === "unresolved" && settledPath(rule)
-      ? {
-          confidence: "inferred",
-          evidence: rule.evidence,
-          assumptions: [
-            ...rule.assumptions,
-            "Fields this rule writes with unresolved values are forgotten; its destination and guard do not depend on them.",
-          ],
-        }
-      : rule;
   /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
   const stepFinding = (candidates: WithUpdates[]): Finding => {
     let cache = stepFindings.get(part);

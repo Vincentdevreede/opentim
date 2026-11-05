@@ -675,6 +675,22 @@ incomplete (no other uncertainty, and every return path analysed), its rules sti
 is exact, and the walk forgets every other field after that step, since any of them may have changed. A path with any
 other gap still stops the walk. The magnifying glass's walks from its creation and from frame 0 now rest on frame 0.
 
+### Holding a frame the walk doesn't know
+
+When a walk starts without knowing the state and every rule that may apply keeps it, the part holds whatever frame it
+has, and the walk ends as a `hold`. This used to need every rule to leave the walk knowing exactly what it knew
+before. A rule that also sets a field, like the magnifying glass clearing the part it heats, broke that, though it
+cannot make the walk choose a different rule later: knowing more only rules out more of them. Now each rule only has
+to keep at least what the walk knows.
+
+A rule past a helper that keeps the state forgets every other field, so the walk knows less after it. The walk then
+checks once more from what every rule leaves known: if the state is held from there, one run later, it is held from
+the start too.
+
+In both recorded builds the magnifying glass's remaining walks end this way. The electric switch's 41 walks that
+followed each frame its saved bits allow now end as one hold, and a walk each of the bellows, the solar panel, the
+windmill and (in TIM 1) the rocket does too. 8 more recorded animations match completely in Even More and 11 in TIM 1.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

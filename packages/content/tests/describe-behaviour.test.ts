@@ -839,6 +839,36 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(walk.status).toBe("rest");
   });
 
+  it("holds an unknown state when the rules only add to what the walk knows", () => {
+    const data = report(
+      [rule(field(12), test(8, "==", 0), [write(0x62, constant(0))]), rule(field(12), test(8, "!=", 0))],
+      [],
+    );
+    const walk = walkBehaviourRules(data, 39, []);
+    expect([walk.status, walk.parameterised?.kind, walk.runCalls]).toEqual(["rest", "hold", 1]);
+  });
+
+  it("holds an unknown state from what is left after a helper that keeps the state forgets the other fields", () => {
+    const forgets = { ...rule(field(12), test(8, "==", 0)), confidence: "unresolved" as const };
+    const data = report([forgets, rule(field(12), test(8, "!=", 0), [write(0x62, constant(0))])], []);
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      uncertainEffects: true,
+      returnPathsComplete: true,
+      outcomes: [
+        { ...proof, condition: test(8, "==", 0), fields: [], returnValue: constant(0), keepsState: true },
+        { ...proof, condition: test(8, "!=", 0), fields: [], returnValue: constant(0), effectsComplete: true },
+      ],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(4, 39)]);
+    expect([walk.status, walk.parameterised?.kind, walk.runCalls]).toEqual(["rest", "hold", 2]);
+    expect(walk.fields.find((item) => item.offset === 4)?.knownMask ?? 0).toBe(0);
+    // Without the helper's proof that it keeps the state, nothing is held.
+    (data.routines[0] as unknown as { outcomes: { keepsState?: boolean }[] }).outcomes[0]!.keepsState = undefined;
+    expect(walkBehaviourRules(data, 39, [known(4, 39)]).parameterised).toBeUndefined();
+  });
+
   it("does not treat an unresolved state-field reference as an identity proof", () => {
     const data = report(
       [rule({ kind: "field", object: "part", offset: 12, width: 16, unresolved: true }, { kind: "true" })],
