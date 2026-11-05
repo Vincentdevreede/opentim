@@ -11,6 +11,19 @@ export function outlineObject(report: BehaviourReport): string | undefined {
   return field && `referenced-by(part+0x${field.offset.toString(16)})`;
 }
 
+/**
+ * The object whose outline a write changes, when it writes through an outline pointer: `part` for the part's own, or
+ * the object reached otherwise, like a part an overlap search found.
+ */
+export function outlineOwner(report: BehaviourReport, object: string): string | undefined {
+  const field = report.layout.fields.find((item) => item.name === "outlinePoints");
+  if (!field) return undefined;
+  const suffix = `+0x${field.offset.toString(16)})`;
+  return object.startsWith("referenced-by(") && object.endsWith(suffix)
+    ? object.slice("referenced-by(".length, -suffix.length)
+    : undefined;
+}
+
 const SIZES: Record<string, string> = {
   frameWidth: "its frame width",
   frameHeight: "its frame height",
@@ -35,24 +48,32 @@ function words(expression: Expression, report: BehaviourReport, width: number): 
 }
 
 /** Describes one routine path's writes to the outline records, or undefined when none of the writes is one. */
-export function outlineWords(writes: FieldWrite[], report: BehaviourReport): string | undefined {
-  const object = outlineObject(report);
+export function outlineWords(
+  writes: FieldWrite[],
+  report: BehaviourReport,
+  object = outlineObject(report),
+): string | undefined {
+  // Sizes and the subject are the part's own only for its own outline.
+  const own = object === outlineObject(report);
+  const whose = own ? "its" : "another part's";
   const corners = new Map<number, { x?: string; y?: string }>();
   for (const write of writes) {
     if (write.object !== object || write.width !== 8 || write.offset % 4 > 1) continue;
     const corner = corners.get(write.offset >> 2) ?? {};
-    corner[write.offset % 4 ? "y" : "x"] = words(write.value, report, write.width) ?? "a calculated value";
+    corner[write.offset % 4 ? "y" : "x"] =
+      (own || write.value.kind === "constant" ? words(write.value, report, write.width) : undefined) ??
+      "a calculated value";
     corners.set(write.offset >> 2, corner);
   }
   if (!corners.size)
-    return writes.some((write) => write.object === object) ? "Updates its outline's edge records." : undefined;
+    return writes.some((write) => write.object === object) ? `Updates ${whose} outline's edge records.` : undefined;
   const indexes = [...corners.keys()].sort((a, b) => a - b);
   const whole = indexes.every((index, at) => index === at && corners.get(index)!.x && corners.get(index)!.y);
   if (whole)
-    return `Sets its outline to ${indexes.length} corners: ${indexes
+    return `Sets ${whose} outline to ${indexes.length} corners: ${indexes
       .map((index) => `(${corners.get(index)!.x}, ${corners.get(index)!.y})`)
       .join(", ")}.`;
-  return `Moves outline ${indexes
+  return `Moves ${whose} outline ${indexes
     .map((index) => {
       const corner = corners.get(index)!;
       const parts = [corner.x && `x to ${corner.x}`, corner.y && `y to ${corner.y}`].filter(Boolean).join(" and ");

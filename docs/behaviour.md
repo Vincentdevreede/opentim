@@ -1352,7 +1352,7 @@ shared geometry helper works out from the corners. The descriptions used to read
 of another part, so the balls' reset showed "Selects state 31 on another part" where it really writes corner 4's Y.
 
 Writes through the outline pointer now become one line per routine path, "Sets its outline to 8 corners: (8, 0),
-(23, 0), ..." when a path writes every corner from the first, and "Moves outline corner 2 x to ..." when it writes
+(23, 0), ..." when a path writes every corner from the first, and "Moves its outline corner 2 x to ..." when it writes
 only some. A size field in a corner reads as that size, and adding 255 to it in a byte reads as the size minus 1. In
 Even More:
 
@@ -1362,6 +1362,10 @@ Even More:
   moves when the size changes;
 - the conveyor belt and mouse motor: a rectangle as large as their frame;
 - the birdcage (12 corners), the bucket (6), the fish bowl (3), the generator and the jack-in-the-box (4).
+
+Writes through another part's outline pointer read the same way, for "another part's" outline. The jack-in-the-box
+does that to a part it reaches (`0x1b888` in Even More): it sets that part's outline to the 3 corners (8, 47),
+(24, 44) and (39, 47), the same 3 corners the fish bowl's bounce gives its own outline.
 
 The curved pipe wall and the electric switch copy their corners from tables in the data segment, chosen by their
 frame, in a loop through a copy of the outline pointer kept on the stack (`behaviour-outline-tables.ts`). The reader

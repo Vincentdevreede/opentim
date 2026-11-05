@@ -50,7 +50,19 @@ describe("outline writes", () => {
   it("reads adding 255 to a size in a byte as the size minus 1", () => {
     const writes = [write(4, less(0x44)), write(8, less(0x44)), write(9, less(0x46))];
     expect(outlineWords(writes, report)).toBe(
-      "Moves outline corner 2 x to its frame width - 1, corner 3 x to its frame width - 1 and y to its frame height - 1.",
+      "Moves its outline corner 2 x to its frame width - 1, corner 3 x to its frame width - 1 and y to its frame height - 1.",
+    );
+  });
+
+  it("reads writes through another part's outline pointer as that part's outline", () => {
+    const found = "referenced-by(overlap candidate at 0x1b9c8+0x82)";
+    const writes = [
+      [8, 47],
+      [24, 44],
+      [39, 47],
+    ].flatMap(([x, y], index) => [write(index * 4, c(x!), found), write(index * 4 + 1, c(y!), found)]);
+    expect(outlineWords(writes, report, found)).toBe(
+      "Sets another part's outline to 3 corners: (8, 47), (24, 44), (39, 47).",
     );
   });
 
