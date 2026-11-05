@@ -3293,7 +3293,7 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   for (const counter of part.counters)
     effects.push({
       kind: "counter",
-      description: `Updates a part-specific counter${counter.comparisons.length ? "; the recorded comparisons gate later behaviour" : ""}.`,
+      description: `Counts with field 0x${counter.offset.toString(16).padStart(2, "0")}${counter.comparisons.length ? ", which later tests read" : ""}.`,
       field: counter.offset,
       ...finding([counter]),
     });

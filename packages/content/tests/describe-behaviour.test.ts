@@ -1322,6 +1322,11 @@ describe("creation defaults and related input conditions", () => {
     expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
       "Sets field 0x1e of the object it creates at 0x1b3a1.",
     );
+    // A counter says which field it counts with.
+    data.parts[0]!.counters = [{ ...proof, offset: 0x96, comparisons: [{ ...proof }] }] as never;
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "Counts with field 0x96, which later tests read.",
+    );
   });
 
   it("says a flip that toggles a drawing flag turns that reflection round", () => {
