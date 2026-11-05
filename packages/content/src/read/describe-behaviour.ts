@@ -38,6 +38,12 @@ export interface BehaviourWalk extends Finding {
   /** `joins` ends a branch that reaches a state another branch of the same walk already follows from there on. */
   status: "rest" | "loop" | "unresolved" | "limit" | "joins";
   states: number[];
+  /**
+   * For a walk that joins: where the branch it continues like is at that moment. `path` gives the branch numbers from
+   * the first walk of the tree and `index` the position in that branch's states. With `sameTests`, the walk knew the
+   * same tests there; otherwise it knew more, so the other branch may also go ways this one can't.
+   */
+  joined?: { path: number[]; index: number; sameTests: boolean };
   /** A proved identity rule can hold an unspecified input frame without selecting a number for it. */
   parameterised?:
     | { kind: "hold"; state: Expression; allowedStates?: number[] }
@@ -674,7 +680,7 @@ const WIDENING_ASSUMPTION =
   "At the branch depth limit, the fields in which this state differs from a state the same walk followed at this frame are forgotten, with the tests that state did not know; the walk goes on from what both agree on.";
 /** What the branches of one walk have followed: by known fields, the frame, the tests known there and the fields. */
 interface Explored {
-  states: Map<string, { frame: number; tests: Set<string>; bindings: Bindings }[]>;
+  states: Map<string, { frame: number; tests: Set<string>; bindings: Bindings; path: number[]; index: number }[]>;
   /** How many states the tree has followed: once it reaches the budget, no further branch is opened. */
   size: number;
 }
@@ -1019,6 +1025,8 @@ export function walkBehaviourRules(
      * and the tests it knew there.
      */
     explored?: Explored;
+    /** Where this walk is in its tree: the branch numbers from the first walk. */
+    path?: number[];
     /** A starting frame a level can save: it shows its own path, so it doesn't join another branch at its start. */
     levelStart?: boolean;
     /** A case in the middle of a run, like an input case: it can start on any frame the part shows, not only a level's. */
@@ -1031,6 +1039,7 @@ export function walkBehaviourRules(
   } = {},
 ): BehaviourWalk {
   const explored: Explored = options.explored ?? { states: new Map(), size: 0 };
+  const path = options.path ?? [];
   const part = report.parts.find((item) => item.type === partType);
   if (!part) throw new Error(`No behaviour for part type ${partType}`);
   const stateOffset = stateOffsetOf(report);
@@ -1122,7 +1131,7 @@ export function walkBehaviourRules(
     if (allowed.length < (possible.length < values.length ? 1 : 2)) return undefined;
     if (excluded.length || levelFrames)
       proof = finding([proof], [...excluded, ...(levelFrames ? [levelFrames.assumption] : [])]);
-    return allowed.map((value) => {
+    return allowed.map((value, n) => {
       const condition: Predicate = {
         kind: "compare",
         operator: "==",
@@ -1136,6 +1145,7 @@ export function walkBehaviourRules(
         condition: { kind: "and", terms: [...constraints, condition] },
         branchDepth: depth - 1,
         explored,
+        path: [...path, n],
         levelStart: true,
       });
       return { condition, walk };
@@ -1190,7 +1200,7 @@ export function walkBehaviourRules(
     if (!allowed.length) return undefined;
     if (depth <= 0) return depthUsedUp();
     if (excluded.length || decided) proof = finding([proof], [...excluded, ...(decided ? [decided.assumption] : [])]);
-    return allowed.map((value) => {
+    return allowed.map((value, n) => {
       const condition: Predicate = {
         kind: "compare",
         operator: "==",
@@ -1210,6 +1220,7 @@ export function walkBehaviourRules(
         condition: { kind: "and", terms: [...constraints, condition] },
         branchDepth: depth - 1,
         explored,
+        path: [...path, n],
       });
       return { condition, walk };
     });
@@ -1252,7 +1263,7 @@ export function walkBehaviourRules(
     if (!allowed.length) return undefined;
     if (depth <= 0) return depthUsedUp();
     proof = finding([proof], [...excluded, decided.assumption]);
-    const branches = allowed.map((value) => ({
+    const branches = allowed.map((value, n) => ({
       condition: {
         kind: "compare",
         operator: "==",
@@ -1265,6 +1276,7 @@ export function walkBehaviourRules(
         condition: { kind: "and", terms: constraints },
         branchDepth: depth - 1,
         explored,
+        path: [...path, n],
         runValues: new Map([[name, value]]),
       }),
     }));
@@ -1376,7 +1388,7 @@ export function walkBehaviourRules(
     }
     if (depth <= 0) return depthUsedUp();
     if (excluded.size) proof = finding([proof], [...excluded]);
-    return [...ways.values()].map(({ rules, next, kept }) => {
+    return [...ways.values()].map(({ rules, next, kept }, n) => {
       const wayProof = finding(
         [proof, ...rules],
         byFrame && rules.length > 1
@@ -1388,6 +1400,7 @@ export function walkBehaviourRules(
         condition: { kind: "and", terms: shared(kept) },
         branchDepth: depth - 1,
         explored,
+        path: [...path, n],
       });
       if (rules.length === 1) return { condition: rules[0]!.condition, walk };
       const common = shared(rules.map((rule) => predicateTerms(rule.condition)));
@@ -1439,6 +1452,7 @@ export function walkBehaviourRules(
       condition: { kind: "and", terms: kept },
       branchDepth: depth - 1,
       explored,
+      path: [...path, 0],
     });
     return [{ condition: rule.condition, walk }];
   };
@@ -1605,10 +1619,13 @@ export function walkBehaviourRules(
       .get(signature(bindings))
       ?.find((item) => [...item.tests].every((test) => known.has(test)));
     return other
-      ? base(
-          "joins",
-          `From frame ${other.frame} on, it continues like another branch of the same walk, which follows it from there.`,
-        )
+      ? {
+          ...base(
+            "joins",
+            `From frame ${other.frame} on, it continues like another branch of the same walk, which follows it from there.`,
+          ),
+          joined: { path: other.path, index: other.index, sameTests: other.tests.size === known.size },
+        }
       : undefined;
   };
   const explore = () => {
@@ -1616,7 +1633,7 @@ export function walkBehaviourRules(
     explored.size++;
     explored.states.set(id, [
       ...(explored.states.get(id) ?? []),
-      { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)), bindings },
+      { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)), bindings, path, index: states.length - 1 },
     ]);
   };
   /**

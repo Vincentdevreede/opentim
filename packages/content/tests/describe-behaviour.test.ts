@@ -445,6 +445,8 @@ describe("descriptions from extracted behaviour rules", () => {
       [[1, 2, 2], "rest"],
       [[2], "joins"],
     ]);
+    // It names where it continues: the first branch, at its second state.
+    expect(walk.stop?.branches?.[1]?.walk.joined).toEqual({ path: [0], index: 1, sameTests: true });
   });
 
   it("walks each starting state a partly known seed allows, keeping only states with a frame", () => {
@@ -636,6 +638,11 @@ describe("descriptions from extracted behaviour rules", () => {
         [[2, 2], "rest"],
         [[1, 2], "joins"],
         [[0], "joins"],
+      ]);
+      // Both knew more tests than the place they continue at: the first branch's start, and the walk's own start.
+      expect(walk.stop?.branches?.slice(1).map((branch) => branch.walk.joined)).toEqual([
+        { path: [0], index: 0, sameTests: false },
+        { path: [], index: 0, sameTests: false },
       ]);
     });
 
