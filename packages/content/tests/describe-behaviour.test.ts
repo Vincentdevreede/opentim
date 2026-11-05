@@ -718,6 +718,66 @@ describe("descriptions from extracted behaviour rules", () => {
     });
   });
 
+  describe("a control value a rope question may have changed", () => {
+    /** The value the control value holds right after a rope query, when a question can come back to the part. */
+    const afterQuery: Expression = {
+      kind: "field",
+      object: "part after the query at 0x1d2d1",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    /** A teeter-totter that asks along its ropes and then adds what its control value holds to its frame. */
+    const asking = (keepsValue: boolean) => {
+      const data = report([
+        rule(field(12), test(0x12, "==", 0)),
+        {
+          ...rule(
+            { kind: "binary", operator: "+", left: field(12), right: afterQuery, width: 16 },
+            test(0x12, "!=", 0),
+            [write(0x12, keepsValue ? afterQuery : constant(0))],
+          ),
+          confidence: "unresolved",
+        },
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id: "teeter-totter", frameCount: 3 } as never;
+      data.routines[0]!.outcomes = [
+        { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [] },
+      ] as never;
+      return data;
+    };
+    const values = (walk: ReturnType<typeof walkBehaviourRules>) =>
+      walk.stop?.branches?.map((branch) => (branch.condition as { right: { value: number } }).right.value);
+
+    it("follows each decided number for it, and not one that tips the teeter-totter past an end", () => {
+      const walk = walkBehaviourRules(asking(false), 39, [known(12, 0), known(0x12, 1)]);
+      expect(values(walk)).toEqual([0, 1]);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states.slice(0, 2))).toEqual([
+        [0, 0],
+        [0, 1],
+      ]);
+      expect(walk.stop?.branches?.every((branch) => branch.walk.status === "rest")).toBe(true);
+      expect(walk.assumptions).toEqual(
+        expect.arrayContaining([CONTROL_VALUE_ASSUMPTION, TEETER_TOTTER_END_ASSUMPTION]),
+      );
+    });
+
+    it("uses the number for that run only, and works out the next run's value again", () => {
+      const walk = walkBehaviourRules(asking(true), 39, [known(12, 1), known(0x12, 1)]);
+      const up = walk.stop?.branches?.find((branch) => branch.walk.states[1] === 2)?.walk;
+      // The control value keeps that number, but the next run's query gives a new one.
+      expect(up?.fields.find((item) => item.offset === 0x12)?.value).toBe(1);
+      expect(up?.stop?.kind).toBe("state");
+      expect(values(up!)).toEqual([0, 0xffff]);
+    });
+
+    it("gives no numbers to a part without that decision", () => {
+      const data = asking(false);
+      data.parts[0] = { ...data.parts[0]!, id: "bellows" } as never;
+      expect(walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1)]).stop?.branches).toBeUndefined();
+    });
+  });
+
   describe("starting frames of parts drawn by their own code", () => {
     /** A part without a frame list, whose run always goes to frame 0. */
     const drawn = (id: string) => {

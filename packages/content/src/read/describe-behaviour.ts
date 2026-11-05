@@ -473,6 +473,40 @@ export function evaluateBehaviourCondition(
   return predicateOf(condition, bindingsOf(fields));
 }
 
+/** A rule with numbers for its values after a query: the rule it was made from, and those numbers as text. */
+const originalRule = new WeakMap<object, WithUpdates>();
+const runValueKey = new WeakMap<object, string>();
+/** By part: its rules with numbers for their values after a query, made once per set of numbers. */
+const runRuleSets = new WeakMap<PartBehaviour, Map<string, WithUpdates[]>>();
+/** The rules with these numbers for their values after a query. */
+function rulesWithRunValues(part: PartBehaviour, rules: WithUpdates[], values: ReadonlyMap<string, number>) {
+  const text = JSON.stringify([...values]);
+  let sets = runRuleSets.get(part);
+  if (!sets) runRuleSets.set(part, (sets = new Map()));
+  const key = `${rules[0]?.routine}:${text}`;
+  let list = sets.get(key);
+  if (!list) {
+    list = rules.map((rule) => {
+      const updates = rule.updates?.map((write) =>
+        afterQueryFields(write.value).size ? { ...write, value: withRunValues(write.value, values) } : write,
+      );
+      const changed =
+        afterQueryFields([rule.to, rule.condition]).size || updates?.some((w, n) => w !== rule.updates![n]);
+      if (!changed) return rule;
+      const copy: WithUpdates = {
+        ...rule,
+        to: withRunValues(rule.to, values),
+        condition: withRunValues(rule.condition, values),
+        ...(updates ? { updates } : {}),
+      };
+      originalRule.set(copy, rule);
+      runValueKey.set(copy, text);
+      return copy;
+    });
+    sets.set(key, list);
+  }
+  return list;
+}
 /** The finding of each set of rules a part's walks take a step under, by the rules' places in its transitions. */
 const stepFindings = new WeakMap<PartBehaviour, { index: Map<unknown, number>; steps: Map<string, Finding> }>();
 /** The fields each part's walks track, worked out once per part; callers get their own copy to add to. */
@@ -625,8 +659,12 @@ interface Explored {
  */
 const BRANCH_DEPTH = 24;
 const BRANCH_BUDGET = 400;
-/** How many ways one step may split into. */
-const BRANCH_WAYS = 8;
+/**
+ * How many ways one step may split into. Nine lets a step choose between three rules in each of three ways, like the
+ * teeter-totter's run after a rope question that may have come back: a flag it may have set, the answer, and the frame
+ * it came from.
+ */
+const BRANCH_WAYS = 9;
 /** The decided assumption that rules out a part's state with these fields, when one does. */
 function impossibleState(part: PartBehaviour, stateOffset: number, bindings: Bindings): string | undefined {
   const state = readField(bindings, "part", stateOffset, 16);
@@ -642,6 +680,35 @@ function decidedValues(part: PartBehaviour, field: { object: string; offset: num
   return decided && field.object === "part" && field.offset === decided.offset && field.width === decided.width
     ? decided
     : undefined;
+}
+/**
+ * The value a field of the part holds right after a rope query, when a question that comes back could change it. It is
+ * one value of that run, and still the part's own field, so a decided assumption about the field holds for it too.
+ */
+const afterQuery = (expression: Expression) =>
+  expression.kind === "field" && !!expression.unresolved && /^part after the query at /.test(expression.object);
+/** Every such value an expression or predicate mentions. */
+function afterQueryFields(value: unknown, found = new Map<string, Expression & { kind: "field" }>()) {
+  if (Array.isArray(value)) value.forEach((item) => afterQueryFields(item, found));
+  else if (value && typeof value === "object") {
+    if (afterQuery(value as Expression)) {
+      const field = value as Expression & { kind: "field" };
+      found.set(`${field.object}:${field.offset}:${field.width}`, field);
+    } else Object.values(value).forEach((item) => afterQueryFields(item, found));
+  }
+  return found;
+}
+/** A copy of a value with each value after a query that `values` names replaced by its number. */
+function withRunValues<T>(value: T, values: ReadonlyMap<string, number>): T {
+  if (Array.isArray(value)) return value.map((item) => withRunValues(item, values)) as T;
+  if (!value || typeof value !== "object") return value;
+  if (afterQuery(value as unknown as Expression)) {
+    const field = value as unknown as Expression & { kind: "field" };
+    const number = values.get(`${field.object}:${field.offset}:${field.width}`);
+    if (number !== undefined) return { kind: "constant", value: number, width: field.width } as T;
+    return value;
+  }
+  return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, withRunValues(item, values)])) as T;
 }
 /** These fields know every bit the others know, with the same value. */
 function knowsAll(fields: Bindings, others: Bindings): boolean {
@@ -930,6 +997,11 @@ export function walkBehaviourRules(
     levelStart?: boolean;
     /** A case in the middle of a run, like an input case: it can start on any frame the part shows, not only a level's. */
     midRun?: boolean;
+    /**
+     * Numbers for values after a rope query in the first run only, by field: the walk follows that run with them. Later
+     * runs work out their own values again.
+     */
+    runValues?: ReadonlyMap<string, number>;
   } = {},
 ): BehaviourWalk {
   const explored: Explored = options.explored ?? { states: new Map(), size: 0 };
@@ -1105,6 +1177,67 @@ export function walkBehaviourRules(
       });
       return { condition, walk };
     });
+  };
+  /**
+   * When the next frame depends on what a field of the part holds right after a rope query, like the teeter-totter's
+   * control value when a question can come back to it, and a decided assumption gives every number that field takes,
+   * each number is followed as its own walk of this same run. The value belongs to this run only: the branch uses it
+   * for this run and works out later runs again. When the run adds that value to the frame it had at the start, the
+   * part is on that frame with that value, so a value a decided assumption rules out there, like tipping the
+   * teeter-totter past an end, isn't followed.
+   */
+  const runValueBranches = (candidates: WithUpdates[], current: number, run: number): BehaviourWalk | undefined => {
+    const unsettled = candidates.filter((rule) => rule.confidence === "unresolved" && !settledPath(rule));
+    const fields = afterQueryFields(unsettled.map((rule) => rule.to));
+    if (fields.size !== 1) return undefined;
+    const [[name, field]] = [...fields] as [[string, Expression & { kind: "field" }]];
+    const decided = decidedValues(part, { object: "part", offset: field.offset, width: field.width });
+    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
+    if (!decided || depth <= 0) return undefined;
+    const startFrame: Expression = { kind: "field", object: "part", offset: stateOffset!, width: 16 };
+    const addsToFrame = unsettled
+      .filter((rule) => afterQueryFields(rule.to).size)
+      .every(
+        (rule) =>
+          rule.to.kind === "binary" &&
+          rule.to.operator === "+" &&
+          [rule.to.left, rule.to.right].some((side) => sameExpression(side, startFrame)) &&
+          [rule.to.left, rule.to.right].some((side) => sameExpression(side, field)),
+      );
+    const seededWith = (value: number) => {
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", field.offset, bits(value, full(field.width), field.width));
+      return seeded;
+    };
+    const ruledOut = (value: number) =>
+      addsToFrame ? impossibleState(part, stateOffset!, seededWith(value)) : undefined;
+    const excluded = [...new Set(decided.values.flatMap((value) => ruledOut(value) ?? []))];
+    const allowed = decided.values.filter((value) => !ruledOut(value));
+    if (!allowed.length) return undefined;
+    proof = finding([proof], [...excluded, decided.assumption]);
+    const branches = allowed.map((value) => ({
+      condition: {
+        kind: "compare",
+        operator: "==",
+        left: field,
+        right: { kind: "constant", value, width: field.width },
+        signed: false,
+      } as Predicate,
+      walk: walkBehaviourRules(report, partType, fieldsOf(bindings, definitions, proof), {
+        maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run),
+        condition: { kind: "and", terms: constraints },
+        branchDepth: depth - 1,
+        explored,
+        runValues: new Map([[name, value]]),
+      }),
+    }));
+    const description = `At frame ${current}, the next state depends on ${unknownWords(field, report, part, bindings)}, which a decided assumption limits to a few numbers.`;
+    return {
+      ...base("unresolved", description),
+      confidence: "unresolved",
+      stop: { kind: "state", description, evidence: stoppingEvidence(unsettled, [field]), fields: [field], branches },
+      evidence: evidence(proof.evidence, ...unsettled.map((rule) => rule.evidence)),
+    };
   };
   /** The branch for any value the writers found don't give: the walk stops there as before. */
   const otherValue = (
@@ -1415,7 +1548,9 @@ export function walkBehaviourRules(
     let cache = stepFindings.get(part);
     if (!cache)
       stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
-    const id = candidates.map((rule) => cache.index.get(rule)).join();
+    const id =
+      candidates.map((rule) => cache.index.get(originalRule.get(rule) ?? rule)).join() +
+      candidates.map((rule) => runValueKey.get(rule) ?? "").join();
     let step = cache.steps.get(id);
     if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
     return step;
@@ -1446,15 +1581,19 @@ export function walkBehaviourRules(
       { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)) },
     ]);
   };
-  const startId = walkSignature();
-  const joinedAtStart = options.explored && !options.levelStart ? joined() : undefined;
+  // A branch for a value after a query follows the same run as the walk that opened it, so it neither joins that walk
+  // nor stands for its state; its start only counts as seen with that value.
+  const runValueText = options.runValues?.size ? JSON.stringify([...options.runValues]) : "";
+  const startId = walkSignature() + runValueText;
+  const joinedAtStart = options.explored && !options.levelStart && !runValueText ? joined() : undefined;
   if (joinedAtStart) return joinedAtStart;
-  explore();
+  if (!runValueText) explore();
   const seen = new Map([[startId, 0]]);
   const max = options.maxRunCalls ?? 256;
   for (let run = 0; run < max; run++) {
     const current = states.at(-1)!;
-    const candidates = rules.filter(
+    const runValues = run === 0 ? options.runValues : undefined;
+    const candidates = (runValues?.size ? rulesWithRunValues(part, rules, runValues) : rules).filter(
       (rule) =>
         (rule.from === null || rule.from.includes(current)) &&
         predicateOf(rule.condition, bindings, constraints) !== false,
@@ -1484,6 +1623,8 @@ export function walkBehaviourRules(
         evidence: evidence(proof.evidence, ...unknownGuards.map((rule) => rule.evidence)),
       };
     }
+    const byRunValue = runValueBranches(candidates, current, run);
+    if (byRunValue) return byRunValue;
     if (candidates.some((rule) => rule.confidence === "unresolved" && !settledPath(rule))) {
       const description = `Frame ${current} reaches a call or other operation whose field effects remain unresolved.`;
       const expressions = candidates.flatMap((rule) => [

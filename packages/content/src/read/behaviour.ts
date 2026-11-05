@@ -203,7 +203,8 @@ const askingKeeps = (connected: NonNullable<EngineSummary["connected"]>) =>
  * A private local or register a list scan or find-first loop left behind, or a pure query's answer. It is one value for
  * conditions, but it may point to any part, the owner included, so it never becomes the address of an object of its own.
  */
-const scanLocal = (object: string) => /^(local after (list scan|find-first loop)|answer of the query) at /.test(object);
+const scanLocal = (object: string) =>
+  /^(local after (list scan|find-first loop)|answer of the query|part after the query) at /.test(object);
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
 const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
 const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
@@ -1727,6 +1728,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         new Set(askingIsOwner ? askingKeeps(engine.connected) : []),
         `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
       );
+      // A field a question that comes back may change holds one value after the call, which the walks can name.
+      if (askingIsOwner)
+        for (const asked of engine.connected.askingFields ?? [])
+          s.memory.set(
+            `part:${asked.offset}:${asked.width}`,
+            tracked(
+              {
+                ...field(`part after the query at ${hex(i.address)}`, asked.offset, asked.width),
+                unresolved: true,
+              } as Expression,
+              [evidenceOf(i)],
+              i.address,
+            ),
+          );
       // Rope, belt and pulley records are separate allocations; only objects reached through those links can be one.
       const link = new RegExp(
         `\\+0x(${engine.connected.recordLinks.map((offset) => offset.toString(16)).join("|")})\\)$`,

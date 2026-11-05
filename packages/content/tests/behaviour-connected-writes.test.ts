@@ -77,7 +77,7 @@ describe("writes through ropes, belts and pulleys", () => {
     expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
   });
 
-  it("forgets the asking fields on the caller's own part, since a question can come back to it", () => {
+  it("names the asking fields on the caller's own part as values after the call, since a question can come back to it", () => {
     const { final } = analyse({
       ...fact,
       partFields: [
@@ -90,7 +90,8 @@ describe("writes through ropes, belts and pulleys", () => {
       askingFields: [{ offset: 0x12, width: 16 }],
     });
     expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
-    expect(final("part", 0x12)?.kind).not.toBe("constant");
+    expect(final("part", 0x12)).toMatchObject({ kind: "field", offset: 0x12, unresolved: true });
+    expect((final("part", 0x12) as { object: string }).object).toMatch(/^part after the query at 0x/);
     expect(final("part", 0x0c)).toMatchObject({ kind: "constant", value: 1 });
   });
 

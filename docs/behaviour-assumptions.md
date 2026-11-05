@@ -58,12 +58,11 @@ keeps the rest. Other parts still forget every field any rope callback writes. I
 forgets every one of those fields too.
 
 **What it gives.** A part that asks along its ropes keeps its own fields, except those its own rope callback writes.
-Used by the teeter-totter. Because its control value is unknown after it asks for real (`0x1d2d1`), and its run adds
-that value to its frame (`0x1d2da`), fewer of its walks end. Measured against the decided control values and ends
-(assumptions 9 and 10), in Even More and in TIM 1 alike: the teeter-totter's walks went from 91 that all end (75 of
-them in each branch) to 40 that end (24 of them in each branch), 37 that end only in some branches and 14 that stop.
-All parts together: walks that end in each branch went from 495 to 444 in Even More and from 426 to 375 in TIM 1. No
-other part changed, and no recording comparison changed (432 complete in Even More, 380 in TIM 1, none different).
+Used by the teeter-totter. Its control value after it asks for real (`0x1d2d1`) is one value of that run, which its
+run adds to its frame (`0x1d2da`). The walks branch on it with the decided control values (assumption 9) and leave out
+a tilt past an end (assumption 10). With that, every walk of the teeter-totter ends in each of its branches again, in
+Even More and in TIM 1 alike, and no recording comparison changed (440 complete in Even More, 388 in TIM 1, none
+different).
 
 **How to recheck.**
 
@@ -402,8 +401,8 @@ checked, and a level file made outside the game could hold another number.
 
 **What it gives.** The branch for any other number is gone for these three parts. Together with the next assumption,
 every walk of the jack-in-the-box, the gear and the teeter-totter ends in each of its branches, in both recorded
-builds. Since the rope assumptions were narrowed (assumption 1), the teeter-totter has 51 walks that no longer end in
-every branch.
+builds. Since the rope assumptions were narrowed (assumption 1), this also holds for the control value the
+teeter-totter has right after it asks along its ropes.
 
 **How to recheck.**
 

@@ -461,10 +461,28 @@ teeter-totter can change only its control value `0x12` and its flags `0x08`.
 
 Until 2026-11-05 the reader assumed that ropes never form a loop and that a rope never ties a part to itself, and let
 the asking part keep every field. The user built a ring of teeter-totters in the game that locks them all, so those
-two assumptions were dropped (see [the decided assumptions](behaviour-assumptions.md#1-ropes)). The teeter-totter's
-control value is now unknown after it asks for real (`0x1d2d1`, Even More, English floppy), and its run adds that value
-to its frame, so the step that tilts it has effects the walk can't resolve. Of its 91 walks, which all ended before,
-40 end, 37 end only in some branches and 14 stop, in both recorded builds. No recording comparison changed.
+two assumptions were dropped (see [the decided assumptions](behaviour-assumptions.md#1-ropes)).
+
+After the call, each asking field of the caller's own part holds one value it can't know: what the field holds right
+after that query, named `part after the query at` the call's address. Like a query's answer, it is a value of that
+run, and it never becomes an address. When the teeter-totter asks for real (`0x1d2d1`, Even More, English floppy), its
+run then adds that control value to its frame. The walk can't know the number, but it is still the teeter-totter's
+own control value, so [the decided control values](behaviour-assumptions.md#9-control-values) hold for it: -1, 0 or 1.
+The walk follows each of them as its own branch of that same run, with the number put into the run's rules. The
+number belongs to that run only: the branch knows the control value it leaves, but the next run's query gives a new
+value, which is branched on again. Since the run adds the value to the frame it started the run on, the teeter-totter
+is on that frame with that value, so a number that would tip it past an end
+([the teeter-totter's ends](behaviour-assumptions.md#10-the-teeter-totters-ends)) isn't followed.
+
+After such a run, the teeter-totter's flags at `0x08` are unknown too, so the next run splits on its flag `0x400`,
+the answer of its first query and the frame it came from: nine ways. One step may now split into nine ways instead of
+eight.
+
+All 85 walks of the teeter-totter end in each of their branches again, in both recorded builds. Six input cases that
+named its control value at frame 0 or 2 are gone: they were only added because the walk stopped there. Over all parts,
+walks that end in each branch went from 446 to 491 in Even More and from 377 to 422 in TIM 1, and no walk stops or
+stays open in Even More any more (TIM 1 keeps one, from another part). No recording comparison changed (440 complete in
+Even More, 388 in TIM 1, none different).
 
 ### The scissors' rope cut
 
@@ -807,8 +825,9 @@ the branches on known numbers check it too, and they also leave out a number the
 Every walk of these three parts now ends in each of its branches, in both recorded builds. Over all parts, walks that
 end in every branch went from 416 to 495 in Even More and from 347 to 426 in TIM 1. Walks that stay open went from 98
 to 7 and from 99 to 8: all of them are walks from the explosion. The teeter-totter has 12 fewer walks in each build,
-the input cases the second assumption leaves out. Since ropes may form a ring, the teeter-totter's walks no longer
-all end: see [the rope connection query](#the-rope-connection-query).
+the input cases the second assumption leaves out. Since ropes may form a ring, the teeter-totter's control value
+after it asks for real is one value of that run; the walk branches on it with the same numbers (see
+[the rope connection query](#the-rope-connection-query)).
 
 ## Saved evidence
 
