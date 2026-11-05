@@ -650,15 +650,38 @@ function ruleBindings(rule: WithUpdates, initial: Bindings, routine?: RoutineAna
     if (write.object === "part") writeField(next, write.object, write.offset, unknownBits(write.width));
   return next;
 }
-/** What the branches of one walk have followed: by known fields, the frame and the tests known there. */
+/**
+ * The fields two states agree on, by field: a field whose known bits differ anywhere is forgotten whole, like a counter
+ * at another number; of the others, the bits both know are kept.
+ */
+function widenedBindings(
+  bindings: Bindings,
+  other: Bindings,
+  definitions: { object: string; offset: number; width: number }[],
+): Bindings {
+  const agreed = agreedBindings([bindings, other]);
+  for (const { object, offset, width } of definitions) {
+    const mine = readField(bindings, object, offset, width);
+    const theirs = readField(other, object, offset, width);
+    if ((mine.value ^ theirs.value) & mine.mask & theirs.mask)
+      for (let byte = 0; byte < width / 8; byte++) agreed.delete(key(object, offset + byte));
+  }
+  return agreed;
+}
+const knownBits = (bindings: Bindings) =>
+  [...bindings.values()].reduce((count, item) => count + item.mask.toString(2).replaceAll("0", "").length, 0);
+const WIDENING_ASSUMPTION =
+  "At the branch depth limit, the fields in which this state differs from a state the same walk followed at this frame are forgotten, with the tests that state did not know; the walk goes on from what both agree on.";
+/** What the branches of one walk have followed: by known fields, the frame, the tests known there and the fields. */
 interface Explored {
-  states: Map<string, { frame: number; tests: Set<string> }[]>;
+  states: Map<string, { frame: number; tests: Set<string>; bindings: Bindings }[]>;
   /** How many states the tree has followed: once it reaches the budget, no further branch is opened. */
   size: number;
 }
 /**
  * How deep branches may nest, and how many states one tree of branches may follow. A branch that reaches a state the
- * tree already follows ends there, so most trees close by themselves; these only bound the ones that don't.
+ * tree already follows ends there, so most trees close by themselves; these only bound the ones that don't. A walk that
+ * reaches the depth limit may widen once and go on with a fresh depth (see `widen`), but only within the budget.
  */
 const BRANCH_DEPTH = 24;
 const BRANCH_BUDGET = 400;
@@ -1024,6 +1047,15 @@ export function walkBehaviourRules(
       definitions.push(field);
   let bindings = bindingsOf(seed);
   let constraints = options.condition ? predicateTerms(options.condition).filter(inputPredicate) : [];
+  // How deep this walk's branches may still nest. Widening at the limit gives the walk a fresh depth once.
+  let branchDepth = options.branchDepth ?? BRANCH_DEPTH;
+  const depthLeft = () => (explored.size >= BRANCH_BUDGET ? 0 : branchDepth);
+  // Set when a step could have branched but the depth was used up; see `widen`.
+  let atDepthLimit = false;
+  const depthUsedUp = () => {
+    atDepthLimit = true;
+    return undefined;
+  };
   const states: number[] = [];
   const proofs: Finding[] = [finding(seed)];
   let proof = finding(seed, ["No external field write or other callback occurs between these run invocations."]);
@@ -1048,7 +1080,7 @@ export function walkBehaviourRules(
    * state, they are the frames whose number has those bits.
    */
   const possibleStates = (partial: Bits): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
-    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
+    const depth = depthLeft();
     const open = ~partial.mask & 0xffff;
     const openBits = [...Array(16).keys()].filter((bit) => open & (1 << bit));
     const frameCount = (part as WithFrameCount).frameCount;
@@ -1136,10 +1168,10 @@ export function walkBehaviourRules(
     producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
     run: number,
   ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
-    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
+    const depth = depthLeft();
     const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
     const values = decided?.values ?? producedValues(fields, producers);
-    if (!values || depth <= 0) return undefined;
+    if (!values) return undefined;
     const field = fields[0]!;
     const seededWith = (value: number) => {
       const seeded = new Map(bindings);
@@ -1156,6 +1188,7 @@ export function walkBehaviourRules(
     ];
     const allowed = possible.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
     if (!allowed.length) return undefined;
+    if (depth <= 0) return depthUsedUp();
     if (excluded.length || decided) proof = finding([proof], [...excluded, ...(decided ? [decided.assumption] : [])]);
     return allowed.map((value) => {
       const condition: Predicate = {
@@ -1195,8 +1228,8 @@ export function walkBehaviourRules(
     if (fields.size !== 1) return undefined;
     const [[name, field]] = [...fields] as [[string, Expression & { kind: "field" }]];
     const decided = decidedValues(part, { object: "part", offset: field.offset, width: field.width });
-    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
-    if (!decided || depth <= 0) return undefined;
+    const depth = depthLeft();
+    if (!decided) return undefined;
     const startFrame: Expression = { kind: "field", object: "part", offset: stateOffset!, width: 16 };
     const addsToFrame = unsettled
       .filter((rule) => afterQueryFields(rule.to).size)
@@ -1217,6 +1250,7 @@ export function walkBehaviourRules(
     const excluded = [...new Set(decided.values.flatMap((value) => ruledOut(value) ?? []))];
     const allowed = decided.values.filter((value) => !ruledOut(value));
     if (!allowed.length) return undefined;
+    if (depth <= 0) return depthUsedUp();
     proof = finding([proof], [...excluded, decided.assumption]);
     const branches = allowed.map((value) => ({
       condition: {
@@ -1273,8 +1307,8 @@ export function walkBehaviourRules(
     guards: WithUpdates[],
     run: number,
   ): { condition: Predicate; alternatives?: Predicate[]; walk: BehaviourWalk }[] | undefined => {
-    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
-    if (!guards.length || depth <= 0) return undefined;
+    const depth = depthLeft();
+    if (!guards.length) return undefined;
     const deciding = guards
       .flatMap((rule) => predicateTerms(rule.condition))
       .filter((term) => predicateOf(term, bindings, constraints) === undefined);
@@ -1340,6 +1374,7 @@ export function walkBehaviourRules(
       if (!separated) return undefined;
       for (const way of ways.values()) way.next = agreedBindings(way.nexts);
     }
+    if (depth <= 0) return depthUsedUp();
     if (excluded.size) proof = finding([proof], [...excluded]);
     return [...ways.values()].map(({ rules, next, kept }) => {
       const wayProof = finding(
@@ -1389,7 +1424,7 @@ export function walkBehaviourRules(
     if (outcomes.length > 1) return branchesAt(outcomes, candidates, 0);
     // One rule covers every path, like a bumper that was hit: the walk goes on from the frame it gives.
     const [{ rule, next }] = outcomes as [(typeof outcomes)[number]];
-    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
+    const depth = depthLeft();
     if (depth <= 0) return undefined;
     const kept = retainConstraints(
       completeRuleEffects(rule, routine)
@@ -1581,8 +1616,54 @@ export function walkBehaviourRules(
     explored.size++;
     explored.states.set(id, [
       ...(explored.states.get(id) ?? []),
-      { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)) },
+      { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)), bindings },
     ]);
+  };
+  /**
+   * Widening. A step that could branch but has no branch depth left would stop the walk. Like the mouse motor in TIM 1,
+   * whose counter counts down through every number while it runs, so no state it reaches was followed before. When the
+   * tree already followed this frame with fields that differ from this state's only in some of them, the walk forgets
+   * those fields, and the tests that earlier state didn't know, and goes on from there with a fresh branch depth.
+   * Forgetting only drops knowledge, so it claims nothing false. The earlier state that keeps the most fields, and then
+   * the most tests, is chosen.
+   *
+   * It ends: a walk widens at most once, since it then has depth left, and only while the tree's budget lasts. The
+   * widened state is either one the tree already follows, so the walk joins it and ends, or it is a new state and
+   * counts against the budget. So at most `BRANCH_BUDGET` widenings go on, and a tree still opens branches only while
+   * its budget lasts, so it stays bounded as before. Each widening also strictly drops knowledge, and the states it
+   * reaches end later branches that know as much or more (`joined`), so a tree usually closes soon after it widens.
+   * Applied only at the depth limit, it leaves every walk that ends without it unchanged.
+   *
+   * Returns `true` when the walk takes the step again from the widened state, a walk that joins when that state is
+   * already followed, and nothing when it can't widen.
+   */
+  let widened = false;
+  const widen = (runValues?: ReadonlyMap<string, number>): BehaviourWalk | true | undefined => {
+    if (!atDepthLimit || widened || runValues?.size || explored.size >= BRANCH_BUDGET) return undefined;
+    const frame = states.at(-1)!;
+    const before = signature(bindings);
+    let best: { bindings: Bindings; tests: Predicate[]; known: number } | undefined;
+    for (const list of explored.states.values())
+      for (const item of list) {
+        if (item.frame !== frame) continue;
+        const next = widenedBindings(bindings, item.bindings, definitions);
+        if (signature(next) === before) continue;
+        const tests = constraints.filter((term) => item.tests.has(textOf(term)));
+        const count = knownBits(next);
+        if (!best || count > best.known || (count === best.known && tests.length > best.tests.length))
+          best = { bindings: next, tests, known: count };
+      }
+    if (!best) return undefined;
+    widened = true;
+    branchDepth = BRANCH_DEPTH;
+    bindings = best.bindings;
+    constraints = best.tests;
+    proof = finding([proof], [WIDENING_ASSUMPTION]);
+    const join = joined();
+    if (join) return join;
+    explore();
+    seen.set(walkSignature(), states.length - 1);
+    return true;
   };
   // A branch for a value after a query follows the same run as the walk that opened it, so it neither joins that walk
   // nor stands for its state; its start only counts as seen with that value.
@@ -1626,8 +1707,16 @@ export function walkBehaviourRules(
         evidence: evidence(proof.evidence, ...unknownGuards.map((rule) => rule.evidence)),
       };
     }
+    atDepthLimit = false;
     const byRunValue = runValueBranches(candidates, current, run);
     if (byRunValue) return byRunValue;
+    // With no branch depth left, the walk may widen and take this step again.
+    const widening = widen(runValues);
+    if (widening === true) {
+      run--;
+      continue;
+    }
+    if (widening) return widening;
     if (candidates.some((rule) => rule.confidence === "unresolved" && !settledPath(rule))) {
       const description = `Frame ${current} reaches a call or other operation whose field effects remain unresolved.`;
       const expressions = candidates.flatMap((rule) => [
@@ -1670,6 +1759,12 @@ export function walkBehaviourRules(
         evidence: evidence(proof.evidence, ...candidates.map((rule) => rule.evidence)),
       };
       const byValue = valueBranches(fields, producers, run);
+      const widening = widen(runValues);
+      if (widening === true) {
+        run--;
+        continue;
+      }
+      if (widening) return widening;
       // When a decided assumption gives every number the field takes, there is no other value to stop at.
       const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
       return byValue
@@ -1697,6 +1792,12 @@ export function walkBehaviourRules(
     }
     if (!sameFrame && outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
       const branches = branchesAt(outcomes, unknownGuards, run);
+      const widening = widen(runValues);
+      if (widening === true) {
+        run--;
+        continue;
+      }
+      if (widening) return widening;
       return {
         ...base(
           "unresolved",

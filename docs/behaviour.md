@@ -979,6 +979,33 @@ flipped run, among them the one that wraps from frame 0 to 7, come after that li
 No recording now lacks a compatible start. Complete matches went from 444 to 456 in Even More and from 392 to 396 in
 TIM 1, the other recordings that had none are prefixes now, and none is different. The descriptions don't change.
 
+### Widening at the branch depth limit
+
+In TIM 1 the mouse motor's walk after creation never closed. While it runs, its run at `0x1a6cc` (TIM 1, French)
+flips its frame and counts down the counter at `0x96` every step (`dec [si+0x96]` at `0x1a734`); it stops when the
+counter reaches 0. The counter starts at 0 at creation, so it counts down through all 65,536 numbers, and every step
+reaches a state the walk never followed before. At each step the walk also can't tell whether the motor keeps running,
+so the walk branches each time, and after 24 levels it stopped. In Even More the run calls the start routine, which
+loads the counter with 100, so those walks end.
+
+Now, when a step could branch but the branch depth is used up, the walk looks for a state its tree already followed
+at the same frame. It forgets every field in which the two differ, like the counter, and every test that earlier
+state didn't know, and takes the step again from what both agree on, with a fresh branch depth. Of several such
+states it takes the one that keeps the most fields, then the most tests. This is widening: it only drops knowledge,
+so it claims nothing false, and the walk's fields show what it still knows. It adds a stated assumption (not a
+decided one) to the walk's findings.
+
+It always ends. A walk widens at most once, since it then has depth left, and only while its tree has budget left
+(`BRANCH_BUDGET`). The widened state is either one the tree already follows, so the walk joins it, or a new state that
+counts against the budget. Branches are still only opened while the budget lasts. Each widening also knows strictly
+less than the state it came from, and a branch that reaches a state some branch already follows with no more tests
+ends there, so a tree closes soon after it widens. The mouse motor widens once on each side of its belt link test.
+
+Widening applies only at the depth limit, so walks that already end don't change. The mouse motor's walk after
+creation now ends in every branch in TIM 1; no other walk in either recorded build changes, not even in its text.
+Walks that end in every branch went from 422 to 423 in TIM 1, and none stay open. Even More doesn't change (491). The
+describing time stays about 6 seconds per build.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

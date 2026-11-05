@@ -9,7 +9,12 @@ import {
   MOUSE_MOTOR_ASSUMPTION,
   TEETER_TOTTER_END_ASSUMPTION,
 } from "../src/read/behaviour-saved-frames.ts";
-import { describeBehaviour, walkBehaviourRules, type KnownField } from "../src/read/describe-behaviour.ts";
+import {
+  describeBehaviour,
+  walkBehaviourRules,
+  type BehaviourWalk,
+  type KnownField,
+} from "../src/read/describe-behaviour.ts";
 
 const proof = {
   confidence: "inferred" as const,
@@ -632,6 +637,58 @@ describe("descriptions from extracted behaviour rules", () => {
         [[1, 2], "joins"],
         [[0], "joins"],
       ]);
+    });
+
+    describe("widening at the branch depth limit", () => {
+      /** Every walk at the end of a branch, with how deep it lies. */
+      const leaves = (walk: BehaviourWalk, depth = 0): { walk: BehaviourWalk; depth: number }[] =>
+        walk.stop?.branches?.length
+          ? walk.stop.branches.flatMap((branch) => leaves(branch.walk, depth + 1))
+          : [{ walk, depth }];
+      const nodes = (walk: BehaviourWalk): BehaviourWalk[] => [
+        walk,
+        ...(walk.stop?.branches ?? []).flatMap((branch) => nodes(branch.walk)),
+      ];
+      const widened = (walk: BehaviourWalk) => walk.assumptions.some((text) => text.includes("branch depth limit"));
+      /**
+       * Like the mouse motor in TIM 1: at every step the run's answer either keeps the part as it is, or flips its
+       * frame and counts its counter at 0x96 down. The counter starts at 0, so it goes through every number and no
+       * state repeats.
+       */
+      const motor = () => {
+        const count = write(0x96, add(0x96, -1));
+        const data = settled(
+          report([
+            rule(field(12), compare(answer, "==", 0)),
+            rule(constant(1), both(test(12, "==", 0), compare(answer, "!=", 0)), [count]),
+            rule(constant(0), both(test(12, "==", 1), compare(answer, "!=", 0)), [count]),
+          ]),
+        );
+        data.parts[0]!.frameCount = 2;
+        return data;
+      };
+
+      it("forgets a counter that differs from an earlier state at the same frame, and then ends", () => {
+        const walk = walkBehaviourRules(motor(), 39, [known(12, 0), known(0x96, 0)]);
+        expect(leaves(walk).every((leaf) => ["rest", "loop", "joins"].includes(leaf.walk.status))).toBe(true);
+        // The counter is known down to the depth limit; there the walk goes on without it.
+        const wide = nodes(walk).filter(widened);
+        expect(wide.length).toBeGreaterThan(0);
+        expect(wide.every((node) => !node.fields.some((item) => item.offset === 0x96))).toBe(true);
+        expect(Math.max(...leaves(walk).map((leaf) => leaf.depth))).toBeGreaterThan(24);
+      });
+
+      it("doesn't widen a walk that ends within the depth", () => {
+        const walk = walkBehaviourRules(motor(), 39, [known(12, 0)]);
+        expect(leaves(walk).every((leaf) => ["rest", "loop", "joins"].includes(leaf.walk.status))).toBe(true);
+        expect(nodes(walk).some(widened)).toBe(false);
+      });
+
+      it("stops as before when no earlier state at the same frame differs", () => {
+        const walk = walkBehaviourRules(motor(), 39, [known(12, 0), known(0x96, 0)], { branchDepth: 0 });
+        expect(walk).toMatchObject({ states: [0], status: "unresolved", stop: { kind: "ambiguity" } });
+        expect(walk.stop?.branches).toBeUndefined();
+      });
     });
   });
 
