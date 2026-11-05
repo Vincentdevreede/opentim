@@ -1475,6 +1475,18 @@ Counted loops also require a complete part-memory footprint from a helper that c
 preservation alone cannot justify retaining old counter, pointer or drawing values after the loop. Such a helper
 leaves the loop unresolved until its remaining writes are bounded.
 
+### The release wrapper in the Even More CD build
+
+The release certificate starts at a checked wrapper: validate the heap, push the owner, call the release wrapper,
+validate again. In the Even More floppy build that middle call is `nop`, `push cs` and a near `call`. In the Even
+More English CD build it stays a real far call (`call 0x0000:0x63a0` at `0x1193e`, inside the wrapper at
+`0x11933`; the floppy wrapper at `0x9024` has its near form at `0x902f`). The matcher only knew the near form, so the CD
+factory at `0x15d85` got no owned constructors. The cannon's projectile (`0x19ba8`) and the gun's bullet (`0x1b3ff`)
+then left their run rules with unresolved effects: two cannon transitions and one gun transition. A far call pushes
+the same return segment and offset as `push cs` with a near call, so the wrapper still reads its argument at `[bp+6]`
+and returns with `retf`. The matcher now accepts either form; every other instruction, edge and the whole chain behind
+the wrapper are checked unchanged. The CD build then proves the same fifteen owned constructors as the floppy.
+
 ## Connected gear traversals
 
 The reader matches the complete propagation, advancement and peer-query instruction graphs. Both compiler forms
