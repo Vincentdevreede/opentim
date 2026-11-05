@@ -285,16 +285,18 @@ describe("summariseWalks", () => {
               },
             }),
           ),
+          animation("related-write", "Hit by an explosion", walk({ status: "rest", frames: [visit(0)] })),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [run, rope, explosion, bounce] = summariseWalks(report, description)[3]!;
+  const [run, rope, explosion, bounce, hit] = summariseWalks(report, description)[3]!;
 
   it("names each walk by its trigger and writes its condition as terms", () => {
     expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
     expect(rope).toMatchObject({ trigger: "rope", condition: [] });
     expect(explosion).toMatchObject({ trigger: "by explosion", end: "hold" });
+    expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest" });
   });
 
   it("keeps the frames, where a loop goes back to, and the path under each condition where it splits", () => {

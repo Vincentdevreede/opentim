@@ -582,8 +582,8 @@ function walksOf(animations: readonly AnimationDescription[], write: ReturnType<
       a.trigger.kind === "run" || a.trigger.kind === "input-case"
         ? "run"
         : a.trigger.kind === "related-write"
-          ? // Another part's routine writes this one, like "A recorded effect of explosion".
-            a.trigger.name.replace(/^A recorded effect of /, "by ")
+          ? // Another part's routine writes this one, like "A recorded effect of explosion" or "Hit by an explosion".
+            a.trigger.name.replace(/^A recorded effect of /, "by ").replace(/^Hit by /, "hit by ")
           : roleOf(a.trigger.name),
     start: a.initial,
     condition: termsOf(a.inputCondition ?? a.trigger.condition, write),
