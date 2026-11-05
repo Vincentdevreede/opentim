@@ -12,6 +12,8 @@ export interface MeasuredClip {
   loopStart: number | null;
   input: Record<string, unknown>;
   skippedEngineServices: Record<string, unknown>;
+  /** The fields the recorder set on the part before every clip of it, under the clip's own seed. */
+  partSeed?: Record<string, unknown>;
 }
 
 export interface MeasuredTransition {
@@ -44,8 +46,10 @@ const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 /** Finds every clip, including orientations, actions and recordings from each initial state. */
-export function measuredClips(value: unknown, path = "part"): MeasuredClip[] {
+export function measuredClips(value: unknown, path = "part", partSeed?: Record<string, unknown>): MeasuredClip[] {
   if (!record(value)) return [];
+  // The v25 recorder applies a part's normal seed before each of its clips, then the clip's own seed.
+  if (record(value.normalSeed)) partSeed = value.normalSeed;
   if (Array.isArray(value.frames)) {
     if (
       !value.frames.every((frame) => record(frame) && typeof frame.state === "number" && Number.isInteger(frame.state))
@@ -66,13 +70,14 @@ export function measuredClips(value: unknown, path = "part"): MeasuredClip[] {
         loopStart: loopStart as number | null,
         input: record(value.input) ? value.input : {},
         skippedEngineServices: record(value.skippedEngineServices) ? value.skippedEngineServices : {},
+        ...(partSeed ? { partSeed } : {}),
       },
     ];
   }
   return Object.entries(value).flatMap(([key, child]) =>
     Array.isArray(child)
-      ? child.flatMap((item, index) => measuredClips(item, `${path}.${key}[${index}]`))
-      : measuredClips(child, `${path}.${key}`),
+      ? child.flatMap((item, index) => measuredClips(item, `${path}.${key}[${index}]`, partSeed))
+      : measuredClips(child, `${path}.${key}`, partSeed),
   );
 }
 

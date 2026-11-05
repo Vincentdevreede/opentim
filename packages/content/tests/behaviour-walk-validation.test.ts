@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Predicate } from "../src/read/behaviour.ts";
 import { WIDENING_ASSUMPTION, type AnimationDescription, type BehaviourWalk } from "../src/read/describe-behaviour.ts";
 import { compareMeasuredWalks } from "../src/read/behaviour-walk-validation.ts";
-import type { MeasuredClip } from "../src/read/behaviour-validation.ts";
+import { measuredClips, type MeasuredClip } from "../src/read/behaviour-validation.ts";
 
 const proof = { confidence: "inferred" as const, assumptions: ["Synthetic extracted rules."], evidence: [] };
 function animation(states = [0, 1, 0, 0]): AnimationDescription {
@@ -282,6 +282,31 @@ describe("comparisons that follow a walk's branches", () => {
       ),
     );
     expect(compareMeasuredWalks([alternatives], recording([0, 1], 1)).classification).toBe("complete");
+  });
+
+  it("takes the part's normal seed as a starting field when the frames don't save it", () => {
+    const model = start(
+      split(
+        [0],
+        [
+          { condition: test(0x36, "!=", 0x3000), walk: rest(1, 1) },
+          { condition: test(0x36, "==", 0x3000), walk: rest(0, 0) },
+        ],
+      ),
+    );
+    // The recorder sets the speed from the part's normal seed before every clip; the frames don't save it.
+    const part = { normalSeed: { vx: 0x3000 }, normal: { frames: [{ state: 0 }], loopStart: null } };
+    const [normal] = measuredClips(part);
+    expect(normal!.partSeed).toEqual({ vx: 0x3000 });
+    expect(compareMeasuredWalks([model], normal!).classification).toBe("complete");
+    // Without the seed the frames can't tell whether the speed lets the part rest.
+    expect(compareMeasuredWalks([model], { ...normal!, partSeed: undefined }).classification).toBe("prefix");
+    // A clip's own seed goes over the part's normal seed.
+    const hit = measuredClips({
+      ...part,
+      actions: [{ clip: { frames: [{ state: 0 }, { state: 1 }], input: { seed: { vx: 0 } } } }],
+    })[1]!;
+    expect(compareMeasuredWalks([model], hit).classification).toBe("complete");
   });
 
   it("uses the starting fields only for the first run's branches", () => {
