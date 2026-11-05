@@ -521,6 +521,9 @@ function withEqualities(bindings: Bindings, condition: Predicate): Bindings {
   }
   return result;
 }
+/** The terms every list has. */
+const shared = (lists: Predicate[][]) =>
+  lists[0]!.filter((term) => lists.every((list) => list.some((other) => textOf(other) === textOf(term))));
 /** The field bits several bindings agree on; a field they set differently is left out. */
 function agreedBindings(list: Bindings[]): Bindings {
   const [first, ...rest] = list;
@@ -1194,7 +1197,9 @@ export function walkBehaviourRules(
    * Follows each way an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
    * fields may decide; the deciding terms then hold for the rest of that branch, as far as its own writes keep them.
    * Rules that lead to the same next fields are one way: its condition is what they all test, and any one of their own
-   * remaining tests may hold.
+   * remaining tests may hold. When a value the walk can't name, like whether the game could make a new part, also
+   * decides, it may only choose between rules that lead to the same frame: then rules that lead to the same frame are
+   * one way, with the fields they agree on, as long as what they all test is plain and rules out every other way.
    */
   const branchesAt = (
     outcomes: { rule: WithUpdates; next: Bindings; destination: ReturnType<typeof valueOf> }[],
@@ -1208,9 +1213,10 @@ export function walkBehaviourRules(
       .filter((term) => predicateOf(term, bindings, constraints) === undefined);
     // Input fields and values the run itself computed may decide. Only input tests carry over into later runs; the
     // next run computes its own values again.
-    if (!deciding.length || !deciding.every((term) => inputPredicate(term) || runValuePredicate(term)))
-      return undefined;
-    const ways = new Map<string, { rules: WithUpdates[]; next: Bindings; kept: Predicate[][] }>();
+    const plain = (term: Predicate) => inputPredicate(term) || runValuePredicate(term);
+    if (!deciding.length) return undefined;
+    const byFrame = !deciding.every(plain);
+    const ways = new Map<string, { rules: WithUpdates[]; next: Bindings; nexts: Bindings[]; kept: Predicate[][] }>();
     const excluded = new Set<string>();
     for (const outcome of outcomes) {
       const { rule } = outcome;
@@ -1236,20 +1242,46 @@ export function walkBehaviourRules(
         stateOffset,
         rule.to,
       );
-      const key = signature(next);
+      const frame = readField(next, "part", stateOffset, 16);
+      if (byFrame && !known(frame)) return undefined;
+      const key = byFrame ? String(frame.value) : signature(next);
       const way = ways.get(key);
       if (way) {
         way.rules.push(rule);
+        way.nexts.push(next);
         way.kept.push(kept);
-      } else ways.set(key, { rules: [rule], next, kept: [kept] });
+      } else ways.set(key, { rules: [rule], next, nexts: [next], kept: [kept] });
     }
     // With ways ruled out, the one left is still followed as a branch of its own.
     if (ways.size < (excluded.size ? 1 : 2) || ways.size > BRANCH_WAYS) return undefined;
+    if (byFrame) {
+      // What the rules of one frame all test must be plain, and must rule out every other frame's rules; the value
+      // the walk can't name then only chooses between rules that lead to that frame.
+      const tests = [...ways.values()].map(({ rules }) => shared(rules.map((rule) => predicateTerms(rule.condition))));
+      if (
+        tests.some(
+          (terms) => !terms.every((term) => predicateOf(term, bindings, constraints) !== undefined || plain(term)),
+        )
+      )
+        return undefined;
+      const separated = tests.every((terms, n) =>
+        tests.every(
+          (others, m) =>
+            m === n || terms.some((term) => predicateOf(term, bindings, [...constraints, ...others]) === false),
+        ),
+      );
+      if (!separated) return undefined;
+      for (const way of ways.values()) way.next = agreedBindings(way.nexts);
+    }
     if (excluded.size) proof = finding([proof], [...excluded]);
-    const shared = (lists: Predicate[][]) =>
-      lists[0]!.filter((term) => lists.every((list) => list.some((other) => textOf(other) === textOf(term))));
     return [...ways.values()].map(({ rules, next, kept }) => {
-      const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, finding([proof, ...rules])), {
+      const wayProof = finding(
+        [proof, ...rules],
+        byFrame && rules.length > 1
+          ? ["The rules that apply here lead to the same next frame; the fields they set differently are forgotten."]
+          : [],
+      );
+      const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, wayProof), {
         maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
         condition: { kind: "and", terms: shared(kept) },
         branchDepth: depth - 1,

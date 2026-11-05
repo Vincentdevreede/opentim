@@ -702,6 +702,59 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(walk.stop?.branches).toBeUndefined();
   });
 
+  it("branches by frame when an opaque value only chooses between rules that lead to the same frame", () => {
+    // Like the balloon: with its control value set it goes on to the next frame, whether or not the game could make
+    // the part that frees its rope; that only changes other fields.
+    const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
+    const guard = (operator: string): Predicate => ({
+      kind: "compare",
+      left: hidden,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(field(12), both(test(12, "==", 0), test(0x12, "==", 0))),
+      rule(constant(1), both(test(12, "==", 0), test(0x12, "!=", 0), guard("==")), [
+        write(12, constant(1)),
+        write(0x30, constant(1)),
+      ]),
+      rule(constant(1), both(test(12, "==", 0), test(0x12, "!=", 0), guard("!=")), [
+        write(12, constant(1)),
+        write(0x30, constant(2)),
+      ]),
+      rule(field(12), test(12, "==", 1)),
+    ]);
+    // Every return path of the run is one of these rules, so one of them applies.
+    const covered = (item: ReturnType<typeof report>) => {
+      item.routines[0] = { ...item.routines[0]!, returnPathsComplete: true } as never;
+      return item;
+    };
+    const walk = walkBehaviourRules(covered(data), 39, [known(12, 0), known(0x30, 0)]);
+    expect(walk.stop?.kind).toBe("ambiguity");
+    const branches = walk.stop?.branches ?? [];
+    expect(branches.map((branch) => [branch.condition, branch.walk.states, branch.walk.status])).toEqual([
+      [both(test(12, "==", 0), test(0x12, "==", 0)), [0], "joins"],
+      [both(test(12, "==", 0), test(0x12, "!=", 0)), [1, 1], "rest"],
+    ]);
+    expect(branches[1]!.alternatives).toEqual([both(guard("==")), both(guard("!="))]);
+    // The two ways write 1 and 2, so only the bits they agree on stay known.
+    expect(branches[1]!.walk.fields.find((item) => item.offset === 0x30)?.knownMask).toBe(0xfffc);
+    expect(branches[1]!.walk.assumptions).toContain(
+      "The rules that apply here lead to the same next frame; the fields they set differently are forgotten.",
+    );
+    // When what the rules of one frame all test doesn't rule out the other frame, no branch is chosen.
+    const loose = report([
+      rule(field(12), both(test(12, "==", 0), test(0x12, "==", 0))),
+      rule(constant(1), both(test(12, "==", 0), guard("=="))),
+      rule(constant(1), both(test(12, "==", 0), test(0x12, "!=", 0), guard("!="))),
+      rule(field(12), test(12, "==", 1)),
+    ]);
+    const looseWalk = walkBehaviourRules(covered(loose), 39, [known(12, 0)]);
+    expect(looseWalk.stop?.kind).toBe("ambiguity");
+    expect(looseWalk.stop?.branches).toBeUndefined();
+  });
+
   it("does not join an unknown guard when its other exit is missing", () => {
     const data = report([rule(constant(1), test(8, "==", 0)), rule(field(12), test(12, "==", 1))]);
     expect(walkBehaviourRules(data, 39, [known(12, 0)])).toMatchObject({ states: [0], status: "unresolved" });

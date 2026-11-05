@@ -626,10 +626,26 @@ zero. Shipped levels save it on frame 0 or 4. Walks that knew only some of these
 that kept the low bits, used to stop: more than three bits were unknown, and the frame bound only applied when no bit
 was known.
 
-A part with at most 16 frames can only be on one of them, so the walk now follows each frame whose number has the
+A part with at most 32 frames can only be on one of them, so the walk now follows each frame whose number has the
 known bits, the same way it does when no bit is known. A part drawn without frames still stops. All 45 walks of the
 generator now end, in both recorded builds. After the belt and the gear, walks that end in every branch went from 380
 to 395 in Even More and from 333 to 348 in TIM 1, and walks that stop from 98 to 83 and from 81 to 66.
+
+### Unnamed values that keep the frame
+
+When the balloon's control value is set, it goes on to its next frame. On the way it tries to free its rope: it asks
+the part factory for a new part and searches the rope's other part for the link that points back. Whether the factory
+gives a part, and what that search finds, are values the walk can't name, so a walk from the level's starting frame
+used to stop there without a branch.
+
+Those values only choose between rules that lead to the same frame. A walk now branches by frame in that case: the
+rules that lead to one frame are one way, with the fields they all agree on, like [ways that lead to the same
+frame](#ways-that-lead-to-the-same-frame). Two checks keep it sound. What the rules of one frame all test must be
+plain tests of the part's fields, and it must rule out every other frame's rules; for the balloon that is "the control
+value is 0" against "the control value is not 0". Since every return path of the run is one of the rules, one of that
+frame's rules then applies. The unnamed value never becomes a condition of the walk.
+
+The balloon's walk from its starting frame now ends in every branch, in both recorded builds. Nothing else changes.
 
 ## Saved evidence
 
