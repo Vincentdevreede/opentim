@@ -411,6 +411,29 @@ call $validate
 pop bp
 retf`;
 
+/**
+ * The same checked wrapper with its release made as a real far call. A far call pushes the same return CS:IP as the
+ * linker's `nop`, `push cs`, near `call` form, so the wrapper still finds its argument at [bp+6] and returns by retf.
+ */
+const farCheckedWrapper = `push bp
+mov bp,sp
+nop
+push cs
+call $validate
+push 16:ss[bp+6]
+callf $wrapper
+pop cx
+nop
+push cs
+call $validate
+pop bp
+retf`;
+
+/** Binds the validation helper and the release wrapper in either call form; every other instruction and edge matches. */
+export function matchCheckedReleaseWrapper(code: RoutineCode): Bindings | undefined {
+  return matchHeapRoutine(code, checkedWrapper, new Map()) ?? matchHeapRoutine(code, farCheckedWrapper, new Map());
+}
+
 export interface OwnedHeapRelease extends Finding {
   address: number;
   allocator: number;
@@ -425,7 +448,7 @@ export function proveOwnedHeapRelease(
   summaries: Map<number, EngineSummary>,
   allocationEvidence: Set<number>,
 ): OwnedHeapRelease | undefined {
-  let bindings = matchHeapRoutine(code, checkedWrapper, new Map());
+  let bindings = matchCheckedReleaseWrapper(code);
   const matched = [code];
   const match = (role: string, pattern: string) => {
     const target = bindings?.get(role),
