@@ -536,6 +536,28 @@ describe("descriptions from extracted behaviour rules", () => {
       ]);
     });
 
+    it("follows each rule from an unknown frame when every rule gives a known next frame, like the pinball bumper", () => {
+      const rules = [
+        rule(field(12), both(test(0x12, "==", 0), test(12, "==", 0))),
+        rule(constant(0), both(test(0x12, "==", 0), test(12, "!=", 0))),
+        rule(constant(1), test(0x12, "!=", 0), [write(0x12, constant(0))]),
+      ];
+      const drawn = () => {
+        const data = settled(report(rules));
+        data.parts[0] = { ...data.parts[0]!, frameCount: 0 } as never;
+        return data;
+      };
+      const walk = walkBehaviourRules(drawn(), 39, []);
+      const branches = walk.stop?.branches ?? [];
+      expect(branches.map((branch) => branch.walk.states[0])).toEqual([0, 1]);
+      expect(branches.every((branch) => ["rest", "joins"].includes(branch.walk.status))).toBe(true);
+      // Hit, only one rule applies: the walk goes on from the frame it gives.
+      const hit = walkBehaviourRules(drawn(), 39, [known(0x12, 1)]);
+      expect(hit.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[1, 0, 0], "rest"],
+      ]);
+    });
+
     it("follows rules that lead to the same next fields as one way, under what they all test", () => {
       const data = settled(
         report([
@@ -647,7 +669,12 @@ describe("descriptions from extracted behaviour rules", () => {
     });
 
     it("still gives no starting frame to another part without a frame list", () => {
-      const walk = walkBehaviourRules(drawn("rope"), 39, []);
+      // Its next frame depends on the frame it starts on, so the rules alone can't give one either.
+      const data = report([
+        rule({ kind: "binary", operator: "+", left: field(12), right: constant(1), width: 16 }, { kind: "true" }),
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id: "rope", frameCount: 0 } as never;
+      const walk = walkBehaviourRules(data, 39, []);
       expect(walk.stop?.branches).toBeUndefined();
       expect(walk.status).toBe("unresolved");
     });

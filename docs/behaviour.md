@@ -647,6 +647,22 @@ frame's rules then applies. The unnamed value never becomes a condition of the w
 
 The balloon's walk from its starting frame now ends in every branch, in both recorded builds. Nothing else changes.
 
+### Rules that give the next frame from any frame
+
+The pinball bumper is drawn by its own code too, so walks have no frames to start it on. But they don't need one: its
+run at `0x1dfb1` (Even More, English floppy) goes to frame 1 and clears its control value when hit, goes to frame 0
+when not hit and on another frame, and stays on frame 0 otherwise. Every rule gives a known next frame under its own
+condition.
+
+So when the starting frame isn't known, a walk now looks at the rules that can apply. If they cover every path of the
+run, apply from any frame, and each gives a known next frame, each way is followed as a branch, like
+[ways a run decides by itself](#walks-that-split-at-every-step). When only one rule can apply, like for a bumper that
+was hit, the walk goes on from the frame it gives. This adds no assumption: it follows only what the rules say for
+every frame.
+
+All 11 walks of the pinball bumper now end. Over all parts, walks that end in every branch went from 429 to 435 in
+Even More, and walks that stop from 46 to 40. TIM 1 has no bumper and doesn't change.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

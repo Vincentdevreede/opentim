@@ -1084,115 +1084,6 @@ export function walkBehaviourRules(
     },
     walk: stopped,
   });
-  const state = readField(bindings, "part", stateOffset, 16);
-  if (!known(state)) {
-    const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
-    const identity = (expression: Expression) =>
-      expression.kind === "field" &&
-      expression.object === "part" &&
-      expression.offset === stateOffset &&
-      !expression.unresolved;
-    const domains = new Set(
-      candidates.map((rule) =>
-        rule.from === null ? "all" : JSON.stringify([...rule.from].sort((left, right) => left - right)),
-      ),
-    );
-    if (
-      candidates.length &&
-      domains.size === 1 &&
-      guardCoverage(candidates, bindings, constraints, routine) &&
-      candidates.every((rule) => rule.confidence !== "unresolved" && identity(rule.to))
-    ) {
-      const starts = JSON.stringify([signature(bindings), constraints]);
-      const stable = candidates.every((rule) => {
-        const next = ruleBindings(rule, bindings, routine);
-        return (
-          JSON.stringify([
-            signature(next),
-            retainConstraints(
-              completeRuleEffects(rule, routine) ? constraints : [],
-              rule.updates ?? routine?.writes ?? [],
-              stateOffset,
-              rule.to,
-            ),
-          ]) === starts
-        );
-      });
-      if (stable) {
-        proof = finding(
-          [proof, ...candidates],
-          [
-            "The rule preserves any initial state in its stated source domain; no numeric starting state has been chosen.",
-          ],
-        );
-        const allowedStates = candidates.some((rule) => rule.from === null)
-          ? undefined
-          : [...new Set(candidates.flatMap((rule) => rule.from ?? []))];
-        return {
-          ...base("rest"),
-          runCalls: 1,
-          parameterised: {
-            kind: "hold",
-            state: { kind: "field", object: "part", offset: stateOffset, width: 16 },
-            ...(allowedStates ? { allowedStates } : {}),
-          },
-        };
-      }
-    }
-    const levelStates = possibleStates(state);
-    if (levelStates)
-      return {
-        ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
-        confidence: "unresolved",
-        stop: {
-          kind: "state",
-          description:
-            "The seed fixes only some bits of the state, as when the level saves the starting frame. Each value those bits allow is followed separately.",
-          evidence: [],
-          branches: levelStates,
-        },
-      };
-    return {
-      ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
-      confidence: "unresolved",
-    };
-  }
-  states.push(state.value);
-  /**
-   * A rule whose only unresolved parts are written field values still fixes the state path when the routine's analysis
-   * covers every path with complete effects: those fields are forgotten, and its destination and guard are exact.
-   */
-  const settledRoutine =
-    !!routine &&
-    (routine.uncertainties ?? []).length === 0 &&
-    routine.uncertainEffects !== true &&
-    !!routine.outcomes?.length &&
-    routine.outcomes.every((outcome) => outcome.effectsComplete === true);
-  // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
-  // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
-  const settledPath = (rule: WithUpdates) =>
-    settledRoutine && !containsUnknown(rule.to) && !containsUnknown(rule.condition, false);
-  const pathFinding = (rule: WithUpdates): Finding =>
-    rule.confidence === "unresolved" && settledPath(rule)
-      ? {
-          confidence: "inferred",
-          evidence: rule.evidence,
-          assumptions: [
-            ...rule.assumptions,
-            "Fields this rule writes with unresolved values are forgotten; its destination and guard do not depend on them.",
-          ],
-        }
-      : rule;
-  /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
-  const stepFinding = (candidates: WithUpdates[]): Finding => {
-    let cache = stepFindings.get(part);
-    if (!cache)
-      stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
-    const id = candidates.map((rule) => cache.index.get(rule)).join();
-    let step = cache.steps.get(id);
-    if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
-    return step;
-  };
   /**
    * Follows each way an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
    * fields may decide; the deciding terms then hold for the rest of that branch, as far as its own writes keep them.
@@ -1298,6 +1189,170 @@ export function walkBehaviourRules(
       return { condition: { kind: "and", terms: common }, alternatives: unique, walk };
     });
   };
+  /**
+   * Without a known starting frame, the rules can still decide the next one: when every rule that can apply covers all
+   * of the run's paths, starts from any frame, and gives a known next frame under its own condition, each way is
+   * followed like a branch. Like the pinball bumper, which goes to frame 1 when hit and to frame 0 otherwise.
+   */
+  const nextFromAnyFrame = () => {
+    const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
+    if (
+      !candidates.length ||
+      candidates.some((rule) => rule.from !== null || rule.confidence === "unresolved") ||
+      !guardCoverage(candidates, bindings, constraints, routine)
+    )
+      return undefined;
+    const outcomes = candidates.map((rule) => {
+      const pre = withEqualities(bindings, rule.condition);
+      const next = ruleBindings(rule, pre, routine);
+      const destination = valueOf(rule.to, pre);
+      writeField(next, "part", stateOffset, destination);
+      return { rule, next, destination };
+    });
+    if (outcomes.some((outcome) => !known(outcome.destination))) return undefined;
+    if (outcomes.length > 1) return branchesAt(outcomes, candidates, 0);
+    // One rule covers every path, like a bumper that was hit: the walk goes on from the frame it gives.
+    const [{ rule, next }] = outcomes as [(typeof outcomes)[number]];
+    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
+    if (depth <= 0) return undefined;
+    const kept = retainConstraints(
+      completeRuleEffects(rule, routine)
+        ? [...constraints, ...predicateTerms(rule.condition).filter(inputPredicate)]
+        : [],
+      rule.updates ?? routine?.writes ?? [],
+      stateOffset,
+      rule.to,
+    );
+    const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, finding([proof, rule])), {
+      maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - 1),
+      condition: { kind: "and", terms: kept },
+      branchDepth: depth - 1,
+      explored,
+    });
+    return [{ condition: rule.condition, walk }];
+  };
+  const state = readField(bindings, "part", stateOffset, 16);
+  if (!known(state)) {
+    const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
+    const identity = (expression: Expression) =>
+      expression.kind === "field" &&
+      expression.object === "part" &&
+      expression.offset === stateOffset &&
+      !expression.unresolved;
+    const domains = new Set(
+      candidates.map((rule) =>
+        rule.from === null ? "all" : JSON.stringify([...rule.from].sort((left, right) => left - right)),
+      ),
+    );
+    if (
+      candidates.length &&
+      domains.size === 1 &&
+      guardCoverage(candidates, bindings, constraints, routine) &&
+      candidates.every((rule) => rule.confidence !== "unresolved" && identity(rule.to))
+    ) {
+      const starts = JSON.stringify([signature(bindings), constraints]);
+      const stable = candidates.every((rule) => {
+        const next = ruleBindings(rule, bindings, routine);
+        return (
+          JSON.stringify([
+            signature(next),
+            retainConstraints(
+              completeRuleEffects(rule, routine) ? constraints : [],
+              rule.updates ?? routine?.writes ?? [],
+              stateOffset,
+              rule.to,
+            ),
+          ]) === starts
+        );
+      });
+      if (stable) {
+        proof = finding(
+          [proof, ...candidates],
+          [
+            "The rule preserves any initial state in its stated source domain; no numeric starting state has been chosen.",
+          ],
+        );
+        const allowedStates = candidates.some((rule) => rule.from === null)
+          ? undefined
+          : [...new Set(candidates.flatMap((rule) => rule.from ?? []))];
+        return {
+          ...base("rest"),
+          runCalls: 1,
+          parameterised: {
+            kind: "hold",
+            state: { kind: "field", object: "part", offset: stateOffset, width: 16 },
+            ...(allowedStates ? { allowedStates } : {}),
+          },
+        };
+      }
+    }
+    const levelStates = possibleStates(state);
+    if (levelStates)
+      return {
+        ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+        confidence: "unresolved",
+        stop: {
+          kind: "state",
+          description:
+            "The seed fixes only some bits of the state, as when the level saves the starting frame. Each value those bits allow is followed separately.",
+          evidence: [],
+          branches: levelStates,
+        },
+      };
+    const fromAnyFrame = nextFromAnyFrame();
+    return {
+      ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+      confidence: "unresolved",
+      ...(fromAnyFrame
+        ? {
+            stop: {
+              kind: "state" as const,
+              description:
+                "The starting frame isn't known, but every rule that can apply gives a known next frame. Each way is followed separately.",
+              evidence: [],
+              branches: fromAnyFrame,
+            },
+          }
+        : {}),
+    };
+  }
+  states.push(state.value);
+  /**
+   * A rule whose only unresolved parts are written field values still fixes the state path when the routine's analysis
+   * covers every path with complete effects: those fields are forgotten, and its destination and guard are exact.
+   */
+  const settledRoutine =
+    !!routine &&
+    (routine.uncertainties ?? []).length === 0 &&
+    routine.uncertainEffects !== true &&
+    !!routine.outcomes?.length &&
+    routine.outcomes.every((outcome) => outcome.effectsComplete === true);
+  // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
+  // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
+  const settledPath = (rule: WithUpdates) =>
+    settledRoutine && !containsUnknown(rule.to) && !containsUnknown(rule.condition, false);
+  const pathFinding = (rule: WithUpdates): Finding =>
+    rule.confidence === "unresolved" && settledPath(rule)
+      ? {
+          confidence: "inferred",
+          evidence: rule.evidence,
+          assumptions: [
+            ...rule.assumptions,
+            "Fields this rule writes with unresolved values are forgotten; its destination and guard do not depend on them.",
+          ],
+        }
+      : rule;
+  /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
+  const stepFinding = (candidates: WithUpdates[]): Finding => {
+    let cache = stepFindings.get(part);
+    if (!cache)
+      stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
+    const id = candidates.map((rule) => cache.index.get(rule)).join();
+    let step = cache.steps.get(id);
+    if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
+    return step;
+  };
+
   const walkSignature = () => JSON.stringify([signature(bindings), constraints.map(textOf)]);
   /**
    * A state another branch of the same tree already follows, with the same known fields and no test this one doesn't
