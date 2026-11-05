@@ -77,6 +77,23 @@ describe("writes through ropes, belts and pulleys", () => {
     expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
   });
 
+  it("forgets the asking fields on the caller's own part, since a question can come back to it", () => {
+    const { final } = analyse({
+      ...fact,
+      partFields: [
+        { offset: 0x30, width: 16 },
+        { offset: 0x12, width: 16 },
+      ],
+      recordFields: [],
+      recordLinks: [0x66],
+      exceptArgument: 6,
+      askingFields: [{ offset: 0x12, width: 16 }],
+    });
+    expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
+    expect(final("part", 0x12)?.kind).not.toBe("constant");
+    expect(final("part", 0x0c)).toMatchObject({ kind: "constant", value: 1 });
+  });
+
   it("keeps everything when the helper names no connected writes", () => {
     const { final } = analyse();
     expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });

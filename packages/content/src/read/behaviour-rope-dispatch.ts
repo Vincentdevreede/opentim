@@ -1,6 +1,7 @@
 /**
  * The rope connection query asks the part at the other end of each rope what to do, through that part type's rope
- * callback. This bounds what those callbacks may write, so a part that asks keeps its own fields.
+ * callback. This bounds what those callbacks may write. A question can come back to the part that asked (ropes can
+ * form a ring), and then that part's own rope callback runs on it, so the part that asks keeps every field but those.
  */
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { RoutineAnalysis } from "./behaviour.ts";
@@ -15,20 +16,20 @@ const indexedRope = /^pointer loaded from table 0x[0-9a-f]+\+0x(66|68) indexed b
 /** Parts that a nested rope query reached, named by the caller-side invalidation. */
 const reached = /^a part reached through a rope, belt or pulley at 0x[0-9a-f]+$/;
 export const ROPE_ASSUMPTIONS = [
-  "A rope ties two different parts, so the part at the other end of a rope is never the part that asks.",
-  "Ropes between parts never form a loop, so a chain of questions along ropes never comes back to the part that asked.",
   "A rope end's slot number is one of the part's two rope links, so indexing the links at 0x66 by it reaches a rope record.",
 ];
 
+export type RopeCallbackWrites = { partFields: Field[]; ownFields: Field[]; recordFields: Field[]; globals: boolean };
+
 /**
  * What the rope callbacks may write, from their analyses: fields of their own part, which is the part at the other end
- * of the rope, and fields of its rope, belt and pulley records. Undefined when a callback writes anything else, or has
- * effects the analysis could not finish.
+ * of the rope, fields of parts a nested query reached, and fields of their rope, belt and pulley records. `ownFields`
+ * are only those written on their own part. Undefined when a callback writes anything else, or has effects the
+ * analysis could not finish.
  */
-export function ropeCallbackWrites(
-  analyses: RoutineAnalysis[],
-): { partFields: Field[]; recordFields: Field[]; globals: boolean } | undefined {
+export function ropeCallbackWrites(analyses: RoutineAnalysis[]): RopeCallbackWrites | undefined {
   const partFields = new Map<string, Field>();
+  const ownFields = new Map<string, Field>();
   const recordFields = new Map<string, Field>();
   let globals = false;
   for (const analysis of analyses) {
@@ -36,23 +37,32 @@ export function ropeCallbackWrites(
     const writes = [...analysis.writes, ...(analysis.outcomes ?? []).flatMap((outcome) => outcome.fields)];
     for (const write of writes) {
       const field = { offset: write.offset, width: write.width };
-      if (write.object === "part" || reached.test(write.object))
-        partFields.set(`${field.offset}:${field.width}`, field);
-      else if (record.test(write.object) || indexedRope.test(write.object))
-        recordFields.set(`${field.offset}:${field.width}`, field);
+      const key = `${field.offset}:${field.width}`;
+      if (write.object === "part") ownFields.set(key, field);
+      if (write.object === "part" || reached.test(write.object)) partFields.set(key, field);
+      else if (record.test(write.object) || indexedRope.test(write.object)) recordFields.set(key, field);
       else if (write.object === "data") globals = true;
       else if (write.object !== "stack") return;
     }
   }
-  return { partFields: [...partFields.values()], recordFields: [...recordFields.values()], globals };
+  return {
+    partFields: [...partFields.values()],
+    ownFields: [...ownFields.values()],
+    recordFields: [...recordFields.values()],
+    globals,
+  };
 }
 
-/** The query's summary with a bounded dispatch: callbacks may change the asked parts, never the part that asks. */
+/**
+ * The query's summary with a bounded dispatch: callbacks may change the asked parts, and the part that asks only in
+ * `askingFields`, what its own type's rope callback writes on it when a question comes back.
+ */
 export function ropeDispatchSummary(
   query: EngineSummary,
   writes: { partFields: Field[]; recordFields: Field[]; globals: boolean },
   callbacks: RoutineAnalysis[],
   askingArgument: number,
+  askingFields: Field[] = writes.partFields,
 ): EngineSummary {
   const evidence = [
     ...query.evidence,
@@ -82,7 +92,7 @@ export function ropeDispatchSummary(
     evidence,
     assumptions,
     purpose:
-      "Asks the part at the other end of each rope through its type's rope callback; those callbacks change only that part and its records.",
+      "Asks the part at the other end of each rope through its type's rope callback; those callbacks change only that part and its records, and a question that comes back changes the part that asks through its own callback.",
     writes: [...query.writes, ...unknownWrites],
     footprint: {
       complete: !writes.globals,
@@ -101,6 +111,7 @@ export function ropeDispatchSummary(
       recordFields: writes.recordFields,
       recordLinks: RECORD_LINKS,
       exceptArgument: askingArgument,
+      askingFields,
     },
   };
 }

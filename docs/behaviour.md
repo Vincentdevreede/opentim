@@ -439,19 +439,32 @@ its own ropes again, so the union is repeated until it stops growing. A callback
 which is the part at the other end, and fields of that part's rope, belt and pulley records. If any callback writes
 anything else or has unfinished effects, the query keeps its old open summary.
 
-Three assumptions make this sound. They are stated on the summary and on every finding that uses it, and listed with
-how to recheck them in [the decided assumptions](behaviour-assumptions.md):
+One assumption makes this sound. It is stated on the summary and on every finding that uses it, and listed with how
+to recheck it in [the decided assumptions](behaviour-assumptions.md):
 
-- A rope ties two different parts, so the part at the other end of a rope is never the part that asks.
-- Ropes between parts never form a loop, so a chain of questions along ropes never comes back to the part that asked.
 - A rope end's slot number is one of the part's two rope links, so indexing the links at `0x66` by it reaches a rope
   record.
 
-With these, `connected.exceptArgument` names the argument that is the asking part. When a caller passes its own part
-there, it keeps its own fields and forgets them only on other parts. In all eleven builds the query now has a
-bounded summary: the callbacks can change fields `0x08`, `0x0c`, `0x12`, `0x20`, `0x2a`, `0x2c`, `0x44` and `0x46` of
-other parts and field `0x0e` of their rope records. Walks that stop went from 287 to 241 in Even More and from 246 to
-200 in TIM 1, and those walks now reach a branch with a known condition instead. No recording comparison changed.
+Ropes can form a ring, so a question can come back to the part that asked. The query only skips the part the question
+came from, and nothing marks a part as asked, so in a ring of three or more teeter-totters the question goes round and
+the asking part's own rope callback runs on it. That callback changes only its own part, and in a ring that part is the
+one that asked. The reader finds the routines that call the query: when every one is named directly by the type table
+and called by nothing else, the part that asks is of a type that names one of them, and only that type's rope callback
+can change it, in the fields it writes on its own part. Those are `connected.askingFields`. If the check fails, they are
+every part field a callback writes.
+
+`connected.exceptArgument` names the argument that is the asking part. When a caller passes its own part there, it
+forgets the asking fields and keeps every other field; other parts forget every field a callback writes. In all eleven
+builds the callers are the teeter-totter's run and rope callback, the callbacks can change fields `0x08`, `0x0c`,
+`0x12`, `0x20`, `0x2a`, `0x2c`, `0x44` and `0x46` of other parts and field `0x0e` of their rope records, and the asking
+teeter-totter can change only its control value `0x12` and its flags `0x08`.
+
+Until 2026-11-05 the reader assumed that ropes never form a loop and that a rope never ties a part to itself, and let
+the asking part keep every field. The user built a ring of teeter-totters in the game that locks them all, so those
+two assumptions were dropped (see [the decided assumptions](behaviour-assumptions.md#1-ropes)). The teeter-totter's
+control value is now unknown after it asks for real (`0x1d2d1`, Even More, English floppy), and its run adds that value
+to its frame, so the step that tilts it has effects the walk can't resolve. Of its 91 walks, which all ended before,
+40 end, 37 end only in some branches and 14 stop, in both recorded builds. No recording comparison changed.
 
 ### The scissors' rope cut
 
@@ -759,7 +772,8 @@ the branches on known numbers check it too, and they also leave out a number the
 Every walk of these three parts now ends in each of its branches, in both recorded builds. Over all parts, walks that
 end in every branch went from 416 to 495 in Even More and from 347 to 426 in TIM 1. Walks that stay open went from 98
 to 7 and from 99 to 8: all of them are walks from the explosion. The teeter-totter has 12 fewer walks in each build,
-the input cases the second assumption leaves out.
+the input cases the second assumption leaves out. Since ropes may form a ring, the teeter-totter's walks no longer
+all end: see [the rope connection query](#the-rope-connection-query).
 
 ## Saved evidence
 

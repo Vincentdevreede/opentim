@@ -19,39 +19,62 @@ those findings unresolved again, which is safe.
 
 ## 1. Ropes
 
-Decided on 2026-11-04. In the code: `ROPE_ASSUMPTIONS` in `packages/content/src/read/behaviour-rope-dispatch.ts`.
-Explained in [the rope connection query](behaviour.md#the-rope-connection-query).
+Decided on 2026-11-04 and narrowed on 2026-11-05. In the code: `ROPE_ASSUMPTIONS` in
+`packages/content/src/read/behaviour-rope-dispatch.ts`. Explained in
+[the rope connection query](behaviour.md#the-rope-connection-query).
 
 **The question.** When a rope moves, the game asks the part at the other end of the rope what to do. That part can
-pass the question on along its own ropes. The analysis can't see which parts are tied together, so it couldn't tell
+pass the question on along its own ropes. The analysis can't see which parts are tied together, so it can't tell
 whether the question might come back and change the part that asked.
 
 **What we assume.**
 
-- A rope ties two different parts, so the part at the other end of a rope is never the part that asks.
-- Ropes between parts never form a loop, so a chain of questions along ropes never comes back to the part that asked.
 - A rope end's slot number is one of the part's two rope links, so indexing the links at `0x66` by it reaches a rope
   record.
 
-**What it gives.** A part that asks along its ropes keeps its own fields. Used by the teeter-totter. Walks that stop
-went from 287 to 241 in Even More and from 246 to 200 in TIM 1.
+**Dropped on 2026-11-05.** Two more bullets were assumed at first: "A rope ties two different parts, so the part at the
+other end of a rope is never the part that asks" and "Ropes between parts never form a loop, so a chain of questions
+along ropes never comes back to the part that asked". The second is wrong. The user built a ring of teeter-totters
+tied with ropes in the game on 2026-11-05: it works, and it locks every teeter-totter in the ring, because the pull
+down is blocked by the pull up. The code agrees (Even More, English floppy):
+
+- The query (`0x1d638`) finds each rope's far end (`0x7b11`) and only skips the part the question came from (the
+  compare at `0x1d67a`). So two ropes between the same two parts don't bring the question back, but a ring of three or
+  more teeter-totters does.
+- Nothing marks a part as asked: flag `0x200` is set only after the nested query returns (`0x1d613`).
+- When the question comes back, the asking part's own rope callback (`0x1d52d`) runs on it and writes its control
+  value at `0x12` (`0x1d5d6`) and its flags at `0x08` (`0x1d60a`, `0x1d613`).
+
+The first bullet isn't needed any more either: a rope from a part to itself would be the same as a question that comes
+back, which the analysis now allows for.
+
+**What the analysis does instead.** A question that comes back runs the asking part's own rope callback on it. The
+query is called only by the teeter-totter's run (`0x1d2af`, `0x1d2d1`) and its rope callback (`0x1d5ef`), each with its
+own part as the part that asks. The reader checks this in every build: every routine that calls the query is one the
+type table names directly and nothing else calls, so the part that asks is of a type that names it. Only that type's
+rope callback can then change the asking part, and only in the fields it writes on its own part. For the teeter-totter
+those are `0x12` and `0x08` in all eleven builds, so a teeter-totter that asks forgets those two after the query and
+keeps the rest. Other parts still forget every field any rope callback writes. If the check fails, the asking part
+forgets every one of those fields too.
+
+**What it gives.** A part that asks along its ropes keeps its own fields, except those its own rope callback writes.
+Used by the teeter-totter. Because its control value is unknown after it asks for real (`0x1d2d1`), and its run adds
+that value to its frame (`0x1d2da`), fewer of its walks end. Measured against the decided control values and ends
+(assumptions 9 and 10), in Even More and in TIM 1 alike: the teeter-totter's walks went from 91 that all end (75 of
+them in each branch) to 40 that end (24 of them in each branch), 37 that end only in some branches and 14 that stop.
+All parts together: walks that end in each branch went from 495 to 444 in Even More and from 426 to 375 in TIM 1. No
+other part changed, and no recording comparison changed (432 complete in Even More, 380 in TIM 1, none different).
 
 **How to recheck.**
 
-- Try to tie both ends of one rope to the same part in the game, and look for a level where ropes go round in a circle
-  back to where they started. Either would break the first two.
-- In `TIM.EXE`, find the code that attaches a rope to a part and check it only ever stores slot 0 or 1.
-- Check the query's skip of the part the question came from (`0x1d67a`, Even More, English floppy), and that its only
-  callers are the teeter-totter's run (`0x1d2af`, `0x1d2d1`) and rope callback (`0x1d5ef`).
-- Check the editor's tie: it picks slot 0 or 1 (`0x515d`) and refuses to tie a rope's second end to its first part
-  (`0x10f98`). The level loader (`0x138a9`) takes both slots and both ends from the file without a check.
+- In `TIM.EXE`, find the code that attaches a rope to a part and check it only ever stores slot 0 or 1. The editor's
+  tie picks slot 0 or 1 (`0x515d`); the level loader (`0x138a9`) takes the slots from the file without a check.
+- Check that the query's only callers are still the teeter-totter's run and rope callback, and what that callback
+  writes on its own part.
 
 **Rechecked on 2026-11-05** in all eleven builds (9 different programs). The editor never ties a rope to one part
-twice, and every slot writer stores 0 or 1. Shipped levels have no rope from a part to itself, no slot above 1 and no
-loop of ropes. Two ropes between the same two parts are possible, but the skip above stops the question coming back.
-One real risk remains: a ring of three or more teeter-totters tied in a circle would bring the question back to the
-part that asked, and nothing in the code prevents building one. Whether rope lengths and positions allow it in the game
-is not checked. A level file made outside the game could also break the first and third bullet.
+twice (`0x10f98`), and every slot writer stores 0 or 1. Shipped levels have no rope from a part to itself, no slot
+above 1 and no loop of ropes. A level file made outside the game could still break the remaining bullet.
 
 ## 2. The scissors' rope cut
 
@@ -335,7 +358,8 @@ checked, and a level file made outside the game could hold another number.
 
 **What it gives.** The branch for any other number is gone for these three parts. Together with the next assumption,
 every walk of the jack-in-the-box, the gear and the teeter-totter ends in each of its branches, in both recorded
-builds.
+builds. Since the rope assumptions were narrowed (assumption 1), the teeter-totter has 51 walks that no longer end in
+every branch.
 
 **How to recheck.**
 

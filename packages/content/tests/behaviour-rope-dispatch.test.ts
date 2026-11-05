@@ -35,6 +35,7 @@ describe("the rope connection query", () => {
       ]),
     ]);
     expect(writes?.partFields.map((field) => field.offset)).toEqual([0x0c, 0x12]);
+    expect(writes?.ownFields.map((field) => field.offset)).toEqual([0x0c]);
     expect(writes?.recordFields.map((field) => field.offset)).toEqual([0x0e]);
     expect(writes?.globals).toBe(true);
   });
@@ -44,7 +45,7 @@ describe("the rope connection query", () => {
     expect(ropeCallbackWrites([analysis([write("part", 0x0c)], false)])).toBeUndefined();
   });
 
-  it("names the asking argument so the part that asks keeps its own fields", () => {
+  it("names the asking argument and the fields a question that comes back can change on it", () => {
     const query = {
       ...fact,
       address: 0x100,
@@ -65,12 +66,39 @@ describe("the rope connection query", () => {
     } as EngineSummary;
     const summary = ropeDispatchSummary(
       query,
-      { partFields: [{ offset: 0x0c, width: 16 }], recordFields: [{ offset: 0x0e, width: 16 }], globals: false },
+      {
+        partFields: [
+          { offset: 0x0c, width: 16 },
+          { offset: 0x12, width: 16 },
+        ],
+        recordFields: [{ offset: 0x0e, width: 16 }],
+        globals: false,
+      },
       [],
       8,
+      [{ offset: 0x12, width: 16 }],
     );
     expect(summary.footprint).toMatchObject({ partMemoryComplete: true, preservesPartState: true, complete: true });
-    expect(summary.connected).toMatchObject({ exceptArgument: 8, partFields: [{ offset: 0x0c, width: 16 }] });
+    expect(summary.connected).toMatchObject({
+      exceptArgument: 8,
+      partFields: [
+        { offset: 0x0c, width: 16 },
+        { offset: 0x12, width: 16 },
+      ],
+      askingFields: [{ offset: 0x12, width: 16 }],
+    });
     expect(summary.assumptions).toEqual(expect.arrayContaining(ROPE_ASSUMPTIONS));
+  });
+
+  it("lets every named part field change on the part that asks when no asking fields are given", () => {
+    const query = {
+      ...fact,
+      address: 0x100,
+      kind: "connection-query",
+      writes: [],
+      footprint: {},
+    } as unknown as EngineSummary;
+    const fields = { partFields: [{ offset: 0x0c, width: 16 }], recordFields: [], globals: false };
+    expect(ropeDispatchSummary(query, fields, [], 8).connected?.askingFields).toEqual(fields.partFields);
   });
 });

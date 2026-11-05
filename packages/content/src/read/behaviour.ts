@@ -189,6 +189,16 @@ const textOf = (value: unknown) => {
 };
 const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
 const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
+/** The named part fields the asking part keeps: those its own rope callback can't write when a question comes back. */
+const askingKeeps = (connected: NonNullable<EngineSummary["connected"]>) =>
+  connected.partFields
+    .filter(
+      (field) =>
+        !(connected.askingFields ?? []).some(
+          (asking) => field.offset < asking.offset + asking.width / 8 && asking.offset < field.offset + field.width / 8,
+        ),
+    )
+    .map((field) => field.offset);
 /**
  * A private local or register a list scan or find-first loop left behind, or a pure query's answer. It is one value for
  * conditions, but it may point to any part, the owner included, so it never becomes the address of an object of its own.
@@ -1703,6 +1713,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     if (engine.connected) {
       // Parts reached through ropes, belts or pulleys may be the owner itself, so their fields are forgotten everywhere.
+      // A part that passed itself as the asking argument keeps the fields a question that comes back can't change.
       const asking =
         engine.connected.exceptArgument === undefined
           ? undefined
@@ -1713,7 +1724,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         s,
         i,
         engine.connected.evidence,
-        new Set(askingIsOwner ? engine.connected.partFields.map((field) => field.offset) : []),
+        new Set(askingIsOwner ? askingKeeps(engine.connected) : []),
         `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
       );
       // Rope, belt and pulley records are separate allocations; only objects reached through those links can be one.
@@ -4422,41 +4433,62 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
             : undefined;
       if (base === undefined || base + operand.displacement - ropeField !== list.table) continue;
       const word = (at: number) => image[at]! | (image[at + 1]! << 8);
-      const targets = [
-        ...new Set(
-          list.records.map((record) => {
-            const at = list.table + record.type * 58 + ropeField;
-            return word(at + 2) * 16 + word(at);
-          }),
-        ),
-      ];
+      const ropeCallbackAt = (type: number) => {
+        const at = list.table + type * 58 + ropeField;
+        return word(at + 2) * 16 + word(at);
+      };
+      const targets = [...new Set(list.records.map((record) => ropeCallbackAt(record.type)))];
       if (!targets.every((target) => entries.has(target))) continue;
+      // A question can come back to the part that asked, and then that part's own rope callback runs on it. The parts
+      // that ask are the parts of the routines that call the query. When each is named directly by the type table and
+      // called by nothing else, its part is of the types that name it, so only their rope callbacks can change it.
+      // Otherwise every callback can.
+      const callers = [...codes.values()].filter((caller) =>
+        caller.calls.some((call) => call.target?.address === query.address),
+      );
+      const calledDirectly = (address: number) =>
+        [...codes.values()].some((caller) => caller.calls.some((call) => call.target?.address === address));
+      const asking = callers.every((caller) => counts.has(caller.address) && !calledDirectly(caller.address))
+        ? list.records
+            .filter((record) =>
+              references.get(record.type)!.some((callback) => callers.some((c) => c.address === callback.address)),
+            )
+            .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
+        : undefined;
       const original = query;
       type Fields = NonNullable<ReturnType<typeof ropeCallbackWrites>>;
+      const fieldsOf = (lists: Fields[], pick: (fields: Fields) => Fields["partFields"]) => [
+        ...new Map(lists.flatMap(pick).map((f) => [`${f.offset}:${f.width}`, f])).values(),
+      ];
       const merge = (lists: Fields[]): Fields => ({
-        partFields: [...new Map(lists.flatMap((l) => l.partFields).map((f) => [`${f.offset}:${f.width}`, f])).values()],
-        recordFields: [
-          ...new Map(lists.flatMap((l) => l.recordFields).map((f) => [`${f.offset}:${f.width}`, f])).values(),
-        ],
+        partFields: fieldsOf(lists, (l) => l.partFields),
+        ownFields: fieldsOf(lists, (l) => l.ownFields),
+        recordFields: fieldsOf(lists, (l) => l.recordFields),
         globals: lists.some((l) => l.globals),
       });
       const key = (fields: Fields) =>
         JSON.stringify(
-          [fields.partFields, fields.recordFields].map((items) => items.map((f) => `${f.offset}:${f.width}`).sort()),
+          [fields.partFields, fields.ownFields, fields.recordFields].map((items) =>
+            items.map((f) => `${f.offset}:${f.width}`).sort(),
+          ),
         );
-      let fields: Fields = { partFields: [], recordFields: [], globals: false };
+      // `ownFields` here holds what a question that comes back can change on the part that asks.
+      let fields: Fields = { partFields: [], ownFields: [], recordFields: [], globals: false };
       let accepted = false;
       for (let round = 0; round < 5; round++) {
         summaries.clear();
         const analyses = targets.map((target) => summarise(target));
         const each = analyses.map((analysis) => ropeCallbackWrites([analysis]));
         const union = merge([fields, ...each.filter((item): item is Fields => !!item)]);
+        union.ownFields = asking
+          ? fieldsOf([fields, ...asking.flatMap((at) => each[at] ?? [])], (l) => l.ownFields)
+          : union.partFields;
         if (round > 0 && each.every(Boolean) && key(union) === key(fields)) {
           accepted = true;
           break;
         }
         fields = union;
-        engineSummaries.set(query.address, ropeDispatchSummary(original, fields, analyses, 8));
+        engineSummaries.set(query.address, ropeDispatchSummary(original, fields, analyses, 8, fields.ownFields));
       }
       if (!accepted) engineSummaries.set(query.address, original);
       const at = helpers.findIndex((helper) => helper.address === query.address);
