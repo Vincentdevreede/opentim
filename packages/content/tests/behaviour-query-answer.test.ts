@@ -6,14 +6,15 @@ const entry = { address: 0, segment: 0, offset: 0 };
 const fact = { confidence: "inferred" as const, assumptions: [], evidence: [] };
 
 /** Asks a query about the owner, like whether its new spot is blocked, and goes to frame 2 when the answer is 0. */
-function fixture(kind: EngineSummary["kind"]) {
+function fixture(kind: EngineSummary["kind"], field = 12, before: number[] = []) {
   const image = new Uint8Array(0x140);
   // prettier-ignore
   image.set([
     0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, // push bp; mov bp,sp; push si; mov si,[bp+6]
+    ...before,
     0x56, 0x9a, 0, 1, 0, 0, 0x59, // push si; call far 0:0x100; pop cx
     0x0b, 0xc0, 0x75, 5, // or ax,ax; jne done
-    0xc7, 0x44, 12, 2, 0, // mov word [si+12],2
+    0xc7, 0x44, field, 2, 0, // mov word [si+field],2
     0x5e, 0x5d, 0xcb, // done: pop si; pop bp; retf
   ]);
   image[0x100] = 0xcb;
@@ -65,5 +66,25 @@ describe("query answers", () => {
     expect(routine.transitions.some((transition) => text(transition.condition).includes("answer of the query"))).toBe(
       false,
     );
+  });
+
+  it("settles the state path when both answers lead to the same frame", () => {
+    // The answer only decides a write to field 0x12; the frame stays the same either way.
+    const { image, helpers } = fixture("private-buffer-query", 0x12);
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(routine.transitions).toHaveLength(1);
+    const [transition] = routine.transitions;
+    expect(transition!.confidence).toBe("inferred");
+    expect(text(transition!.condition)).not.toContain("answer of the query");
+    const write = transition!.updates?.find((update) => update.offset === 0x12);
+    expect(write?.value.kind).toBe("unknown");
+  });
+
+  it("keeps the merged path unresolved when the routine lost track of an effect", () => {
+    // AAA is not followed symbolically, so a path may have changed something the analysis can't see.
+    const { image, helpers } = fixture("private-buffer-query", 0x12, [0x37]);
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(routine.uncertainEffects).toBe(true);
+    expect(routine.transitions.every((transition) => transition.confidence === "unresolved")).toBe(true);
   });
 });

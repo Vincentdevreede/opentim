@@ -4109,7 +4109,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: uniqueEvidence(pointerEvidence),
     },
     writes: dedup(writes),
-    transitions: mergeTransitions(dedup(transitions)),
+    transitions: mergeTransitions(dedup(transitions), !uncertainEffects),
     comparisons: dedup(comparisons),
     outcomes: dedup(outcomes),
     iterationOutcomes: dedup(iterationOutcomes),
@@ -4127,8 +4127,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   };
 }
 
-/** Eliminates a branch only when both complementary outcomes have exactly the same final state expression. */
-function mergeTransitions(input: Transition[]): Transition[] {
+/**
+ * Eliminates a branch only when both complementary outcomes have exactly the same final state expression. When no path
+ * of the routine lost track of its effects, a pair that was unresolved only through the dropped test, like a query's
+ * answer, has a resolved state path once merged: both answers lead to the same state.
+ */
+function mergeTransitions(input: Transition[], pathsCertain = false): Transition[] {
   const result = [...input];
   const inverse: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
   const terms = (p: Predicate) => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]);
@@ -4170,8 +4174,14 @@ function mergeTransitions(input: Transition[]): Transition[] {
             evidence: uniqueEvidence([...(l?.evidence ?? []), ...(r?.evidence ?? [])]),
           });
         }
+        const settled =
+          pathsCertain &&
+          left.confidence === "unresolved" &&
+          !containsUnknown(left.to) &&
+          !uncertainPredicate(condition);
         result[a] = {
           ...left,
+          ...(settled ? { confidence: "inferred" as const } : {}),
           condition,
           ...(left.updates || right.updates ? { updates } : {}),
           assumptions: [...new Set([...left.assumptions, ...right.assumptions])],

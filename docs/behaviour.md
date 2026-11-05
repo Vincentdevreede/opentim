@@ -716,6 +716,19 @@ becomes an address. Other helpers' results stay opaque.
 
 The cat's run rules no longer contain an opaque unknown, so their walks don't stop there any more.
 
+### Answers that lead to the same frame
+
+When both answers of a test lead to the same next frame, the reader joins the two rules into one without that test
+(see [Descriptions and conditional frame walks](#descriptions-and-conditional-frame-walks)). A rule is unresolved when
+its condition or its next frame holds a value the analysis doesn't know, like a query's answer. If that answer was the
+only such value and the joined rule no longer tests it, the frame path no longer depends on it, so the joined rule is
+no longer unresolved. This needs every path of the routine to have known effects: a path that lost track of a write
+could have made the rule unresolved for another reason, and then the rule stays unresolved. Fields the two answers
+write differently stay unknown, as before.
+
+The teeter-totter's bounce asks a query and its rope callback asks along the rope; their frame does not depend on the
+answers. In each recorded build its unresolved transitions go from 15 to 6, and no walk changes.
+
 ### The control value's known numbers
 
 Many parts move their frame by a control value, as in "frame + control value", that other parts and their own
