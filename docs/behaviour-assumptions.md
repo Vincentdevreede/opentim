@@ -76,7 +76,7 @@ other part changed, and no recording comparison changed (432 complete in Even Mo
 twice (`0x10f98`), and every slot writer stores 0 or 1. Shipped levels have no rope from a part to itself, no slot
 above 1 and no loop of ropes. A level file made outside the game could still break the remaining bullet.
 
-## 2. The scissors' rope cut
+## 2. The scissors' rope cut and the part copy
 
 Decided on 2026-11-04. In the code: `ROPE_CUT_ASSUMPTIONS` in `packages/content/src/read/behaviour-rope-cut.ts`.
 Explained in [the scissors' rope cut](behaviour.md#the-scissors-rope-cut).
@@ -117,6 +117,50 @@ before it is put on any list. Not proved: that the library's allocator only hand
 record's slots are 0 (`0x1cc02`) or copied from an existing one (`0x1cc0f`, `0x1cc70`). A level file with a slot above
 1 would make the loader write into other fields of the part, or past it, so this assumption also leans on the slot one
 for files made outside the game.
+
+### The part copy
+
+Extended on 2026-11-05 to the part copy. In the code: `PART_COPY_ASSUMPTIONS` in
+`packages/content/src/read/behaviour-part-copy.ts`. Explained in [the explosion's wall split](behaviour.md#the-explosions-wall-split).
+
+**The question.** When the explosion splits a brick or wood wall, the game copies the wall with the part copy at
+`0x66aa` (Even More, English floppy). The copy allocates the new part and, for a belt, a rope or a part with an
+outline, a record of its own, from the same allocator as the part factory. The analysis couldn't tell whether that new
+memory overlaps the explosion, so it lost the explosion's frame.
+
+**What we assume.**
+
+- A part copy gets fresh memory, and so do the belt, rope and outline records it makes for the copy: none of it
+  overlaps an existing part, a rope, belt or pulley record or other storage.
+- Releasing a copy that was never linked, after one of its allocations failed, frees only the copy and the records it
+  made for it, and changes nothing else.
+
+This is the first assumption above, said for the part copy instead of the part factory.
+
+**What the code shows** (Even More, English floppy):
+
+- The copy allocates 0xa2 bytes, the size of a part, through `0xc7b7` (then `0xd4a1`, zero filled, and `0xd607`),
+  the allocator the part factory at `0x15d9b` uses. Then it copies the source part's fields, among them the shown frame
+  (`0x66f2`), the saved frame (`0x6802`) and the saved control value (`0x680a`). It only reads the source part.
+- It allocates a belt record for type 8 (`0x673b`), a rope record for types 10 and 7 (`0x6771`) and an outline buffer
+  of 4 bytes per outline point (`0x67be`), each from the same allocator, and writes only into the copy and those
+  records. The outline loop at `0x67f5` copies as many points as the buffer holds.
+- When an allocation fails, it calls the release at `0x16b94` with the copy, which frees the outline buffer, the belt
+  record and the rope record when they are set, and then the copy. The copy sets them only from its own allocations,
+  and the zero filled block holds zero in the others. The copy isn't on any list yet.
+- The wall split at `0x1a8ae` puts the copy on the parts list (`0x629d`) and writes its position and size
+  (`0x1a937` to `0x1a956`, `0x1aa16` to `0x1aa35`). It never stores the copy's address in the wall or the explosion.
+
+**What it gives.** The explosion keeps its frame while it goes through the parts it hits. All its walks now end in
+both recorded builds, and 8 more recorded animations match completely in each.
+
+**How to recheck.**
+
+- The checks for the part factory above hold for the copy too: it uses the same allocator.
+- Check that the wall split puts the copy on a list only after every allocation succeeded (`0x1a924`, `0x1aa03`).
+  The copy's only other caller, at `0x11f0d`, is in the editor and never runs from a part's callback.
+- The copy's outline buffer holds as many points as the type's outline count at `+0x1e` of the type record; for brick
+  and wood walls that is 4 in all eleven builds, the 4 points the wall's outline update at `0x1d8bc` writes.
 
 ## 3. The teeter-totter's search
 

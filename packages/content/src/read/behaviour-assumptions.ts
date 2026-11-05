@@ -4,6 +4,7 @@
  */
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
+import { PART_COPY_ASSUMPTIONS } from "./behaviour-part-copy.ts";
 import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
 import { ROPE_ASSUMPTIONS } from "./behaviour-rope-dispatch.ts";
 import {
@@ -18,7 +19,10 @@ import {
 
 export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Ropes", assumptions: ROPE_ASSUMPTIONS },
-  { title: "The scissors' rope cut", assumptions: ROPE_CUT_ASSUMPTIONS },
+  {
+    title: "The scissors' rope cut and the part copy",
+    assumptions: [...ROPE_CUT_ASSUMPTIONS, ...PART_COPY_ASSUMPTIONS],
+  },
   { title: "The teeter-totter's search", assumptions: [...OUTLINE_SEARCH_ASSUMPTIONS, INCLUSIVE_LIST_ASSUMPTION] },
   { title: "The monkey bike's starting frame", assumptions: [MONKEY_BIKE_ASSUMPTION] },
   { title: "The conveyor belt's starting frame", assumptions: [CONVEYOR_BELT_ASSUMPTION] },
