@@ -91,4 +91,25 @@ describe("selected overlap candidates", () => {
     const result = analyse([0xc7, 0x44, 0x60, 0, 0, ...call], summary);
     expect(result.uncertainties.some((s) => s.includes("pointer is lost"))).toBe(true);
   });
+  it("keeps the owner's fields when the query skips the part that asks", () => {
+    const skipping = (excludesArgument: boolean) => {
+      const summary = query();
+      summary.list = { ...summary.list!, excludesArgument };
+      summary.writes.push({ ...summary.writes[1]!, offset: 0x7a });
+      return summary;
+    };
+    // The owner writes 7 to its own field 0x7a, asks, then copies that field to its state.
+    const body = [0xc7, 0x44, 0x7a, 7, 0, ...call, 0x8b, 0x44, 0x7a, 0x89, 0x44, 12];
+    const kept = analyse(body, skipping(true));
+    expect(kept.transitions.some((t) => t.to.kind === "constant" && t.to.value === 7)).toBe(true);
+    expect(kept.transitions.every((t) => t.confidence !== "unresolved")).toBe(true);
+    const aliased = analyse(body, skipping(false));
+    expect(aliased.transitions.some((t) => t.to.kind === "constant" && t.to.value === 7)).toBe(false);
+    // Another part asking may select the owner, so the owner's field is forgotten.
+    const other = analyse(
+      [0xc7, 0x44, 0x7a, 7, 0, 0x8b, 0x7c, 0x50, 0x57, 0x9a, 0, 1, 0, 0, 0x59, 0x8b, 0x44, 0x7a, 0x89, 0x44, 12],
+      skipping(true),
+    );
+    expect(other.transitions.some((t) => t.to.kind === "constant" && t.to.value === 7)).toBe(false);
+  });
 });

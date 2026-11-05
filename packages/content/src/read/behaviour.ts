@@ -1900,6 +1900,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     // Candidate stores address newly selected list members, never the argument's incoming head.
     if (engine.kind === "overlap-list" && engine.list) {
+      // A query that skips its argument never selects the owner when the owner asks, so the owner keeps those fields.
+      const asking = formalArgument(args, engine.argumentOffset, engine.argumentOffset).value;
+      const skipsOwner =
+        engine.list.excludesArgument &&
+        asking.kind === "pointer" &&
+        asking.object === "part" &&
+        asking.displacement === 0;
       for (const effect of engine.writes) {
         if (effect.root !== "unknown" || effect.selection !== "overlap-candidate" || effect.path.length) continue;
         const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
@@ -1908,8 +1915,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           [effect],
           s,
           i,
-          effect.evidence,
-          new Set(),
+          skipsOwner ? uniqueEvidence([...effect.evidence, ...engine.list.evidence]) : effect.evidence,
+          new Set(skipsOwner ? [effect.offset] : []),
           `a candidate selected by the overlap query at ${hex(i.address)}`,
           condition,
         );

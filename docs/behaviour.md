@@ -1153,11 +1153,24 @@ interpreted as a candidate pointer. `selection: "overlap-candidate"` marks those
 actual field offsets, instruction evidence and unresolved eligibility predicate.
 
 Applying the summary records conditional effects on an opaque selected candidate. It also invalidates overlapping
-cached and uncached fields on every potentially aliasing part, including byte reads of a written word. The reader
-does not assume that the selected candidate differs from the analysed owner. These possible aliases are invalidated
+cached and uncached fields on every potentially aliasing part, including byte reads of a written word. Unless the
+query is proved to skip the part that asks (below), the reader does not assume that the selected candidate differs
+from the analysed owner. These possible aliases are invalidated
 after the ordinary summary stores so that unresolved store ordering cannot restore an old value. Complete query
 footprints preserve unrelated fields. Incomplete footprints retain the existing broader nonstate invalidation.
 Unknown-root effects remain ineligible for generic owner-only or list-loop promotion.
+
+### Queries that skip the part that asks
+
+Three of the four overlap queries compare each listed part with the part that asks and pass over it before they link
+it (`0x417e`, `0x42da` and `0x448e` in Even More, English floppy; the same three in every supplied build). The reader
+checks that comparison and its branch on the query's code (`list.excludesArgument`). When the analysed part itself
+asks such a query, the parts it marks are never the asking part, so its own fields at those offsets keep their values;
+only its list head at `0x78` changes. When another part asks, the owner may be selected and those fields are still
+forgotten. The teeter-totter's outline search (`0x437d`) does not skip the part that asks and keeps the old rule.
+
+The cat, for example, now keeps its own `0x7a` and `0x7c` through its search for a mouse. No walk and no transition
+count changes: those transitions stay unresolved because they test what the search found.
 
 ## Connection-query bypasses
 
