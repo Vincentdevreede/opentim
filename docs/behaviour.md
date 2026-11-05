@@ -986,6 +986,10 @@ like the teeter-totter's and the jack-in-the-box's control value or the alligato
 like another one, like the vacuum cleaner from frame 6. The tilt and the squeeze also have the recorder write the
 control value again after a few runs, which a single trigger can't describe.
 
+The comparison that follows a walk's branches (see
+[recordings compared along a walk's branches](#recordings-compared-along-a-walks-branches)) now does this too: a
+split on the starting frame is one of the splits it follows, so it keeps no separate rule for it.
+
 The flipped jack-in-the-box has a second gap: its input cases stop at 64 (it would have 184), and the cases of its
 flipped run, among them the one that wraps from frame 0 to 7, come after that limit.
 
@@ -1018,6 +1022,64 @@ Widening applies only at the depth limit, so walks that already end don't change
 creation now ends in every branch in TIM 1; no other walk in either recorded build changes, not even in its text.
 Walks that end in every branch went from 422 to 423 in TIM 1, and none stay open. Even More doesn't change (491). The
 describing time stays about 6 seconds per build.
+
+### Recordings compared along a walk's branches
+
+Most walks now end only through their branches: the walk stops where an input it doesn't know decides, and each way is
+followed as its own branch. The recording comparison used to look at the first walk only, so such a recording could
+never be complete. It now follows the branches. The rules:
+
+- Each path through the tree is followed along the recording. The recording's first frame only tells which starts fit:
+  a path that starts on another frame is not this recording's.
+- A branch whose condition the recording's starting fields rule out is not followed. Those fields only hold at the
+  first run, so only the branches that the first run decides are checked against them, together with what the walk
+  itself knows there. Later runs may have changed the fields, so later branches are never ruled out by them. Fields a
+  trigger writes are left out, since the walk starts after the trigger. A branch that lists alternatives is ruled out
+  only when all of them are.
+- A branch whose frame differs from the recording's frame at the same run is not the way the recording went. This is
+  sound because a split covers every way the walk can go there: a way the analysis can't follow is a stop without
+  branches, and that stays open.
+- A branch after a split on unknown inputs starts with the next run's frame. A branch on a field's value, or on a value
+  after a rope query, starts at the same frame and run. A walk that doesn't know its first frame splits on that frame
+  (each branch starts there) or on the rules that give the next frame (each branch starts one run later).
+- A walk that joins names where it continues (`joined`: the branch numbers from the first walk and the position in
+  that branch's states), and the comparison goes on from there. When the joining walk knew more tests than the place
+  it joins, that place may go ways the joining walk can't. Then no frame may choose among those ways: they must all
+  repeat the recording, or all disagree with it, or the result stays a prefix. The same holds for a walk that forgot
+  fields at the branch depth limit (widening), since it too may go ways the part can't.
+
+The result over all paths the recording allows:
+
+- A prefix when any of them is open: it stops, it ends in a loop of joins that takes no run, or, for a recording that
+  ends without a loop, it changes the frame after the recording ends. The prefix length is the fewest frames such a
+  path matched.
+- Complete when none is open and some path matches forever. A recording that ends without a loop must then keep its
+  last frame in every allowed path; a recording with a loop must repeat its cycle. The tree is searched by position
+  and by phase of the recorded cycle, so a cycle through joins and branches is checked to the end, with no frame limit.
+- Different only when no path matches: every path the starting fields allow shows another frame than the recording at
+  some run, or another cycle. The length is the most frames a path matched first.
+- Unavailable when the starting fields rule out every way, or no start shows the first frame.
+
+The earlier limits stay: an input case whose starting condition the recording doesn't establish, and a recording that
+writes its inputs again while it runs, are prefixes at best. Branches that all agree with the recording count as
+complete, so two branches that both rest on the recorded frame prove its ending together.
+
+With this, complete matches went from 456 to 556 in Even More and from 396 to 468 in TIM 1. Prefixes went from 192 to
+92 and from 156 to 84, and none is different or unavailable. The electric motor, the vacuum cleaner, the
+jack-in-the-box, the alligator, Mel Schlemming, the conveyor belt and the generator now match completely, and 28 of the
+monkey bike's 64 recordings do. What stays a prefix has these causes:
+
+- The recorder writes the control value again while it runs (the gear, the bellows, the teeter-totter and the teapot):
+  a single trigger can't describe that.
+- The recording sets a counter that the walk doesn't carry past the first run, like the windmill's heat of 20, the
+  mouse's and mouse motor's 12 or the monkey bike's 20. The walk branches on the counter at every run, so the end of
+  the countdown stays open.
+- The walk depends on other parts: the cat's search for a mouse and the mouse's list scan.
+- A value the analysis doesn't resolve: the mouse motor's and Mel's house's run write the control value with an
+  unresolved value.
+- A field the recording doesn't save: the bullet's speed.
+- The monkey bike on its pedalling frames: the reset walk can't start there (a decided assumption), and the input cases
+  for those frames test a value the recording doesn't save.
 
 ## Saved evidence
 
