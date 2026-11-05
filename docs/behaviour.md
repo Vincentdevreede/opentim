@@ -1217,8 +1217,9 @@ response footprint is applied, potentially aliased cached part fields are invali
 that could be the related argument or recorded partner. Fields outside the complete footprint retain their values.
 
 The reflected response records a further difference between games. TIM 1 always applies the encoded scaling and
-word damping; Even More can bypass that step when the owner's record field six is zero and has an additional type
-59 coefficient exception. The two-part exchange uses a separation threshold of 512 in TIM 1 and 1024 in Even More.
+word damping. Even More can bypass that step when the owner's record field six is zero, and Even More also has an
+additional coefficient exception for type 59. The two-part exchange uses a separation threshold of 512 in TIM 1 and
+1024 in Even More.
 Even More additionally suppresses one separation candidate when its signed absolute horizontal component exceeds
 the vertical component, before the final control-mask override. These differences are retained in the relations.
 

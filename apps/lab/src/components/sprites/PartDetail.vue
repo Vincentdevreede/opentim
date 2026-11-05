@@ -92,9 +92,9 @@ const missingSheets = computed(() => props.part.sheets.filter((s) => !props.shee
 const opened = computed(() => {
   const shown = shownSprite.value;
   if (shown) return { sheet: shown.sheet, sprite: shown.index };
-  const placed = placements.value.find((p) => props.sheetSprites(p.sheet));
+  const placed = placements.value.find((p) => spriteOf(p.sheet, p.sprite));
   if (placed) return { sheet: placed.sheet, sprite: placed.sprite };
-  const first = props.part.sheets.find((s) => props.sheetSprites(s));
+  const first = props.part.sheets.find((s) => props.sheetSprites(s)?.length);
   return first === undefined ? undefined : { sheet: first, sprite: 0 };
 });
 const count = computed(() => (strip.value === "frames" ? props.part.frames.length : sprites.value.length));

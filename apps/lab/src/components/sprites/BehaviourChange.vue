@@ -50,7 +50,6 @@ const address = (n: number) => `0x${n.toString(16).padStart(5, "0")}`;
         class="shrink-0 cursor-pointer font-mono text-ink hover:text-accent hover:underline"
         :title="`Show frame ${row.toState}`"
         @click.stop="emit('showFrame', row.toState)"
-        @keydown.stop
       >
         {{ row.target }}
       </button>

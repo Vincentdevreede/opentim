@@ -66,12 +66,6 @@ const cards = computed(() => [
   ...GROUPS.map((g) => ({ ...g, count: resources.value.filter((r) => r.group === g.id).length })),
 ]);
 
-/** Every loaded file: the RESOURCE files the resources come from, and the program, like TIM.EXE. */
-const loadedFiles = computed(() => [
-  ...archives.value,
-  ...(program.value ? [{ name: program.value.name, size: program.value.data.length }] : []),
-]);
-
 /** The parts of the loaded game, read from its program or from INFO.RES, for the Parts card. */
 const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 /** The badge of the Parts card: where the parts were read from, or that the lab has no list for this game. */
@@ -207,7 +201,7 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
     <template #subtitle>
       <span class="font-mono text-ink">{{ resources.length }}</span> resources from
       <span class="font-mono text-ink">{{ archives.length }}</span> files<template v-if="program">
-        and <span class="font-mono text-ink">{{ program.name }}</span></template
+        including <span class="font-mono text-ink">{{ program.name }}</span></template
       >
       · read in {{ readSeconds.toFixed(1) }} s
     </template>
@@ -348,8 +342,9 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
 
       <div v-if="!canPersist" class="mt-auto px-3 pb-3"><StorageNotice /></div>
       <section :class="canPersist && 'mt-auto'" class="border-t border-line pb-1">
-        <LabPanelHeader title="Loaded files" :meta="loadedFiles.length" />
-        <LabListRow v-for="a in loadedFiles" :key="a.name" :name="a.name" inset class="last:after:hidden">
+        <!-- Every loaded file, the program like TIM.EXE among them. -->
+        <LabPanelHeader title="Loaded files" :meta="archives.length" />
+        <LabListRow v-for="a in archives" :key="a.name" :name="a.name" inset class="last:after:hidden">
           <template #end>
             <span class="font-mono text-meta text-muted">{{ formatBytes(a.size) }} B</span>
           </template>

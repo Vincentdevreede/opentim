@@ -227,12 +227,7 @@ onBeforeUnmount(() => (crumb.value = []));
   <LabEmpty
     v-else
     icon="parts"
-    :title="resources.length ? 'No parts list for these files' : 'No files loaded'"
-    :text="
-      resources.length
-        ? 'The lab has parts lists for TIM 1, Even More and TIM 2, and these files aren’t from one of them.'
-        : 'Import the game’s RESOURCE files to see its parts.'
-    "
-    :import-link="!resources.length"
+    title="No parts list for these files"
+    text="The lab has parts lists for TIM 1, Even More and TIM 2, and these files aren’t from one of them."
   />
 </template>

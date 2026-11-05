@@ -22,6 +22,7 @@ import { useRendered, type RenderJob } from "../components/audio/rendering.ts";
 import SamplePlayer from "../components/audio/SamplePlayer.vue";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
+import LabEmpty from "../components/LabEmpty.vue";
 import LabListHeading from "../components/LabListHeading.vue";
 import LabListRow from "../components/LabListRow.vue";
 import LabNoMatch from "../components/LabNoMatch.vue";
@@ -94,6 +95,15 @@ const pcm = computed<Pcm | undefined>(() => {
 const bankFile = computed(() => sections.value.find((s) => s.title !== "Samples")?.title);
 const soundCount = computed(() => all.value.filter((i) => i.type === "bank").length);
 const sampleCount = computed(() => all.value.filter((i) => i.type === "raw").length);
+/** With more than one bank loaded, a row names its bank too, as their sounds share one list. */
+const manyBanks = computed(() => sections.value.filter((s) => s.title !== "Samples").length > 1);
+/** The meta of a row: the sound's id, with its bank when that's needed, or the sample file's size. */
+const rowMeta = (item: AudioItem) =>
+  item.type === "raw"
+    ? formatBytes(item.resource.data.length)
+    : manyBanks.value
+      ? `${item.resource.name} · ${item.entry.id}`
+      : String(item.entry.id);
 
 /** How the lab plays an item: its sample as it is, its MIDI on the emulated AdLib, or not at all. */
 function statusOf(item: AudioItem): { status: Confidence; label: string } {
@@ -196,9 +206,10 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
           v-for="item in shown"
           :key="item.key"
           :name="itemName(item)"
-          :meta="item.type === 'bank' ? String(item.entry.id) : formatBytes(item.resource.data.length)"
+          :meta="rowMeta(item)"
           :status="statusOf(item).status"
           :status-title="statusOf(item).label"
+          :aria-description="statusOf(item).label"
           :selected="item.key === current.key"
           :data-sound="item.key === current.key ? 'selected' : ''"
           @click="pick(item)"
@@ -379,21 +390,10 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
     </section>
   </div>
 
-  <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-    <LabIcon name="audio" :size="28" class="text-faint" />
-    <template v-if="resources.length">
-      <p class="text-title font-semibold">No sounds in these files</p>
-      <p class="text-muted">The loaded files have no sound banks (.SX) or samples (.RAW).</p>
-    </template>
-    <template v-else>
-      <p class="text-title font-semibold">No files loaded</p>
-      <p class="text-muted">Import the game’s RESOURCE files to list and play its sounds.</p>
-      <RouterLink
-        to="/"
-        class="mt-1 inline-flex h-[26px] items-center rounded-[5px] border border-accent bg-accent px-[9px] font-semibold text-accent-ink hover:bg-accent-hover"
-      >
-        Go to Import
-      </RouterLink>
-    </template>
-  </div>
+  <LabEmpty
+    v-else
+    icon="audio"
+    title="No sounds in these files"
+    text="The loaded files have no sound banks (.SX) or samples (.RAW)."
+  />
 </template>
