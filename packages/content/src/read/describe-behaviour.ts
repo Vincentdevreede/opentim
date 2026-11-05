@@ -2993,6 +2993,32 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       ? `Saves state ${write.value.value} as the one the next level reset starts from.`
       : "Updates the state the next level reset starts from.";
   if (name === "drawingFlags") {
+    // An exclusive or of the field with a number turns those flags round, whatever they were.
+    const value = write.value;
+    if (
+      value.kind === "binary" &&
+      value.operator === "^" &&
+      value.left.kind === "field" &&
+      value.left.object === write.object &&
+      value.left.offset === write.offset &&
+      value.right.kind === "constant"
+    ) {
+      const toggled = value.right.value;
+      const masks = report.layout.fields.find((field) => field.offset === write.offset)?.masks ?? [];
+      const named = masks.filter((mask) => (toggled & mask.value) === mask.value);
+      const words = named.flatMap((mask) =>
+        mask.name === "horizontalFlip"
+          ? [`Turns ${subject} horizontal reflection round.`]
+          : mask.name === "verticalFlip"
+            ? [`Turns ${subject} vertical reflection round.`]
+            : mask.name === "hidden"
+              ? [`Turns hiding ${subject.replace(/'s$/, "")} round.`]
+              : [],
+      );
+      const rest = named.reduce((bits, mask) => bits & ~mask.value, toggled);
+      if (rest) words.push(`Turns flag 0x${rest.toString(16)} of ${subject} drawing flags round.`);
+      return words.join(" ");
+    }
     const flags = valueOf(write.value, new Map());
     const changes =
       report.layout.fields

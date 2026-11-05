@@ -1307,6 +1307,34 @@ describe("creation defaults and related input conditions", () => {
     expect(lines).toContain("Selects state 9 on the touching part.");
   });
 
+  it("says a flip that toggles a drawing flag turns that reflection round", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    data.layout.fields = data.layout.fields.filter((item) => item.offset !== 0x08);
+    data.layout.fields.push({
+      name: "drawingFlags",
+      offset: 0x08,
+      masks: [
+        { value: 0x10, name: "horizontalFlip" },
+        { value: 0x20, name: "verticalFlip" },
+      ],
+      ...proof,
+    } as never);
+    const toggle = (mask: number): Expression => ({
+      kind: "binary",
+      operator: "^",
+      left: field(0x08),
+      right: constant(mask),
+      width: 16,
+    });
+    data.parts[0]!.visibleEffects = [
+      { ...write(0x08, toggle(0x20)), routine: 300 },
+      { ...write(0x08, toggle(0x41)), routine: 300 },
+    ];
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain("Turns the part's vertical reflection round.");
+    expect(lines).toContain("Turns flag 0x41 of the part's drawing flags round.");
+  });
+
   it("rests on each frame when the run keeps every field", () => {
     const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
     data.parts[0]!.frameCount = 3;

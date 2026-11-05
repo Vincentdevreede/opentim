@@ -1356,6 +1356,10 @@ of the record of its rope at 0x66" when asked with mode 1. A bounce callback's w
 that touched its owner (see [walks from parts that touch](#walks-from-parts-that-touch)): "Selects state 9 on the
 touching part" instead of "on another part".
 
+A flip that turns a drawing flag round with an exclusive or (`xor word [si+0x08], 0x0010`) now says so: "Turns the
+part's horizontal reflection round", or the vertical one for `0x20`, as the eye hook's flip does. It used to say the
+complete visual change wasn't established, since the new flags depend on the old ones.
+
 ### Parts whose run keeps everything
 
 Most simple parts share one empty run routine (`0x29f` in Even More: it only sets up and restores `bp`), and the same
