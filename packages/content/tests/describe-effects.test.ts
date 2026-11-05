@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
-import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
+import { effectsFromOthers, FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "../src/read/describe-effects.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const c = (value: number): Expression => ({ kind: "constant", value, width: 16 });
@@ -232,12 +232,20 @@ describe("effects of other parts", () => {
     expect(push.assumptions).toContain("The centre angle's assumption.");
   });
 
-  it("writes numbers it sets as signed velocities, with the source's named flags", () => {
+  it("says the push has no screen direction of its own, only away", () => {
+    const push = lines.get(12)!.effects.find((e) => e.sets[0]!.kind === "speed")!;
+    expect(push.velocityDirection).toBeUndefined();
+    expect(push.assumptions).not.toContain(SCREEN_DIRECTION_ASSUMPTION);
+  });
+
+  it("writes both velocities it sets as a direction on the screen with the signed numbers, and the source's named flags", () => {
     const set = lines.get(12)!.effects.find((e) => e.sets[0]!.kind === "field")!;
     expect(set.sourceConditionWords).toEqual(["mirrored"]);
     expect(set.description).toBe(
-      "An explosion that reaches it, when the explosion is mirrored, sets velocityX to 4096 and sets velocityY to -4096. Only when it is on the moving list.",
+      "An explosion that reaches it, when the explosion is mirrored, sets its velocity up and to the right (velocityX 4096, velocityY -4096). Only when it is on the moving list.",
     );
+    expect(set.velocityDirection).toBe("up and to the right");
+    expect(set.assumptions).toContain(SCREEN_DIRECTION_ASSUMPTION);
   });
 
   it("leaves out a fixed type by the decided assumption, and says so", () => {

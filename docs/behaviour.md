@@ -616,7 +616,11 @@ and the shamrock 2560; the bowling ball 3072; the birdcage 3584; the cat, the bu
 the teapot and the pool ball 4096; the basketball, the candle and the super ball 4608; the baseball 5120; the heart and
 the tennis ball 5632; the mouse and the explosion 6144. TIM 1 gives the same speeds to the parts it has. The same rule
 also finds the jack-in-the-box's punch, which sets both velocities from the same speed classes: for the cat -4096 and
--4096, or 4096 and -4096 when the box is mirrored.
+-4096, or 4096 and -4096 when the box is mirrored. A line that sets both velocities to numbers says where that moves
+the part on the screen, with the numbers after it: "sets its velocity up and to the left (velocityX -4096, velocityY
+-4096)". That a negative velocity moves a part left or up is what the user saw in the game, recorded as
+[the decided assumption on screen directions](behaviour-assumptions.md#12-screen-directions): the code shows that a
+velocity has the sign of its position's change, but not how a position maps to the screen.
 
 These effects of other parts are left out, so they are known gaps:
 
@@ -665,7 +669,7 @@ differences are the true ones. When the two centres are the same point there is 
 quarter turn, and the setter puts the whole speed into `velocityY`.
 
 The jack-in-the-box's punch doesn't use the centre angle: it sets fixed numbers, chosen by whether the box is
-mirrored, so its lines keep their numbers.
+mirrored. Its lines say the direction on the screen instead, as described above.
 
 ### The outline search
 

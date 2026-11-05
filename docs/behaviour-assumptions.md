@@ -509,3 +509,41 @@ would show the push with the condition "on the moving list". The parts it rules 
 
 **Rechecked on 2026-11-05** in all eleven builds: `0x6469` is the only writer of `0x1000` (TIM 1 French `0x57e8`),
 nothing clears `0x4000`, and no shipped fixed part has `0x1000`.
+
+## 12. Screen directions
+
+Decided on 2026-11-05 with the user. In the code: `SCREEN_DIRECTION_ASSUMPTION` in
+`packages/content/src/read/describe-effects.ts`. Explained in
+[effects of other parts](behaviour.md#effects-of-other-parts).
+
+**The question.** The jack-in-the-box sets a part's two velocities to fixed numbers: -4096 and -4096 for a cat when
+the box isn't flipped, and 4096 and -4096 when it is. Which way on the screen is that?
+
+**What the user saw.** In the game, on 2026-11-05: a jack-in-the-box that isn't flipped knocks a part up and to the
+left.
+
+**What the code shows** (Even More, English floppy):
+
+- The jack-in-the-box's run at `0x1b888` sets both velocities negative when its flip flag (`0x10` of `0x08`) is clear,
+  and the horizontal one positive when it is set. So the flipped box is the mirror image: up and to the right.
+- The routine at `0x7df7` sets `velocityX` at `0x36` from `positionX` at `0x1e` minus the previous `positionX` at
+  `0x22` (`0x7e08`), and `velocityY` at `0x38` the same way from `0x20` and `0x24` (`0x7e1f`). So a velocity has the
+  sign of the change of its position.
+- It does not show how a position maps to the screen: that is in the drawing code, which the analysis doesn't follow
+  that far.
+
+**What we assume.**
+
+- On the screen, a negative velocityX at `0x36` moves a part to the left and a negative velocityY at `0x38` moves it
+  up. In the game, a jack-in-the-box that isn't flipped, which sets both negative, knocks a part up and to the left.
+
+Not proved: that a smaller position is further left or higher on the screen. It rests on what the user saw.
+
+**What it gives.** A line that sets both velocities to numbers says the direction in words, with the numbers after
+it: "sets its velocity up and to the left (velocityX -4096, velocityY -4096)". Today that is the jack-in-the-box's
+punch. The explosion's push doesn't need it: "away from the explosion" is proved without screen directions.
+
+**How to recheck.**
+
+- Follow the drawing code from `drawY` at `0x2c` to the screen and check that a smaller value is drawn higher.
+- In the game, flip a jack-in-the-box and check that it knocks a part up and to the right.

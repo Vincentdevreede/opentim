@@ -24,6 +24,14 @@ export const FIXED_LIST_ASSUMPTION =
   "A part of a type whose starting flags have 0x4000 is never on the moving list: its list flags at 0x06 never have 0x1000. The game puts such a part on the fixed list, and no shipped level saves one with 0x1000.";
 const CENTRES_ASSUMPTION =
   "The two centres are less than 32768 apart across and down, so the word differences the centre angle takes are the true ones. When they are the same point there is no direction, and the setter puts the whole speed into velocityY.";
+/**
+ * Which way a velocity moves a part on the screen. The code shows that a velocity has the sign of the change of the
+ * position it goes with (`0x7e08` to `0x7e2d` in Even More, English floppy), but not how a position maps to the
+ * screen. The user saw it in the game on 2026-11-05: an unflipped jack-in-the-box, which sets both velocities
+ * negative, knocks a part up and to the left.
+ */
+export const SCREEN_DIRECTION_ASSUMPTION =
+  "On the screen, a negative velocityX at 0x36 moves a part to the left and a negative velocityY at 0x38 moves it up. In the game, a jack-in-the-box that isn't flipped, which sets both negative, knocks a part up and to the left.";
 const TYPE_TABLE_ASSUMPTION =
   "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE.";
 
@@ -58,6 +66,8 @@ export interface OtherPartEffect extends Finding {
   condition: Predicate;
   /** `condition` in a few words, like "on the moving list". */
   conditionWords: string[];
+  /** When it sets both velocities to numbers: where that moves the part on the screen, like "up and to the left". */
+  velocityDirection?: string;
   description: string;
 }
 
@@ -368,15 +378,35 @@ export function effectsFromOthers(
         continue;
       }
       const name = nameOf(c.sourcePart);
-      const said = sets.map((s) => {
+      // Both velocities set to numbers read as one direction on the screen, with the numbers after it.
+      const velocity = (name: string) =>
+        sets.find(
+          (s): s is Extract<OtherPartSetting, { kind: "field" }> =>
+            s.kind === "field" && s.width === 16 && fieldNames.get(s.offset) === name,
+        );
+      const [across, down] = [velocity("velocityX"), velocity("velocityY")];
+      const signedWord = (value: number) => (value >= 0x8000 ? value - 0x10000 : value);
+      const vx = across && signedWord(across.value),
+        vy = down && signedWord(down.value);
+      const velocityDirection =
+        vx !== undefined && vy !== undefined
+          ? [vy < 0 ? "up" : vy > 0 ? "down" : "", vx < 0 ? "to the left" : vx > 0 ? "to the right" : ""]
+              .filter((w) => w)
+              .join(" and ") || undefined
+          : undefined;
+      const said = sets.flatMap((s) => {
+        if (velocityDirection && (s === across || s === down))
+          return s === across ? [`sets its velocity ${velocityDirection} (velocityX ${vx}, velocityY ${vy})`] : [];
         if (s.kind === "speed")
-          return s.away
-            ? `sets its speed to ${s.speed}, away from the ${name}`
-            : `sets its speed to ${s.speed}, in a direction the ${name} works out`;
+          return [
+            s.away
+              ? `sets its speed to ${s.speed}, away from the ${name}`
+              : `sets its speed to ${s.speed}, in a direction the ${name} works out`,
+          ];
         const field = fieldNames.get(s.offset);
         // A velocity is a signed word.
         const value = field?.startsWith("velocity") && s.value >= 0x8000 ? s.value - 0x10000 : s.value;
-        return `sets ${field ?? `+0x${s.offset.toString(16)}`} to ${value}`;
+        return [`sets ${field ?? `+0x${s.offset.toString(16)}`} to ${value}`];
       });
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
       const description = `${article(name)} ${name} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when it is ${words.join(" and ")}.` : ""}`;
@@ -396,6 +426,7 @@ export function effectsFromOthers(
         sets,
         condition: conjunction(conditionTerms),
         conditionWords: words,
+        ...(velocityDirection ? { velocityDirection } : {}),
         description,
         confidence: c.outcome.confidence,
         assumptions: [
@@ -404,6 +435,7 @@ export function effectsFromOthers(
             ...c.writes.flatMap((w) => w.assumptions),
             ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
             ...proofs,
+            ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
             "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
           ]),
         ],
