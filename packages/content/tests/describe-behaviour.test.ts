@@ -1315,6 +1315,13 @@ describe("creation defaults and related input conditions", () => {
     const search = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
     expect(search).toContain("Links a part its search finds into its found list (field 0x78).");
     expect(search).toContain("May change field 0x7a of a part its search finds.");
+    // An object the routine creates itself.
+    data.routines[2]!.writes = [
+      { ...write(0x1e, constant(5)), object: "nullable allocation returned at 0x1b3a1", routine: 300 },
+    ];
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "Sets field 0x1e of the object it creates at 0x1b3a1.",
+    );
   });
 
   it("says a flip that toggles a drawing flag turns that reflection round", () => {
