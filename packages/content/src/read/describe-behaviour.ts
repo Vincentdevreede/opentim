@@ -108,6 +108,8 @@ export interface RestDescription extends Finding {
   description: string;
   state?: number;
   frame?: number;
+  /** The frames the reset can leave, when its paths set the frame from bits it keeps and tests of other fields. */
+  frames?: number[];
   fields: KnownField[];
   reason?: string;
 }
@@ -824,6 +826,111 @@ function metadataFields(report: BehaviourReport, part: PartBehaviour): KnownFiel
     : [];
 }
 
+/**
+ * A frame written as `(frame & kept) | set`, the way a reset keeps some bits of the frame it starts from and sets the
+ * others. Only plain `&` and `|` with numbers count, so the result is exact for every starting frame.
+ */
+function frameBits(expression: Expression, stateOffset: number): { kept: number; set: number } | undefined {
+  if (expression.kind === "constant") return { kept: 0, set: expression.value & 0xffff };
+  if (expression.kind === "field")
+    return expression.object === "part" && expression.offset === stateOffset && expression.width === 16
+      ? { kept: 0xffff, set: 0 }
+      : undefined;
+  if (expression.kind !== "binary" || (expression.operator !== "&" && expression.operator !== "|")) return undefined;
+  const [inner, number] =
+    expression.right.kind === "constant"
+      ? [expression.left, expression.right.value & 0xffff]
+      : expression.left.kind === "constant"
+        ? [expression.right, expression.left.value & 0xffff]
+        : [undefined, 0];
+  const bits = inner && frameBits(inner, stateOffset);
+  if (!bits) return undefined;
+  return expression.operator === "&"
+    ? { kept: bits.kept & number, set: bits.set & number }
+    : { kept: bits.kept & ~number, set: bits.set | number };
+}
+const bitList = (mask: number) => [...Array(16).keys()].filter((bit) => mask & (1 << bit));
+const listWords = (items: string[]) =>
+  items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+const bitWords = (mask: number) =>
+  `bit${bitList(mask).length === 1 ? "" : "s"} ${listWords(bitList(mask).map(String))}`;
+const framesWords = (frames: number[]) =>
+  frames.length > 2 && frames.every((frame, index) => index === 0 || frame === frames[index - 1]! + 1)
+    ? `one of frames ${frames[0]} to ${frames.at(-1)}`
+    : frames.length === 1
+      ? `frame ${frames[0]}`
+      : `one of frames ${listWords(frames.map(String))}`;
+/**
+ * The frames a reset can leave when every path writes the frame as `(frame & kept) | set`. A set bit that a zero test
+ * of one field decides on every path is named with that field. The frames are those a path can give from any frame the
+ * reset starts from, so no saved frame is assumed.
+ */
+function resetFrames(
+  outcomes: RuleOutcome[],
+  part: WithFrameCount,
+  stateOffset: number,
+  saved: boolean,
+): { frames: number[]; description: string } | undefined {
+  if (!part.frameCount) return undefined;
+  const bits: { kept: number; set: number }[] = [];
+  for (const outcome of outcomes) {
+    // One 16-bit write of the frame, and no other write that overlaps it.
+    const writes = outcome.fields.filter(
+      (item) => item.object === "part" && item.offset < stateOffset + 2 && item.offset + item.width / 8 > stateOffset,
+    );
+    const write = writes.length === 1 && writes[0]!.offset === stateOffset ? writes[0] : undefined;
+    const rule = write?.width === 16 ? frameBits(write.value, stateOffset) : undefined;
+    if (!rule) return undefined;
+    bits.push(rule);
+  }
+  // Every path must give a frame the part has, whatever it starts from, and keep the same bits.
+  const kept = bits[0]?.kept;
+  if (kept === undefined || bits.some((rule) => rule.kept !== kept || (rule.kept | rule.set) >= part.frameCount!))
+    return undefined;
+  const frames = [...Array(part.frameCount).keys()].filter((frame) =>
+    bits.some((rule) => (frame & rule.set) === rule.set && (frame & ~(rule.kept | rule.set)) === 0),
+  );
+  const always = bits.reduce((mask, rule) => mask & rule.set, 0xffff);
+  const varying = bits.reduce((mask, rule) => mask | rule.set, 0) & ~always;
+  type ZeroTest = Predicate & { kind: "compare"; left: Expression & { kind: "field" } };
+  const zeroTests = outcomes.map((outcome) =>
+    predicateTerms(outcome.condition).filter(
+      (term): term is ZeroTest =>
+        term.kind === "compare" &&
+        (term.operator === "==" || term.operator === "!=") &&
+        term.left.kind === "field" &&
+        term.left.object === "part" &&
+        term.right.kind === "constant" &&
+        term.right.value === 0,
+    ),
+  );
+  const decided = bitList(varying).map((bit) => {
+    const decider = zeroTests[0]?.find((candidate) =>
+      outcomes.every((_, index) => {
+        const terms = zeroTests[index]!.filter(
+          (term) => term.left.offset === candidate.left.offset && term.left.width === candidate.left.width,
+        );
+        return terms.length === 1 && (terms[0]!.operator === "!=") === !!(bits[index]!.set & (1 << bit));
+      }),
+    );
+    return decider && `bit ${bit} when the word at +0x${decider.left.offset.toString(16)} is not 0`;
+  });
+  const start = saved ? "the frame saved in the level" : "the frame it starts from";
+  const steps = [
+    ...(kept ? [`keeps ${bitWords(kept)} of ${start}`] : []),
+    ...(always ? [`sets ${bitWords(always)}`] : []),
+    ...(varying
+      ? decided.every(Boolean)
+        ? [`sets ${listWords(decided as string[])}`]
+        : [`sets ${bitWords(varying)} by tests of other fields`]
+      : []),
+  ];
+  return {
+    frames,
+    description: `The reset ${listWords(steps)}, so it leaves ${framesWords(frames)}${kept ? "" : `, whatever ${start}`}.`,
+  };
+}
+
 function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   const callback = part.routines.find((item) => item.slot === 2);
   const routine = report.routines.find((item) => item.address === callback?.address) as WithOutcomes | undefined;
@@ -860,7 +967,19 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
         outcome.confidence !== "unresolved" &&
         !outcome.fields.some((write) => write.object === "part" && write.offset === stateOffset),
     );
-  if (!known(state) || outcomes.some((outcome) => outcome.confidence === "unresolved"))
+  const resolved = !outcomes.some((outcome) => outcome.confidence === "unresolved");
+  const bitFrames = !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest) : undefined;
+  if (bitFrames)
+    return {
+      status: "unresolved",
+      description: bitFrames.description,
+      frames: bitFrames.frames,
+      fields,
+      ...proof,
+      confidence: "unresolved",
+      reason: "The reset paths are resolved; which of these frames they leave depends on fields the reset doesn't fix.",
+    };
+  if (!known(state) || !resolved)
     return {
       status: "unresolved",
       description: savedRest
@@ -2847,6 +2966,11 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       ? `Selects state ${write.value.value}${other ? " on another part" : ""}.`
       : `Updates ${subject} selected state.`;
   if (name === "stateDelta") return `Updates ${subject} value that advances the animation state.`;
+  // The level reset copies this field into the state before it calls the part's reset.
+  if (name === "savedState" && write.object === "part" && !other)
+    return write.value.kind === "constant"
+      ? `Saves state ${write.value.value} as the one the next level reset starts from.`
+      : "Updates the state the next level reset starts from.";
   if (name === "drawingFlags") {
     const flags = valueOf(write.value, new Map());
     const changes =
@@ -3374,8 +3498,9 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
     const rest = restOf(report, part);
     const creation = creationOf(report, part);
     if (rest.status === "unresolved" && report.lifecycle?.reset.length) {
-      rest.description =
-        "The level reset restores the frame saved in the level; TIM.EXE alone does not supply that value.";
+      if (!rest.frames)
+        rest.description =
+          "The level reset restores the frame saved in the level; TIM.EXE alone does not supply that value.";
       rest.evidence = evidence(rest.evidence, ...report.lifecycle.reset.map((context) => context.evidence));
       rest.assumptions.push(
         "This describes the proved level-reset context; other callers of the type reset callback can differ.",

@@ -1359,6 +1359,38 @@ pool ball and shamrock (11 of them in TIM 1). The walls, floors, pulley, belt, r
 share the empty run too, but the program draws them its own way, so they have no frame list to count and stay without
 one.
 
+### Resets that set the frame from the sockets
+
+The resets of the electric switch, the generator and the solar panel set the frame from the link slots at `0x62` and
+`0x64`, where the editor plugs plugs in. They used to be described only as "the frame depends on fields the reset
+doesn't fix". Addresses below are from Even More, English floppy.
+
+- The switch's reset (`0x1a64a`) keeps bit 2 of its frame (the lever) and sets bit 0 when the word at `0x62` isn't 0
+  and bit 1 when the word at `0x64` isn't 0. It also picks the lever's outline by whether the frame is at least 4.
+- The generator's reset (`0x1aeb3`) keeps bits 0 and 1 (the phase its run turns round) and sets bit 2 and bit 3 the
+  same way.
+- The solar panel's reset (`0x1ce45`) keeps nothing: its frame is 0, plus 1 for `0x62` and 2 for `0x64`.
+
+The level reset (`0x892b`) copies the saved state `0x90` into the frame (`0x89c6`), calls the part's reset
+(`0x8a93`) and saves the frame it leaves back into `0x90` (`0x8a9c`). It doesn't touch `0x62` or `0x64`. The level
+loader reads the saved state into `0x90` (`0x136af`) and, from file version 0x101 on, the two plugged parts into
+`0x62` and `0x64` (`0x13941`). In the editor, plugging a plug in (`0x5d14`) takes `0x62` when it is free and `0x64`
+otherwise, calls the reset of the part it leaves and of the part it joins, and saves their frames into `0x90`
+(`0x5de4`, `0x5e25`). The switch's flip (`0x1a6ed`) sets the frame to 4 below frame 4 and to 0 otherwise, saves that
+into `0x90` (`0x1a709`) and only then calls the reset, so a level saved after a flip keeps 0 or 4 even when a plug is
+in. The generator and the solar panel have the shared empty flip.
+
+When every path of a reset writes the frame as some bits of the frame it starts from with other bits set, and every
+frame such a path can give is one the part has, the description now says which bits are kept, which test sets each
+other bit, and the frames it can leave (`rest.frames`). For these three parts that is every frame they have: 0 to 7,
+0 to 15 and 0 to 3. Which one depends on the saved frame and on the plugs, which TIM.EXE alone doesn't give. The
+starting fields of the walks don't change, and every walk of these parts still ends. A write of the saved state is
+now described as the state the next level reset starts from, so the switch's flip says it saves 0 or 4.
+
+Shipped levels show that the starting frame isn't always the saved one. In Even More, a switch saved on frame 0 with a
+plug in `0x62` starts on frame 1, one saved on 4 with a plug starts on 5, and a generator saved on 0 with a plug
+starts on 4.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

@@ -1298,6 +1298,72 @@ describe("creation defaults and related input conditions", () => {
     expect(describeBehaviour(tested).parts[0]!.stableStates.map((stable) => stable.state)).not.toContain(2);
   });
 
+  // A reset like the electric switch's: it keeps bit 2 of the frame and sets bit 0 and bit 1 by whether the words at
+  // 0x62 and 0x64 are 0. Each path is one outcome of the reset routine.
+  function bitReset(keep: number | undefined, frameCount: number, low = 0) {
+    const data = report([rule(field(12), test(12, "==", 0))]);
+    const base = (bits: number): Expression =>
+      keep === undefined
+        ? constant(bits)
+        : bits
+          ? {
+              kind: "binary",
+              operator: "|",
+              left: { kind: "binary", operator: "&", left: field(12), right: constant(keep), width: 16 },
+              right: constant(bits),
+              width: 16,
+            }
+          : { kind: "binary", operator: "&", left: field(12), right: constant(keep), width: 16 };
+    const outcomes = [0, 1, 2, 3].map((bits) => ({
+      condition: both(test(0x62, bits & 1 ? "!=" : "==", 0), test(0x64, bits & 2 ? "!=" : "==", 0)),
+      fields: [write(12, base(bits << low))],
+      ...proof,
+    }));
+    data.routines[1] = { ...data.routines[1]!, outcomes } as never;
+    data.parts[0]!.frameCount = frameCount;
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    return describeBehaviour(data).parts[0]!.rest;
+  }
+
+  it("lists the frames a reset leaves when it keeps some bits of the saved frame and sets the others by tests", () => {
+    const rest = bitReset(4, 8);
+    expect(rest.status).toBe("unresolved");
+    expect(rest.frames).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(rest.description).toBe(
+      "The reset keeps bit 2 of the frame saved in the level and sets bit 0 when the word at +0x62 is not 0 and bit 1 when the word at +0x64 is not 0, so it leaves one of frames 0 to 7.",
+    );
+    expect(rest.reason).toBe(
+      "The reset paths are resolved; which of these frames they leave depends on fields the reset doesn't fix.",
+    );
+    // Like the generator: it keeps the two low bits and sets bits 2 and 3.
+    expect(bitReset(3, 16, 2).description).toContain("keeps bits 0 and 1 of the frame saved in the level");
+    // Like the solar panel: no bit of the saved frame is kept.
+    expect(bitReset(undefined, 4)).toMatchObject({
+      frames: [0, 1, 2, 3],
+      description:
+        "The reset sets bit 0 when the word at +0x62 is not 0 and bit 1 when the word at +0x64 is not 0, so it leaves one of frames 0 to 3, whatever the frame saved in the level.",
+    });
+  });
+
+  it("names no frames when a reset path can leave a frame the part doesn't have", () => {
+    const rest = bitReset(4, 4);
+    expect(rest.frames).toBeUndefined();
+    expect(rest.reason).toBe(
+      "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
+    );
+  });
+
+  it("says a write of the saved state is the state the next level reset starts from", () => {
+    const data = report([rule(field(12), test(12, "==", 0))]);
+    data.layout.fields.push({ name: "savedState", offset: 0x90, ...proof } as never);
+    data.routines[2] = {
+      ...data.routines[2]!,
+      outcomes: [{ condition: { kind: "true" }, fields: [write(0x90, constant(4)), write(12, constant(4))], ...proof }],
+    } as never;
+    const descriptions = describeBehaviour(data).parts[0]!.animations.map((item) => item.trigger.description);
+    expect(descriptions.join(" ")).toContain("Saves state 4 as the one the next level reset starts from.");
+  });
+
   it("keeps a creation state separate from a loaded level's unknown reset value", () => {
     const data = report(
       [rule(constant(2), test(12, "==", 1)), rule(constant(0), test(12, "==", 2)), rule(field(12), test(12, "==", 0))],
