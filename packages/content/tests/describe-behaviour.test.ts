@@ -1662,4 +1662,30 @@ describe("countdowns", () => {
     expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
     expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
   });
+
+  it("knows a field the run stores from its list scan when the rule tests that value, like the mouse motor's", () => {
+    // With the control value at 0x12 clear, the run scans its list and may start itself, which sets the control value.
+    // The control value after the scan is one value of the run: the rule that finds it 0 stores 0.
+    const scanned: Expression = {
+      kind: "field",
+      object: "part after list scan at 0x1bff5",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    const data = complete(
+      report([
+        rule(field(12), both(test(0x12, "==", 0), compare(scanned, "==", 0)), [write(0x12, scanned)]),
+        rule(constant(1), both(test(0x12, "==", 0), compare(scanned, "!=", 0)), [write(0x12, scanned)]),
+        rule(field(12), test(0x12, "!=", 0)),
+      ]),
+      [anyPath],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 0)]);
+    const still = walk.stop?.branches?.find((branch) => branch.walk.states[0] === 0)?.walk;
+    expect(still?.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+    // The scan that found something leaves the control value unknown: the walk doesn't choose it.
+    const started = walk.stop?.branches?.find((branch) => branch.walk.states[0] === 1)?.walk;
+    expect(started?.fields.some((item) => item.offset === 0x12)).toBe(false);
+  });
 });

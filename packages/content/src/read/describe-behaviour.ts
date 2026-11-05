@@ -665,12 +665,38 @@ function completeRuleEffects(rule: WithUpdates, routine?: RoutineAnalysis): bool
     (!!routine?.outcomes?.length && routine.outcomes.every((outcome) => outcome.effectsComplete === true))
   );
 }
+/**
+ * Values a list scan, find-first loop or query of the run left behind. Each one names the loop or call by its address,
+ * so within one run the same name is the same value.
+ */
+const SCAN_VALUE =
+  /^(part after list scan|local after (list scan|find-first loop)|answer of the query|part after the query) at /;
+/**
+ * The number a rule's condition gives a value the run left behind, by the value's text. The rule's writes may store
+ * that same value, like the mouse motor's control value after its list scan at `0x1bff5`.
+ */
+function scanValueNumbers(condition: Predicate): Map<string, Expression> {
+  const numbers = new Map<string, Expression>();
+  for (const term of predicateTerms(condition)) {
+    if (term.kind !== "compare" || term.operator !== "==") continue;
+    const [field, number] =
+      term.left.kind === "field" && term.right.kind === "constant"
+        ? [term.left, term.right]
+        : term.right.kind === "field" && term.left.kind === "constant"
+          ? [term.right, term.left]
+          : [];
+    if (field?.kind === "field" && number?.kind === "constant" && field.unresolved && SCAN_VALUE.test(field.object))
+      numbers.set(textOf(field), number);
+  }
+  return numbers;
+}
 function ruleBindings(rule: WithUpdates, initial: Bindings, routine?: RoutineAnalysis): Bindings {
   const complete = completeRuleEffects(rule, routine);
   if (rule.updates) {
     const next = complete ? new Map(initial) : new Map<string, Bits>();
+    const numbers = scanValueNumbers(rule.condition);
     for (const write of rule.updates) {
-      const value = valueOf(write.value, initial);
+      const value = valueOf(numbers.get(textOf(write.value)) ?? write.value, initial);
       writeField(next, write.object, write.offset, value);
       if (write.object === "part") countdownWrite(next, write, value);
     }
