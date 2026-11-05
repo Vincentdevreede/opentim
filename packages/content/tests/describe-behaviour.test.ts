@@ -1248,6 +1248,22 @@ describe("creation defaults and related input conditions", () => {
     );
   });
 
+  it("says when the starting frame is the one the level saved, rather than an unresolved reset", () => {
+    const data = report([rule(field(12), test(12, "==", 0))], [write(0x12, constant(0))]);
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    expect(describeBehaviour(data).parts[0]!.rest).toMatchObject({
+      status: "unresolved",
+      reason:
+        "The starting frame is the one the level saved: the reset paths keep it, so TIM.EXE alone doesn't give it.",
+    });
+    // A reset path that writes the frame leaves it to that path instead.
+    const writes = report([rule(field(12), test(12, "==", 0))], [write(12, field(0x62))]);
+    writes.lifecycle = data.lifecycle;
+    expect(describeBehaviour(writes).parts[0]!.rest.reason).toBe(
+      "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
+    );
+  });
+
   it("keeps a creation state separate from a loaded level's unknown reset value", () => {
     const data = report(
       [rule(constant(2), test(12, "==", 1)), rule(constant(0), test(12, "==", 2)), rule(field(12), test(12, "==", 0))],

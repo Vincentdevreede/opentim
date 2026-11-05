@@ -814,6 +814,14 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   const bindings = intersect(outcomes.map((outcome) => applyWrites(initial, outcome.fields)));
   const state = readField(bindings, "part", stateOffset, 16);
   const fields = fieldsOf(bindings, fieldDefinitions(report, part), proof);
+  // With every reset path resolved and none writing the state, the frame is the one the level saved.
+  const levelFrame =
+    !!savedRest &&
+    outcomes.every(
+      (outcome) =>
+        outcome.confidence !== "unresolved" &&
+        !outcome.fields.some((write) => write.object === "part" && write.offset === stateOffset),
+    );
   if (!known(state) || outcomes.some((outcome) => outcome.confidence === "unresolved"))
     return {
       status: "unresolved",
@@ -823,7 +831,11 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
       fields,
       ...proof,
       confidence: "unresolved",
-      reason: "The reset paths do not establish one rest state with resolved effects.",
+      reason: levelFrame
+        ? "The starting frame is the one the level saved: the reset paths keep it, so TIM.EXE alone doesn't give it."
+        : outcomes.some((outcome) => outcome.confidence === "unresolved")
+          ? "The reset paths do not establish one rest state with resolved effects."
+          : "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
     };
   return {
     status: "known",
