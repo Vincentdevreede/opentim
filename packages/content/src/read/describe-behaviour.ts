@@ -44,7 +44,18 @@ export interface BehaviourWalk extends Finding {
    * the first walk of the tree and `index` the position in that branch's states. With `sameTests`, the walk knew the
    * same tests there; otherwise it knew more, so the other branch may also go ways this one can't.
    */
-  joined?: { path: number[]; index: number; sameTests: boolean };
+  joined?: {
+    path: number[];
+    index: number;
+    sameTests: boolean;
+    /**
+     * When the other branch was there with its countdowns at other numbers: by how much each countdown of this walk is
+     * ahead. That branch's tests of a starting value then hold for this walk's starting value plus that much.
+     */
+    shift?: { offset: number; by: number }[];
+    /** When this walk knew more tests and all of them test starting values of countdowns: those fields. */
+    startTests?: number[];
+  };
   /** A proved identity rule can hold an unspecified input frame without selecting a number for it. */
   parameterised?:
     | { kind: "hold"; state: Expression; allowedStates?: number[] }
@@ -430,7 +441,7 @@ function expressionFields(expression: Expression): { object: string; offset: num
 function inputPredicate(predicate: Predicate): boolean {
   if (predicate.kind !== "compare") return false;
   const stableObject = (object: string): boolean => {
-    if (object === "part") return true;
+    if (object === "part" || object === START) return true;
     if (object.startsWith("address of ")) return stableObject(object.slice(11));
     const match = /^referenced-by\((.*)\+0x[0-9a-f]+\)$/.exec(object);
     return !!match && stableObject(match[1]!);
@@ -558,10 +569,16 @@ function withEqualities(bindings: Bindings, condition: Predicate): Bindings {
           ? [term.right, term.left]
           : [];
     if (!field || !number || field.kind !== "field" || number.kind !== "constant") continue;
-    if (field.object !== "part" || field.unresolved || ![8, 16].includes(field.width)) continue;
-    if (known(readField(result, "part", field.offset, field.width))) continue;
+    if ((field.object !== "part" && field.object !== START) || field.unresolved || ![8, 16].includes(field.width))
+      continue;
+    if (known(readField(result, field.object, field.offset, field.width))) continue;
     if (result === bindings) result = new Map(bindings);
-    writeField(result, "part", field.offset, bits(number.value & full(field.width), full(field.width), field.width));
+    writeField(
+      result,
+      field.object,
+      field.offset,
+      bits(number.value & full(field.width), full(field.width), field.width),
+    );
   }
   return result;
 }
@@ -649,12 +666,19 @@ function ruleBindings(rule: WithUpdates, initial: Bindings, routine?: RoutineAna
   const complete = completeRuleEffects(rule, routine);
   if (rule.updates) {
     const next = complete ? new Map(initial) : new Map<string, Bits>();
-    for (const write of rule.updates) writeField(next, write.object, write.offset, valueOf(write.value, initial));
+    for (const write of rule.updates) {
+      const value = valueOf(write.value, initial);
+      writeField(next, write.object, write.offset, value);
+      if (write.object === "part") countdownWrite(next, write, value);
+    }
     return next;
   }
   const next = new Map(initial);
   for (const write of routine?.writes ?? [])
-    if (write.object === "part") writeField(next, write.object, write.offset, unknownBits(write.width));
+    if (write.object === "part") {
+      writeField(next, write.object, write.offset, unknownBits(write.width));
+      countdownWrite(next, write, unknownBits(write.width));
+    }
   return next;
 }
 /**
@@ -680,8 +704,20 @@ const knownBits = (bindings: Bindings) =>
 export const WIDENING_ASSUMPTION =
   "At the branch depth limit, the fields in which this state differs from a state the same walk followed at this frame are forgotten, with the tests that state did not know; the walk goes on from what both agree on.";
 /** What the branches of one walk have followed: by known fields, the frame, the tests known there and the fields. */
+interface ExploredState {
+  frame: number;
+  tests: Set<string>;
+  bindings: Bindings;
+  path: number[];
+  index: number;
+  /** For a state with countdowns: the tests themselves and how far each countdown moved. */
+  testList?: Predicate[];
+  change?: Map<number, number>;
+}
 interface Explored {
-  states: Map<string, { frame: number; tests: Set<string>; bindings: Bindings; path: number[]; index: number }[]>;
+  states: Map<string, ExploredState[]>;
+  /** States with countdowns, by their fields without the countdowns' changes. */
+  counted?: Map<string, ExploredState[]>;
   /** How many states the tree has followed: once it reaches the budget, no further branch is opened. */
   size: number;
 }
@@ -1022,6 +1058,389 @@ function stoppingEvidence(rules: Transition[], expressions: Expression[] = []): 
 }
 
 /**
+ * Countdowns. A part field the run counts up or down by a fixed number and also tests, like the windmill's heat or the
+ * mouse motor's counter, is followed as the value it had where the walk tree started (the field of `START`) plus how
+ * far it moved since (the field of `CHANGE`), while its own value isn't known. A test of the field then becomes a test
+ * of that starting value, which never changes: what a branch learns about it holds for the rest of the tree, and once a
+ * branch knows it, the field is known again. No value is chosen; this is exact arithmetic on what the walk knows.
+ */
+export const START = "part at the walk's start";
+const CHANGE = "change since the walk's start";
+/** The countdown fields of a part: 16-bit part fields a run rule moves by a constant and some run rule tests. */
+const countdownsOf = new WeakMap<PartBehaviour, number[]>();
+export function countdowns(part: PartBehaviour, rules: WithUpdates[], stateOffset?: number): number[] {
+  let list = countdownsOf.get(part);
+  if (list) return list;
+  const found = countdownFields(rules, stateOffset);
+  list = found.offsets;
+  countdownsOf.set(part, list);
+  for (const offset of list) countdownValues.set(`${part.type}:${offset}`, found.values.get(offset)!);
+  return list;
+}
+function countdownFields(
+  rules: WithUpdates[],
+  stateOffset?: number,
+): { offsets: number[]; values: Map<number, Set<number>> } {
+  const moved = new Set<number>();
+  for (const rule of rules)
+    for (const write of rule.updates ?? []) {
+      const value = write.value;
+      if (
+        write.object === "part" &&
+        write.width === 16 &&
+        value.kind === "binary" &&
+        (value.operator === "+" || value.operator === "-") &&
+        value.left.kind === "field" &&
+        value.left.object === "part" &&
+        !value.left.unresolved &&
+        value.left.offset === write.offset &&
+        value.left.width === 16 &&
+        value.right.kind === "constant" &&
+        write.offset !== stateOffset
+      )
+        moved.add(write.offset);
+    }
+  // Only a field every test compares for equality with a number, after adding numbers to it, is followed: such a test
+  // stays a test of one starting value.
+  const tested = new Set<number>();
+  const other = new Set<number>();
+  const testedValues = new Map<number, Set<number>>();
+  for (const rule of rules)
+    for (const term of predicateTerms(rule.condition)) {
+      if (term.kind !== "compare") continue;
+      const fields = expressionFields(term.left)
+        .concat(expressionFields(term.right))
+        .filter((field) => field.object === "part" && moved.has(field.offset));
+      if (!fields.length) continue;
+      const counted: Bindings = new Map();
+      writeField(counted, CHANGE, fields[0]!.offset, bits(0, 0xffff, 16));
+      const left = linearOf(term.left, counted);
+      const right = linearOf(term.right, counted);
+      const equality =
+        (term.operator === "==" || term.operator === "!=") &&
+        fields.every((field) => field.offset === fields[0]!.offset && field.width === 16) &&
+        !!left &&
+        !!right &&
+        (left.offset === undefined) !== (right.offset === undefined);
+      for (const field of fields) (equality ? tested : other).add(field.offset);
+      if (equality) {
+        const [start, number] = left!.offset !== undefined ? [left!, right!] : [right!, left!];
+        const values = testedValues.get(start.offset!) ?? new Set<number>();
+        values.add(wrap(number.add - start.add, 16));
+        testedValues.set(start.offset!, values);
+      }
+    }
+  const offsets = [...moved].filter((offset) => tested.has(offset) && !other.has(offset)).sort((a, b) => a - b);
+  return { offsets, values: testedValues };
+}
+/** By part type and offset: the numbers the run tests a countdown for. */
+const countdownValues = new Map<string, Set<number>>();
+/**
+ * A rule stands for the return paths that lead to its frame, joined two at a time where they differ in one test. A
+ * field those paths set differently is unknown in the rule, like the mouse motor's control value, which its run clears
+ * only when the counter runs out. When the paths split on a test of a field the rule counts up or down, the rule is
+ * taken apart into its paths again, so a walk can follow the countdown. The paths' extra tests must cover every case
+ * between them, so together they stand for exactly what the rule did.
+ */
+const splitRulesOf = new WeakMap<PartBehaviour, WithUpdates[]>();
+export function splitRules(
+  part: PartBehaviour,
+  rules: WithUpdates[],
+  routine: RoutineAnalysis | undefined,
+  stateOffset: number,
+): WithUpdates[] {
+  const cached = splitRulesOf.get(part);
+  if (cached) return cached;
+  const outcomes = (routine as WithOutcomes | undefined)?.outcomes;
+  // The fields the run tests, and the countdowns its paths would have.
+  const testedFields = new Set(
+    rules.flatMap((rule) =>
+      predicateTerms(rule.condition).flatMap((term) =>
+        term.kind === "compare"
+          ? expressionFields(term.left)
+              .concat(expressionFields(term.right))
+              .filter((field) => field.object === "part")
+              .map((field) => field.offset)
+          : [],
+      ),
+    ),
+  );
+  const pathCounters = new Set(
+    countdownFields(
+      [...rules, ...(outcomes ?? []).map((outcome) => ({ ...rules[0]!, condition: outcome.condition, updates: [] }))],
+      stateOffset,
+    ).offsets,
+  );
+  const result = rules.flatMap((rule) => {
+    if (!outcomes?.length || routine!.returnPathsComplete !== true || routine!.uncertainEffects === true) return [rule];
+    const unknown = (rule.updates ?? []).filter((write) => write.object === "part" && write.value.kind === "unknown");
+    const counted = (rule.updates ?? []).flatMap((write) =>
+      pathCounters.has(write.offset) &&
+      write.object === "part" &&
+      write.value.kind === "binary" &&
+      (write.value.operator === "+" || write.value.operator === "-") &&
+      write.value.left.kind === "field" &&
+      write.value.left.object === "part" &&
+      write.value.left.offset === write.offset &&
+      write.value.right.kind === "constant"
+        ? [write.offset]
+        : [],
+    );
+    if (!unknown.some((write) => testedFields.has(write.offset)) || !counted.length) return [rule];
+    const own = new Set(predicateTerms(rule.condition).map(textOf));
+    const sameFrame = (outcome: RuleOutcome) => {
+      const write = outcome.fields.find((item) => item.object === "part" && item.offset === stateOffset);
+      return write
+        ? sameExpression(write.value, rule.to)
+        : rule.to.kind === "field" && rule.to.object === "part" && rule.to.offset === stateOffset;
+    };
+    const paths = outcomes.filter(
+      (outcome) =>
+        outcome.effectsComplete === true &&
+        sameFrame(outcome) &&
+        [...own].every((text) => predicateTerms(outcome.condition).some((term) => textOf(term) === text)),
+    );
+    const extras = paths.map((outcome) => predicateTerms(outcome.condition).filter((term) => !own.has(textOf(term))));
+    const tested = extras.some((terms) =>
+      terms.some(
+        (term) =>
+          term.kind === "compare" &&
+          expressionFields(term.left)
+            .concat(expressionFields(term.right))
+            .some((field) => field.object === "part" && counted.includes(field.offset)),
+      ),
+    );
+    if (!paths.length || !tested || !coversAll(extras)) return [rule];
+    return paths.map((outcome): WithUpdates => {
+      const updates = rule.updates!.map((write) => {
+        if (!unknown.includes(write)) return write;
+        const writes = outcome.fields.filter(
+          (item) =>
+            item.object === "part" &&
+            item.offset < write.offset + write.width / 8 &&
+            write.offset < item.offset + item.width / 8,
+        );
+        if (writes.length > 1 || (writes[0] && (writes[0].offset !== write.offset || writes[0].width !== write.width)))
+          return write;
+        const value: Expression = writes[0]
+          ? writes[0].value
+          : { kind: "field", object: "part", offset: write.offset, width: write.width };
+        return { ...write, value };
+      });
+      const path: WithUpdates = {
+        ...rule,
+        condition: outcome.condition,
+        updates,
+        evidence: evidence(rule.evidence, outcome.evidence),
+      };
+      originalRule.set(path, rule);
+      return path;
+    });
+  });
+  splitRulesOf.set(part, result);
+  return result;
+}
+/** Whether some list of tests holds in every case: split on a test and its opposite until a list has none left. */
+function coversAll(lists: Predicate[][], depth = 0): boolean {
+  if (lists.some((terms) => !terms.length)) return true;
+  if (depth > 12 || !lists.length) return false;
+  for (const term of lists[0]!) {
+    if (term.kind !== "compare" || !inverseComparison[term.operator]) continue;
+    const opposite = textOf({ ...term, operator: inverseComparison[term.operator]! });
+    if (!lists.some((terms) => terms.some((other) => textOf(other) === opposite))) continue;
+    const text = textOf(term);
+    const side = (drop: string, avoid: string) =>
+      lists
+        .filter((terms) => !terms.some((other) => textOf(other) === avoid))
+        .map((terms) => terms.filter((other) => textOf(other) !== drop));
+    return coversAll(side(text, opposite), depth + 1) && coversAll(side(opposite, text), depth + 1);
+  }
+  return false;
+}
+/** How far a countdown moved since the walk's start, while the field itself isn't known. */
+function countdownChange(bindings: Bindings, offset: number): number | undefined {
+  if (readField(bindings, "part", offset, 16).mask) return undefined;
+  const change = readField(bindings, CHANGE, offset, 16);
+  return known(change) ? change.value : undefined;
+}
+/** An expression as a starting value plus a number, or as a plain number. */
+function linearOf(expression: Expression, bindings: Bindings): { offset?: number; add: number } | undefined {
+  if (expression.kind === "constant") return { add: expression.value };
+  if (expression.kind === "field" && !expression.unresolved && expression.width === 16) {
+    if (expression.object === START) return { offset: expression.offset, add: 0 };
+    if (expression.object === "part") {
+      const change = countdownChange(bindings, expression.offset);
+      return change === undefined ? undefined : { offset: expression.offset, add: change };
+    }
+  }
+  if (expression.kind !== "binary" || (expression.operator !== "+" && expression.operator !== "-")) return undefined;
+  if (expression.width !== 16) return undefined;
+  const left = linearOf(expression.left, bindings);
+  const right = linearOf(expression.right, bindings);
+  if (!left || !right || (right.offset !== undefined && (left.offset !== undefined || expression.operator === "-")))
+    return undefined;
+  return {
+    ...((left.offset ?? right.offset) !== undefined ? { offset: (left.offset ?? right.offset)! } : {}),
+    add: wrap(expression.operator === "+" ? left.add + right.add : left.add - right.add, 16),
+  };
+}
+const startField = (offset: number): Expression => ({ kind: "field", object: START, offset, width: 16 });
+function linearExpression(linear: { offset?: number; add: number }): Expression {
+  const constant: Expression = { kind: "constant", value: wrap(linear.add, 16), width: 16 };
+  if (linear.offset === undefined) return constant;
+  if (!wrap(linear.add, 16)) return startField(linear.offset);
+  return { kind: "binary", operator: "+", left: startField(linear.offset), right: constant, width: 16 };
+}
+/** An expression with each countdown written as its starting value plus how far it moved. */
+function countdownExpression(expression: Expression, bindings: Bindings): Expression {
+  const linear = linearOf(expression, bindings);
+  if (linear?.offset !== undefined) return linearExpression(linear);
+  if (expression.kind !== "binary") return expression;
+  const left = countdownExpression(expression.left, bindings);
+  const right = countdownExpression(expression.right, bindings);
+  return left === expression.left && right === expression.right ? expression : { ...expression, left, right };
+}
+/** A test with each countdown written the same way; an equality with a number becomes one of the starting value. */
+function countdownPredicate(predicate: Predicate, bindings: Bindings): Predicate {
+  if (predicate.kind === "and") {
+    const terms = predicate.terms.map((term) => countdownPredicate(term, bindings));
+    return terms.every((term, n) => term === predicate.terms[n]) ? predicate : { ...predicate, terms };
+  }
+  if (predicate.kind !== "compare") return predicate;
+  if (predicate.operator === "==" || predicate.operator === "!=") {
+    const left = linearOf(predicate.left, bindings);
+    const right = linearOf(predicate.right, bindings);
+    if (left && right && (left.offset === undefined) !== (right.offset === undefined)) {
+      const [start, number] = left.offset !== undefined ? [left, right] : [right, left];
+      return {
+        ...predicate,
+        left: startField(start.offset!),
+        right: { kind: "constant", value: wrap(number.add - start.add, 16), width: 16 },
+      };
+    }
+  }
+  const left = countdownExpression(predicate.left, bindings);
+  const right = countdownExpression(predicate.right, bindings);
+  return left === predicate.left && right === predicate.right ? predicate : { ...predicate, left, right };
+}
+/** The rules with each countdown the walk follows written as its starting value plus how far it moved. */
+function countdownRules(rules: WithUpdates[], bindings: Bindings, offsets: number[]): WithUpdates[] {
+  if (!offsets.some((offset) => countdownChange(bindings, offset) !== undefined)) return rules;
+  return rules.map((rule) => {
+    const condition = countdownPredicate(rule.condition, bindings);
+    const to = countdownExpression(rule.to, bindings);
+    const updates = rule.updates?.map((write) => {
+      const value = countdownExpression(write.value, bindings);
+      return value === write.value ? write : { ...write, value };
+    });
+    if (condition === rule.condition && to === rule.to && updates?.every((write, n) => write === rule.updates![n]))
+      return rule;
+    const result: WithUpdates = { ...rule, condition, to, ...(updates ? { updates } : {}) };
+    originalRule.set(result, originalRule.get(rule) ?? rule);
+    const runKey = runValueKey.get(rule);
+    if (runKey !== undefined) runValueKey.set(result, runKey);
+    return result;
+  });
+}
+/** After a write to a part field: how far a countdown moved, or that it is no longer followed. */
+function countdownWrite(bindings: Bindings, write: FieldWrite, value: Bits) {
+  if (write.width !== 16) {
+    for (const offset of [write.offset - 1, write.offset])
+      if (bindings.has(key(CHANGE, offset))) writeField(bindings, CHANGE, offset, unknownBits(16));
+    return;
+  }
+  const linear = known(value) ? undefined : linearOf(write.value, new Map());
+  if (linear?.offset === write.offset) writeField(bindings, CHANGE, write.offset, bits(linear.add, 0xffff, 16));
+  else if (bindings.has(key(CHANGE, write.offset)) || bindings.has(key(CHANGE, write.offset + 1)))
+    writeField(bindings, CHANGE, write.offset, unknownBits(16));
+}
+/** Each countdown whose starting value is known, with its own value too. */
+function countdownValuesKnown(bindings: Bindings, offsets: number[]): Bindings {
+  let result = bindings;
+  for (const offset of offsets) {
+    const start = readField(result, START, offset, 16);
+    const change = readField(result, CHANGE, offset, 16);
+    if (!known(start) || !known(change) || readField(result, "part", offset, 16).mask) continue;
+    if (result === bindings) result = new Map(bindings);
+    writeField(result, "part", offset, bits(start.value + change.value, 0xffff, 16));
+  }
+  return result;
+}
+/** A countdown whose starting value a branch learnt is known again; one whose field is known needs no change. */
+function settleCountdowns(bindings: Bindings, offsets: number[]): Bindings {
+  let result = bindings;
+  for (const offset of offsets) {
+    const change = readField(result, CHANGE, offset, 16);
+    if (!change.mask) continue;
+    const start = readField(result, START, offset, 16);
+    const own = readField(result, "part", offset, 16);
+    if (!known(start) && !own.mask && known(change)) continue;
+    if (result === bindings) result = new Map(bindings);
+    if (known(start) && known(change) && !own.mask)
+      writeField(result, "part", offset, bits(start.value + change.value, 0xffff, 16));
+    writeField(result, CHANGE, offset, unknownBits(16));
+  }
+  // A starting value only matters while its countdown is followed: after that the walk forgets it, so it can join
+  // states that never knew it.
+  for (const offset of offsets)
+    if (!readField(result, CHANGE, offset, 16).mask && readField(result, START, offset, 16).mask) {
+      if (result === bindings) result = new Map(bindings);
+      writeField(result, START, offset, unknownBits(16));
+    }
+  return result;
+}
+/**
+ * The tests of starting values that still matter: those of a countdown the walk follows, for a number the run tests
+ * the countdown for at its value now. A test the countdown moved past is forgotten, so states that differ only in how
+ * far they counted can join; forgetting a test only drops knowledge.
+ */
+function countdownTests(tests: Predicate[], bindings: Bindings, type: number): Predicate[] {
+  return tests.filter((test) => {
+    const offset = startTestOffset(test);
+    if (offset === undefined)
+      return !(
+        test.kind === "compare" &&
+        expressionFields(test.left)
+          .concat(expressionFields(test.right))
+          .some((field) => field.object === START)
+      );
+    const change = readField(bindings, CHANGE, offset, 16);
+    return (
+      known(change) &&
+      test.kind === "compare" &&
+      test.right.kind === "constant" &&
+      !!countdownValues.get(`${type}:${offset}`)?.has(wrap(test.right.value + change.value, 16))
+    );
+  });
+}
+/**
+ * A test of another walk whose countdowns are behind this one's by `shift`: the same test for this walk. A test of a
+ * starting value moves by the shift; a test that uses a countdown some other way can't be moved.
+ */
+function shiftedTest(test: Predicate, shift: Map<number, number>): Predicate | undefined {
+  if (test.kind !== "compare") return test;
+  const fields = expressionFields(test.left).concat(expressionFields(test.right));
+  if (!fields.some((field) => field.object === START)) return test;
+  const offset = startTestOffset(test);
+  if (offset === undefined || !shift.has(offset) || test.right.kind !== "constant") return undefined;
+  return { ...test, right: { ...test.right, value: wrap(test.right.value - shift.get(offset)!, 16) } };
+}
+/** The countdown a test is about, when it compares a starting value with a number. */
+function startTestOffset(test: Predicate): number | undefined {
+  return test.kind === "compare" &&
+    test.left.kind === "field" &&
+    test.left.object === START &&
+    test.left.width === 16 &&
+    test.right.kind === "constant"
+    ? test.left.offset
+    : undefined;
+}
+/** The fields without the countdowns' changes: what a walk compares to notice it goes round with only a count moving. */
+function withoutCountdowns(bindings: Bindings): Bindings {
+  return new Map([...bindings].filter(([name]) => !name.startsWith(`${CHANGE}:`)));
+}
+
+/**
  * Applies only the extracted return rules to known field expressions. Inputs must be backed by their own
  * findings. Unknown guards, unknown destinations and incompatible outcomes stop the walk immediately.
  */
@@ -1058,9 +1477,18 @@ export function walkBehaviourRules(
   const stateOffset = stateOffsetOf(report);
   const callback = part.routines.find((item) => item.slot === 1);
   const routine = report.routines.find((item) => item.address === callback?.address);
-  const rules = (part.transitions as WithUpdates[]).filter((item) => item.routine === callback?.address);
+  const rules = splitRules(
+    part,
+    (part.transitions as WithUpdates[]).filter((item) => item.routine === callback?.address),
+    routine,
+    stateOffset ?? -1,
+  );
+  const counters = countdowns(part, rules, stateOffset);
   const definitions = fieldDefinitions(report, part);
-  for (const field of seed)
+  for (const field of [
+    ...seed,
+    ...counters.flatMap((offset) => [CHANGE, START].map((object) => ({ object, offset, width: 16 }))),
+  ])
     if (
       !definitions.some(
         (item) => item.object === field.object && item.offset === field.offset && item.width === field.width,
@@ -1068,7 +1496,13 @@ export function walkBehaviourRules(
     )
       definitions.push(field);
   let bindings = bindingsOf(seed);
+  // The first walk of a tree follows each countdown it doesn't know from the value it starts with.
+  if (!options.explored)
+    for (const offset of counters)
+      if (!readField(bindings, "part", offset, 16).mask) writeField(bindings, CHANGE, offset, bits(0, 0xffff, 16));
+  bindings = settleCountdowns(bindings, counters);
   let constraints = options.condition ? predicateTerms(options.condition).filter(inputPredicate) : [];
+  if (counters.length) constraints = countdownTests(constraints, bindings, part.type);
   // How deep this walk's branches may still nest. Widening at the limit gives the walk a fresh depth once.
   let branchDepth = options.branchDepth ?? BRANCH_DEPTH;
   const depthLeft = () => (explored.size >= BRANCH_BUDGET ? 0 : branchDepth);
@@ -1348,7 +1782,7 @@ export function walkBehaviourRules(
       const { rule } = outcome;
       // Within this branch the rule's condition holds, so a part field it tests for one number has that number before
       // the step; the step and the next frame are worked out again with it, like a counter that counts down.
-      const pre = withEqualities(bindings, rule.condition);
+      const pre = countdownValuesKnown(withEqualities(bindings, rule.condition), counters);
       // A way that starts from a state a decided assumption rules out isn't followed.
       const ruledOut = impossibleState(part, stateOffset, pre);
       if (ruledOut) {
@@ -1432,7 +1866,9 @@ export function walkBehaviourRules(
    * followed like a branch. Like the pinball bumper, which goes to frame 1 when hit and to frame 0 otherwise.
    */
   const nextFromAnyFrame = () => {
-    const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
+    const candidates = countdownRules(rules, bindings, counters).filter(
+      (rule) => predicateOf(rule.condition, bindings, constraints) !== false,
+    );
     if (
       !candidates.length ||
       candidates.some((rule) => rule.from !== null || rule.confidence === "unresolved") ||
@@ -1440,7 +1876,7 @@ export function walkBehaviourRules(
     )
       return undefined;
     const outcomes = candidates.map((rule) => {
-      const pre = withEqualities(bindings, rule.condition);
+      const pre = countdownValuesKnown(withEqualities(bindings, rule.condition), counters);
       const next = ruleBindings(rule, pre, routine);
       const destination = valueOf(rule.to, pre);
       writeField(next, "part", stateOffset, destination);
@@ -1508,7 +1944,9 @@ export function walkBehaviourRules(
    * or fewer to choose from.
    */
   const keptState = (fields: Bindings, tests: Predicate[]) => {
-    const candidates = rules.filter((rule) => predicateOf(rule.condition, fields, tests) !== false);
+    const candidates = countdownRules(rules, fields, counters).filter(
+      (rule) => predicateOf(rule.condition, fields, tests) !== false,
+    );
     const domains = new Set(
       candidates.map((rule) =>
         rule.from === null ? "all" : JSON.stringify([...rule.from].sort((left, right) => left - right)),
@@ -1639,15 +2077,75 @@ export function walkBehaviourRules(
           ),
           joined: { path: other.path, index: other.index, sameTests: other.tests.size === known.size },
         }
-      : undefined;
+      : countedJoin(known);
+  };
+  /** How far each countdown moved, for those the walk follows here. */
+  const changes = () =>
+    new Map(
+      counters.flatMap((offset) => {
+        const change = countdownChange(bindings, offset);
+        return change === undefined ? [] : [[offset, change] as [number, number]];
+      }),
+    );
+  /**
+   * A state another branch followed with the same fields, but with its countdowns at other numbers. Each countdown
+   * here is that branch's countdown moved by a fixed amount, so this walk goes on like that branch would for a
+   * starting value that much larger. That branch's tests of starting values, moved the same way, and its other tests,
+   * must all be tests this walk knows.
+   */
+  const countedJoin = (known: Set<string>): BehaviourWalk | undefined => {
+    const mine = changes();
+    if (!mine.size || !explored.counted) return undefined;
+    for (const other of explored.counted.get(signature(withoutCountdowns(bindings))) ?? []) {
+      if (other.change!.size !== mine.size || [...mine.keys()].some((offset) => !other.change!.has(offset))) continue;
+      const shift = new Map(
+        [...mine].map(([offset, change]) => [offset, wrap(change - other.change!.get(offset)!, 16)]),
+      );
+      if ([...shift.values()].every((by) => !by)) continue;
+      const moved = other.testList!.map((test) => shiftedTest(test, shift));
+      if (moved.some((test) => !test)) continue;
+      // A test the fields here decide, like the frame the other branch started on, holds here too.
+      const texts = new Set(moved.map((test) => textOf(test!)));
+      if (!moved.every((test) => known.has(textOf(test!)) || predicateOf(test!, bindings) === true)) continue;
+      const more = constraints.filter((test) => !texts.has(textOf(test)));
+      const starts = more.map(startTestOffset);
+      // Only tests of starting values may differ: those a recording that gives the starting values decides.
+      if (starts.some((offset) => offset === undefined)) continue;
+      return {
+        ...base(
+          "joins",
+          `From frame ${other.frame} on, it continues like another branch of the same walk, with its countdown further on.`,
+        ),
+        joined: {
+          path: other.path,
+          index: other.index,
+          sameTests: !more.length,
+          shift: [...shift].map(([offset, by]) => ({ offset, by })),
+          ...(more.length ? { startTests: [...new Set(starts as number[])].sort((a, b) => a - b) } : {}),
+        },
+      };
+    }
+    return undefined;
   };
   const explore = () => {
     const id = signature(bindings);
     explored.size++;
-    explored.states.set(id, [
-      ...(explored.states.get(id) ?? []),
-      { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)), bindings, path, index: states.length - 1 },
-    ]);
+    const state: ExploredState = {
+      frame: states.at(-1)!,
+      tests: new Set(constraints.map(textOf)),
+      bindings,
+      path,
+      index: states.length - 1,
+    };
+    explored.states.set(id, [...(explored.states.get(id) ?? []), state]);
+    const change = changes();
+    if (change.size) {
+      state.change = change;
+      state.testList = [...constraints];
+      const plain = signature(withoutCountdowns(bindings));
+      explored.counted ??= new Map();
+      explored.counted.set(plain, [...(explored.counted.get(plain) ?? []), state]);
+    }
   };
   /**
    * Widening. A step that could branch but has no branch depth left would stop the walk. Like the mouse motor in TIM 1,
@@ -1703,11 +2201,16 @@ export function walkBehaviourRules(
   if (joinedAtStart) return joinedAtStart;
   if (!runValueText) explore();
   const seen = new Map([[startId, 0]]);
+  const plainSeen = new Set([JSON.stringify([signature(withoutCountdowns(bindings)), constraints.map(textOf)])]);
   const max = options.maxRunCalls ?? 256;
   for (let run = 0; run < max; run++) {
     const current = states.at(-1)!;
     const runValues = run === 0 ? options.runValues : undefined;
-    const candidates = (runValues?.size ? rulesWithRunValues(part, rules, runValues) : rules).filter(
+    const candidates = countdownRules(
+      runValues?.size ? rulesWithRunValues(part, rules, runValues) : rules,
+      bindings,
+      counters,
+    ).filter(
       (rule) =>
         (rule.from === null || rule.from.includes(current)) &&
         predicateOf(rule.condition, bindings, constraints) !== false,
@@ -1865,6 +2368,16 @@ export function walkBehaviourRules(
     bindings = next.next;
     states.push(next.destination.value);
     proofs.push(step);
+    // A walk that comes round to the same fields with only a countdown moved, and no test of it on the way, forgets
+    // how far it moved, so it can notice the loop.
+    if (counters.length) {
+      bindings = settleCountdowns(bindings, counters);
+      constraints = countdownTests(constraints, bindings, part.type);
+      const plain = JSON.stringify([signature(withoutCountdowns(bindings)), constraints.map(textOf)]);
+      if (plainSeen.has(plain) && bindings.size !== withoutCountdowns(bindings).size)
+        bindings = withoutCountdowns(bindings);
+      plainSeen.add(plain);
+    }
     const id = walkSignature();
     const prior = seen.get(id);
     if (prior !== undefined) return base(prior === states.length - 2 ? "rest" : "loop", undefined, prior);

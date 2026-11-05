@@ -7,6 +7,7 @@ import {
   type BehaviourWalk,
   type KnownField,
   type PartBehaviourDescription,
+  START,
   WIDENING_ASSUMPTION,
 } from "./describe-behaviour.ts";
 
@@ -82,6 +83,7 @@ function stateAt(walk: BehaviourWalk, index: number, parameter: number): number 
   return period > 0 ? walk.states[walk.loopStart + ((index - walk.loopStart) % period)] : undefined;
 }
 type RecordedField = Pick<KnownField, "object" | "offset" | "width" | "value" | "knownMask">;
+const wrap16 = (value: number) => ((value % 0x10000) + 0x10000) % 0x10000;
 
 /** What the paths of a walk tree that the recording allows do, summed up. */
 interface TreeOutcome {
@@ -98,7 +100,15 @@ interface TreeNode {
   walk: BehaviourWalk;
   index: number;
   run: number;
+  /**
+   * After a join with countdowns further on: by how much the starting values of the branch the path follows are
+   * ahead of the recording's, by countdown field.
+   */
+  adjust: ReadonlyMap<number, number>;
 }
+const NO_ADJUST: ReadonlyMap<number, number> = new Map();
+const adjustKey = (adjust: ReadonlyMap<number, number>) =>
+  [...adjust].map(([offset, by]) => `${offset}+${by}`).join(",");
 /** One frame's fields together: two fields that know different values for the same bit can't both hold. */
 function mergeFields(fields: RecordedField[]): RecordedField[] | undefined {
   const bytes = new Map<string, { object: string; offset: number; value: number; mask: number }>();
@@ -217,7 +227,16 @@ function followTree(
   interface Sink {
     from?: number;
     progress: boolean;
+    adjust: ReadonlyMap<number, number>;
   }
+  // The recording's starting fields, as the starting values a countdown is followed from; they hold at every run.
+  const startValues = (adjust: ReadonlyMap<number, number>): RecordedField[] =>
+    recorded.map((field) => ({
+      ...field,
+      object: START,
+      value: wrap16(field.value + (adjust.get(field.offset) ?? 0)),
+    }));
+  const recordedStarts = new Set(recorded.map((field) => field.offset));
   /** From the root walk's first state, or in `agree` mode from the position a join continues at. */
   const search = (from: TreeNode | undefined): TreeOutcome | undefined => {
     const agree = from !== undefined;
@@ -237,13 +256,13 @@ function followTree(
       const frames = Math.min(run, total);
       if (!differs || frames > differs.frames) differs = { frames, index: run, predicted, recorded: expected(run) };
     };
-    const node = (walk: BehaviourWalk, index: number, run: number) => {
-      const key = `${idOf(walk)}:${index}:${runKey(run)}`;
+    const node = (walk: BehaviourWalk, index: number, run: number, adjust: ReadonlyMap<number, number>) => {
+      const key = `${idOf(walk)}:${index}:${runKey(run)}:${adjustKey(adjust)}`;
       let id = keys.get(key);
       if (id === undefined) {
         if (nodes.length >= TREE_NODES) return undefined;
         keys.set(key, (id = nodes.length));
-        nodes.push({ walk, index, run });
+        nodes.push({ walk, index, run, adjust });
         edges.push([]);
         still.push([]);
       }
@@ -262,7 +281,7 @@ function followTree(
         else disagree(run, state);
         return;
       }
-      link(sink, node(walk, index, run), run);
+      link(sink, node(walk, index, run, sink.adjust), run);
     };
     const link = (sink: Sink, id: number | undefined, run: number) => {
       if (id === undefined) return leaveOpen(run, "The comparison reached its size limit.");
@@ -279,12 +298,10 @@ function followTree(
     const split = (sink: Sink, walk: BehaviourWalk, run: number) => {
       branched = true;
       const length = walk.states.length;
-      let fields: RecordedField[] | undefined;
-      if (run === 0) {
-        fields = mergeFields([...walk.fields, ...recorded]);
-        // The walk's own fields there and the recording's starting fields can't both hold.
-        if (!fields) return;
-      }
+      // The recording's starting fields hold as they are on the first run, and as starting values of countdowns on
+      // every run. The walk's own fields there and those can't contradict each other.
+      const fields = mergeFields([...walk.fields, ...startValues(sink.adjust), ...(run === 0 ? recorded : [])]);
+      if (!fields) return;
       const last = walk.states.at(-1);
       // A walk that doesn't know its starting frame splits on it, or on the rules that give the next one.
       const onStart =
@@ -300,7 +317,7 @@ function followTree(
             (!branch.states.length || branch.states[0] === condition.right.value),
         );
       for (const branch of walk.stop!.branches!) {
-        if (fields && ruledOut(branch, fields)) continue;
+        if (ruledOut(branch, fields)) continue;
         const next = branch.walk;
         if (!length) enterWalk(onStart ? sink : { ...sink, progress: true }, next, onStart ? run : run + 1);
         else if (walk.stop!.kind === "ambiguity") enterWalk({ ...sink, progress: true }, next, run + 1);
@@ -322,12 +339,18 @@ function followTree(
      * The ways from a position whose continuation may include ways the path can't take: every one of them must agree
      * with the recording, since the frames can't tell a real way from one that isn't.
      */
-    const allAgree = (walk: BehaviourWalk, index: number, run: number, why: string) => {
+    const allAgree = (
+      walk: BehaviourWalk,
+      index: number,
+      run: number,
+      adjust: ReadonlyMap<number, number>,
+      why: string,
+    ) => {
       branched = true;
-      const key = `${idOf(walk)}:${index}:${runKey(run)}`;
+      const key = `${idOf(walk)}:${index}:${runKey(run)}:${adjustKey(adjust)}`;
       if (!agreed.has(key)) {
         agreed.set(key, undefined);
-        agreed.set(key, search({ walk, index, run }));
+        agreed.set(key, search({ walk, index, run, adjust }));
       }
       const ways = agreed.get(key);
       if (!ways || ways.open || (ways.differs && ways.repeats))
@@ -340,12 +363,12 @@ function followTree(
       forever = true;
     };
     const searchFrom = (id: number) => {
-      const { walk, index, run } = nodes[id]!;
+      const { walk, index, run, adjust } = nodes[id]!;
       // A walk that widened forgot fields, so it may also go ways the part can't.
       if (!agree && walk.assumptions.includes(WIDENING_ASSUMPTION))
-        return allAgree(walk, index, run, "The walk forgot fields at the branch depth limit");
+        return allAgree(walk, index, run, adjust, "The walk forgot fields at the branch depth limit");
       const length = walk.states.length;
-      const sink = { from: id, progress: true };
+      const sink = { from: id, progress: true, adjust };
       if (index < length - 1) return enter(sink, walk, index + 1, run + 1);
       if (walk.status === "rest") return enter(sink, walk, index, run + 1);
       if (walk.status === "loop" && walk.loopStart !== undefined && walk.loopStart < length - 1)
@@ -355,15 +378,25 @@ function followTree(
           position = walk.joined.index;
         if (!target || target.states[position] !== walk.states[index])
           return leaveOpen(run + 1, "The branch this walk joins was not found.");
-        if (agree || walk.joined.sameTests)
-          return link({ from: id, progress: false }, node(target, position, run), run);
-        return allAgree(target, position, run, "The branch this walk joins knew fewer tests");
+        // With countdowns further on, the other branch goes on like this one would for starting values that much
+        // larger. Only the recording's starting values need moving; the others aren't known anyway.
+        const moved = new Map(adjust);
+        for (const { offset, by } of walk.joined.shift ?? [])
+          if (recordedStarts.has(offset)) moved.set(offset, wrap16((moved.get(offset) ?? 0) + by));
+        // A join that knew more tests than the other branch, all of them of starting values the recording gives,
+        // can still have its way chosen: those values rule out every way it can't take.
+        const decided =
+          walk.joined.sameTests || !!walk.joined.startTests?.every((offset) => recordedStarts.has(offset));
+        if (agree || decided)
+          return link({ from: id, progress: false, adjust: moved }, node(target, position, run, moved), run);
+        return allAgree(target, position, run, moved, "The branch this walk joins knew fewer tests");
       }
       if (walk.stop?.branches?.length) return split(sink, walk, run);
       leaveOpen(run + 1, walk.reason ?? "The extracted walk stops before the recording ends.");
     };
-    if (from) link({ progress: false }, node(from.walk, from.index, from.run), from.run);
-    else enterWalk({ progress: false }, root, 0);
+    if (from)
+      link({ progress: false, adjust: from.adjust }, node(from.walk, from.index, from.run, from.adjust), from.run);
+    else enterWalk({ progress: false, adjust: NO_ADJUST }, root, 0);
     for (let id = 0; id < nodes.length; id++) searchFrom(id);
 
     // A loop of joins and branches that never takes a run can't show what comes next.

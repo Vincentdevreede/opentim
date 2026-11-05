@@ -1164,6 +1164,59 @@ monkey bike's 64 recordings do. What stays a prefix has these causes:
 - The monkey bike on its pedalling frames: the reset walk can't start there (a decided assumption), and the input cases
   for those frames test a value the recording doesn't save.
 
+### Countdowns
+
+Some parts count a field down once a run and stop when it runs out: the windmill's heat at `0x9c`, the mouse's and
+the monkey bike's counter at `0x96`, the jack-in-the-box's counter, and the mouse motor's counter at `0x96`, which its
+start routine `0x1c074` loads with 100 (the motor runs for about 100 runs after a hit, three to four seconds). A walk
+that doesn't know such a counter used to branch on it at every run and forget it right after, so it could never say
+when the part stops, and a recording that sets the counter stayed a prefix.
+
+A walk now follows such a countdown. A countdown is a 16-bit part field (not the frame) that some run rule moves by a
+fixed number, and that every run rule tests only for being equal to a number after adding numbers to it. While the
+walk doesn't know the field, it keeps it as the value the field had where the walk tree started plus how far it moved
+since (the fields of `part at the walk's start` and `change since the walk's start`). The rules' tests of the field
+become tests of that starting value, which never changes, so a branch's condition says which starting values take it.
+When a branch learns the starting value, the field is known again and the walk goes on with plain numbers. Nothing is
+chosen: it is exact arithmetic on what the walk knows.
+
+To keep trees small:
+
+- A test of a starting value is forgotten once the countdown moved past it (only tests for the numbers the run tests
+  the field for at its value now are kept). Forgetting only drops knowledge.
+- A state another branch already followed with the same fields, but with its countdowns at other numbers, joins it
+  with a shift (`joined.shift`): this walk goes on like that branch would for a starting value that much larger. That
+  branch's tests of starting values, moved by the shift, and all its other tests must be tests this walk knows; tests
+  the fields decide count too. When this walk knows more tests, they may only be tests of starting values
+  (`joined.startTests`).
+- A walk that comes round to the same fields with only a countdown moved forgets how far it moved, so it notices the
+  loop.
+- A starting value is forgotten once its countdown is known again, so such states join states that never knew it.
+
+A rule stands for the return paths that lead to its frame, joined two at a time where they differ in one test, so a
+field those paths set differently is unknown in the rule. The mouse motor's run clears its control value only when the
+counter runs out, so its rule left the control value unknown after every run, and the walk branched on it at the next.
+When such a rule's paths split on a test of a countdown, and the field it loses is one the run tests, the walk takes the
+rule apart into its paths again. Their extra tests must cover every case between them (split on a test and its
+opposite until a path has none left), so together they stand for exactly what the rule did. Only the mouse motor's
+rule is taken apart in the recorded builds. Its walks after a hit now run 100 runs exactly, flipping between frames 0
+and 1, and stop when the counter runs out; after that another hit, or an item lying on it, can start it again (the
+list scan at `0x1bff5`), which the walk leaves open.
+
+The recording comparison uses the recording's starting fields as starting values at every run, not only on the first:
+a test of a starting value is ruled out whenever the recording gives that value. After a join with a shift it moves
+the recorded values by the shift. A join whose walk knew more tests than the place it joins may still have its way
+chosen when all those tests are of starting values the recording gives.
+
+Complete matches went from 556 to 560 in Even More and from 468 to 472 in TIM 1, and none is different: the windmill's
+turning with heat 20 now matches completely in both builds. The mouse's and the mouse motor's recordings agree to the
+end of the countdown and then stay prefixes for the restart the walk leaves open. The monkey bike's agrees to the end
+of its countdown on frame 0 too; there the walk tests its control value, which the recording gives only at the start
+and the walk doesn't carry past the first run, since it isn't a countdown. Every walk still ends, directly or in all its branches (Even More 1064 walks, TIM 1 902). The mouse has two
+input cases less in each build: they were partitions by the counter value 5 that a walk stopping on the unknown counter
+asked for, and the walk no longer stops there. Describing takes about 6.4 seconds for Even More and 6.9 for TIM 1,
+up from 6.3 and 5.7; most of it is the mouse motor's exact runs after a hit, up to the tree's budget.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

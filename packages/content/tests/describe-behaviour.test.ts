@@ -10,11 +10,15 @@ import {
   TEETER_TOTTER_END_ASSUMPTION,
 } from "../src/read/behaviour-saved-frames.ts";
 import {
+  START,
   describeBehaviour,
   walkBehaviourRules,
+  type AnimationDescription,
   type BehaviourWalk,
   type KnownField,
 } from "../src/read/describe-behaviour.ts";
+import type { MeasuredClip } from "../src/read/behaviour-validation.ts";
+import { compareMeasuredWalks } from "../src/read/behaviour-walk-validation.ts";
 
 const proof = {
   confidence: "inferred" as const,
@@ -1370,5 +1374,125 @@ describe("starting frames a callback's condition rules out", () => {
 
   it("still follows the one frame the test leaves", () => {
     expect(bounce(test(12, "==", 2))).toEqual([test(12, "==", 2)]);
+  });
+});
+
+describe("countdowns", () => {
+  const minus = (offset: number, value: number): Expression => ({
+    kind: "binary",
+    operator: "-",
+    left: field(offset),
+    right: constant(value),
+    width: 16,
+  });
+  const compare = (left: Expression, operator: string, value: number): Predicate => ({
+    kind: "compare",
+    left,
+    operator,
+    right: constant(value),
+    signed: false,
+  });
+  const complete = (data: BehaviourReport, outcomes: unknown[]) => {
+    data.routines[0] = { ...data.routines[0]!, uncertainties: [], returnPathsComplete: true, outcomes } as never;
+    return data;
+  };
+  const anyPath = {
+    ...proof,
+    effectsComplete: true,
+    condition: { kind: "true" },
+    fields: [],
+    returnValue: constant(0),
+  };
+  /** A windmill: while the heat at 0x9c lasts it turns between frames 0 and 1, one heat a run. */
+  const windmill = () => {
+    const turning = (from: number, to: number) => ({
+      ...rule(constant(to), both(test(0x9c, "!=", 0), compare(minus(0x9c, 1), "!=", 0), test(12, "==", from)), [
+        write(0x9c, minus(0x9c, 1)),
+      ]),
+      from: [from],
+    });
+    return complete(
+      report([
+        rule(field(12), test(0x9c, "==", 0)),
+        rule(field(12), both(test(0x9c, "!=", 0), compare(minus(0x9c, 1), "==", 0)), [write(0x9c, minus(0x9c, 1))]),
+        turning(0, 1),
+        turning(1, 0),
+      ]),
+      [anyPath],
+    );
+  };
+  const leaves = (walk: BehaviourWalk): BehaviourWalk[] =>
+    walk.stop?.branches?.length ? walk.stop.branches.flatMap((branch) => leaves(branch.walk)) : [walk];
+
+  it("follows a countdown it doesn't know from its starting value, and ends", () => {
+    const walk = walkBehaviourRules(windmill(), 39, [known(12, 0)]);
+    const all = leaves(walk);
+    expect(all.every((leaf) => ["rest", "loop", "joins"].includes(leaf.status))).toBe(true);
+    // The heat's tests are tests of the heat the walk started with.
+    expect(JSON.stringify(walk.stop?.branches?.map((branch) => branch.condition))).toContain(START);
+    // A turn that comes round with the heat further on continues like the earlier turn.
+    expect(all.some((leaf) => leaf.joined?.shift?.some((shift) => shift.offset === 0x9c))).toBe(true);
+  });
+
+  it("lets a recording that gives the starting value prove when the countdown ends", () => {
+    const walk = walkBehaviourRules(windmill(), 39, [known(12, 0)]);
+    const animation: AnimationDescription = {
+      ...proof,
+      id: "turning",
+      initial: "reset",
+      prerequisites: [],
+      initialFields: [known(12, 0)],
+      trigger: { ...proof, kind: "run", name: "Run", routine: 100, condition: { kind: "true" }, writes: [] },
+      walk,
+    };
+    const recording = (heat: number | undefined, frames: number[]): MeasuredClip => ({
+      path: "synthetic",
+      frames: frames.map((state) => ({ state, ...(heat === undefined ? {} : { heat }) })),
+      loopStart: null,
+      input: {},
+      skippedEngineServices: {},
+    });
+    // With heat 4 it turns three times and holds frame 1.
+    expect(compareMeasuredWalks([animation], recording(4, [0, 1, 0, 1, 1]), windmill()).classification).toBe(
+      "complete",
+    );
+    // With heat 5 it would turn once more: the walk disagrees with a recording that holds there.
+    expect(compareMeasuredWalks([animation], recording(5, [0, 1, 0, 1, 1]), windmill()).classification).toBe(
+      "different",
+    );
+    // Without the heat, the recording can't tell when it stops.
+    expect(compareMeasuredWalks([animation], recording(undefined, [0, 1, 0, 1, 1]), windmill()).classification).toBe(
+      "prefix",
+    );
+  });
+
+  it("takes a rule apart into its paths when they split on a countdown, like the mouse motor's", () => {
+    // While the control value at 0x12 is set, each run counts the counter at 0x96 down, and clears the control value
+    // when it runs out. The two paths are one rule, which leaves the control value unknown.
+    const data = complete(
+      report([
+        rule(field(12), test(0x12, "!=", 0), [
+          write(0x96, minus(0x96, 1)),
+          write(0x12, { kind: "unknown", reason: "Field 0x12 differs on complementary paths", width: 16 }),
+        ]),
+        rule(field(12), test(0x12, "==", 0)),
+      ]),
+      [
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "!=", 0)),
+          fields: [write(0x96, minus(0x96, 1))],
+        },
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "==", 0)),
+          fields: [write(0x96, minus(0x96, 1)), write(0x12, constant(0))],
+        },
+        { ...anyPath, condition: test(0x12, "==", 0) },
+      ],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
+    expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
+    expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
   });
 });
