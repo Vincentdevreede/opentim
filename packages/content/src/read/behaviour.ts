@@ -185,10 +185,10 @@ const textOf = (value: unknown) => {
 const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
 const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
 /**
- * A private local or register a list scan or find-first loop left behind. It is one value for conditions, but it may
- * point to any part, the owner included, so it never becomes the address of an object of its own.
+ * A private local or register a list scan or find-first loop left behind, or a pure query's answer. It is one value for
+ * conditions, but it may point to any part, the owner included, so it never becomes the address of an object of its own.
  */
-const scanLocal = (object: string) => /^local after (list scan|find-first loop) at /.test(object);
+const scanLocal = (object: string) => /^(local after (list scan|find-first loop)|answer of the query) at /.test(object);
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
 const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
 const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
@@ -1905,6 +1905,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s,
         );
     }
+    if (engine.kind === "private-buffer-query" && registerRead("ax", s).value.kind === "unknown")
+      // A query that changes nothing but its own stack answers with one value, like whether a spot is blocked. It is
+      // unknown, but one value: a condition on it can be decided as a run value.
+      registerWrite(
+        "ax",
+        tracked({ ...field(`answer of the query at ${hex(i.address)}`, 0, 16), unresolved: true } as Expression, [
+          evidenceOf(i),
+        ]),
+        s,
+      );
     if (
       ["list-head", "list-next"].includes(engine.kind) &&
       registerRead("ax", s).value.kind === "unknown" &&

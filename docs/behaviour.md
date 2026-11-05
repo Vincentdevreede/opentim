@@ -499,12 +499,24 @@ owner's fields read as their value after the loop, and its locals and registers 
 an address. A pass that goes on is then covered by those two cases and is not followed again. If a pass that goes on
 could change the owner's state, the loop keeps needing an invariant.
 
-This finishes the cat's run routine in every build. Its walks still stop where the cat tests whether its new position
-is blocked, since that test's result is an unknown value.
+This finishes the cat's run routine in every build. Its walks then still stopped where the cat tests whether its new
+position is blocked; see the query answers below.
 
 A loop's own evidence now cites the calls in its body rather than copying the called summaries' evidence; each summary
 keeps its evidence in `helpers`. Findings that say the same thing are kept once, whichever path proved them. Both keep
 the reports and the analysis time small.
+
+### Query answers
+
+After the cat moves 32 pixels, it calls the routine at `0x4a36` (Even More, English floppy) and tests its answer: when
+the new spot is blocked, it moves back and tries the other way. That routine is a `private-buffer-query`: it reads its
+inputs and writes nothing but its own stack, so all a call gives back is one word in AX. That answer depends on where
+the other parts are, so the analysis can't know it, but it is one value. The reader now names it `answer of the query
+at` the call's address, as an unresolved field, instead of an opaque unknown. A condition on it can then be decided as
+a value of that run, like the result of a contact scan, and the walks can branch on it: blocked or free. It never
+becomes an address. Other helpers' results stay opaque.
+
+The cat's run rules no longer contain an opaque unknown, so their walks don't stop there any more.
 
 ### The control value's known numbers
 
