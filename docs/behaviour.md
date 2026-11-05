@@ -657,7 +657,7 @@ arithmetic, and the largest angle to any direction in the range. Host trigonomet
 directions. Over every speed the explosion and the bumper use, in all eleven builds, the velocity is within 0.23
 degrees of the line from the explosion's centre to the part's centre. A line only says "away from the explosion"
 when this check passes for its speed; otherwise it keeps "in a direction the explosion works out". The line keeps
-the bound with the speed (`away`).
+the bound with the speed (`away`). The lab's row then reads "speed away", with the bound in its tip.
 
 This rests on two things the line states. The tables must keep their words from the program, as the helpers'
 existing assumptions already say. And the centres must be less than 32768 apart across and down, so the word

@@ -13,6 +13,7 @@ import type {
   Evidence,
   Expression,
   FieldWrite,
+  OtherPartEffect,
   PartBehaviour,
   Predicate,
   ProgramParts,
@@ -126,6 +127,8 @@ export interface OtherEffect extends Finding {
   source: string;
   /** What it sets, like `speed` or `velocity`, and to what, as text. */
   sets: { what: string; value: string }[];
+  /** For a speed that points away from the other part: the largest error of that direction, in degrees. */
+  awayWithin?: number;
   /** What this part must be, in a few words, like `moving list`. */
   when: string[];
   /** What the source must be, in a few words, like `mirrored`, and its whole condition as text. */
@@ -604,6 +607,12 @@ export function summariseWalks(report: BehaviourReport, description: BehaviourDe
   );
 }
 
+/** The largest error of a speed that points away from the other part, when one does. */
+function awayWithin(sets: OtherPartEffect["sets"]): { awayWithin?: number } {
+  const degrees = sets.flatMap((s) => (s.kind === "speed" && s.away ? [s.away.degrees] : []));
+  return degrees.length ? { awayWithin: Math.max(...degrees) } : {};
+}
+
 /** What other parts do to each part without changing its frame, by type, from the report's description. */
 export function summariseEffects(
   report: BehaviourReport,
@@ -625,7 +634,7 @@ export function summariseEffects(
           ...pair,
           ...e.sets.flatMap((s) =>
             s.kind === "speed"
-              ? [{ what: "speed", value: String(s.speed) }]
+              ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
               : pair.length && (s.offset === 0x36 || s.offset === 0x38)
                 ? []
                 : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
@@ -635,6 +644,7 @@ export function summariseEffects(
           confidence: e.confidence,
           assumptions: e.assumptions,
           evidence: instructions(e.evidence),
+          ...awayWithin(e.sets),
           sourceType: e.sourceType,
           source: e.sourcePart,
           sets,

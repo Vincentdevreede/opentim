@@ -361,6 +361,17 @@ describe("summariseEffects", () => {
         effectsFromOthers: [
           effect({ sets: [{ kind: "speed", fields: [0x36, 0x38], speed: 4096, setter: 0x7d97 }] }),
           effect({
+            sets: [
+              {
+                kind: "speed",
+                fields: [0x36, 0x38],
+                speed: 3072,
+                setter: 0x7d97,
+                away: { routine: 0x496e, degrees: 0.22 },
+              },
+            ],
+          }),
+          effect({
             sourceType: 13,
             sourcePart: "jack-in-the-box",
             sourceConditionWords: ["mirrored"],
@@ -373,7 +384,7 @@ describe("summariseEffects", () => {
       },
     ],
   } as unknown as BehaviourDescription;
-  const [push, punch] = summariseEffects(report, description)[12]!;
+  const [push, away, punch] = summariseEffects(report, description)[12]!;
 
   it("writes what another part sets and the value, with what this part must be in a few words", () => {
     expect(push).toMatchObject({
@@ -385,6 +396,11 @@ describe("summariseEffects", () => {
       sourceCondition: "state + 1 == 2",
       confidence: "inferred",
     });
+  });
+
+  it("says when a speed points away from the other part, and how close", () => {
+    expect(push!.awayWithin).toBeUndefined();
+    expect(away).toMatchObject({ sets: [{ what: "speed away", value: "3072" }], awayWithin: 0.22 });
   });
 
   it("reads both velocities as one signed pair", () => {

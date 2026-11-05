@@ -13,6 +13,11 @@ const props = defineProps<{ effect: OtherEffect; name: string }>();
 const tip = computed(() =>
   [
     props.effect.description,
+    ...(props.effect.awayWithin === undefined
+      ? []
+      : [
+          `It points from the ${props.name.toLowerCase()}'s centre to this part's, within ${props.effect.awayWithin}°.`,
+        ]),
     "",
     `When the ${props.name.toLowerCase()} has: ${props.effect.sourceCondition}`,
     "",
