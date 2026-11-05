@@ -1359,7 +1359,11 @@ search finds into its found list (field 0x78)" and "May change field 0x7a of a p
 
 A flip that turns a drawing flag round with an exclusive or (`xor word [si+0x08], 0x0010`) now says so: "Turns the
 part's horizontal reflection round", or the vertical one for `0x20`, as the eye hook's flip does. It used to say the
-complete visual change wasn't established, since the new flags depend on the old ones.
+complete visual change wasn't established, since the new flags depend on the old ones. In the same way an `or` with a
+number sets those bits and an `and` with a mask clears the others, whatever they were, so such a write now names the
+bits: "Sets flag 0x40 of the part's drawing flags", which the runs of the teeter-totter, balloon, gear, bellows, switch
+and solar panel do. What `0x40`, `0x200`, `0x400` and `0x2000` mean isn't proved yet, so they stay numbers (the
+searches pass over a part with `0x2000`).
 
 ### Parts whose run keeps everything
 

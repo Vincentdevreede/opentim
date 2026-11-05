@@ -3024,6 +3024,45 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       if (rest) words.push(`Turns flag 0x${rest.toString(16)} of ${subject} drawing flags round.`);
       return words.join(" ");
     }
+    // An or sets bits and an and with a mask clears them, whatever the others were: say which.
+    const bitsOf = (expression: Expression): { set: number; clear: number } | undefined => {
+      if (expression.kind === "field" && expression.offset === write.offset) return { set: 0, clear: 0 };
+      if (expression.kind !== "binary" || expression.right.kind !== "constant") return undefined;
+      const inner = bitsOf(expression.left);
+      const mask = expression.right.value & 0xffff;
+      if (!inner) return undefined;
+      if (expression.operator === "|") return { set: inner.set | mask, clear: inner.clear & ~mask };
+      if (expression.operator === "&") return { set: inner.set & mask, clear: inner.clear | (~mask & 0xffff) };
+      return undefined;
+    };
+    const changed = bitsOf(write.value);
+    if (changed && (changed.set || changed.clear)) {
+      const masks = report.layout.fields.find((field) => field.offset === write.offset)?.masks ?? [];
+      const words = (bits: number, set: boolean) => {
+        const named = masks.filter((mask) => (bits & mask.value) === mask.value);
+        const list = named.map((mask) =>
+          mask.name === "horizontalFlip"
+            ? set
+              ? `Reflects ${subject} frame horizontally on this path.`
+              : `Clears ${subject} horizontal reflection on this path.`
+            : mask.name === "verticalFlip"
+              ? set
+                ? `Reflects ${subject} frame vertically on this path.`
+                : `Clears ${subject} vertical reflection on this path.`
+              : `${set ? "Sets" : "Clears"} ${subject} ${mask.name} flag (0x${mask.value.toString(16)}).`,
+        );
+        const rest = named.reduce((value, mask) => value & ~mask.value, bits);
+        const each = [...Array(16).keys()]
+          .filter((bit) => rest & (1 << bit))
+          .map((bit) => `0x${(1 << bit).toString(16)}`);
+        if (each.length)
+          list.push(
+            `${set ? "Sets" : "Clears"} ${each.length > 1 ? `flags ${each.slice(0, -1).join(", ")} and ${each.at(-1)}` : `flag ${each[0]}`} of ${subject} drawing flags.`,
+          );
+        return list;
+      };
+      return [...words(changed.set, true), ...words(changed.clear, false)].join(" ");
+    }
     const flags = valueOf(write.value, new Map());
     const changes =
       report.layout.fields

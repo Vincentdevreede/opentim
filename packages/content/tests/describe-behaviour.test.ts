@@ -1343,6 +1343,20 @@ describe("creation defaults and related input conditions", () => {
     const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
     expect(lines).toContain("Turns the part's vertical reflection round.");
     expect(lines).toContain("Turns flag 0x41 of the part's drawing flags round.");
+    // An or sets bits and an and clears them, whatever the others were.
+    const set: Expression = { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2040), width: 16 };
+    data.parts[0]!.visibleEffects = [
+      { ...write(0x08, set), routine: 300 },
+      {
+        ...write(0x08, { kind: "binary", operator: "&", left: set, right: constant(0xdfdf), width: 16 }),
+        routine: 300,
+      },
+    ];
+    const flags = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(flags).toContain("Sets flags 0x40 and 0x2000 of the part's drawing flags.");
+    expect(flags).toContain(
+      "Sets flag 0x40 of the part's drawing flags. Clears the part's vertical reflection on this path. Clears flag 0x2000 of the part's drawing flags.",
+    );
   });
 
   it("rests on each frame when the run keeps every field", () => {
