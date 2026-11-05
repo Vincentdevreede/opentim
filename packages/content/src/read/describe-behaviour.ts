@@ -676,7 +676,7 @@ function widenedBindings(
 }
 const knownBits = (bindings: Bindings) =>
   [...bindings.values()].reduce((count, item) => count + item.mask.toString(2).replaceAll("0", "").length, 0);
-const WIDENING_ASSUMPTION =
+export const WIDENING_ASSUMPTION =
   "At the branch depth limit, the fields in which this state differs from a state the same walk followed at this frame are forgotten, with the tests that state did not know; the walk goes on from what both agree on.";
 /** What the branches of one walk have followed: by known fields, the frame, the tests known there and the fields. */
 interface Explored {

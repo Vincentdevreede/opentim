@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AnimationDescription } from "../src/read/describe-behaviour.ts";
+import type { Predicate } from "../src/read/behaviour.ts";
+import { WIDENING_ASSUMPTION, type AnimationDescription, type BehaviourWalk } from "../src/read/describe-behaviour.ts";
 import { compareMeasuredWalks } from "../src/read/behaviour-walk-validation.ts";
 import type { MeasuredClip } from "../src/read/behaviour-validation.ts";
 
@@ -186,7 +187,225 @@ describe("walks that start on an unknown frame", () => {
     expect(compareMeasuredWalks([branched()], other).classification).toBe("unavailable");
   });
 
-  it("chooses no branch when the walk splits on something other than the frame", () => {
-    expect(compareMeasuredWalks([branched(18)], clip()).classification).toBe("unavailable");
+  it("takes a split on something other than the frame as the rules that give the next frame", () => {
+    // Each branch then starts one run later, whatever the first frame was; the control value 1 rules out the first.
+    const any = { ...clip(), frames: [5, 1, 0].map((state) => ({ state, control: 1 })) };
+    expect(compareMeasuredWalks([branched(18)], any)).toMatchObject({ classification: "complete", prefixFrames: 3 });
+    const other = { ...clip(), frames: [5, 0, 1].map((state) => ({ state, control: 1 })) };
+    expect(compareMeasuredWalks([branched(18)], other).classification).toBe("different");
+  });
+});
+
+describe("comparisons that follow a walk's branches", () => {
+  type Branches = NonNullable<NonNullable<BehaviourWalk["stop"]>["branches"]>;
+  const test = (offset: number, operator: string, value: number): Predicate => ({
+    kind: "compare",
+    operator,
+    left: { kind: "field", object: "part", offset, width: 16 },
+    right: { kind: "constant", value, width: 16 },
+    signed: false,
+  });
+  const walk = (
+    states: number[],
+    status: BehaviourWalk["status"],
+    more: Partial<BehaviourWalk> = {},
+  ): BehaviourWalk => ({
+    ...proof,
+    status,
+    states,
+    frames: [],
+    runCalls: Math.max(0, states.length - 1),
+    fields: [],
+    timingReason: "Run calls only.",
+    ...(status === "rest" ? { loopStart: states.length - 2 } : {}),
+    ...more,
+  });
+  const rest = (...states: number[]) => walk(states, "rest");
+  const split = (states: number[], branches: Branches, kind: "ambiguity" | "state" = "ambiguity") =>
+    walk(states, "unresolved", { stop: { kind, description: "Branches.", evidence: [], branches } });
+  const start = (root: BehaviourWalk): AnimationDescription => ({
+    ...animation(),
+    initialFields: [{ ...proof, object: "part", offset: 12, width: 16, value: 0, knownMask: 65535 }],
+    walk: root,
+  });
+  const recording = (frames: number[], control = 1, loopStart: number | null = null): MeasuredClip => ({
+    path: "synthetic",
+    frames: frames.map((state) => ({ state, control })),
+    loopStart,
+    input: {},
+    skippedEngineServices: {},
+  });
+  // A field the recording doesn't save: the frames decide between these branches.
+  const unsaved = (operator: string) => test(0x54, operator, 0);
+
+  it("follows the branch whose frames the recording shows", () => {
+    const model = start(
+      split(
+        [0],
+        [
+          { condition: unsaved("=="), walk: rest(1, 1) },
+          { condition: unsaved("!="), walk: rest(2, 2) },
+        ],
+      ),
+    );
+    expect(compareMeasuredWalks([model], recording([0, 1]))).toMatchObject({
+      classification: "complete",
+      prefixFrames: 2,
+    });
+    expect(compareMeasuredWalks([model], recording([0, 2])).classification).toBe("complete");
+    const different = compareMeasuredWalks([model], recording([0, 3]));
+    expect(different).toMatchObject({ classification: "different", prefixFrames: 1 });
+    expect(different.reason).toMatch(/^Every branch the recording allows disagrees/);
+  });
+
+  it("does not follow a branch the recording's starting fields rule out", () => {
+    const model = start(
+      split(
+        [0],
+        [
+          { condition: test(18, "==", 0), walk: rest(1, 1) },
+          { condition: test(18, "==", 1), walk: rest(2, 2) },
+        ],
+      ),
+    );
+    // The recording starts with control 1: only the second branch fits, and it shows another frame.
+    expect(compareMeasuredWalks([model], recording([0, 1], 1)).classification).toBe("different");
+    expect(compareMeasuredWalks([model], recording([0, 1], 0)).classification).toBe("complete");
+    // A branch is ruled out only when every alternative it lists is ruled out too.
+    const alternatives = start(
+      split(
+        [0],
+        [
+          { condition: { kind: "true" }, alternatives: [test(18, "==", 0), test(0x54, "==", 0)], walk: rest(1, 1) },
+          { condition: test(18, "==", 1), walk: rest(2, 2) },
+        ],
+      ),
+    );
+    expect(compareMeasuredWalks([alternatives], recording([0, 1], 1)).classification).toBe("complete");
+  });
+
+  it("uses the starting fields only for the first run's branches", () => {
+    const model = start(
+      split(
+        [0],
+        [
+          {
+            condition: { kind: "true" },
+            walk: split(
+              [1],
+              [
+                { condition: test(18, "==", 0), walk: rest(2, 2) },
+                { condition: test(18, "==", 1), walk: rest(3, 3) },
+              ],
+            ),
+          },
+        ],
+      ),
+    );
+    // The run may have changed the control value by its second run, so its control test can't be ruled out.
+    expect(compareMeasuredWalks([model], recording([0, 1, 2], 1)).classification).toBe("complete");
+  });
+
+  it("stays a prefix while a branch the recording allows is open", () => {
+    const model = start(
+      split(
+        [0],
+        [
+          { condition: unsaved("=="), walk: rest(1, 1) },
+          { condition: unsaved("!="), walk: walk([1], "unresolved", { reason: "The next rule is unresolved." }) },
+        ],
+      ),
+    );
+    expect(compareMeasuredWalks([model], recording([0, 1]))).toMatchObject({
+      classification: "prefix",
+      prefixFrames: 2,
+      reason: "The next rule is unresolved.",
+    });
+  });
+
+  it("stays a prefix when a branch the recording allows changes the frame after it ends", () => {
+    const model = start(
+      split(
+        [0],
+        [
+          { condition: unsaved("=="), walk: rest(1, 1) },
+          { condition: unsaved("!="), walk: rest(1, 2, 2) },
+        ],
+      ),
+    );
+    expect(compareMeasuredWalks([model], recording([0, 1])).classification).toBe("prefix");
+    // A longer recording shows which way it went.
+    expect(compareMeasuredWalks([model], recording([0, 1, 1])).classification).toBe("complete");
+  });
+
+  it("continues a join where the branch it names is, and checks a repeating cycle", () => {
+    const joined = (sameTests: boolean) =>
+      start(
+        split(
+          [0],
+          [
+            {
+              condition: unsaved("=="),
+              walk: walk([1, 0], "joins", { joined: { path: [], index: 0, sameTests } }),
+            },
+            { condition: unsaved("!="), walk: rest(2, 2) },
+          ],
+        ),
+      );
+    expect(compareMeasuredWalks([joined(true)], recording([0, 1], 1, 0)).classification).toBe("complete");
+    expect(compareMeasuredWalks([joined(true)], recording([0, 2], 1, 0)).classification).toBe("different");
+    // A join that knew more tests than the place it continues at: those ways may include some it can't take, so the
+    // frames may not choose between them.
+    expect(compareMeasuredWalks([joined(false)], recording([0, 1], 1, 0)).classification).toBe("prefix");
+  });
+
+  it("lets no frame choose among the ways of a walk that forgot fields at the depth limit", () => {
+    const widened = split(
+      [0],
+      [
+        { condition: unsaved("=="), walk: rest(1, 1) },
+        { condition: unsaved("!="), walk: rest(2, 2) },
+      ],
+    );
+    widened.assumptions = [WIDENING_ASSUMPTION];
+    expect(compareMeasuredWalks([start(widened)], recording([0, 1])).classification).toBe("prefix");
+    widened.stop!.branches![1]!.walk = rest(1, 1);
+    expect(compareMeasuredWalks([start(widened)], recording([0, 1])).classification).toBe("complete");
+  });
+
+  it("starts from each frame a level can save when the walk doesn't know the first", () => {
+    const model = start(
+      split(
+        [],
+        [
+          { condition: test(12, "==", 0), walk: rest(0, 1, 1) },
+          { condition: test(12, "==", 1), walk: rest(1, 1) },
+        ],
+        "state",
+      ),
+    );
+    model.initialFields = [];
+    expect(compareMeasuredWalks([model], recording([1])).classification).toBe("complete");
+    expect(compareMeasuredWalks([model], recording([0, 1])).classification).toBe("complete");
+    expect(compareMeasuredWalks([model], recording([0, 2])).classification).toBe("different");
+    expect(compareMeasuredWalks([model], recording([2])).classification).toBe("unavailable");
+  });
+
+  it("keeps the stop for a value the branches don't cover", () => {
+    const stopped = walk([0, 1], "unresolved", { reason: "The next state depends on a field." });
+    const model = start(
+      split(
+        [0, 1],
+        [
+          { condition: test(0x40, "==", 3), walk: rest(1, 1) },
+          { condition: test(0x40, "!=", 3), walk: stopped },
+        ],
+        "state",
+      ),
+    );
+    expect(compareMeasuredWalks([model], recording([0, 1, 1]))).toMatchObject({
+      classification: "prefix",
+      prefixFrames: 2,
+    });
   });
 });

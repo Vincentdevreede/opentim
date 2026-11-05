@@ -1,5 +1,5 @@
 /** Compares independently described frame walks with saved recordings. Recordings never seed a description. */
-import type { BehaviourReport } from "./behaviour.ts";
+import type { BehaviourReport, Predicate } from "./behaviour.ts";
 import type { MeasuredClip } from "./behaviour-validation.ts";
 import {
   evaluateBehaviourCondition,
@@ -7,6 +7,7 @@ import {
   type BehaviourWalk,
   type KnownField,
   type PartBehaviourDescription,
+  WIDENING_ASSUMPTION,
 } from "./describe-behaviour.ts";
 
 export interface DescribedWalkMatch {
@@ -80,36 +81,310 @@ function stateAt(walk: BehaviourWalk, index: number, parameter: number): number 
   const period = walk.states.length - 1 - walk.loopStart;
   return period > 0 ? walk.states[walk.loopStart + ((index - walk.loopStart) % period)] : undefined;
 }
-/**
- * A walk that doesn't know the frame it starts on follows each frame the part can show as its own branch, under the
- * condition "the state is that frame". The recording's first frame selects one of them; nothing else is chosen.
- */
-function startingWalk(report: BehaviourReport | undefined, walk: BehaviourWalk, state: number): BehaviourWalk {
-  if (walk.states.length || walk.parameterised || !walk.stop?.branches?.length) return walk;
-  const offset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
-  const frames = walk.stop.branches.map(({ condition }) =>
-    condition.kind === "compare" &&
-    condition.operator === "==" &&
-    condition.left.kind === "field" &&
-    condition.left.object === "part" &&
-    condition.left.offset === offset &&
-    condition.right.kind === "constant"
-      ? condition.right.value
-      : undefined,
+type RecordedField = Pick<KnownField, "object" | "offset" | "width" | "value" | "knownMask">;
+
+/** What the paths of a walk tree that the recording allows do, summed up. */
+interface TreeOutcome {
+  /** The fewest frames matched by a path whose continuation the tree leaves open, and why it is open. */
+  open?: { frames: number; reason: string };
+  /** The most frames matched by a path that then shows another frame than the recording. */
+  differs?: { frames: number; index: number; predicted: number; recorded: number };
+  /** Some path matches the recording forever: the recorded cycle, or the last recorded frame held. */
+  repeats: boolean;
+  /** Whether the paths went through a branch, so the reasons can say so. */
+  branched: boolean;
+}
+interface TreeNode {
+  walk: BehaviourWalk;
+  index: number;
+  run: number;
+}
+/** One frame's fields together: two fields that know different values for the same bit can't both hold. */
+function mergeFields(fields: RecordedField[]): RecordedField[] | undefined {
+  const bytes = new Map<string, { object: string; offset: number; value: number; mask: number }>();
+  for (const field of fields)
+    for (let byte = 0; byte < field.width / 8; byte++) {
+      const id = `${field.object}:${field.offset + byte}`,
+        value = (field.value >>> (8 * byte)) & 0xff,
+        mask = (field.knownMask >>> (8 * byte)) & 0xff,
+        other = bytes.get(id);
+      if (other && (other.value ^ value) & other.mask & mask) return undefined;
+      bytes.set(id, {
+        object: field.object,
+        offset: field.offset + byte,
+        value: ((other?.value ?? 0) & (other?.mask ?? 0)) | (value & mask),
+        mask: (other?.mask ?? 0) | mask,
+      });
+    }
+  return [...bytes.values()].map((item) => ({
+    object: item.object,
+    offset: item.offset,
+    width: 8,
+    value: item.value,
+    knownMask: item.mask,
+  }));
+}
+/** A branch condition the known fields rule out, counting its alternatives: one of them must hold too. */
+function ruledOut(branch: { condition: Predicate; alternatives?: Predicate[] }, fields: RecordedField[]): boolean {
+  if (evaluateBehaviourCondition(branch.condition, fields) === false) return true;
+  return (
+    !!branch.alternatives?.length &&
+    branch.alternatives.every((alternative) => evaluateBehaviourCondition(alternative, fields) === false)
   );
-  if (frames.some((frame) => frame === undefined)) return walk;
-  const branch = walk.stop.branches[frames.indexOf(state)]?.walk;
-  return branch?.states[0] === state ? branch : walk;
+}
+/** Strongly connected parts of a graph, without recursion: the walk trees can be deep. */
+function cyclic(count: number, edges: number[][]): boolean[] {
+  const index = new Array<number>(count).fill(-1),
+    low = new Array<number>(count).fill(0),
+    onStack = new Array<boolean>(count).fill(false),
+    stack: number[] = [],
+    result = new Array<boolean>(count).fill(false);
+  let next = 0;
+  for (let start = 0; start < count; start++) {
+    if (index[start] !== -1) continue;
+    const work: [number, number][] = [[start, 0]];
+    index[start] = low[start] = next++;
+    stack.push(start);
+    onStack[start] = true;
+    while (work.length) {
+      const top = work.at(-1)!;
+      const [node, edge] = top;
+      if (edge < edges[node]!.length) {
+        top[1]++;
+        const target = edges[node]![edge]!;
+        if (index[target] === -1) {
+          index[target] = low[target] = next++;
+          stack.push(target);
+          onStack[target] = true;
+          work.push([target, 0]);
+        } else if (onStack[target]) low[node] = Math.min(low[node]!, index[target]!);
+        continue;
+      }
+      work.pop();
+      if (work.length) low[work.at(-1)![0]] = Math.min(low[work.at(-1)![0]]!, low[node]!);
+      if (low[node] !== index[node]) continue;
+      const members: number[] = [];
+      let member: number;
+      do {
+        member = stack.pop()!;
+        onStack[member] = false;
+        members.push(member);
+      } while (member !== node);
+      const loops = members.length > 1 || edges[node]!.includes(node);
+      if (loops) for (const item of members) result[item] = true;
+    }
+  }
+  return result;
+}
+/** Bounds one search, so a pathological tree gives a prefix rather than a long wait. */
+const TREE_NODES = 200_000;
+
+/**
+ * Follows a walk and the branches it splits into along a recording. Each path is followed as far as the recording
+ * allows: a branch whose condition the recording's starting fields rule out (only on the first run, while those fields
+ * still hold) or whose frame differs from the recording's is not the way the recording went. A join continues where
+ * the branch it names is at that moment. In `agree` mode every way counts, as when the branch a walk joins knew fewer
+ * tests than the walk itself: its ways may include some the walk can't take, so none of them may be chosen by the
+ * frames.
+ */
+function followTree(
+  root: BehaviourWalk,
+  frames: number[],
+  loopStart: number | null,
+  recorded: RecordedField[],
+  stateOffset: number,
+): TreeOutcome | undefined {
+  const count = frames.length,
+    period = loopStart === null ? 0 : count - loopStart,
+    total = loopStart === null ? count : count + 1;
+  const expected = (run: number) =>
+    run < count
+      ? frames[run]!
+      : loopStart === null
+        ? frames[count - 1]!
+        : frames[loopStart + ((run - loopStart) % period)]!;
+  const runKey = (run: number) =>
+    run < count ? String(run) : loopStart === null ? "held" : `cycle ${(run - loopStart) % period}`;
+  const ids = new Map<BehaviourWalk, number>();
+  const idOf = (walk: BehaviourWalk) => {
+    let id = ids.get(walk);
+    if (id === undefined) ids.set(walk, (id = ids.size));
+    return id;
+  };
+  const at = (path: number[]) =>
+    path.reduce<BehaviourWalk | undefined>((walk, n) => walk?.stop?.branches?.[n]?.walk, root);
+  const agreed = new Map<string, TreeOutcome | undefined>();
+  interface Sink {
+    from?: number;
+    progress: boolean;
+  }
+  /** From the root walk's first state, or in `agree` mode from the position a join continues at. */
+  const search = (from: TreeNode | undefined): TreeOutcome | undefined => {
+    const agree = from !== undefined;
+    const nodes: TreeNode[] = [],
+      keys = new Map<string, number>(),
+      edges: number[][] = [],
+      still: number[][] = [];
+    let branched = false,
+      open: TreeOutcome["open"],
+      differs: TreeOutcome["differs"],
+      forever = false;
+    const leaveOpen = (frames: number, reason: string) => {
+      frames = Math.min(frames, total);
+      if (!open || frames < open.frames) open = { frames, reason };
+    };
+    const disagree = (run: number, predicted: number) => {
+      const frames = Math.min(run, total);
+      if (!differs || frames > differs.frames) differs = { frames, index: run, predicted, recorded: expected(run) };
+    };
+    const node = (walk: BehaviourWalk, index: number, run: number) => {
+      const key = `${idOf(walk)}:${index}:${runKey(run)}`;
+      let id = keys.get(key);
+      if (id === undefined) {
+        if (nodes.length >= TREE_NODES) return undefined;
+        keys.set(key, (id = nodes.length));
+        nodes.push({ walk, index, run });
+        edges.push([]);
+        still.push([]);
+      }
+      return id;
+    };
+    // Entering a walk's state at a run: it must show the recorded frame. The first frame only tells which start fits.
+    const enter = (sink: Sink, walk: BehaviourWalk, index: number, run: number) => {
+      const state = walk.states[index]!;
+      if (state !== expected(run)) {
+        if (run === 0) return;
+        if (run >= count && loopStart === null)
+          leaveOpen(
+            count,
+            "The recorded frames agree; a way the walk can go changes the frame after the recording ends.",
+          );
+        else disagree(run, state);
+        return;
+      }
+      link(sink, node(walk, index, run), run);
+    };
+    const link = (sink: Sink, id: number | undefined, run: number) => {
+      if (id === undefined) return leaveOpen(run, "The comparison reached its size limit.");
+      if (sink.from !== undefined) (sink.progress ? edges : still)[sink.from]!.push(id);
+    };
+    // Entering a walk at its first state.
+    const enterWalk = (sink: Sink, walk: BehaviourWalk, run: number) => {
+      if (walk.parameterised) return leaveOpen(run, "A branch holds a frame the walk doesn't name.");
+      if (walk.states.length) return enter(sink, walk, 0, run);
+      if (walk.stop?.branches?.length) return split(sink, walk, run);
+      leaveOpen(run, walk.reason ?? "The walk does not establish its starting frame.");
+    };
+    // The ways a walk splits into where it stops. `run` is the run whose fields decide them.
+    const split = (sink: Sink, walk: BehaviourWalk, run: number) => {
+      branched = true;
+      const length = walk.states.length;
+      let fields: RecordedField[] | undefined;
+      if (run === 0) {
+        fields = mergeFields([...walk.fields, ...recorded]);
+        // The walk's own fields there and the recording's starting fields can't both hold.
+        if (!fields) return;
+      }
+      const last = walk.states.at(-1);
+      // A walk that doesn't know its starting frame splits on it, or on the rules that give the next one.
+      const onStart =
+        !length &&
+        walk.stop!.branches!.every(
+          ({ condition, walk: branch }) =>
+            condition.kind === "compare" &&
+            condition.operator === "==" &&
+            condition.left.kind === "field" &&
+            condition.left.object === "part" &&
+            condition.left.offset === stateOffset &&
+            condition.right.kind === "constant" &&
+            (!branch.states.length || branch.states[0] === condition.right.value),
+        );
+      for (const branch of walk.stop!.branches!) {
+        if (fields && ruledOut(branch, fields)) continue;
+        const next = branch.walk;
+        if (!length) enterWalk(onStart ? sink : { ...sink, progress: true }, next, onStart ? run : run + 1);
+        else if (walk.stop!.kind === "ambiguity") enterWalk({ ...sink, progress: true }, next, run + 1);
+        else if (walk.stop!.kind !== "state") leaveOpen(run + 1, walk.reason ?? "The walk stops.");
+        else if (
+          // For any other value of the field, the walk stops where it did: that branch repeats the walk itself.
+          (next.states.length === length &&
+            length > 1 &&
+            next.status === "unresolved" &&
+            !next.stop?.branches?.length &&
+            next.states.every((state, n) => state === walk.states[n])) ||
+          next.states[0] !== last
+        )
+          leaveOpen(run + 1, next.reason ?? walk.reason ?? "The walk stops.");
+        else enterWalk({ ...sink, progress: false }, next, run);
+      }
+    };
+    /**
+     * The ways from a position whose continuation may include ways the path can't take: every one of them must agree
+     * with the recording, since the frames can't tell a real way from one that isn't.
+     */
+    const allAgree = (walk: BehaviourWalk, index: number, run: number, why: string) => {
+      branched = true;
+      const key = `${idOf(walk)}:${index}:${runKey(run)}`;
+      if (!agreed.has(key)) {
+        agreed.set(key, undefined);
+        agreed.set(key, search({ walk, index, run }));
+      }
+      const ways = agreed.get(key);
+      if (!ways || ways.open || (ways.differs && ways.repeats))
+        return leaveOpen(
+          Math.min(ways?.open?.frames ?? total, run + 1),
+          `${why}, and its ways don't all agree with the recording.`,
+        );
+      if (ways.differs) return disagree(ways.differs.index, ways.differs.predicted);
+      // Every way repeats the recording: so does this one.
+      forever = true;
+    };
+    const searchFrom = (id: number) => {
+      const { walk, index, run } = nodes[id]!;
+      // A walk that widened forgot fields, so it may also go ways the part can't.
+      if (!agree && walk.assumptions.includes(WIDENING_ASSUMPTION))
+        return allAgree(walk, index, run, "The walk forgot fields at the branch depth limit");
+      const length = walk.states.length;
+      const sink = { from: id, progress: true };
+      if (index < length - 1) return enter(sink, walk, index + 1, run + 1);
+      if (walk.status === "rest") return enter(sink, walk, index, run + 1);
+      if (walk.status === "loop" && walk.loopStart !== undefined && walk.loopStart < length - 1)
+        return enter(sink, walk, walk.loopStart + 1, run + 1);
+      if (walk.status === "joins" && walk.joined) {
+        const target = at(walk.joined.path),
+          position = walk.joined.index;
+        if (!target || target.states[position] !== walk.states[index])
+          return leaveOpen(run + 1, "The branch this walk joins was not found.");
+        if (agree || walk.joined.sameTests)
+          return link({ from: id, progress: false }, node(target, position, run), run);
+        return allAgree(target, position, run, "The branch this walk joins knew fewer tests");
+      }
+      if (walk.stop?.branches?.length) return split(sink, walk, run);
+      leaveOpen(run + 1, walk.reason ?? "The extracted walk stops before the recording ends.");
+    };
+    if (from) link({ progress: false }, node(from.walk, from.index, from.run), from.run);
+    else enterWalk({ progress: false }, root, 0);
+    for (let id = 0; id < nodes.length; id++) searchFrom(id);
+
+    // A loop of joins and branches that never takes a run can't show what comes next.
+    const stalled = cyclic(nodes.length, still);
+    if (stalled.some(Boolean))
+      leaveOpen(nodes[stalled.indexOf(true)]!.run + 1, "The branches lead back to the same run.");
+    const all = edges.map((list, n) => [...list, ...still[n]!]);
+    const repeats = forever || cyclic(nodes.length, all).some(Boolean);
+    // When the recording's starting fields rule out every way, this start isn't the recording's.
+    return open || differs || repeats ? { open, differs, repeats, branched } : undefined;
+  };
+  return search(undefined);
 }
 function matchWalk(
   report: BehaviourReport | undefined,
   animation: AnimationDescription,
   clip: MeasuredClip,
 ): DescribedWalkMatch | undefined {
+  const walk = animation.walk;
   if (!clip.frames.length) return undefined;
   const parameter = clip.frames[0]!.state;
-  const walk = startingWalk(report, animation.walk, parameter);
-  if (!walk.parameterised && walk.states[0] !== parameter) return undefined;
   const recorded = recordedFields(report, clip);
   if (
     animation.initialFields?.some((field) => {
@@ -155,6 +430,7 @@ function matchWalk(
       compatibility === undefined ? "unresolved" : basis === "trigger" ? "conditional-event" : "established",
     evidenceAddresses: [...new Set(walk.evidence.map((item) => item.address))] as number[],
   } as const;
+  if (!walk.parameterised) return matchTree(report, animation, clip, recorded, compatibility, base);
   let matched = 0;
   for (const [index, state] of expected.entries()) {
     const prediction = stateAt(walk, index, parameter);
@@ -243,6 +519,84 @@ function matchWalk(
     prefixFrames: matched,
     reason: "The recorded prefix and the complete repeating state-selected frame cycle agree.",
   };
+}
+
+/** Compares a walk and every branch it splits into with a recording. */
+function matchTree(
+  report: BehaviourReport | undefined,
+  animation: AnimationDescription,
+  clip: MeasuredClip,
+  recorded: RecordedField[],
+  compatibility: boolean | undefined,
+  base: Omit<DescribedWalkMatch, "classification" | "prefixFrames" | "reason">,
+): DescribedWalkMatch | undefined {
+  const stateOffset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
+  // A field the trigger writes may hold the trigger's value at the first run rather than the recording's.
+  const written = new Set(
+    animation.trigger.kind === "run"
+      ? []
+      : animation.trigger.writes
+          .filter((write) => write.object === "part")
+          .flatMap((write) => [...Array(Math.max(1, write.width / 8)).keys()].map((byte) => write.offset + byte)),
+  );
+  const start = recorded.filter(
+    (field) => ![...Array(field.width / 8).keys()].some((byte) => written.has(field.offset + byte)),
+  );
+  const frames = clip.frames.map((frame) => frame.state);
+  const outcome = followTree(animation.walk, frames, clip.loopStart, start, stateOffset);
+  if (!outcome) return undefined;
+  const total = frames.length + (clip.loopStart === null ? 0 : 1);
+  const hold = object(clip.input.hold);
+  const result = (classification: DescribedWalkMatch["classification"], prefixFrames: number, reason: string) => ({
+    ...base,
+    classification,
+    prefixFrames,
+    reason,
+  });
+  if (outcome.open) return result("prefix", outcome.open.frames, outcome.open.reason);
+  if (outcome.repeats) {
+    if (compatibility === undefined)
+      return result(
+        "prefix",
+        total,
+        "The saved frames agree but do not establish every starting condition of this input case.",
+      );
+    if (hold)
+      return result(
+        "prefix",
+        total,
+        "The saved frames agree, but repeated external input is outside this single-trigger walk.",
+      );
+    return result(
+      "complete",
+      total,
+      clip.loopStart === null
+        ? outcome.branched
+          ? "The frames agree, and every branch the recording allows proves a stable ending."
+          : "The frames agree and the extracted rules prove a stable ending."
+        : outcome.branched
+          ? "The recorded prefix and the repeating frame cycle agree in every branch the recording allows."
+          : "The recorded prefix and the complete repeating state-selected frame cycle agree.",
+    );
+  }
+  const differs = outcome.differs!;
+  if (compatibility === undefined)
+    return result("prefix", differs.frames, "The recording does not establish this input case's starting condition.");
+  if (hold)
+    return result(
+      "prefix",
+      differs.frames,
+      "The oracle supplies further external writes; the description contains one trigger only.",
+    );
+  const predicted =
+    differs.index >= frames.length
+      ? "The proved and recorded visible cycles differ."
+      : `The described walk predicts state ${differs.predicted} at frame ${differs.index}; the oracle records ${differs.recorded}.`;
+  return result(
+    "different",
+    differs.frames,
+    outcome.branched ? `Every branch the recording allows disagrees with it. ${predicted}` : predicted,
+  );
 }
 
 /** Complete counts retain their basis: actual code triggers and conditional input scenarios are distinct. */
