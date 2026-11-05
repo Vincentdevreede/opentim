@@ -125,7 +125,7 @@ export interface OtherEffect extends Finding {
   /** The part that does it. */
   sourceType: number;
   source: string;
-  /** What it sets, like `speed` or `velocity`, and to what, as text. */
+  /** What it sets, like `speed` or `velocity`, and to what, as text. A direction on the screen has no `what`. */
   sets: { what: string; value: string }[];
   /** For a speed that points away from the other part: the largest error of that direction, in degrees. */
   awayWithin?: number;
@@ -629,7 +629,15 @@ export function summariseEffects(
           e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
         const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
         // Both velocities read as one pair, across then down.
-        const pair = x && y ? [{ what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` }] : [];
+        // Where both velocities move the part on the screen, when the analysis says it; the numbers are in the tip.
+        const pair =
+          x && y
+            ? [
+                e.velocityDirection
+                  ? { what: "", value: e.velocityDirection }
+                  : { what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` },
+              ]
+            : [];
         const sets = [
           ...pair,
           ...e.sets.flatMap((s) =>

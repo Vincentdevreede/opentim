@@ -620,7 +620,8 @@ also finds the jack-in-the-box's punch, which sets both velocities from the same
 the part on the screen, with the numbers after it: "sets its velocity up and to the left (velocityX -4096, velocityY
 -4096)". That a negative velocity moves a part left or up is what the user saw in the game, recorded as
 [the decided assumption on screen directions](behaviour-assumptions.md#12-screen-directions): the code shows that a
-velocity has the sign of its position's change, but not how a position maps to the screen.
+velocity has the sign of its position's change, but not how a position maps to the screen. The lab's row shows the direction,
+like "Jack-in-the-box up and to the left", and keeps the numbers in its tip.
 
 These effects of other parts are left out, so they are known gaps:
 

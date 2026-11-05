@@ -30,10 +30,11 @@ const tip = computed(() =>
   <BehaviourRow :confidence="effect.confidence" :tip="tip">
     <!-- The chips go on to a second line only when the panel is too narrow for them. -->
     <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-      <span class="flex min-w-0 items-baseline gap-x-2">
+      <span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
         <span class="shrink-0 text-ink">{{ name }}</span>
-        <span v-for="s in effect.sets" :key="s.what" class="font-mono text-meta whitespace-nowrap"
-          ><span class="text-muted">{{ s.what }}</span> <span class="text-accent">{{ s.value }}</span></span
+        <span v-for="s in effect.sets" :key="s.what" class="min-w-0 font-mono text-meta"
+          ><span v-if="s.what" class="mr-[1ch] text-muted">{{ s.what }}</span
+          ><span class="text-accent">{{ s.value }}</span></span
         >
       </span>
       <span v-if="effect.sourceWhen.length || effect.when.length" class="ml-auto flex gap-1">

@@ -375,6 +375,9 @@ describe("summariseEffects", () => {
             sourceType: 13,
             sourcePart: "jack-in-the-box",
             sourceConditionWords: ["mirrored"],
+            velocityDirection: "up and to the right",
+            description:
+              "A jack in the box that reaches it sets its velocity up and to the right (velocityX 4096, velocityY -4096).",
             sets: [
               { kind: "field", offset: 0x36, width: 16, value: 4096 },
               { kind: "field", offset: 0x38, width: 16, value: 0xf000 },
@@ -403,7 +406,11 @@ describe("summariseEffects", () => {
     expect(away).toMatchObject({ sets: [{ what: "speed away", value: "3072" }], awayWithin: 0.22 });
   });
 
-  it("reads both velocities as one signed pair", () => {
-    expect(punch).toMatchObject({ sets: [{ what: "velocity", value: "4096, -4096" }], sourceWhen: ["mirrored"] });
+  it("reads both velocities as their direction on the screen, keeping the numbers for the tip", () => {
+    expect(punch).toMatchObject({
+      sets: [{ what: "", value: "up and to the right" }],
+      sourceWhen: ["mirrored"],
+    });
+    expect(punch!.description).toContain("(velocityX 4096, velocityY -4096)");
   });
 });

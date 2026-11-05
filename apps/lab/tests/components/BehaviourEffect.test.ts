@@ -44,3 +44,20 @@ it("says a speed points away from the other part, with how close the tip", async
   );
   expect(html).toContain("It points from the explosion&#39;s centre to this part&#39;s, within 0.22°.");
 });
+
+it("shows both velocities as a direction on the line and their numbers in the tip", async () => {
+  const punch = {
+    ...effect,
+    source: "jack-in-the-box",
+    sourceType: 13,
+    sets: [{ what: "", value: "up and to the left" }],
+    sourceWhen: ["not mirrored"],
+    description:
+      "A jack in the box that reaches it sets its velocity up and to the left (velocityX -4096, velocityY -4096).",
+  };
+  expect(await text(punch, "Jack-in-the-box")).toBe("Jack-in-the-box up and to the left not mirrored moving list");
+  const html = await renderToString(
+    createSSRApp({ render: () => h(BehaviourEffect, { effect: punch, name: "Jack-in-the-box" }) }),
+  );
+  expect(html).toContain("(velocityX -4096, velocityY -4096)");
+});
