@@ -1313,6 +1313,37 @@ input cases less in each build: they were partitions by the counter value 5 that
 asked for, and the walk no longer stops there. Describing takes about 6.4 seconds for Even More and 6.9 for TIM 1,
 up from 6.3 and 5.7; most of it is the mouse motor's exact runs after a hit, up to the tree's budget.
 
+### The recorder's normal seed
+
+The v25 recorder sets a part's normal seed on the part before each of its clips, and then the clip's own seed over it
+(`clip` in `research/v24/verify_animations.py`). Its frames save the frame, control value, counter, heat and flags,
+but not the speed. The comparison used to take a clip's starting fields from the clip's own seed and its first frame
+only, so the speed of 0x3000 that the bullet's normal seed gives was lost. The bullet's run tests that speed on its
+first run: at 0x3000 (or 0xd000) it stays on frame 0, at any other speed it shows its impact frames 1 and 2. Without the
+speed the impact stayed a way the recording allowed, and the bullet's normal recordings were prefixes.
+
+The comparison now takes the part's normal seed under the clip's seed and frames, as a starting field like the others
+(only on the first run). Only the bullet's normal seed gives a field the frames don't save. Its four normal recordings
+now match completely in both builds: complete matches went from 560 to 564 in Even More and from 472 to 476 in TIM 1.
+
+What stays a prefix, by cause (Even More 84, TIM 1 76):
+
+- The recorder writes the control value again while it runs: the teeter-totter (4), the gear (8), the bellows (4) and
+  the teapot (4). A single trigger can't describe that.
+- Another part may start it: the mouse motor (8), whose run with the control value at 0 scans the parts lying on it
+  (0x1bff5 in Even More, 0x1a70c in TIM 1), and Mel's house in Even More (4, the scan at 0x1e29b). In Even More the
+  mouse motor's run recording is open one run after its countdown on a test of the control value, which the walk
+  doesn't know there.
+- Its search for another part: the cat (8), through the loop at 0x1a01a and the query at 0x19fd3 in Even More
+  (0x186af and 0x18668 in TIM 1).
+- A field the recording doesn't save: the mouse (8) starts again once its counter is 0 when bit 0 of the word at 0x06
+  is set (and, in TIM 1, a value the scan at 0x1acf5 leaves is not 400). The monkey bike's recordings seeded on frames 5 to 12
+  (32) are compared with its hit, which sets the counter, so the recorded counter of 0 doesn't apply; its rules there
+  also test the word at 0x54, which the recording doesn't save.
+- A field the recording gives only at the start: the monkey bike's reaction (4) ends on frame 0 with its counter at
+  0, where the run pedals again when the control value is not 0. No rule on that way writes a known control value, and
+  the recording gives it only at the start, so the walk can't tell it is still 0.
+
 ### Outlines
 
 Many parts build their own outline in their reset: the shape other parts bounce off. The part's outline pointer at

@@ -50,7 +50,7 @@ function recordedFields(
 ): Pick<KnownField, "object" | "offset" | "width" | "value" | "knownMask">[] {
   const seed = object(clip.input.seed) ? clip.input.seed : {};
   const hold = object(clip.input.hold) ? clip.input.hold : {};
-  const values = { ...seed, ...clip.frames[0], ...hold };
+  const values = { ...clip.partSeed, ...seed, ...clip.frames[0], ...hold };
   const state = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
   const delta = report?.layout.fields.find((field) => field.name === "stateDelta")?.offset ?? 18;
   const fields = [
