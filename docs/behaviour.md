@@ -1354,7 +1354,8 @@ Two more kinds of writes got plain lines. A write through a part's belt link `0x
 goes to a belt or rope record, not a part: the birdcage's, bucket's and heart's rope callbacks "Add 1 to field 0x0e
 of the record of its rope at 0x66" when asked with mode 1. A bounce callback's writes to its argument go to the part
 that touched its owner (see [walks from parts that touch](#walks-from-parts-that-touch)): "Selects state 9 on the
-touching part" instead of "on another part".
+touching part" instead of "on another part". And an overlap query's writes to the parts it finds say "Links a part its
+search finds into its found list (field 0x78)" and "May change field 0x7a of a part its search finds".
 
 A flip that turns a drawing flag round with an exclusive or (`xor word [si+0x08], 0x0010`) now says so: "Turns the
 part's horizontal reflection round", or the vertical one for `0x20`, as the eye hook's flip does. It used to say the

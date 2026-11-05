@@ -2975,13 +2975,18 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   }
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
   // A bounce callback's argument is the part that touched its owner.
+  // An overlap query's summary writes the parts it finds: the found list's link at 0x78 and the fields it fills in.
+  const found = write.object.startsWith("a candidate selected by the overlap query at ");
+  if (found && write.offset === 0x78) return "Links a part its search finds into its found list (field 0x78).";
   const subject = write.object.startsWith("a listed part at ")
     ? "a listed part's"
-    : write.object === "collider"
-      ? "the touching part's"
-      : other
-        ? "another part's"
-        : "the part's";
+    : found
+      ? "a found part's"
+      : write.object === "collider"
+        ? "the touching part's"
+        : other
+          ? "another part's"
+          : "the part's";
   if (name === "state")
     return write.value.kind === "constant"
       ? `Selects state ${write.value.value}${write.object === "collider" ? " on the touching part" : other ? " on another part" : ""}.`
@@ -3055,6 +3060,7 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   if (name === "velocityX" || name === "velocityY") return `Updates ${subject} motion.`;
   if (name === "contactPart" || name === "contactAngle" || name === "contactEdge")
     return `Updates ${subject} contact information.`;
+  if (found) return `May change field 0x${write.offset.toString(16)} of a part its search finds.`;
   return `Updates ${subject} part-specific field; its complete meaning remains unresolved.`;
 }
 function inputConditionWords(predicate: Predicate, report: BehaviourReport, part: PartBehaviour): string {

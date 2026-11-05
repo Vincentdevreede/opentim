@@ -1305,6 +1305,16 @@ describe("creation defaults and related input conditions", () => {
     const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
     expect(lines).toContain("Adds 1 to field 0x0e of the record of its rope at 0x66.");
     expect(lines).toContain("Selects state 9 on the touching part.");
+    // An overlap query's summary writes the parts it finds.
+    const found = "a candidate selected by the overlap query at 0x19540";
+    data.routines[2]!.writes = [0x78, 0x7a].map((offset) => ({
+      ...write(offset, { kind: "unknown", reason: "forgotten", width: 16 }),
+      object: found,
+      routine: 300,
+    }));
+    const search = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(search).toContain("Links a part its search finds into its found list (field 0x78).");
+    expect(search).toContain("May change field 0x7a of a part its search finds.");
   });
 
   it("says a flip that toggles a drawing flag turns that reflection round", () => {
