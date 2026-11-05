@@ -266,7 +266,9 @@ had no frames to start it on. Which frames can a level start it on?
   forward or backward by the sign of its control value, and wraps at the block's ends (`0x1b692` to `0x1b6c6`).
 - The editor grows a part's width at `0x50` by 16 while it is below the type record's maximum at `+0x0c`
   (`0x11419`), and shrinks it by 16 while it is above the minimum at `+0x10` (`0x11486`). For the belt those are 96
-  and 32. Then it calls the part's resize callback (`0x114d8`).
+  and 32. Then it calls the part's resize callback (`0x114d8`). Two drag resizes (`0x117b3`, `0x11925`) set the width
+  from the mouse, clamp it to the same limits and call the resize callback too (`0x11856`, `0x119ac`). A width off the
+  16 grid can reach up to 111 with the step resize, but the division truncates, so the block is still 0 to 4.
 - The belt's resize at `0x1b6cd` sets both the shown frame at `0x0c` and the saved frame at `0x90` to
   `(width - 32) / 16 * 7`, the first frame of the block for that width. A new belt starts on frame 28.
 - Every shipped level of all eleven builds saves the belt on frame 0, 7, 14, 21 or 28.
@@ -286,7 +288,13 @@ in both recorded builds.
 **How to recheck.**
 
 - Check the width limits at `+0x0c` and `+0x10` of the belt's type record in each build.
+- Check the two drag resizes and that the level loader doesn't call the resize callback, so a loaded frame comes
+  straight from the file.
 - Look at levels saved by players for a belt whose saved frame isn't a multiple of 7, or is above 28.
+
+**Rechecked on 2026-11-05** in all eleven builds: the limits, the resize formula, the run's wrap and the constructor
+(frame 28, control 0) are the same everywhere. The only other writers of the belt's frame are the reset, the part copy
+and the loader. Every shipped belt has a width from 32 to 96 on the 16 grid and the frame its width gives.
 
 ## 6. The gear's starting frame
 
@@ -317,6 +325,9 @@ value other than 0, 1 and -1.
 **How to recheck.**
 
 - Look at levels saved by players for a gear with a saved frame above 3.
+
+**Rechecked on 2026-11-05** in all eleven builds. The wrap only catches -1 and 4, so the gear stays on frames 0 to 3
+only while its control value is -1, 0 or 1: this one rests on assumption 9.
 
 ## 7. The mouse motor's starting frame
 
@@ -385,9 +396,13 @@ more branch for any other number, which stopped. Can the control value be anythi
 - The jack-in-the-box's run at `0x1b888` adds the control value to its frame and only wraps at exactly 8 and -1, so
   another number would jump frames. Its own routines never write the control value.
 - The writers found set -1, 0 or 1: the electric motor (`0x1a4d1`), the windmill (`0x1d9ac`), the teeter-totter's own
-  routines (`0x1d458` and its bounce). The mouse motor (`0x1c00d`) and the monkey bike (`0x1bdd9`) copy their own
-  value, which the bike only sets to -1 or 1. The gear passes its value on to the gears it turns, with the sign
-  flipped.
+  routines (`0x1d458`, its bounce at `0x1d138` and its rope callback at `0x1d5d6`), the collision path in `0x7e3b`
+  (`0x8419`), the jack-in-the-box's pop (`0x1badd`) and the alligator (`0x1ddb1`). The mouse motor (`0x1c010`) and the
+  monkey bike (`0x1bddc`) copy their own value: the mouse motor sets its own only through `0x1c074` (-1 or 1) or to 0
+  (`0x1c028`), and the bike sets -1 or 1 from its run and rope callback and 0 from its bounce (`0x1bd2e`). The gear
+  passes its value on to the gears it turns with the sign flipped, and to its belt partner with the same sign.
+- Belt writers skip parts with `0x0800` in `+0x08`, so they don't write the mouse motor or the bike. The saved control
+  value at `0x92` is only written by the part copy (`0x680a`) and the belt's constructor (0).
 - The level reset at `0x892b` restores the control value from the saved value at `0x92`. Every shipped level of all
   eleven builds saves 0.
 
@@ -396,8 +411,8 @@ more branch for any other number, which stopped. Can the control value be anythi
 - The control value at `0x12` of the jack-in-the-box, the gear and the teeter-totter is only ever -1, 0 or 1. Every
   writer found sets one of those or copies another part's, and every shipped level saves 0.
 
-Not proved: some routines that could write it are not fully read yet, the mouse motor's own value was not fully
-checked, and a level file made outside the game could hold another number.
+Not proved: unresolved indirect calls could hide another writer, and a level file made outside the game could hold
+another number.
 
 **What it gives.** The branch for any other number is gone for these three parts. Together with the next assumption,
 every walk of the jack-in-the-box, the gear and the teeter-totter ends in each of its branches, in both recorded
@@ -406,8 +421,12 @@ teeter-totter has right after it asks along its ropes.
 
 **How to recheck.**
 
-- List every writer of `0x12` on these three types and check the numbers it can write.
+- List every writer of `0x12` on these three types and check the numbers it can write (the list above), the `0x0800`
+  skip of the belt writers, the writers of `0x92`, and that `0x7996` only gives the rope callback kinds 1, 2 or 4.
 - Look at levels saved by players for one of these parts with a saved control value other than 0.
+
+**Rechecked on 2026-11-05** in all eleven builds: no writer puts anything other than -1, 0 or 1 into the control value
+of these three parts, and every shipped level saves 0 for all eight types involved.
 
 ## 10. The teeter-totter's ends
 
@@ -424,8 +443,12 @@ anything tip it past an end like that?
 
 - Its own bounce only sets a direction when the frame allows it (`0x1d0d8`, `0x1d0ef`, `0x1d0ff`, `0x1d110`), and so
   does its rope callback (`0x1d584`, `0x1d593`, `0x1d5ab`, `0x1d5bc`).
-- Some other writers set a control value without checking a frame: the electric motor, the windmill, the monkey bike
-  and the mouse motor. It isn't confirmed that any of them can reach a teeter-totter.
+- Three more writers reach the teeter-totter, and all check its frame: the collision path in `0x7e3b` (type 3 at
+  `0x83af`; -1 only above frame 0, +1 only below frame 2), the jack-in-the-box's pop (`0x1badd`: +1 on frame 0, -1 on
+  frame 2) and the alligator (`0x1ddb1`, Even More only, the same).
+- The motors, the windmill, the monkey bike and the gear write only to their belt partner, and the editor only ties a
+  belt to a part with `0x1` and without `0x2` in `+0x08` (`0x584d`, `0x5880`). The teeter-totter's constructor gives it
+  `0x000c` (`0x15f4a`), so it can't be belted. No shipped belt ends at a teeter-totter.
 
 **What we assume.**
 
@@ -437,9 +460,11 @@ like that are left out (12 in each recorded build). About 140 branches that went
 
 **How to recheck.**
 
-- Check whether a motor, the windmill or the monkey bike can be connected to a teeter-totter, for example with a belt,
-  and whether it then sets the teeter-totter's control value.
+- Check the belt gate in the editor and the three writers above in each build.
 - In the game, try to tip a teeter-totter that is already fully tilted further the same way.
+
+**Rechecked on 2026-11-05** in all eleven builds. Only a level file made outside the game could tie a belt to a
+teeter-totter, since the loader takes `+0x08` and the belt ends unchecked.
 
 ## 11. Parts on the fixed list
 
@@ -447,14 +472,16 @@ Decided on 2026-11-05 with the user. In the code: `FIXED_LIST_ASSUMPTION` in
 `packages/content/src/read/describe-effects.ts`. Explained in
 [effects of other parts](behaviour.md#effects-of-other-parts).
 
-**The question.** The explosion pushes a part it hits only when that part's list flags at `0x06` have `0x1000`, the
-flag of the moving list. Parts like walls, the teeter-totter or the fan are of a type the game puts on the fixed list.
+**The question.** The explosion pushes a part it hits only when that part's list flags at `0x06` have `0x1000`, which
+the game sets when it puts a dropped part on the moving list. (Parts that part code itself puts there, like rope ends,
+bullets and pinballs, don't get it.) Parts like walls, the teeter-totter or the fan are of a type the game puts on the fixed list.
 Can such a part ever have `0x1000`, and so be pushed?
 
 **What the code shows** (Even More, English floppy):
 
 - The part factory (`0x15d9b`) gives a new part the flags word of its type from a 16-byte table at `0x2488` in the data
-  segment (`0x15ddb`). Every type there has `0x800`; the types of the fixed list have `0x4000` as well.
+  segment (`0x15ddb`). The types of the fixed list have `0x4000`. (Type 55, not a listed part, gets `0x4000` from its
+  constructor at `0x169a0`.)
 - The routine that puts a part on a list when the player drops it (`0x6469`) tests `0x4000` (`0x6476`). Without it, the
   part gets `0x1000` and the moving list (`0x6494`); with it, `0x2000` and the fixed list. A search of the whole
   program finds no other instruction that adds `0x1000` to a word.
@@ -477,4 +504,8 @@ would show the push with the condition "on the moving list". The parts it rules 
 **How to recheck.**
 
 - Look at levels saved by players for a part of a fixed type with `0x1000` in its first flags word.
-- Search the program again for writes that set `0x1000` in a part's flags at `0x06`.
+- Search the program again for writes that set `0x1000` in a part's flags at `0x06`, and for anything that clears
+  `0x4000`.
+
+**Rechecked on 2026-11-05** in all eleven builds: `0x6469` is the only writer of `0x1000` (TIM 1 French `0x57e8`),
+nothing clears `0x4000`, and no shipped fixed part has `0x1000`.
