@@ -18,7 +18,10 @@ particular interpretation of an unknown value or effect.
 
 - Each part has six callback references, with its record field, code address, sharing and default-body status.
   The traditional event names remain candidates: dispatch establishes a code pointer more strongly than the
-  complete collision, resize or rope semantics of its callers.
+  complete collision, resize or rope semantics of its callers. In record order they are bounce (`+0x22`), run
+  (`+0x26`), reset (`+0x2a`), flip (`+0x2e`), resize (`+0x32`) and rope (`+0x36`). Flip and resize were swapped at
+  first: the editor's flip action (`0x5314` in Even More, English floppy) checks flag `0x400` and calls `+0x2e`, and
+  its width change (`0x11419` to `0x114d8`) calls `+0x32`.
 - Each routine has its decoded instructions, control flow edges, disjoint byte extents, direct and indirect calls,
   object-pointer evidence and diagnostics. Calls are separate from jumps in the extent. Indirect initial image
   pointers remain conditional because the program can overwrite them.
