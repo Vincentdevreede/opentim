@@ -6,7 +6,13 @@ import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
 import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
 import { ROPE_ASSUMPTIONS } from "./behaviour-rope-dispatch.ts";
-import { CONVEYOR_BELT_ASSUMPTION, GEAR_ASSUMPTION, MONKEY_BIKE_ASSUMPTION } from "./behaviour-saved-frames.ts";
+import {
+  CONVEYOR_BELT_ASSUMPTION,
+  ELECTRIC_MOTOR_ASSUMPTION,
+  GEAR_ASSUMPTION,
+  MONKEY_BIKE_ASSUMPTION,
+  MOUSE_MOTOR_ASSUMPTION,
+} from "./behaviour-saved-frames.ts";
 
 export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Ropes", assumptions: ROPE_ASSUMPTIONS },
@@ -15,4 +21,6 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The monkey bike's starting frame", assumptions: [MONKEY_BIKE_ASSUMPTION] },
   { title: "The conveyor belt's starting frame", assumptions: [CONVEYOR_BELT_ASSUMPTION] },
   { title: "The gear's starting frame", assumptions: [GEAR_ASSUMPTION] },
+  { title: "The mouse motor's starting frame", assumptions: [MOUSE_MOTOR_ASSUMPTION] },
+  { title: "The electric motor's starting frame", assumptions: [ELECTRIC_MOTOR_ASSUMPTION] },
 ];

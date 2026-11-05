@@ -213,3 +213,55 @@ value other than 0, 1 and -1.
 **How to recheck.**
 
 - Look at levels saved by players for a gear with a saved frame above 3.
+
+## 7. The mouse motor's starting frame
+
+Decided on 2026-11-05, after checking the code. In the code: `MOUSE_MOTOR_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+
+**The question.** The mouse motor is drawn by its own code, so the walks had no frames to start it on.
+
+**What the code shows** (Even More, English floppy):
+
+- Its run at `0x1bfb5` only flips bit 0 of its frame (`xor word [si+0x0c], 1` at `0x1c019`). No other routine of the
+  mouse motor writes its frame.
+- Every shipped level of all eleven builds saves it on frame 0 or 1.
+
+**What we assume.**
+
+- A level starts the mouse motor on frame 0 or 1. Its run only flips between them, and every shipped level saves it on
+  one of them.
+
+**What it gives.** 17 of its 18 walks end in each of their branches in Even More. The one left is its explosion
+trigger, whose effects on the motor aren't tracked yet.
+
+**How to recheck.**
+
+- Look at levels saved by players for a mouse motor with a saved frame above 1.
+
+## 8. The electric motor's starting frame
+
+Decided on 2026-11-05, after checking the code. In the code: `ELECTRIC_MOTOR_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+
+**The question.** The electric motor is drawn by its own code too. From a frame above 2 its run would count down
+through frames it doesn't have, so the starting frame matters.
+
+**What the code shows** (Even More, English floppy):
+
+- Its run at `0x1a4d1` counts its frame down (`0x1a52b`) and sets it to 2 after 0 (`0x1a534`). No other routine of
+  the electric motor writes its frame.
+- Every shipped level of all eleven builds saves it on frame 0.
+
+**What we assume.**
+
+- A level starts the electric motor on one of its three frames, 0 to 2. Its run counts down within them, and every
+  shipped level saves it on frame 0.
+
+**What it gives.** All 34 of its walks end in each of their branches, in both recorded builds.
+
+**How to recheck.**
+
+- Look at levels saved by players for an electric motor with a saved frame above 2.

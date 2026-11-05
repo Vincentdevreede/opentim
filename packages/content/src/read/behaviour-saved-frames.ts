@@ -25,10 +25,22 @@ export const CONVEYOR_BELT_ASSUMPTION =
 export const GEAR_ASSUMPTION =
   "A level starts the gear on one of its four frames, 0 to 3. Its run wraps the frame within them, and every shipped level saves it on frame 0.";
 
+/**
+ * The motors are drawn by their own code as well. The mouse motor's run only flips bit 0 of its frame (`xor` at
+ * `0x1c019` in Even More), so it has frames 0 and 1. The electric motor's run counts its frame down and sets 2 after 0
+ * (`0x1a52b` to `0x1a534`), so it has frames 0 to 2. No other routine of theirs writes the frame.
+ */
+export const MOUSE_MOTOR_ASSUMPTION =
+  "A level starts the mouse motor on frame 0 or 1. Its run only flips between them, and every shipped level saves it on one of them.";
+export const ELECTRIC_MOTOR_ASSUMPTION =
+  "A level starts the electric motor on one of its three frames, 0 to 2. Its run counts down within them, and every shipped level saves it on frame 0.";
+
 /** By part id: the frames a level can start a part on when its type has no frame list, and why. */
 export const LEVEL_FRAMES: ReadonlyMap<string, { frames: number[]; assumption: string }> = new Map([
   ["conveyor-belt", { frames: [0, 7, 14, 21, 28], assumption: CONVEYOR_BELT_ASSUMPTION }],
   ["gear", { frames: [0, 1, 2, 3], assumption: GEAR_ASSUMPTION }],
+  ["mouse-motor", { frames: [0, 1], assumption: MOUSE_MOTOR_ASSUMPTION }],
+  ["electric-motor", { frames: [0, 1, 2], assumption: ELECTRIC_MOTOR_ASSUMPTION }],
 ]);
 
 /** By part id: frames the part is never on while a field has a value, and the assumption that says so. */

@@ -608,6 +608,12 @@ The gear's walks that stay open are only the branches for a control value other 
 analysis found its writers set. Over all parts, walks that end in every branch went from 330 to 380 in Even More and from
 283 to 333 in TIM 1, and walks that stop from 152 to 98 and from 135 to 81. No recorded animation changes.
 
+The mouse motor and the electric motor are drawn by their own code as well. The mouse motor's run only flips between
+frames 0 and 1, and the electric motor's counts down within 0 to 2. Two more decided assumptions start them there
+([the mouse motor's](behaviour-assumptions.md#7-the-mouse-motors-starting-frame) and
+[the electric motor's](behaviour-assumptions.md#8-the-electric-motors-starting-frame)). Together with the generator
+change below, walks that end in every branch reach 409 in Even More and 362 in TIM 1, and walks that stop 69 and 52.
+
 ### Frames a partly known state allows
 
 The generator shows its state as one of 16 frames. Its run turns the two low bits round, and its reset at `0x1aeb3`

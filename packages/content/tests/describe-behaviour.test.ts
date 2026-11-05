@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate, Transition } from "../src/read/behaviour.ts";
 import {
   CONVEYOR_BELT_ASSUMPTION,
+  ELECTRIC_MOTOR_ASSUMPTION,
   GEAR_ASSUMPTION,
   MONKEY_BIKE_ASSUMPTION,
+  MOUSE_MOTOR_ASSUMPTION,
 } from "../src/read/behaviour-saved-frames.ts";
 import { describeBehaviour, walkBehaviourRules, type KnownField } from "../src/read/describe-behaviour.ts";
 
@@ -626,6 +628,15 @@ describe("descriptions from extracted behaviour rules", () => {
       const walk = walkBehaviourRules(drawn("gear"), 39, []);
       expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2, 3]);
       expect(walk.assumptions).toContain(GEAR_ASSUMPTION);
+    });
+
+    it("starts the mouse motor on frame 0 or 1 and the electric motor on frames 0 to 2", () => {
+      const mouse = walkBehaviourRules(drawn("mouse-motor"), 39, []);
+      expect(mouse.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1]);
+      expect(mouse.assumptions).toContain(MOUSE_MOTOR_ASSUMPTION);
+      const electric = walkBehaviourRules(drawn("electric-motor"), 39, []);
+      expect(electric.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2]);
+      expect(electric.assumptions).toContain(ELECTRIC_MOTOR_ASSUMPTION);
     });
 
     it("still gives no starting frame to another part without a frame list", () => {
