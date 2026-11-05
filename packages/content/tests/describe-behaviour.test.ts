@@ -1268,6 +1268,26 @@ describe("creation defaults and related input conditions", () => {
     );
   });
 
+  it("names what a rope, belt or pulley helper may change on the parts it reaches", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    const object = "a part reached through a rope, belt or pulley at 0x1aaf7";
+    data.routines[2]!.writes = [0x14, 0x6a, 0x96, 0x40].map((offset) => ({
+      ...write(offset, { kind: "unknown", reason: "forgotten", width: 16 }),
+      object,
+      routine: 300,
+    }));
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain(
+      "May change field 0x14 of a part its ropes, belt or pulleys reach (this part too): the value the relay passes along.",
+    );
+    expect(lines).toContain(
+      "May change the rope links of a part its ropes, belt or pulleys reach (this part too), turning a rope round.",
+    );
+    expect(lines).toContain("May move the rope ends of a part its ropes, belt or pulleys reach (this part too).");
+    expect(lines).toContain("May change a field of a part its ropes, belt or pulleys reach (this part too).");
+    expect(lines.join(" ")).not.toContain("another part's");
+  });
+
   it("rests on each frame when the run keeps every field", () => {
     const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
     data.parts[0]!.frameCount = 3;

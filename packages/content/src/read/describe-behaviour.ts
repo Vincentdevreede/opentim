@@ -2827,6 +2827,15 @@ function remapPredicate(predicate: Predicate, target: string, sourceType: number
 function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = false): string {
   if (write.object.startsWith("outline storage of a listed part at "))
     return "May update the outline coordinates of a part in the overlap list.";
+  // A rope, belt or pulley helper's summary names the fields it may change on the parts it reaches, the owner included.
+  if (write.object.startsWith("a part reached through a rope, belt or pulley at ")) {
+    const reached = "a part its ropes, belt or pulleys reach (this part too)";
+    if (write.offset === 0x14) return `May change field 0x14 of ${reached}: the value the relay passes along.`;
+    if ([0x5a, 0x5c, 0x5e, 0x60, 0x6a, 0x6c].includes(write.offset))
+      return `May change the rope links of ${reached}, turning a rope round.`;
+    if (write.offset === 0x96 || write.offset === 0x9c) return `May move the rope ends of ${reached}.`;
+    return `May change a field of ${reached}.`;
+  }
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
   const subject = write.object.startsWith("a listed part at ")
     ? "a listed part's"

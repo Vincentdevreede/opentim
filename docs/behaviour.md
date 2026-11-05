@@ -1240,6 +1240,15 @@ The curved pipe wall copies its 8 corners from one of four tables in the data se
 in Even More). It writes them through a copy of the pointer kept on the stack, which the reader doesn't follow, so
 that reset shows no outline line yet.
 
+### Writes on parts reached through ropes and belts
+
+A callback that calls a rope, belt or pulley helper with a summary (see "The byte relay" above) forgets the fields
+the summary names on every part, since the part reached can be the owner. Those writes used to show as "Updates
+another part's part-specific field". They now say what the summary proves the helper may change: field `0x14` (the
+value the relay passes along), the rope links `0x5a` to `0x60`, `0x6a` and `0x6c` (turning a rope round) and the rope
+end words `0x96` and `0x9c`, each on "a part its ropes, belt or pulleys reach (this part too)". The flips of the eye
+hook, the wood incline and the curved pipe wall, among others, show these three lines.
+
 ### Parts whose run keeps everything
 
 Most simple parts share one empty run routine (`0x29f` in Even More: it only sets up and restores `bp`), and the same
