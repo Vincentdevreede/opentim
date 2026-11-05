@@ -725,6 +725,16 @@ The bounce now has complete effects in both recorded builds, so its 4 walks in E
 then stop where a starting frame is followed that the bounce's own condition rules out, or at the frames the
 teeter-totter doesn't have.
 
+### Starting frames a callback rules out
+
+A callback's walk starts from the fields its outcome leaves. When those don't fix the frame, the walk follows each
+frame the part has, but it used to forget the callback's own condition while doing so. The teeter-totter's bounce, for
+example, only tips it to the left when it isn't already at frame 0, yet its walk also started from frame 0 and then
+reached a frame -1 that doesn't exist. Now the tests a callback's or a related writer's condition makes on the part's
+own fields hold when its walk starts, as far as its writes leave those fields alone, and a starting frame they rule out
+isn't followed. When that leaves one frame, the walk follows it as the only way. In both recorded builds 20 more
+teeter-totter walks end in every branch, among them all of its bounce walks. No other part changes its counts.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

@@ -996,8 +996,13 @@ export function walkBehaviourRules(
     const excluded = [
       ...new Set(values.flatMap((value) => impossibleState(part, stateOffset, seededWith(value)) ?? [])),
     ];
-    const allowed = values.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
-    if (allowed.length < 2) return undefined;
+    // A frame the walk's own condition rules out, like a callback's test of the frame, isn't followed either. When
+    // that leaves one frame, it is still followed as the one way.
+    const possible = values.filter(
+      (value) => predicateOf({ kind: "and", terms: constraints }, seededWith(value)) !== false,
+    );
+    const allowed = possible.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
+    if (allowed.length < (possible.length < values.length ? 1 : 2)) return undefined;
     if (excluded.length || levelFrames)
       proof = finding([proof], [...excluded, ...(levelFrames ? [levelFrames.assumption] : [])]);
     return allowed.map((value) => {
@@ -2552,6 +2557,18 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         ],
       };
       const seed = fieldsOf(seedBindings, [...fieldDefinitions(report, part), ...trigger.writes], seedProof);
+      // The trigger's tests on the part's own fields still hold when the walk starts, as far as its writes leave those
+      // fields alone, so a starting frame they rule out isn't followed.
+      const stateOffset = stateOffsetOf(report);
+      const held =
+        trigger.kind === "run" || stateOffset === undefined
+          ? []
+          : retainConstraints(predicateTerms(trigger.condition).filter(inputPredicate), trigger.writes, stateOffset, {
+              kind: "field",
+              object: "part",
+              offset: stateOffset,
+              width: 16,
+            });
       const walk: BehaviourWalk =
         trigger.effectsComplete === false
           ? {
@@ -2566,7 +2583,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
               reason: "The trigger has untracked object effects, so its final starting fields are not established.",
               timingReason: "No run invocation can be established from this trigger.",
             }
-          : walkBehaviourRules(report, part.type, seed);
+          : walkBehaviourRules(report, part.type, seed, held.length ? { condition: { kind: "and", terms: held } } : {});
       animations.push({
         id,
         initial: created ? "creation" : stable ? "documented-rest" : "reset",

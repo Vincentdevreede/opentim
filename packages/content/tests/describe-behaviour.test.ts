@@ -1145,3 +1145,28 @@ it("keeps listed outline storage separate from part flags and state fields in wo
   ).toBe(true);
   expect(effects.some((e) => /drawing flags|selected state/.test(e.description))).toBe(false);
 });
+
+describe("starting frames a callback's condition rules out", () => {
+  const bounce = (condition: Predicate) => {
+    const data = report([rule(field(12), test(12, "==", 1)), rule(constant(1), test(12, "!=", 1))], []);
+    data.routines[2]!.outcomes = [
+      {
+        ...proof,
+        effectsComplete: true,
+        condition,
+        fields: [write(0x12, constant(1))],
+        returnValue: constant(0),
+      },
+    ];
+    const animation = describeBehaviour(data).parts[0]!.animations.find((item) => item.trigger.kind === "callback")!;
+    return animation.walk.stop?.branches?.map((branch) => branch.condition);
+  };
+
+  it("follows only the frames the callback's test of the frame allows", () => {
+    expect(bounce(test(12, "!=", 0))).toEqual([test(12, "==", 1), test(12, "==", 2)]);
+  });
+
+  it("still follows the one frame the test leaves", () => {
+    expect(bounce(test(12, "==", 2))).toEqual([test(12, "==", 2)]);
+  });
+});
