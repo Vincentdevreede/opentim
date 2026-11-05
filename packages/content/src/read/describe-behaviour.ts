@@ -1,6 +1,6 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
-import { IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
+import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import type {
   BehaviourReport,
@@ -629,12 +629,18 @@ const BRANCH_BUDGET = 400;
 const BRANCH_WAYS = 8;
 /** The decided assumption that rules out a part's state with these fields, when one does. */
 function impossibleState(part: PartBehaviour, stateOffset: number, bindings: Bindings): string | undefined {
-  const rule = IMPOSSIBLE_STATES.get(part.id);
-  if (!rule) return undefined;
   const state = readField(bindings, "part", stateOffset, 16);
-  const field = readField(bindings, "part", rule.field.offset, rule.field.width);
-  return known(state) && rule.frames.includes(state.value) && known(field) && field.value === rule.field.value
-    ? rule.assumption
+  if (!known(state)) return undefined;
+  return IMPOSSIBLE_STATES.get(part.id)?.find((rule) => {
+    const field = readField(bindings, "part", rule.field.offset, rule.field.width);
+    return rule.frames.includes(state.value) && known(field) && field.value === rule.field.value;
+  })?.assumption;
+}
+/** The only numbers a decided assumption allows this unknown field, like a jack-in-the-box's control value. */
+function decidedValues(part: PartBehaviour, field: { object: string; offset: number; width: number }) {
+  const decided = CONTROL_VALUES.get(part.id);
+  return decided && field.object === "part" && field.offset === decided.offset && field.width === decided.width
+    ? decided
     : undefined;
 }
 /** These fields know every bit the others know, with the same value. */
@@ -1056,10 +1062,27 @@ export function walkBehaviourRules(
     run: number,
   ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
     const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
-    const values = producedValues(fields, producers);
+    const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
+    const values = decided?.values ?? producedValues(fields, producers);
     if (!values || depth <= 0) return undefined;
     const field = fields[0]!;
-    return values.map((value) => {
+    const seededWith = (value: number) => {
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", field.offset, bits(value, field.width === 8 ? 0xff : 0xffff, field.width));
+      return seeded;
+    };
+    // A value the walk's own tests rule out isn't followed, nor one a decided assumption rules out, like tipping the
+    // teeter-totter past an end.
+    const possible = values.filter(
+      (value) => predicateOf({ kind: "and", terms: constraints }, seededWith(value)) !== false,
+    );
+    const excluded = [
+      ...new Set(possible.flatMap((value) => impossibleState(part, stateOffset, seededWith(value)) ?? [])),
+    ];
+    const allowed = possible.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
+    if (!allowed.length) return undefined;
+    if (excluded.length || decided) proof = finding([proof], [...excluded, ...(decided ? [decided.assumption] : [])]);
+    return allowed.map((value) => {
       const condition: Predicate = {
         kind: "compare",
         operator: "==",
@@ -1067,8 +1090,7 @@ export function walkBehaviourRules(
         right: { kind: "constant", value, width: field.width },
         signed: false,
       };
-      const seeded = new Map(bindings);
-      writeField(seeded, "part", field.offset, bits(value, field.width === 8 ? 0xff : 0xffff, field.width));
+      const seeded = seededWith(value);
       // The branch carries the field it sets, also when the walk doesn't track it otherwise.
       const carried = definitions.some(
         (d) => d.object === "part" && d.offset === field.offset && d.width === field.width,
@@ -1504,8 +1526,17 @@ export function walkBehaviourRules(
         evidence: evidence(proof.evidence, ...candidates.map((rule) => rule.evidence)),
       };
       const byValue = valueBranches(fields, producers, run);
+      // When a decided assumption gives every number the field takes, there is no other value to stop at.
+      const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
       return byValue
-        ? { ...stopped, stop: { ...stopped.stop!, branches: [...byValue, otherValue(fields[0]!, producers, stopped)] } }
+        ? {
+            ...stopped,
+            ...(decided ? { assumptions: finding([proof]).assumptions } : {}),
+            stop: {
+              ...stopped.stop!,
+              branches: decided ? byValue : [...byValue, otherValue(fields[0]!, producers, stopped)],
+            },
+          }
         : stopped;
     }
     let next = outcomes[0]!;

@@ -747,6 +747,20 @@ the part can show, and walks from a level's frame keep using the frames a level 
 frame the part doesn't have, like a frame above the fish bowl's last one, describes nothing the game can be in, so it
 is left out, like the cases a decided assumption rules out.
 
+### Decided control values and ends
+
+Two more decided assumptions close the last walks of the jack-in-the-box, the gear and the teeter-totter
+([control values](behaviour-assumptions.md#9-control-values) and
+[the teeter-totter's ends](behaviour-assumptions.md#10-the-teeter-totters-ends)). Where a walk needs one of their
+control values, it now branches on -1, 0 and 1 and has no branch for any other number. A teeter-totter on frame 0 with
+control value -1, or on frame 2 with 1, is ruled out wherever a walk would start, branch or begin an input case there;
+the branches on known numbers check it too, and they also leave out a number the walk's own tests rule out.
+
+Every walk of these three parts now ends in each of its branches, in both recorded builds. Over all parts, walks that
+end in every branch went from 416 to 495 in Even More and from 347 to 426 in TIM 1. Walks that stay open went from 98
+to 7 and from 99 to 8: all of them are walks from the explosion. The teeter-totter has 12 fewer walks in each build,
+the input cases the second assumption leaves out.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

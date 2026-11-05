@@ -7,11 +7,13 @@ import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
 import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
 import { ROPE_ASSUMPTIONS } from "./behaviour-rope-dispatch.ts";
 import {
+  CONTROL_VALUE_ASSUMPTION,
   CONVEYOR_BELT_ASSUMPTION,
   ELECTRIC_MOTOR_ASSUMPTION,
   GEAR_ASSUMPTION,
   MONKEY_BIKE_ASSUMPTION,
   MOUSE_MOTOR_ASSUMPTION,
+  TEETER_TOTTER_END_ASSUMPTION,
 } from "./behaviour-saved-frames.ts";
 
 export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
@@ -23,4 +25,6 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The gear's starting frame", assumptions: [GEAR_ASSUMPTION] },
   { title: "The mouse motor's starting frame", assumptions: [MOUSE_MOTOR_ASSUMPTION] },
   { title: "The electric motor's starting frame", assumptions: [ELECTRIC_MOTOR_ASSUMPTION] },
+  { title: "Control values", assumptions: [CONTROL_VALUE_ASSUMPTION] },
+  { title: "The teeter-totter's ends", assumptions: [TEETER_TOTTER_END_ASSUMPTION] },
 ];

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate, Transition } from "../src/read/behaviour.ts";
 import {
+  CONTROL_VALUE_ASSUMPTION,
   CONVEYOR_BELT_ASSUMPTION,
   ELECTRIC_MOTOR_ASSUMPTION,
   GEAR_ASSUMPTION,
   MONKEY_BIKE_ASSUMPTION,
   MOUSE_MOTOR_ASSUMPTION,
+  TEETER_TOTTER_END_ASSUMPTION,
 } from "../src/read/behaviour-saved-frames.ts";
 import { describeBehaviour, walkBehaviourRules, type KnownField } from "../src/read/describe-behaviour.ts";
 
@@ -668,6 +670,51 @@ describe("descriptions from extracted behaviour rules", () => {
         [[10, 10], "rest"],
       ]);
       expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+  });
+
+  describe("control values a decided assumption limits", () => {
+    /** A part with 3 frames whose run adds its control value to its frame, given an id. */
+    const tilting = (id: string) => {
+      const data = report([
+        rule(field(12), test(0x12, "==", 0)),
+        rule({ kind: "binary", operator: "+", left: field(12), right: field(0x12), width: 16 }, test(0x12, "!=", 0), [
+          write(0x12, constant(0)),
+        ]),
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id, frameCount: 3 } as never;
+      data.layout.fields.push({ name: "stateDelta", offset: 0x12, ...proof });
+      data.routines[2]!.writes = [write(0x12, constant(1)), write(0x12, constant(0xffff))];
+      return data;
+    };
+    const controls = (walk: ReturnType<typeof walkBehaviourRules>) =>
+      walk.stop?.branches?.map((branch) => JSON.stringify(branch.condition));
+
+    it("follows only -1, 0 and 1 for the jack-in-the-box's control value, with no branch for any other number", () => {
+      const walk = walkBehaviourRules(tilting("jack-in-the-box"), 39, [known(12, 1)]);
+      expect(walk.stop?.branches).toHaveLength(3);
+      expect(controls(walk)?.some((text) => text.includes('"!="'))).toBe(false);
+      expect(walk.assumptions).toContain(CONTROL_VALUE_ASSUMPTION);
+    });
+
+    it("gives no decided numbers to a part without that decision", () => {
+      const walk = walkBehaviourRules(tilting("bellows"), 39, [known(12, 1)]);
+      expect(walk.stop?.branches).toBeUndefined();
+      expect(walk.assumptions).not.toContain(CONTROL_VALUE_ASSUMPTION);
+    });
+
+    it("doesn't tip the teeter-totter past an end", () => {
+      const left = walkBehaviourRules(tilting("teeter-totter"), 39, [known(12, 0)]);
+      expect(left.stop?.branches?.map((branch) => branch.walk.states.slice(0, 2))).toEqual([
+        [0, 0],
+        [0, 1],
+      ]);
+      expect(left.assumptions).toContain(TEETER_TOTTER_END_ASSUMPTION);
+      const right = walkBehaviourRules(tilting("teeter-totter"), 39, [known(12, 2)]);
+      expect(right.stop?.branches?.map((branch) => branch.walk.states.slice(0, 2))).toEqual([
+        [2, 2],
+        [2, 1],
+      ]);
     });
   });
 

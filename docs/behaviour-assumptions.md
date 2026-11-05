@@ -303,3 +303,73 @@ through frames it doesn't have, so the starting frame matters.
 **How to recheck.**
 
 - Look at levels saved by players for an electric motor with a saved frame above 2.
+
+## 9. Control values
+
+Decided on 2026-11-05 with the user. In the code: `CONTROL_VALUE_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[decided control values and ends](behaviour.md#decided-control-values-and-ends).
+
+**The question.** The jack-in-the-box, the gear and the teeter-totter turn their frame by their control value at
+`0x12`. Where a walk doesn't know that value, it branches on the numbers the writers give (-1, 0 and 1) and keeps one
+more branch for any other number, which stopped. Can the control value be anything else?
+
+**What the code shows** (Even More, English floppy):
+
+- The jack-in-the-box's run at `0x1b888` adds the control value to its frame and only wraps at exactly 8 and -1, so
+  another number would jump frames. Its own routines never write the control value.
+- The writers found set -1, 0 or 1: the electric motor (`0x1a4d1`), the windmill (`0x1d9ac`), the teeter-totter's own
+  routines (`0x1d458` and its bounce). The mouse motor (`0x1c00d`) and the monkey bike (`0x1bdd9`) copy their own
+  value, which the bike only sets to -1 or 1. The gear passes its value on to the gears it turns, with the sign
+  flipped.
+- The level reset at `0x892b` restores the control value from the saved value at `0x92`. Every shipped level of all
+  eleven builds saves 0.
+
+**What we assume.**
+
+- The control value at `0x12` of the jack-in-the-box, the gear and the teeter-totter is only ever -1, 0 or 1. Every
+  writer found sets one of those or copies another part's, and every shipped level saves 0.
+
+Not proved: some routines that could write it are not fully read yet, the mouse motor's own value was not fully
+checked, and a level file made outside the game could hold another number.
+
+**What it gives.** The branch for any other number is gone for these three parts. Together with the next assumption,
+every walk of the jack-in-the-box, the gear and the teeter-totter ends in each of its branches, in both recorded
+builds.
+
+**How to recheck.**
+
+- List every writer of `0x12` on these three types and check the numbers it can write.
+- Look at levels saved by players for one of these parts with a saved control value other than 0.
+
+## 10. The teeter-totter's ends
+
+Decided on 2026-11-05 with the user. In the code: `TEETER_TOTTER_END_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[decided control values and ends](behaviour.md#decided-control-values-and-ends).
+
+**The question.** The teeter-totter has three frames. Its run adds its control value to its frame (`0x1d2da`, Even
+More, English floppy) without checking the frame, and clears the value after the tilt (`0x1d458`). If it were on frame
+2 with a control value of 1, or on frame 0 with -1, it would tilt on to a frame 3 or -1 that has no picture. Can
+anything tip it past an end like that?
+
+**What the code shows:**
+
+- Its own bounce only sets a direction when the frame allows it (`0x1d0d8`, `0x1d0ef`, `0x1d0ff`, `0x1d110`), and so
+  does its rope callback (`0x1d584`, `0x1d593`, `0x1d5ab`, `0x1d5bc`).
+- Some other writers set a control value without checking a frame: the electric motor, the windmill, the monkey bike
+  and the mouse motor. It isn't confirmed that any of them can reach a teeter-totter.
+
+**What we assume.**
+
+- Nothing tips the teeter-totter past an end: it is never on frame 0 with its control value at `0x12` at -1, or on frame
+  2 with it at 1.
+
+**What it gives.** Walks don't start the teeter-totter like that, don't branch into it, and input cases that start
+like that are left out (12 in each recorded build). About 140 branches that went to frame 3 or -1 are gone.
+
+**How to recheck.**
+
+- Check whether a motor, the windmill or the monkey bike can be connected to a teeter-totter, for example with a belt,
+  and whether it then sets the teeter-totter's control value.
+- In the game, try to tip a teeter-totter that is already fully tilted further the same way.

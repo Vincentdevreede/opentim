@@ -46,17 +46,54 @@ export const LEVEL_FRAMES: ReadonlyMap<string, { frames: number[]; shown?: numbe
   ["electric-motor", { frames: [0, 1, 2], assumption: ELECTRIC_MOTOR_ASSUMPTION }],
 ]);
 
+/**
+ * The teeter-totter's run adds its control value at `0x12` to its frame (`0x1d2da` in Even More) without checking the
+ * frame, and clears it after the tilt (`0x1d458`). Its own bounce and rope callback only set a direction that tilts it
+ * towards a frame it has (`0x1d0d8` to `0x1d110` and `0x1d584` to `0x1d5bc`). Decided with the user: nothing else tips
+ * it past an end either.
+ */
+export const TEETER_TOTTER_END_ASSUMPTION =
+  "Nothing tips the teeter-totter past an end: it is never on frame 0 with its control value at 0x12 at -1, or on frame 2 with it at 1.";
+
+/**
+ * Where a walk needs a control value at `0x12` it doesn't know, it branches on the numbers the writers give and one
+ * more branch for any other number. Decided with the user: for these parts the control value is only ever -1, 0 or 1.
+ * Every writer found sets one of those or copies another part's, and every shipped level saves 0.
+ */
+export const CONTROL_VALUE_ASSUMPTION =
+  "The control value at 0x12 of the jack-in-the-box, the gear and the teeter-totter is only ever -1, 0 or 1. Every writer found sets one of those or copies another part's, and every shipped level saves 0.";
+
+/** By part id: the only numbers the control value at `0x12` takes, and the assumption that says so. */
+export const CONTROL_VALUES: ReadonlyMap<
+  string,
+  { offset: number; width: number; values: number[]; assumption: string }
+> = new Map(
+  ["jack-in-the-box", "gear", "teeter-totter"].map((id) => [
+    id,
+    { offset: 0x12, width: 16, values: [0, 1, 0xffff], assumption: CONTROL_VALUE_ASSUMPTION },
+  ]),
+);
+
 /** By part id: frames the part is never on while a field has a value, and the assumption that says so. */
 export const IMPOSSIBLE_STATES: ReadonlyMap<
   string,
-  { frames: number[]; field: { offset: number; width: number; value: number }; assumption: string }
+  { frames: number[]; field: { offset: number; width: number; value: number }; assumption: string }[]
 > = new Map([
   [
     "monkey-bike",
-    {
-      frames: [5, 6, 7, 8, 9, 10, 11, 12],
-      field: { offset: 0x96, width: 16, value: 0 },
-      assumption: MONKEY_BIKE_ASSUMPTION,
-    },
+    [
+      {
+        frames: [5, 6, 7, 8, 9, 10, 11, 12],
+        field: { offset: 0x96, width: 16, value: 0 },
+        assumption: MONKEY_BIKE_ASSUMPTION,
+      },
+    ],
+  ],
+  [
+    "teeter-totter",
+    [
+      { frames: [0], field: { offset: 0x12, width: 16, value: 0xffff }, assumption: TEETER_TOTTER_END_ASSUMPTION },
+      { frames: [2], field: { offset: 0x12, width: 16, value: 1 }, assumption: TEETER_TOTTER_END_ASSUMPTION },
+    ],
   ],
 ]);
