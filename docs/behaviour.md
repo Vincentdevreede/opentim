@@ -542,6 +542,35 @@ the unproved loop met. A proved loop's effects on its members are kept as per me
 as triggers yet, for any source part. Passing them on would add over a thousand trigger walks in Even More and make the
 description about twenty times slower, so it is left for a separate change.
 
+### The explosion's push
+
+The push that throws a cat or a ball away from an explosion is part of the same loop (Even More, English floppy). A
+member whose list flag `0x1000` in field `0x06` is set, and that is not a balloon (type 4) or dynamite (type 19),
+takes three calls:
+
+- `0x1a836` picks a speed from the word at `+0x02` of the member's type record: 6144 below 2, 5632 below 6, 5120
+  below 10, 4608 below 21, 4096 below 121, 3584 below 151, 3072 below 201, 2560 below 1801 and 2048 from there on.
+  The cat's record has 120, so it gets 4096; a bowling ball (200) gets 3072.
+- `0x496e` gives the angle of the line between the centres (position plus half the size) of the explosion and the
+  member, with the movement angle helper.
+- `0x7d97` sets `velocityX` (`0x36`) and `velocityY` (`0x38`) to that speed times the sine and the cosine of the angle,
+  shifted right by 14. It replaces the member's speed; it doesn't add to it.
+
+The pinball bumper's bounce calls the same two helpers with its arguments in the same order to throw the ball off, so
+the speed points from the explosion's centre to the member's. The flag `0x1000` marks a part on the moving parts list:
+the routine at `0x6469` gives a part `0x1000` and puts it on that list when its type's starting flags (the table at
+`0x2488` in the data segment) don't have `0x4000`, and `0x2000` with the fixed parts list otherwise. The overlap
+search at `0x417e` gets the mask `0x3000`, so it walks both lists, and leaves out a part with `0x2000` in field `0x08`.
+The cat has no `0x4000`, and every cat that a shipped level puts in the machine is saved with `0x1000`. The search
+runs once, on the step where the explosion goes from frame 1 to frame 2, over its own box widened by 20 pixels on
+each side and 24 above and below.
+
+The analysis already has this: the explosion's member outcomes write `0x36` and `0x38` on these paths, and its
+description lists them as "Updates another part's motion". Their values stay unnamed, and the cat's own description
+doesn't show the push, since no part takes a loop's member outcomes as triggers yet. A push changes no frame, so a
+walk from it would show nothing new. TIM 1 has the same code (French: test at `0x18e31`, speed `0x18ed6`, angle
+`0x3dd6`, speeds `0x726d`), with the type record read from the data segment.
+
 ### The outline search
 
 The teeter-totter finds the parts lying on it with an outline search. It clears the owner's found list at `0x78`,
