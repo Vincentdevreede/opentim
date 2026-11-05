@@ -949,7 +949,7 @@ export function walkBehaviourRules(
   /**
    * The starting states a seed allows, each walked as its own case; no value is preferred. When the seed fixes all
    * but at most three bits, they are those bits' combinations that have a frame. When it fixes none, and the part
-   * shows its state as one of at most 16 frames, they are its frames. When it fixes some bits of such a part's
+   * shows its state as one of at most 32 frames, they are its frames. When it fixes some bits of such a part's
    * state, they are the frames whose number has those bits.
    */
   const possibleStates = (partial: Bits): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
@@ -961,7 +961,7 @@ export function walkBehaviourRules(
     // A part drawn by its own code has no frame list; a decided assumption can give the frames a level starts it on.
     const levelFrames = !partial.mask && !frameCount ? LEVEL_FRAMES.get(part.id) : undefined;
     // A part with a few frames can only be on one of them: each one whose number has the known bits is followed.
-    const framed = frameCount !== undefined && frameCount > 1 && frameCount <= 16;
+    const framed = frameCount !== undefined && frameCount > 1 && frameCount <= 32;
     if (!framed && !levelFrames && (!partial.mask || openBits.length > 3)) return undefined;
     const values = levelFrames
       ? levelFrames.frames

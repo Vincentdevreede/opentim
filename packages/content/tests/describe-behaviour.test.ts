@@ -432,6 +432,13 @@ describe("descriptions from extracted behaviour rules", () => {
     data.parts[0]!.frameCount = 16;
     const low = walkBehaviourRules(data, 39, [{ ...known(12, 3), knownMask: 0x0003 }]);
     expect(low.stop?.branches?.map((branch) => branch.condition)).toEqual([3, 7, 11, 15].map((n) => test(12, "==", n)));
+    // Up to 32 frames, like the fish bowl's 23, each frame is a starting state.
+    data.parts[0]!.frameCount = 23;
+    expect(walkBehaviourRules(data, 39, []).stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([
+      ...Array(23).keys(),
+    ]);
+    data.parts[0]!.frameCount = 33;
+    expect(walkBehaviourRules(data, 39, []).stop?.branches).toBeUndefined();
     data.parts[0]!.frameCount = 0;
     expect(walkBehaviourRules(data, 39, []).stop?.branches).toBeUndefined();
     expect(walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]).stop?.branches).toBeUndefined();
