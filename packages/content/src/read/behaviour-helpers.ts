@@ -24,6 +24,7 @@ import { discoverContactResponsePair, type ContactResponsePair } from "./behavio
 import { addConnectionSummaries } from "./behaviour-connection-relay.ts";
 import { addRopeCutSummary } from "./behaviour-rope-cut.ts";
 import { addPartCopySummary } from "./behaviour-part-copy.ts";
+import { discoverDirectedVelocity, type DirectedVelocity } from "./behaviour-directed-velocity.ts";
 import { addOutlineSearchSummary } from "./behaviour-outline-search.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
@@ -99,6 +100,8 @@ export interface EngineSummary extends Finding {
     askingFields?: { offset: number; width: number }[];
   };
   contactRotation?: ContactRotation;
+  /** Sets a part's velocity to a speed in the direction of an angle; a caller keeps the speed it passed. */
+  directedVelocity?: DirectedVelocity;
   rotationScalar?: RotationScalar;
   contactResponseFirst?: ContactResponseFirst;
   contactResponsePair?: ContactResponsePair;
@@ -129,6 +132,15 @@ export interface EngineSummary extends Finding {
     typeArgument: number;
     constructorTable: { segment: number; offset: number; stride: number; typeCount: number };
     noConstructorTypes: number[];
+    /**
+     * Words every new part starts with, each from a table of the factory indexed by type like its constructors: the
+     * field it goes to and the value for each type, as they are in the program. Field 0x06 holds the list flags.
+     */
+    startingWords?: (Finding & {
+      field: number;
+      table: { segment: number; offset: number; stride: number };
+      values: number[];
+    })[];
     constructors?: (Finding & { type: number; address: number })[];
     ownedConstructors?: (Finding & { type: number; address: number })[];
     alwaysSuccessfulConstructors?: (Finding & { type: number; address: number })[];
@@ -1375,10 +1387,53 @@ export function specializeNullConstructor(
     stateOffset !== undefined &&
     summary.allocationSize >= stateOffset + 2 &&
     !summary.writes.some((w) => w.offset < stateOffset + 2 && stateOffset < w.offset + w.width / 8);
+  // Some fields of the new part come from the same type-indexed table: one load into AX, stored once into the new
+  // part before the constructor pointer is tested.
+  const objectStores = code.instructions.filter(
+    (i): i is Instruction & { operands: [Extract<Operand, { kind: "memory" }>, Operand] } =>
+      i.mnemonic === "mov" && isMemory(i.operands[0], object) && i.operands[0].segment === "ds",
+  );
+  const startingWords = objectStores.flatMap((store) => {
+    const load = previous.get(store.address);
+    const field = store.operands[0].displacement;
+    if (
+      store.operands[0].width !== 16 ||
+      !isRegister(store.operands[1], "ax") ||
+      load?.mnemonic !== "mov" ||
+      !isRegister(load.operands[0], "ax") ||
+      !isMemory(load.operands[1], "bx") ||
+      load.operands[1].segment !== "ds" ||
+      load.operands[1].width !== 16 ||
+      objectStores.filter((i) => i.operands[0].displacement === field).length !== 1 ||
+      indexAt(load.address)?.count !== constructorIndex.count ||
+      !dominates(store.address, pointerLoad.address)
+    )
+      return [];
+    const offset = load.operands[1].displacement;
+    if (offset < 0 || offset + (typeCount! - 1) * stride + 2 > 0x10000) return [];
+    if (dataSegment * 16 + offset + (typeCount! - 1) * stride + 2 > image.length) return [];
+    const values = Array.from({ length: typeCount! }, (_, type) => {
+      const at = dataSegment * 16 + offset + type * stride;
+      return image[at]! | (image[at + 1]! << 8);
+    });
+    return [
+      {
+        confidence: "inferred" as const,
+        assumptions: [
+          "The factory's type table keeps the words it has in the program, and the factory gives each new part the word for its type.",
+        ],
+        evidence: [evidence(load), evidence(store)],
+        field,
+        table: { segment: dataSegment, offset, stride },
+        values,
+      },
+    ];
+  });
   return {
     typeArgument: summary.argumentOffset,
     constructorTable: { segment: dataSegment, offset: base, stride, typeCount: typeCount! },
     noConstructorTypes,
+    ...(startingWords.length ? { startingWords } : {}),
     noConstructor: {
       purpose: "Allocates and initializes a new part without invoking a type constructor, preserving existing parts.",
       confidence: "inferred",
@@ -2347,6 +2402,8 @@ export function discoverEngineSummaries(
   for (const code of codes.values()) {
     const rotation = discoverContactRotation(code, codes, summaries, image);
     if (rotation) summaries.set(code.address, rotation);
+    const velocity = discoverDirectedVelocity(code, codes, image);
+    if (velocity) summaries.set(code.address, velocity);
   }
   for (const code of codes.values()) {
     const response = discoverFirstContactResponse(code, codes, summaries, image, table, dataSegment, typeCount);

@@ -440,3 +440,41 @@ like that are left out (12 in each recorded build). About 140 branches that went
 - Check whether a motor, the windmill or the monkey bike can be connected to a teeter-totter, for example with a belt,
   and whether it then sets the teeter-totter's control value.
 - In the game, try to tip a teeter-totter that is already fully tilted further the same way.
+
+## 11. Parts on the fixed list
+
+Decided on 2026-11-05 with the user. In the code: `FIXED_LIST_ASSUMPTION` in
+`packages/content/src/read/describe-effects.ts`. Explained in
+[effects of other parts](behaviour.md#effects-of-other-parts).
+
+**The question.** The explosion pushes a part it hits only when that part's list flags at `0x06` have `0x1000`, the
+flag of the moving list. Parts like walls, the teeter-totter or the fan are of a type the game puts on the fixed list.
+Can such a part ever have `0x1000`, and so be pushed?
+
+**What the code shows** (Even More, English floppy):
+
+- The part factory (`0x15d9b`) gives a new part the flags word of its type from a 16-byte table at `0x2488` in the data
+  segment (`0x15ddb`). Every type there has `0x800`; the types of the fixed list have `0x4000` as well.
+- The routine that puts a part on a list when the player drops it (`0x6469`) tests `0x4000` (`0x6476`). Without it, the
+  part gets `0x1000` and the moving list (`0x6494`); with it, `0x2000` and the fixed list. A search of the whole
+  program finds no other instruction that adds `0x1000` to a word.
+- A level file stores the flags word itself, and the part reader (`0x13653`) reads it straight into `0x06`.
+- No shipped level of the eleven builds saves a part of a fixed type with `0x1000`: 2,738 such parts in each TIM 1
+  build and 5,445 in Even More (English floppy), none with it. TIM 1 has the same code (French: table at `0x2ae6`,
+  routine at `0x57bd`).
+
+**What we assume.**
+
+- A part of a type whose starting flags have `0x4000` is never on the moving list: its list flags at `0x06` never have
+  `0x1000`. The game puts such a part on the fixed list, and no shipped level saves one with `0x1000`.
+
+Not proved: a level file made outside the game could store `0x1000` for such a part, since loading keeps the stored
+flags.
+
+**What it gives.** Parts of a fixed type get no line for the explosion's push. Without it, every wall, ramp and motor
+would show the push with the condition "on the moving list". The parts it rules out state it in their description.
+
+**How to recheck.**
+
+- Look at levels saved by players for a part of a fixed type with `0x1000` in its first flags word.
+- Search the program again for writes that set `0x1000` in a part's flags at `0x06`.

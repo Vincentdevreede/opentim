@@ -58,6 +58,7 @@ export {
   type FrameVisit,
   type DescribedEffect,
 } from "./read/describe-behaviour.ts";
+export { type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
 export {
   discoverEngineSummaries,
   type EngineSummary,

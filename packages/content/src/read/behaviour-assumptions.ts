@@ -3,6 +3,7 @@
  * on every finding that uses it, and explained in docs/behaviour-assumptions.md so it can be rechecked later.
  */
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
+import { FIXED_LIST_ASSUMPTION } from "./describe-effects.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
 import { PART_COPY_ASSUMPTIONS } from "./behaviour-part-copy.ts";
 import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
@@ -31,4 +32,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The electric motor's starting frame", assumptions: [ELECTRIC_MOTOR_ASSUMPTION] },
   { title: "Control values", assumptions: [CONTROL_VALUE_ASSUMPTION] },
   { title: "The teeter-totter's ends", assumptions: [TEETER_TOTTER_END_ASSUMPTION] },
+  { title: "Parts on the fixed list", assumptions: [FIXED_LIST_ASSUMPTION] },
 ];

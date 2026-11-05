@@ -62,6 +62,17 @@ export interface FieldWrite extends Finding {
   value: Expression;
   condition: Predicate;
   routine: number;
+  /** When the speed setter wrote the field: the speed it was given, which the field's value doesn't show. */
+  directedSpeed?: DirectedSpeed;
+}
+/** A velocity field the speed setter wrote, with the speed the caller passed it. */
+export interface DirectedSpeed {
+  /** The speed setter, and the call that reached it. */
+  routine: number;
+  call: number;
+  /** The length of the new velocity, before each part is rounded by the shift. */
+  speed: Expression;
+  axis: "horizontal" | "vertical";
 }
 export interface Transition extends Finding {
   /** Candidate states at entry. Null means that the source state was not bounded by the available states. */
@@ -173,6 +184,11 @@ export interface BehaviourReport {
   })[];
   routines: RoutineAnalysis[];
   assumptions: string[];
+  /**
+   * The words of each type record as the program holds them, at `address` in the unpacked image, `stride` bytes per
+   * type. A table read the analysis keeps, like a type's mass, can be looked up here for a known type.
+   */
+  typeTable?: { address: number; stride: number; words: number[][] };
 }
 
 const hex = (n: number) => `0x${n.toString(16)}`;
@@ -460,6 +476,8 @@ interface Tracked {
   value: Value;
   evidence: Evidence[];
   writtenAt?: number;
+  /** Kept with a field the speed setter wrote, until something else writes it. */
+  directedSpeed?: DirectedSpeed;
 }
 /** The object, offset and width of a memory key `object:offset:width`; the object name may itself contain colons. */
 function keyParts(key: string) {
@@ -1227,7 +1245,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         width = Number(key.slice(split + 1));
       if (object === l.object && at < l.offset + l.width / 8 && l.offset < at + width / 8) s.memory.delete(key);
     }
-    s.memory.set(memoryKey(l), tracked(value.value, uniqueEvidence([...e, ...l.evidence]), i.address));
+    s.memory.set(memoryKey(l), {
+      ...tracked(value.value, uniqueEvidence([...e, ...l.evidence]), i.address),
+      ...(value.directedSpeed ? { directedSpeed: value.directedSpeed } : {}),
+    });
     if (l.object === "part" && l.offset === stateOffset) {
       s.stateWritten = true;
       s.evidence.push(...e);
@@ -1813,13 +1834,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         ]),
       ];
     }
+    // The speed setter's velocity keeps the speed the caller passed, which its value can't show.
+    const directed = engine.directedVelocity;
+    const speed = directed && formalArgument(args, engine.argumentOffset, directed.arguments.speed);
     for (const effect of pending) {
       const temporary = "__engine_pointer";
       s.registers.set(temporary, effect.pointer);
       const before = memoryAt(effect.pointer, effect.offset, effect.width, s);
+      const store = directed?.stores.find((item) => item.field === effect.offset && effect.width === 16);
       const value =
         effect.certain || same(before.value, effect.value.value)
-          ? effect.value
+          ? store && speed && effect.certain
+            ? {
+                ...effect.value,
+                directedSpeed: {
+                  routine: engine.address,
+                  call: i.address,
+                  speed: asExpression(speed.value),
+                  axis: store.coefficient,
+                },
+              }
+            : effect.value
           : tracked(
               unknown(`Conditional ${engine.kind} effect on field ${hex(effect.offset)}`, effect.width),
               effect.evidence,
@@ -1833,7 +1868,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           direct: false,
           width: effect.width === 8 ? 8 : 16,
         },
-        tracked(value.value, uniqueEvidence([...value.evidence, ...effect.evidence, evidenceOf(i)])),
+        {
+          ...tracked(value.value, uniqueEvidence([...value.evidence, ...effect.evidence, evidenceOf(i)])),
+          ...(value.directedSpeed ? { directedSpeed: value.directedSpeed } : {}),
+        },
         s,
         i,
       );
@@ -2260,6 +2298,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         routine: entry.address,
         ...finding(value, condition, s, uniqueEvidence([...final.evidence, evidenceOf(i)])),
         ...(object === "unknown" ? { confidence: "unresolved" as const } : {}),
+        ...(final.directedSpeed ? { directedSpeed: final.directedSpeed } : {}),
       });
     }
     iterationOutcomes.push({
@@ -2304,6 +2343,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         condition,
         routine: entry.address,
         ...finding(expression, condition, s, [...final.evidence, evidenceOf(i)]),
+        ...(final.directedSpeed ? { directedSpeed: final.directedSpeed } : {}),
       });
     }
     const returned = registerRead("ax", s);
@@ -4753,6 +4793,16 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),
+    typeTable: {
+      address: list.table,
+      stride: 58,
+      words: list.records.map((record) =>
+        Array.from(
+          { length: record.bytes.length >> 1 },
+          (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
+        ),
+      ),
+    },
     assumptions: [
       "All addresses are relative to the unpacked load image, with the DOS relocation load base removed.",
       "Slot names, object field meanings and callback frequency have separate evidence and must not be promoted from a v25 lead alone.",

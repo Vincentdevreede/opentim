@@ -2,6 +2,7 @@
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
+import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -145,6 +146,8 @@ export interface PartBehaviourDescription extends Finding {
   animations: AnimationDescription[];
   triggers: { name: string; condition?: Predicate; evidence: Evidence[]; confidence: Confidence }[];
   uncertainties: string[];
+  /** What other parts do to this part without changing its frame, like the explosion's push. */
+  effectsFromOthers: OtherPartEffect[];
 }
 
 export interface BehaviourDescription extends Finding {
@@ -2657,6 +2660,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
 }
 
 export function describeBehaviour(report: BehaviourReport): BehaviourDescription {
+  const fromOthers = effectsFromOthers(report, evaluateBehaviourCondition);
   const parts = report.parts.map((part): PartBehaviourDescription => {
     const rest = restOf(report, part);
     const creation = creationOf(report, part);
@@ -2998,7 +3002,8 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         confidence,
       })),
       uncertainties,
-      ...finding([rest, ...animations]),
+      effectsFromOthers: fromOthers.get(part.type)?.effects ?? [],
+      ...finding([rest, ...animations], fromOthers.get(part.type)?.assumptions),
     };
   });
   return {

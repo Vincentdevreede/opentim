@@ -100,6 +100,8 @@ function guardedFactoryFixture(
     guardSafe?: boolean;
     extraStore?: boolean;
     earlyRestore?: boolean;
+    /** Gives the new part's list flags at 0x06 from the type-indexed table, as the games' factory does. */
+    startingFlags?: boolean;
   } = {},
 ) {
   const image = new Uint8Array(0xc00);
@@ -166,7 +168,9 @@ function guardedFactoryFixture(
   if (options.earlyRestore) p.emit(0x5e);
   p.emit(0x89, 0x7c, 4);
   if (options.extraStore) p.emit(0xc7, 0x45, 0x0c, 1, 0);
-  p.emit(0xb1, strideBits, 0x8b, 0xdf, 0xd3, 0xe3, 0x8b, 0x87, 0x20, 6, 0x0b, 0x87, 0x22, 6);
+  p.emit(0xb1, strideBits);
+  if (options.startingFlags) p.emit(0x8b, 0xdf, 0xd3, 0xe3, 0x8b, 0x87, 0x24, 6, 0x89, 0x44, 6);
+  p.emit(0x8b, 0xdf, 0xd3, 0xe3, 0x8b, 0x87, 0x20, 6, 0x0b, 0x87, 0x22, 6);
   p.branch(0x74, "after");
   p.emit(0x56, 0x8b, 0xdf, 0xd3, 0xe3, 0xff, 0x9f, 0x20, 6, 0x59, 0x3d, 1, 0);
   p.branch(0x75, "after");
@@ -550,6 +554,25 @@ describe("structural engine summaries", () => {
       ).toBe(true);
       expect(
         discoverEngineSummaries(f.image, f.code, layout(), 0x880, 0).find((s) => s.address === f.factory)!.factory,
+      ).toBeUndefined();
+    }
+  });
+
+  it("reads the words a new part starts with from the factory's type-indexed table", () => {
+    for (const strideBits of [3, 4]) {
+      const f = guardedFactoryFixture({ strideBits, startingFlags: true });
+      for (let type = 0; type < 3; type++)
+        f.image.set([0x00, type === 1 ? 0x48 : 0x08], 0x624 + type * 2 ** strideBits);
+      const summary = discoverEngineSummaries(f.image, f.code, layout(), 0x880, 0, 3).find(
+        (s) => s.address === f.factory,
+      )!;
+      expect(summary.factory?.startingWords).toMatchObject([
+        { field: 6, table: { segment: 0, offset: 0x624, stride: 2 ** strideBits }, values: [0x800, 0x4800, 0x800] },
+      ]);
+      const plain = guardedFactoryFixture({ strideBits });
+      expect(
+        discoverEngineSummaries(plain.image, plain.code, layout(), 0x880, 0, 3).find((s) => s.address === plain.factory)
+          ?.factory?.startingWords,
       ).toBeUndefined();
     }
   });

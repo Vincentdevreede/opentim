@@ -569,7 +569,65 @@ The analysis already has this: the explosion's member outcomes write `0x36` and 
 description lists them as "Updates another part's motion". Their values stay unnamed, and the cat's own description
 doesn't show the push, since no part takes a loop's member outcomes as triggers yet. A push changes no frame, so a
 walk from it would show nothing new. TIM 1 has the same code (French: test at `0x18e31`, speed `0x18ed6`, angle
-`0x3dd6`, speeds `0x726d`), with the type record read from the data segment.
+`0x3dd6`, speeds `0x726d`), with the type record read from the data segment. The next section shows the push on the
+pushed part's own description.
+
+### Effects of other parts
+
+A part's description now lists what other parts do to it without changing its frame, as short lines in
+`effectsFromOthers` instead of walks. The first is the explosion's push: "An explosion that reaches it sets its speed
+to 4096, in a direction the explosion works out. Only when it is on the moving list." Turning the explosion's member
+outcomes into trigger walks was tried first: it added about 1,230 walks and made describing a build take 95 seconds
+instead of 6, and a push shows no new frame anyway.
+
+Three things make the line possible:
+
+- **The speed setter.** The routine at `0x7d97` is now proved from its whole instruction graph, in two compiler forms
+  over the eleven builds (the English CD calls the shift far). It takes a part, an angle and a speed, and sets
+  `velocityX` (`0x36`) and `velocityY` (`0x38`) to the speed times the coefficient a quarter turn on and the plain
+  coefficient of the angle, each shifted right by 14. The coefficients come from the same checked table as the
+  collision rotation, and both fields are always written. The written values stay unknown, since the angle is, but a
+  caller now keeps the speed it passed with the two fields (`directedSpeed`), until something else writes them. In the
+  explosion's loop that speed is one number on each path, from the speed class of `0x1a836`. The pinball bumper's
+  bounce passes 7168.
+- **The type table.** The report keeps the words of every type record (`typeTable`), so a table read the analysis
+  keeps, like the mass at `+0x02` that picks the speed class, can be looked up for a known type. The line states that
+  the record keeps its words from the program while a level runs.
+- **The starting flags.** The part factory's summary now lists the words a new part gets from the factory's
+  type-indexed table (`startingWords`), such as the list flags at `0x06`. Together with
+  [the decided assumption on the fixed list](behaviour-assumptions.md#11-parts-on-the-fixed-list), a part of a type
+  with `0x4000` there gets no push line.
+
+A line is made from a proved per-member outcome of another part's routine when, for this part's type:
+
+- the outcome's tests on the member are decided by its type and the type table, apart from which list it is on, which
+  becomes the line's condition ("on the moving list");
+- the outcome writes only the member, and every field it writes gets a number: a constant, or a speed;
+- it doesn't write the part's state, or any field that the part's own rules read. Such a write can change the frame,
+  and walks are the place for that.
+
+The source's own tests stay as the line's source condition (for the explosion: going from frame 1 to frame 2), and a
+named drawing flag among them is said in words, like "mirrored". Lines that say the same are kept once.
+
+In Even More (English floppy) these parts get the push, with their speed: the pinball 2048; the rocket, the rope end
+and the shamrock 2560; the bowling ball 3072; the birdcage 3584; the cat, the bucket, the jack-o-lantern, the cheese,
+the teapot and the pool ball 4096; the basketball, the candle and the super ball 4608; the baseball 5120; the heart and
+the tennis ball 5632; the mouse and the explosion 6144. TIM 1 gives the same speeds to the parts it has. The same rule
+also finds the jack-in-the-box's punch, which sets both velocities from the same speed classes: for the cat -4096 and
+-4096, or 4096 and -4096 when the box is mirrored.
+
+These effects of other parts are left out, so they are known gaps:
+
+- The balloon's control value set to 1 by the explosion, and the mouse motor the explosion starts (it writes `0x12` and
+  `0x96`): both parts' runs read `0x12`, so these change their frames through their runs.
+- The fish bowl and the dynamite the explosion sets to frame 11 and 5: these write the state.
+- The push on the bullet and on Mel Schlemming: their own rules read their velocity.
+- The wall split: it writes the wall's position and size, but with values that depend on where the explosion is.
+- Every other per-member outcome, like those of the bellows, the fan, the teapot and the vacuum cleaner: each writes a
+  value the analysis doesn't know, writes the state or a field the part's rules read, or depends on more than the
+  part's type, like where the part is.
+
+Describing a build takes as long as before (about 6 seconds for Even More and 5.5 for TIM 1), and no walk changes.
 
 ### The outline search
 
