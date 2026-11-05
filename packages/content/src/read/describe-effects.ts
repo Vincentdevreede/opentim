@@ -15,10 +15,10 @@ import { directionError } from "./behaviour-centre-angle.ts";
  * gives it `0x1000` and the moving list when its starting flags lack `0x4000`, and `0x2000` and the fixed list
  * otherwise.
  */
-const LIST_FLAGS = 0x06;
+export const LIST_FLAGS = 0x06;
 const MOVING_LIST = 0x1000;
 const FIXED_LIST = 0x2000;
-const FIXED_TYPE = 0x4000;
+export const FIXED_TYPE = 0x4000;
 
 export const FIXED_LIST_ASSUMPTION =
   "A part of a type whose starting flags have 0x4000 is never on the moving list: its list flags at 0x06 never have 0x1000. The game puts such a part on the fixed list, and no shipped level saves one with 0x1000.";
@@ -32,7 +32,7 @@ const CENTRES_ASSUMPTION =
  */
 export const SCREEN_DIRECTION_ASSUMPTION =
   "On the screen, a negative velocityX at 0x36 moves a part to the left and a negative velocityY at 0x38 moves it up. In the game, a jack-in-the-box that isn't flipped, which sets both negative, knocks a part up and to the left.";
-const TYPE_TABLE_ASSUMPTION =
+export const TYPE_TABLE_ASSUMPTION =
   "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE.";
 
 /** Something another part sets on this part: its velocity to a speed, or a field to a number. */
@@ -71,20 +71,23 @@ export interface OtherPartEffect extends Finding {
   description: string;
 }
 
-type Evaluate = (
+export type Evaluate = (
   condition: Predicate,
   fields: Pick<KnownField, "object" | "offset" | "width" | "value" | "knownMask">[],
 ) => boolean | undefined;
 
 const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
 const wrap = (value: number, width: number) => ((value % 2 ** width) + 2 ** width) % 2 ** width;
-const terms = (predicate: Predicate): Predicate[] =>
+export const terms = (predicate: Predicate): Predicate[] =>
   predicate.kind === "and" ? predicate.terms.flatMap(terms) : predicate.kind === "true" ? [] : [predicate];
 const conjunction = (list: Predicate[]): Predicate =>
   list.length === 0 ? { kind: "true" } : list.length === 1 ? list[0]! : { kind: "and", terms: list };
 
 /** The objects whose fields an expression reads, and whether it holds something unknown. */
-function objects(value: Expression | Predicate, found = new Set<string>()): { objects: Set<string>; unknown: boolean } {
+export function objects(
+  value: Expression | Predicate,
+  found = new Set<string>(),
+): { objects: Set<string>; unknown: boolean } {
   let unknown = false;
   const visit = (v: Expression | Predicate) => {
     if (v.kind === "unknown") unknown = true;
@@ -153,7 +156,7 @@ function forType(
   }
   return e;
 }
-function predicateForType(
+export function predicateForType(
   p: Predicate,
   ...rest: [string, number, number, BehaviourReport["typeTable"], { table: boolean }]
 ): Predicate {
@@ -176,7 +179,7 @@ function drawingFlagWords(p: Predicate, report: BehaviourReport): string | undef
 }
 
 /** A test of one list flag of the member, like `(member + 0x06 & 0x1000) != 0`, in words. */
-function listFlagWords(p: Predicate, member: string): string | undefined {
+export function listFlagWords(p: Predicate, member: string): string | undefined {
   if (p.kind !== "compare" || !["==", "!="].includes(p.operator)) return undefined;
   const { left, right } = p;
   if (right.kind !== "constant" || right.value !== 0 || left.kind !== "binary" || left.operator !== "&") return;
@@ -187,13 +190,13 @@ function listFlagWords(p: Predicate, member: string): string | undefined {
   return list && `${p.operator === "!=" ? "" : "not "}on the ${list} list`;
 }
 
-function rename(e: Expression, from: string, to: string): Expression {
+export function rename(e: Expression, from: string, to: string): Expression {
   if (e.kind === "field" && e.object === from) return { ...e, object: to };
   if (e.kind === "binary") return { ...e, left: rename(e.left, from, to), right: rename(e.right, from, to) };
   if (e.kind === "table") return { ...e, index: rename(e.index, from, to) };
   return e;
 }
-const renamePredicate = (p: Predicate, from: string, to: string): Predicate =>
+export const renamePredicate = (p: Predicate, from: string, to: string): Predicate =>
   p.kind === "compare"
     ? { ...p, left: rename(p.left, from, to), right: rename(p.right, from, to) }
     : p.kind === "and"
@@ -201,7 +204,7 @@ const renamePredicate = (p: Predicate, from: string, to: string): Predicate =>
       : p;
 
 /** The part fields an expression reads, as offsets. */
-function partFields(value: Expression | Predicate, found: Set<number>) {
+export function partFields(value: Expression | Predicate, found: Set<number>) {
   if (value.kind === "field" && value.object === "part") found.add(value.offset);
   else if (value.kind === "binary" || value.kind === "compare") {
     partFields(value.left, found);
@@ -211,7 +214,7 @@ function partFields(value: Expression | Predicate, found: Set<number>) {
 }
 
 const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.address, e])).values()];
-const nameOf = (id: string) => id.replace(/-/g, " ");
+export const nameOf = (id: string) => id.replace(/-/g, " ");
 const article = (name: string) => (/^[aeiou]/.test(name) ? "An" : "A");
 
 interface Candidate {

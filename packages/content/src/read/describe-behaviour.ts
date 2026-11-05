@@ -3,6 +3,7 @@ import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
+import { hitsFromOthers } from "./describe-hits.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -2791,6 +2792,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
 
 export function describeBehaviour(report: BehaviourReport): BehaviourDescription {
   const fromOthers = effectsFromOthers(report, evaluateBehaviourCondition);
+  const hits = hitsFromOthers(report, evaluateBehaviourCondition);
   const parts = report.parts.map((part): PartBehaviourDescription => {
     const rest = restOf(report, part);
     const creation = creationOf(report, part);
@@ -3044,6 +3046,22 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         );
       }
     }
+    // Other parts that change a field this part's rules read, like an explosion setting a balloon's control value.
+    for (const [index, hit] of (hits.get(part.type)?.hits ?? []).entries()) {
+      const trigger: AnimationTrigger = {
+        kind: "related-write",
+        name: hit.name,
+        scope: "one overlap-list member",
+        routine: hit.sources[0]!.routine,
+        condition: hit.condition,
+        writes: hit.writes,
+        sourceType: hit.sources[0]!.type,
+        effectsComplete: true,
+        ...finding([hit]),
+      };
+      add(`hit-${index}`, trigger);
+      stableStates.forEach((stable, stableIndex) => add(`stable-${stableIndex}-hit-${index}`, trigger, stable));
+    }
     const inputCases = conditionalInputCases(report, part);
     if (run)
       inputCases.cases.forEach((input, index) => {
@@ -3133,7 +3151,10 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
       })),
       uncertainties,
       effectsFromOthers: fromOthers.get(part.type)?.effects ?? [],
-      ...finding([rest, ...animations], fromOthers.get(part.type)?.assumptions),
+      ...finding(
+        [rest, ...animations],
+        [...(fromOthers.get(part.type)?.assumptions ?? []), ...(hits.get(part.type)?.assumptions ?? [])],
+      ),
     };
   });
   return {

@@ -539,9 +539,8 @@ recorded animations match completely. TIM 1 has the same routines at other addre
 `0x18f4a`, copy `0x5a15`), and the run is proved in all eleven builds.
 
 The balloon's and the mouse motor's triggers "A recorded effect of explosion" are gone. They came from the first part
-the unproved loop met. A proved loop's effects on its members are kept as per member outcomes, but no part takes them
-as triggers yet, for any source part. Passing them on would add over a thousand trigger walks in Even More and make the
-description about twenty times slower, so it is left for a separate change.
+the unproved loop met. A proved loop's effects on its members are kept as per member outcomes. The ones that change a
+part's frame are walks of that part again, see [walks from other parts](#walks-from-other-parts).
 
 ### The explosion's push
 
@@ -567,8 +566,7 @@ runs once, on the step where the explosion goes from frame 1 to frame 2, over it
 each side and 24 above and below.
 
 The analysis already has this: the explosion's member outcomes write `0x36` and `0x38` on these paths, and its
-description lists them as "Updates another part's motion". Their values stay unnamed, and the cat's own description
-doesn't show the push, since no part takes a loop's member outcomes as triggers yet. A push changes no frame, so a
+description lists them as "Updates another part's motion". Their values stay unnamed. A push changes no frame, so a
 walk from it would show nothing new. TIM 1 has the same code (French: test at `0x18e31`, speed `0x18ed6`, angle
 `0x3dd6`, speeds `0x726d`), with the type record read from the data segment. The next section shows the push on the
 pushed part's own description.
@@ -626,9 +624,9 @@ like "Jack-in-the-box up and to the left", and keeps the numbers in its tip.
 
 These effects of other parts are left out, so they are known gaps:
 
-- The balloon's control value set to 1 by the explosion, and the mouse motor the explosion starts (it writes `0x12` and
-  `0x96`): both parts' runs read `0x12`, so these change their frames through their runs.
-- The fish bowl and the dynamite the explosion sets to frame 11 and 5: these write the state.
+- The balloon's control value set to 1 by the explosion, the mouse motor the explosion starts, and the fish bowl and
+  the dynamite it sets to frame 11 and 5: these change the frame, so they are walks, see
+  [walks from other parts](#walks-from-other-parts).
 - The push on the bullet and on Mel Schlemming: their own rules read their velocity.
 - The wall split: it writes the wall's position and size, but with values that depend on where the explosion is.
 - Every other per-member outcome, like those of the bellows, the fan, the teapot and the vacuum cleaner: each writes a
@@ -672,6 +670,61 @@ quarter turn, and the setter puts the whole speed into `velocityY`.
 
 The jack-in-the-box's punch doesn't use the centre angle: it sets fixed numbers, chosen by whether the box is
 mirrored. Its lines say the direction on the screen instead, as described above.
+
+### Walks from other parts
+
+When an explosion hits a balloon, the balloon pops; when it hits a mouse motor, the mouse starts running. The user saw
+both in the game. The explosion's loop gives these as per member outcomes: it sets a balloon's control value (`0x12`)
+to 1, and it calls the mouse motor's start at `0x1c074` (Even More, English floppy). They are now walks of the part
+that is hit, with the trigger "Hit by an explosion".
+
+The mouse motor's start first needed its stores to have conditions. It sets the step at `0x12` to -1 when the motor is
+mirrored and to 1 otherwise, and the counter at `0x96` to 100 on every path. A helper that only updates its part's
+fields was summarised with its stores but without the tests that pick them. The reader now walks every path of such a
+helper (`behaviour-owner-paths.ts`) and gives each plain store the tests of the part's own fields that lead to it, when
+they decide it: every path through the store makes those tests, the store is the last one to its field there, and
+every other path fails one of them. A test only counts when no store or call before it may change the field it reads,
+and an `or` or `inc` sets no value. The counter's store gets no condition at all, so a caller knows the counter is 100.
+When a loop passes the member it looks at to such a helper and the helper's tests aren't decided yet, the pass splits
+on them, so each member outcome knows the step it sets. Of the helpers in Even More the mouse motor's start, the eye
+hook's at `0x1aaaa` and the light bulb's at `0x1bbef` (whose stored values stay unknown) get conditions, and only the
+start is called on a loop's member: by the explosion, the alligator, the boxing glove, the jack-in-the-box and the teapot. TIM 1 has the same start at `0x1a78b` (French).
+
+The walks come from `hitsFromOthers` (`describe-hits.ts`), which works out each part type's hits from every proved per
+member outcome of another part's routine, like the lines in [effects of other parts](#effects-of-other-parts):
+
+- The source's tests on the member must name this part's type (`member type == 4`). A search can hold parts its owner
+  never acts on: the candle's first loop sets `0x12` to 1 on every part its search finds, and that search keeps only
+  parts with a flag in field `0x0a` that the outcome doesn't show. Without a named type such an outcome gets no walk.
+- The member's other tests are worked out for the type, with the type table and the decided assumption on the fixed
+  list. What is left, like being mirrored or on the moving list, is a test on the part's own fields that the walk keeps.
+  The source's tests of its own fields, like the explosion going to frame 2, are left out.
+- The outcome must write a field the part's rules read, or its state, and every such field must get a number. Other
+  fields it writes are kept too, as their number or as unknown.
+- Outcomes that leave the same numbers in the fields the rules read share one walk, whichever part and path they come
+  from. That walk keeps only the tests all of them make, so it may start from more frames than a single path would.
+
+Each hit is walked from the part's reset fields and from each documented stable state, like a callback. In Even More
+(English floppy) 8 parts get 11 walks:
+
+- the balloon, control value 1, from a candle, an explosion or a rocket: it pops;
+- the mouse motor, step -1 or 1 by whether it is mirrored and counter 100 (two walks), from an alligator, a boxing
+  glove, an explosion, a jack-in-the-box or a teapot;
+- the cat, frame 1, from a candle or a rocket;
+- the fish bowl, frame 11, from an alligator, a boxing glove, an explosion or a jack-in-the-box;
+- the dynamite, frame 5, from an explosion (three walks, with its two stable states);
+- the windmill, control value 1 and counter 20, from the bellows or a teapot;
+- the candle, frame 0 and control value 0, from the bellows, a fan or a teapot;
+- the teapot, control value 1, from a candle or a rocket.
+
+TIM 1 (French) gets the same walks for the parts it has, 10 in all. Every one of them ends. The lab shows them in the
+Behaviour tab by walk, under "hit by" and the parts that do it.
+Describing takes about 6.1 seconds for Even More instead of 5.6, and 5.5 for TIM 1 instead of 5.3. The recordings
+match as before: 556 and 468 complete, none different.
+
+The push on the bullet and on Mel Schlemming still gets no walk: no outcome of the jack-in-the-box's punch names their
+type. Neither does the candle's first loop name any type, so what it lights is left for a later change that reads the
+flag in field `0x0a` its search tests.
 
 ### The outline search
 
