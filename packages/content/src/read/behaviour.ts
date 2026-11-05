@@ -1910,9 +1910,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s,
         );
     }
-    if (engine.kind === "private-buffer-query" && registerRead("ax", s).value.kind === "unknown")
+    if (
+      ["private-buffer-query", "connection-query"].includes(engine.kind) &&
+      registerRead("ax", s).value.kind === "unknown"
+    )
       // A query that changes nothing but its own stack answers with one value, like whether a spot is blocked. It is
-      // unknown, but one value: a condition on it can be decided as a run value.
+      // unknown, but one value: a condition on it can be decided as a run value. The rope connection query's answer,
+      // what the parts at the other end of the ropes said, is one value in the same way, whatever those parts change.
       registerWrite(
         "ax",
         tracked({ ...field(`answer of the query at ${hex(i.address)}`, 0, 16), unresolved: true } as Expression, [

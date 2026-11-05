@@ -691,6 +691,20 @@ In both recorded builds the magnifying glass's remaining walks end this way. The
 followed each frame its saved bits allow now end as one hold, and a walk each of the bellows, the solar panel, the
 windmill and (in TIM 1) the rocket does too. 8 more recorded animations match completely in Even More and 11 in TIM 1.
 
+### The teeter-totter's rope answer
+
+When its control value is set, the teeter-totter first asks the parts at the other end of its ropes whether it may
+tip (the rope connection query, called at `0x1d2af` in Even More, English floppy). When one of them says no, it keeps
+its frame; otherwise it asks again and adds the control value to its frame. The query's answer depends on those other
+parts, so the analysis can't know it, and every walk stopped at the step that tested it. That answer is one value,
+just like the answer of a query that changes nothing: what the parts at the other end change doesn't matter for that.
+The reader now names it `answer of the query at` the call's address too, and the walks branch on it.
+
+The rope callback tests the same answer twice, so naming it also drops the paths where those two tests disagree: in
+Even More the callback has 77 outcomes instead of 107, and the teeter-totter has 20 fewer walks. In both recorded
+builds its walks that stop go down by 20 (from 30 to 10 in Even More, 34 to 14 in TIM 1) and 6 more end in every
+branch. No other part changes.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

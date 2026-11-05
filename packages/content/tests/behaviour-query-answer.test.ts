@@ -50,6 +50,15 @@ describe("query answers", () => {
     expect(conditions.some((condition) => condition.includes('"kind":"unknown"'))).toBe(false);
   });
 
+  it("names the answer of the rope connection query as one value", () => {
+    const { image, helpers } = fixture("connection-query");
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    const conditions = routine.transitions.map((transition) => text(transition.condition));
+    expect(conditions.length).toBeGreaterThan(1);
+    expect(conditions.every((condition) => condition.includes("answer of the query at 0x8"))).toBe(true);
+    expect(conditions.some((condition) => condition.includes('"kind":"unknown"'))).toBe(false);
+  });
+
   it("keeps the answer of another helper opaque", () => {
     const { image, helpers } = fixture("frame-position");
     const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
