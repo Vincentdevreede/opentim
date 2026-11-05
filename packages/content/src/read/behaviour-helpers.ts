@@ -102,6 +102,11 @@ export interface EngineSummary extends Finding {
   contactOutline?: ContactOutline;
   contactMotionAngle?: ContactMotionAngle;
   shortCircuit?: ConnectionBypass;
+  /**
+   * The size in bytes of a node of the separately allocated pool an `owned-node-pool-update` changes. It writes nothing
+   * else but the pool's head globals and its own stack.
+   */
+  nodePool?: { nodeSize: number };
   listConsumer?: ExternalListConsumer;
   listConsumerScope?: ListConsumerCall;
   overlapProducer?: OverlapProducer;

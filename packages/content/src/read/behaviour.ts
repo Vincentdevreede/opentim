@@ -450,6 +450,28 @@ interface Tracked {
   evidence: Evidence[];
   writtenAt?: number;
 }
+/** The object, offset and width of a memory key `object:offset:width`; the object name may itself contain colons. */
+function keyParts(key: string) {
+  const parts = key.split(":"),
+    width = Number(parts.pop()),
+    offset = Number(parts.pop());
+  return { object: parts.join(":"), offset, width };
+}
+/**
+ * The pool a node pool update changes, when the caller can keep everything but the node's bytes on objects other than
+ * its own part. A field of another object written before the call might be in a node, and the update could change it
+ * where the caller can't see, so then the update keeps its general summary.
+ */
+function poolNodeEffect(engine: EngineSummary, memory: Map<string, Tracked>) {
+  if (engine.kind !== "owned-node-pool-update" || !engine.nodePool) return undefined;
+  const { nodeSize } = engine.nodePool;
+  for (const [key, cell] of memory) {
+    const { object, offset } = keyParts(key);
+    if (cell.writtenAt !== undefined && !["stack", "data", "part"].includes(object) && offset < nodeSize)
+      return undefined;
+  }
+  return engine.nodePool;
+}
 interface Flags {
   carryOverridden?: boolean;
   operation: string;
@@ -1723,7 +1745,23 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         `the contact subject selected through engine globals at ${hex(i.address)}`,
       );
     }
-    if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
+    const poolNode = poolNodeEffect(engine, s.memory);
+    if (poolNode) {
+      // The pool's nodes are separate storage, so they are never the owner. Any other object the caller holds might be
+      // a node, and forgets the node's bytes: the pool update can change nothing else.
+      for (const key of [...s.memory.keys()]) {
+        const { object, offset } = keyParts(key);
+        if (!["stack", "data", "part"].includes(object) && offset < poolNode.nodeSize) s.memory.delete(key);
+      }
+      for (let offset = 0; offset < poolNode.nodeSize; offset += 2)
+        s.fieldHavoc = [...(s.fieldHavoc ?? []), { offset, width: 16, address: i.address, exceptOwner: true }];
+      s.assumptions = [
+        ...new Set([
+          ...s.assumptions,
+          "The owner is a live part, never a node of the pool, and every pointer to a node points to its start.",
+        ]),
+      ];
+    } else if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
       for (const key of s.memory.keys()) {
         const split = key.lastIndexOf(":"),
           before = key.slice(0, split),
@@ -1911,12 +1949,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         );
     }
     if (
-      ["private-buffer-query", "connection-query"].includes(engine.kind) &&
+      (["private-buffer-query", "connection-query"].includes(engine.kind) || poolNode) &&
       registerRead("ax", s).value.kind === "unknown"
     )
       // A query that changes nothing but its own stack answers with one value, like whether a spot is blocked. It is
       // unknown, but one value: a condition on it can be decided as a run value. The rope connection query's answer,
-      // what the parts at the other end of the ropes said, is one value in the same way, whatever those parts change.
+      // what the parts at the other end of the ropes said, is one value in the same way, whatever those parts change,
+      // and so is a pool update's answer, like whether it added a node.
       registerWrite(
         "ax",
         tracked({ ...field(`answer of the query at ${hex(i.address)}`, 0, 16), unresolved: true } as Expression, [

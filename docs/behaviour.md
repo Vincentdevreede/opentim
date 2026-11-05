@@ -705,6 +705,26 @@ Even More the callback has 77 outcomes instead of 107, and the teeter-totter has
 builds its walks that stop go down by 20 (from 30 to 10 in Even More, 34 to 14 in TIM 1) and 6 more end in every
 branch. No other part changes.
 
+### The teeter-totter's bounce and the bounce pool
+
+When a part lands on the teeter-totter, its bounce callback first asks a pool update (at `0x867c` in Even More,
+English floppy) whether this landing is newer than the last one it noted for this teeter-totter; only then does it set
+the control value to tip it. The pool is a free list of 8-byte nodes the game allocates at start. Its update writes
+only those nodes, the two head globals and its own stack, so it can't change a part. Before, the reader kept only the
+owner's state after the call and forgot every other field, so the bounce's outcomes had unfinished effects and its
+walks stopped at once.
+
+Now the summary records the node size, and a caller forgets only the first 8 bytes of objects other than its own part,
+since one of those might be a node. When the caller wrote such a field of another object before the call, the update
+keeps its old summary, because it could change that write where the caller can't see. The update's answer, whether
+it added a node, is named like a query's answer. TIM 1 compiles the pool's setup through a local instead of a
+register; the reader now accepts both forms, so TIM 1 has the pool too. One more assumption is stated: the owner is a
+live part, never a node, and every pointer to a node points to its start.
+
+The bounce now has complete effects in both recorded builds, so its 4 walks in Even More and 8 in TIM 1 start. They
+then stop where a starting frame is followed that the bounce's own condition rules out, or at the frames the
+teeter-totter doesn't have.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
