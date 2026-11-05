@@ -576,11 +576,11 @@ pushed part's own description.
 
 A part's description now lists what other parts do to it without changing its frame, as short lines in
 `effectsFromOthers` instead of walks. The first is the explosion's push: "An explosion that reaches it sets its speed
-to 4096, in a direction the explosion works out. Only when it is on the moving list." Turning the explosion's member
+to 4096, away from the explosion. Only when it is on the moving list." Turning the explosion's member
 outcomes into trigger walks was tried first: it added about 1,230 walks and made describing a build take 95 seconds
 instead of 6, and a push shows no new frame anyway.
 
-Three things make the line possible:
+Four things make the line possible:
 
 - **The speed setter.** The routine at `0x7d97` is now proved from its whole instruction graph, in two compiler forms
   over the eleven builds (the English CD calls the shift far). It takes a part, an angle and a speed, and sets
@@ -590,6 +590,8 @@ Three things make the line possible:
   caller now keeps the speed it passed with the two fields (`directedSpeed`), until something else writes them. In the
   explosion's loop that speed is one number on each path, from the speed class of `0x1a836`. The pinball bumper's
   bounce passes 7168.
+- **The centre angle.** See [the push's direction](#the-pushs-direction) below: it proves that the speed points away
+  from the explosion.
 - **The type table.** The report keeps the words of every type record (`typeTable`), so a table read the analysis
   keeps, like the mass at `+0x02` that picks the speed class, can be looked up for a known type. The line states that
   the record keeps its words from the program while a level runs.
@@ -630,6 +632,40 @@ These effects of other parts are left out, so they are known gaps:
 Describing a build takes as long as before (about 6 seconds for Even More and 5.5 for TIM 1), and no walk changes.
 The lab shows the lines in the Behaviour tab, under "From other parts": one row each, with the other part's name, what
 it sets and the value, and a chip for what either part must be.
+
+### The push's direction
+
+The explosion's run gives the speed setter the answer of the routine at `0x496e` (Even More, English floppy) as its
+angle. That routine is now proved from its whole instruction graph, in three compiler forms over the eleven builds
+(TIM 1 reloads the answer before it returns, and the Even More demo pushes a word straight from DX). It takes two
+parts, works out each centre as the position plus half the frame size (`0x1e` plus `0x44` halved with an arithmetic
+shift, and `0x20` plus `0x46`), and gives the movement angle helper at `0x2ede0` the first centre minus the second
+across and the second minus the first down, each as a sign-extended word. That helper was already proved from its
+whole graph, with its loaded table of 512 words.
+
+A caller now keeps which two parts an answer is of with the answer, through registers, its own locals and pushes,
+until something else is computed from it. When the speed setter gets such an answer as its angle, the speed it keeps
+with the velocity fields says so too (`direction`). In the explosion's loop the first part is the explosion and the
+second the part it hits; in the pinball bumper's bounce they are the bumper and the ball.
+
+Whether the velocity then points from the first centre to the second can't be read from the instructions alone: it
+depends on the two tables. `directionError` checks it over everything the helper can answer. The helper folds every
+direction into one eighth of a turn, picks a table word by the ratio of the smaller difference to the larger in steps
+of 1/512, and folds back. So each of its about 4,100 answers stands for a known range of true directions. For each
+one the check works out the velocity the setter gives, with the program's own table words and the setter's integer
+arithmetic, and the largest angle to any direction in the range. Host trigonometry is only used for the true
+directions. Over every speed the explosion and the bumper use, in all eleven builds, the velocity is within 0.23
+degrees of the line from the explosion's centre to the part's centre. A line only says "away from the explosion"
+when this check passes for its speed; otherwise it keeps "in a direction the explosion works out". The line keeps
+the bound with the speed (`away`).
+
+This rests on two things the line states. The tables must keep their words from the program, as the helpers'
+existing assumptions already say. And the centres must be less than 32768 apart across and down, so the word
+differences are the true ones. When the two centres are the same point there is no direction: the helper answers a
+quarter turn, and the setter puts the whole speed into `velocityY`.
+
+The jack-in-the-box's punch doesn't use the centre angle: it sets fixed numbers, chosen by whether the box is
+mirrored, so its lines keep their numbers.
 
 ### The outline search
 

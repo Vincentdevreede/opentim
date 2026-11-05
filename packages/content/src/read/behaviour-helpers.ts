@@ -25,6 +25,7 @@ import { addConnectionSummaries } from "./behaviour-connection-relay.ts";
 import { addRopeCutSummary } from "./behaviour-rope-cut.ts";
 import { addPartCopySummary } from "./behaviour-part-copy.ts";
 import { discoverDirectedVelocity, type DirectedVelocity } from "./behaviour-directed-velocity.ts";
+import { addCentreAngleSummaries, type CentreAngle } from "./behaviour-centre-angle.ts";
 import { addOutlineSearchSummary } from "./behaviour-outline-search.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
@@ -102,6 +103,8 @@ export interface EngineSummary extends Finding {
   contactRotation?: ContactRotation;
   /** Sets a part's velocity to a speed in the direction of an angle; a caller keeps the speed it passed. */
   directedVelocity?: DirectedVelocity;
+  /** Works out the angle of the line from one part's centre to another's; a caller keeps which parts with the answer. */
+  centreAngle?: CentreAngle;
   rotationScalar?: RotationScalar;
   contactResponseFirst?: ContactResponseFirst;
   contactResponsePair?: ContactResponsePair;
@@ -2392,6 +2395,7 @@ export function discoverEngineSummaries(
   addContactEffectSummaries(codes, summaries, layout);
   addContactOutlineSummaries(codes, summaries, dataSegment);
   addContactMotionAngleSummaries(codes, summaries, layout, dataSegment, image);
+  addCentreAngleSummaries(codes, summaries, layout);
   addContactSelection(codes, summaries);
   for (const code of codes.values()) {
     const scalar = discoverRotationScalarSummary(code, image);

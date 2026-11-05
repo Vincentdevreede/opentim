@@ -45,6 +45,7 @@ const write = (offset: number, value: Expression, speed?: number): FieldWrite =>
           call: 0x1a7d1,
           speed: c(speed),
           axis: offset === 0x36 ? ("horizontal" as const) : ("vertical" as const),
+          direction: { routine: 0x496e, call: 0x1a7c2, from: "part", to: MEMBER },
         },
       }),
 });
@@ -74,7 +75,41 @@ const push = (low: number, high: number, speed: number) => ({
   },
   fields: [write(0x36, unknown, speed), write(0x38, unknown, speed)],
 });
-function report(): BehaviourReport {
+/** The centre angle and the speed setter, with rounded arctangent and cosine tables. */
+const tables = [
+  {
+    address: 0x496e,
+    centreAngle: {
+      ...finding,
+      assumptions: ["The centre angle's assumption."],
+      backend: {
+        lookup: {
+          initialImageWords: Array.from({ length: 512 }, (_, t) => Math.round((Math.atan(t / 512) * 2048) / Math.PI)),
+        },
+      },
+    },
+  },
+  {
+    address: 0x7d97,
+    directedVelocity: {
+      stores: [
+        { field: 0x36, coefficient: "horizontal" },
+        { field: 0x38, coefficient: "vertical" },
+      ],
+      coefficients: {
+        vertical: {
+          table: {
+            initialImageWords: Array.from(
+              { length: 2049 },
+              (_, n) => Math.round(16384 * Math.cos((Math.PI * n) / 2048)) & 0xffff,
+            ),
+          },
+        },
+      },
+    },
+  },
+];
+function report(proved = false): BehaviourReport {
   const words = (massWord: number) => [0, massWord, ...Array(27).fill(0)];
   const part = (id: string, type: number, reads: number[] = []) => ({
     id,
@@ -109,6 +144,7 @@ function report(): BehaviourReport {
       part("explosion", 41),
     ],
     helpers: [
+      ...(proved ? tables : []),
       {
         kind: "part-factory",
         factory: {
@@ -182,6 +218,18 @@ describe("effects of other parts", () => {
     expect(push.assumptions).toContain(
       "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE.",
     );
+  });
+
+  it("says the push goes away from the explosion when the centre angle and the setter's tables prove it", () => {
+    const push = effectsFromOthers(report(true), evaluateBehaviourCondition)
+      .get(12)!
+      .effects.find((e) => e.sets[0]!.kind === "speed")!;
+    expect(push.sets[0]).toMatchObject({ kind: "speed", speed: 4096, away: { routine: 0x496e } });
+    expect((push.sets[0] as { away: { degrees: number } }).away.degrees).toBeLessThan(0.3);
+    expect(push.description).toBe(
+      "An explosion that reaches it sets its speed to 4096, away from the explosion. Only when it is on the moving list.",
+    );
+    expect(push.assumptions).toContain("The centre angle's assumption.");
   });
 
   it("writes numbers it sets as signed velocities, with the source's named flags", () => {

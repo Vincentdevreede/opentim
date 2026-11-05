@@ -8,6 +8,7 @@
  */
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
+import { directionError } from "./behaviour-centre-angle.ts";
 
 /**
  * The list flags of a part at `0x06`: the routine that puts a part on a list (`0x6469` in Even More, English floppy)
@@ -21,6 +22,8 @@ const FIXED_TYPE = 0x4000;
 
 export const FIXED_LIST_ASSUMPTION =
   "A part of a type whose starting flags have 0x4000 is never on the moving list: its list flags at 0x06 never have 0x1000. The game puts such a part on the fixed list, and no shipped level saves one with 0x1000.";
+const CENTRES_ASSUMPTION =
+  "The two centres are less than 32768 apart across and down, so the word differences the centre angle takes are the true ones. When they are the same point there is no direction, and the setter puts the whole speed into velocityY.";
 const TYPE_TABLE_ASSUMPTION =
   "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE.";
 
@@ -34,6 +37,11 @@ export type OtherPartSetting =
       speed: number;
       /** The routine that sets it. */
       setter: number;
+      /**
+       * When it points away from the source: from the source's centre to this part's, within `degrees`, as the centre
+       * angle (`routine`) and the setter's tables give it.
+       */
+      away?: { routine: number; degrees: number };
     }
   | { kind: "field"; offset: number; width: number; value: number };
 
@@ -308,6 +316,8 @@ export function effectsFromOthers(
       if (!possible || !decided) continue;
       if (c.writes.some((w) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte)))) continue;
       const sets: OtherPartSetting[] = [];
+      /** The speeds whose every write points along the line from the source's centre to this part's. */
+      const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
       let numbered = true;
       for (const w of c.writes) {
         if (!w.directedSpeed) {
@@ -323,8 +333,33 @@ export function effectsFromOthers(
           (s): s is Extract<OtherPartSetting, { kind: "speed" }> =>
             s.kind === "speed" && s.setter === w.directedSpeed!.routine && s.speed === speed,
         );
-        if (prior) prior.fields = [...prior.fields, w.offset].sort((a, b) => a - b);
-        else sets.push({ kind: "speed", fields: [w.offset], speed, setter: w.directedSpeed.routine });
+        const direction = w.directedSpeed.direction;
+        const away =
+          direction?.from === "part" && direction.to === c.member
+            ? { routine: direction.routine, call: direction.call }
+            : undefined;
+        if (prior) {
+          prior.fields = [...prior.fields, w.offset].sort((a, b) => a - b);
+          const line = lines.get(prior);
+          if (line?.routine !== away?.routine || line?.call !== away?.call) lines.set(prior, undefined);
+        } else {
+          const set: OtherPartSetting = { kind: "speed", fields: [w.offset], speed, setter: w.directedSpeed.routine };
+          sets.push(set);
+          lines.set(set, away);
+        }
+      }
+      const proofs: string[] = [];
+      for (const [set, line] of lines) {
+        if (set.kind !== "speed" || !line) continue;
+        const centre = report.helpers?.find((h) => h.address === line.routine)?.centreAngle;
+        const velocity = report.helpers?.find((h) => h.address === set.setter)?.directedVelocity;
+        // The direction is of the whole velocity: both its fields must be this speed from that one answer.
+        if (velocity && velocity.stores.some((store) => !set.fields.includes(store.field))) continue;
+        const degrees = centre && velocity && directionError(centre.backend, velocity, set.speed);
+        if (degrees === undefined) continue;
+        // Rounded up, so the bound still holds.
+        set.away = { routine: line.routine, degrees: Math.ceil(degrees * 100) / 100 };
+        proofs.push(...centre!.assumptions, CENTRES_ASSUMPTION);
       }
       if (!numbered) continue;
       // A fixed type would get this line but for its list: the decided assumption keeps it off the moving list.
@@ -334,7 +369,10 @@ export function effectsFromOthers(
       }
       const name = nameOf(c.sourcePart);
       const said = sets.map((s) => {
-        if (s.kind === "speed") return `sets its speed to ${s.speed}, in a direction the ${name} works out`;
+        if (s.kind === "speed")
+          return s.away
+            ? `sets its speed to ${s.speed}, away from the ${name}`
+            : `sets its speed to ${s.speed}, in a direction the ${name} works out`;
         const field = fieldNames.get(s.offset);
         // A velocity is a signed word.
         const value = field?.startsWith("velocity") && s.value >= 0x8000 ? s.value - 0x10000 : s.value;
@@ -365,6 +403,7 @@ export function effectsFromOthers(
             ...c.outcome.assumptions,
             ...c.writes.flatMap((w) => w.assumptions),
             ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...proofs,
             "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
           ]),
         ],

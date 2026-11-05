@@ -73,6 +73,16 @@ export interface DirectedSpeed {
   /** The length of the new velocity, before each part is rounded by the shift. */
   speed: Expression;
   axis: "horizontal" | "vertical";
+  /** When the angle the setter was given is the centre angle's answer: the velocity points along that line. */
+  direction?: CentreLine;
+}
+/** The line from one part's centre to another's, as the centre angle was given it, by the parts' names. */
+export interface CentreLine {
+  /** The centre angle, and the call that reached it. */
+  routine: number;
+  call: number;
+  from: string;
+  to: string;
 }
 export interface Transition extends Finding {
   /** Candidate states at entry. Null means that the source state was not bounded by the available states. */
@@ -478,6 +488,8 @@ interface Tracked {
   writtenAt?: number;
   /** Kept with a field the speed setter wrote, until something else writes it. */
   directedSpeed?: DirectedSpeed;
+  /** Kept with the answer of the centre angle: the parts whose centres it is of. */
+  centreAngle?: CentreLine;
 }
 /** The object, offset and width of a memory key `object:offset:width`; the object name may itself contain colons. */
 function keyParts(key: string) {
@@ -1195,8 +1207,18 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const write = (operand: Operand | undefined, value: Tracked, s: AbstractState, i: Instruction) => {
     if (!operand) return;
     const e = uniqueEvidence([...value.evidence, evidenceOf(i)]);
+    // What a value is known to be beyond its expression goes with it when it is copied whole.
+    const kept = {
+      ...(value.directedSpeed ? { directedSpeed: value.directedSpeed } : {}),
+      ...(value.centreAngle ? { centreAngle: value.centreAngle } : {}),
+    };
     if (operand.kind === "register") {
-      registerWrite(operand.name, tracked(value.value, e), s);
+      // A velocity copied out of a field is no longer the field the setter wrote.
+      registerWrite(
+        operand.name,
+        { ...tracked(value.value, e), ...(kept.centreAngle ? { centreAngle: kept.centreAngle } : {}) },
+        s,
+      );
       return;
     }
     if (operand.kind !== "memory") return;
@@ -1245,10 +1267,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         width = Number(key.slice(split + 1));
       if (object === l.object && at < l.offset + l.width / 8 && l.offset < at + width / 8) s.memory.delete(key);
     }
-    s.memory.set(memoryKey(l), {
-      ...tracked(value.value, uniqueEvidence([...e, ...l.evidence]), i.address),
-      ...(value.directedSpeed ? { directedSpeed: value.directedSpeed } : {}),
-    });
+    s.memory.set(memoryKey(l), { ...tracked(value.value, uniqueEvidence([...e, ...l.evidence]), i.address), ...kept });
     if (l.object === "part" && l.offset === stateOffset) {
       s.stateWritten = true;
       s.evidence.push(...e);
@@ -1837,6 +1856,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     // The speed setter's velocity keeps the speed the caller passed, which its value can't show.
     const directed = engine.directedVelocity;
     const speed = directed && formalArgument(args, engine.argumentOffset, directed.arguments.speed);
+    const angle = directed && formalArgument(args, engine.argumentOffset, directed.arguments.angle);
     for (const effect of pending) {
       const temporary = "__engine_pointer";
       s.registers.set(temporary, effect.pointer);
@@ -1852,6 +1872,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                   call: i.address,
                   speed: asExpression(speed.value),
                   axis: store.coefficient,
+                  ...(angle?.centreAngle ? { direction: angle.centreAngle } : {}),
                 },
               }
             : effect.value
@@ -3814,6 +3835,19 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               branch,
             );
           registerWrite("ax", tracked(returned.value, uniqueEvidence([...returned.evidence, evidenceOf(i)])), branch);
+          // The centre angle's answer keeps which parts' centres it is of, when both are parts the caller names.
+          const centre = engine?.centreAngle;
+          const from = centre && formalArgument(args, 6, centre.arguments.from).value,
+            to = centre && formalArgument(args, 6, centre.arguments.to).value;
+          if (from?.kind === "pointer" && to?.kind === "pointer" && !from.displacement && !to.displacement)
+            registerWrite(
+              "ax",
+              {
+                ...registerRead("ax", branch),
+                centreAngle: { routine: centre!.routine, call: i.address, from: from.object, to: to.object },
+              },
+              branch,
+            );
           branch.flags = undefined;
           branch.carry = undefined;
           returnedStack(branch);
