@@ -41,6 +41,17 @@ went from 287 to 241 in Even More and from 246 to 200 in TIM 1.
 - Try to tie both ends of one rope to the same part in the game, and look for a level where ropes go round in a circle
   back to where they started. Either would break the first two.
 - In `TIM.EXE`, find the code that attaches a rope to a part and check it only ever stores slot 0 or 1.
+- Check the query's skip of the part the question came from (`0x1d67a`, Even More, English floppy), and that its only
+  callers are the teeter-totter's run (`0x1d2af`, `0x1d2d1`) and rope callback (`0x1d5ef`).
+- Check the editor's tie: it picks slot 0 or 1 (`0x515d`) and refuses to tie a rope's second end to its first part
+  (`0x10f98`). The level loader (`0x138a9`) takes both slots and both ends from the file without a check.
+
+**Rechecked on 2026-11-05** in all eleven builds (9 different programs). The editor never ties a rope to one part
+twice, and every slot writer stores 0 or 1. Shipped levels have no rope from a part to itself, no slot above 1 and no
+loop of ropes. Two ropes between the same two parts are possible, but the skip above stops the question coming back.
+One real risk remains: a ring of three or more teeter-totters tied in a circle would bring the question back to the
+part that asked, and nothing in the code prevents building one. Whether rope lengths and positions allow it in the game
+is not checked. A level file made outside the game could also break the first and third bullet.
 
 ## 2. The scissors' rope cut
 
@@ -74,6 +85,15 @@ match completely, 14 more walks end and 11 more end in every branch.
   the allocator only hands out blocks that are free.
 - Check that a piece released on the failure path was never put on a list.
 - The slot check is the same as for ropes above.
+- Check the heap check wrapper at `0x903c` around allocating and freeing, and that the cut makes all three pieces
+  before it puts any of them on a list (`0x1cb4c`, `0x1cb5f`, `0x1cb7a`, then `0x1cb97`).
+
+**Rechecked on 2026-11-05** in all eleven builds. The factory allocates through `0xc7b7`, `0xd4a1` (zero filled) and
+`0xd607`, the C library's near heap, and the game stops if a heap check finds the heap broken. A failed piece is freed
+before it is put on any list. Not proved: that the library's allocator only hands out free blocks. The new rope
+record's slots are 0 (`0x1cc02`) or copied from an existing one (`0x1cc0f`, `0x1cc70`). A level file with a slot above
+1 would make the loader write into other fields of the part, or past it, so this assumption also leans on the slot one
+for files made outside the game.
 
 ## 3. The teeter-totter's search
 
@@ -101,10 +121,15 @@ walks end.
 
 **How to recheck.**
 
-- Read the list insertion at `0x629d` (Even More, English floppy) and check that it never inserts a part that is
-  already on a list.
+- The list insertion at `0x629d` (Even More, English floppy) has no check of its own, so check every caller of it:
+  each one must insert a fresh part or take the part off its list first.
 - If a build turns out to skip the owner in this search, nothing breaks: the analysis only gets more careful than
   needed.
+
+**Rechecked on 2026-11-05.** All 15 callers in Even More, English floppy, are safe: 2 take the part off first, 10
+insert a part the factory just made, 2 insert a fresh copy, and the level loader inserts each loaded part once. The
+other builds follow the same pattern. The search at `0x437d` really doesn't skip its owner, and its only caller is the
+teeter-totter's run.
 
 ## 4. The monkey bike's starting frame
 
@@ -120,13 +145,17 @@ its own code would count on past frame 12 to a frame 13 that has no picture. Cou
 
 - A level stores each part's saved frame, at `0x90`, and its saved control value, at `0x92`: the writer at `0x13c97`
   passes those fields, not the frame the part shows while the machine runs. The loader fills the same fields.
-- The reset at `0x892b` puts the saved frame back and sets the counter at `0x96` to 0.
-- For the monkey bike, the saved frame is only set by a level file, by copying another part (`0x67fe`), and by the
-  editor's shared actions, which save the frame the part shows after its resize callback (`0x5de4`, `0x5e9d`,
-  `0x8a9c` and others). None of the bike's own routines writes it.
-- The bike shows frames 5 to 12 only after its bounce at `0x1bd05`, which sets frame 5 or 9 and starts the counter at
-  28 in the same step. Its run leaves those frames when the counter runs out. Its reset and resize don't change its
-  frame.
+- The reset at `0x892b` puts the saved frame back and sets the counter at `0x96` to 0. In Even More it then calls
+  the part's reset callback at `+0x2a` and saves the frame the part shows into `0x90` again (`0x8a9c`); TIM 1's reset
+  doesn't do that last step.
+- For the monkey bike, the saved frame is only set by a level file, by the part copy at `0x66aa` (which copies the
+  shown frame, the saved frame at `0x6802` and the saved control value), by the reset above, and by the plug actions
+  `0x5d14` and `0x5e2f`, which call the reset callback and then save the shown frame (`0x5de4`, `0x5e25`, `0x5e9d`,
+  `0x5ef1`). None of the bike's own routines writes it.
+- The bike comes onto frames 5 to 12 only from its bounce at `0x1bd05`, which sets frame 5 or 9 and starts the counter
+  at 28 in the same step. Its rope callback (`0x1becc`) moves it from frames 5 to 8 on to 9 to 12 (`0x1bf2f`) without
+  touching the counter, but never brings it there from another frame. Its run leaves those frames when the counter
+  runs out. Its reset callback doesn't change its frame.
 - Every shipped level of all eleven builds saves the monkey bike on frame 0.
 
 **What we assume.**
@@ -144,8 +173,17 @@ the monkey bike now end in each of their branches, in both recorded builds. Walk
 **How to recheck.**
 
 - Find where the game stops the machine and check that it calls the reset at `0x892b` before any editing.
-- Check that the editor's actions that call a part's resize callback only run while the machine is stopped.
+- Check that the editor's actions that save a part's shown frame only run while the machine is stopped.
+- Check the bike's rope callback still only moves it within frames 5 to 12.
 - Look at levels saved by players for a monkey bike with a saved frame from 5 to 12.
+
+**Rechecked on 2026-11-05** in all eleven builds. The run loop calls the reset at its start and its end in every build
+(Even More, English floppy: loop `0x1230`, reset `0x892b`), and the attract loop resets at its end too. In Even More,
+English floppy, TIM 1 French and Even More CD, a call graph from the run loops and every part callback except reset,
+flip and resize never reaches the plug actions, the save writer, the rope tie, the flip or resize actions, or the
+part copy except where an explosion splits a brick or wood wall, which never copies a bike. About 70 indirect calls
+stay unresolved there, mostly graphics and drivers. No other routine writes the bike's counter. Every shipped bike is
+saved on frame 0 with control value 0. No levels saved by players were available to check.
 
 ## 5. The conveyor belt's starting frame
 
