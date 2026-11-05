@@ -4,6 +4,7 @@ import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-sav
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
+import { outlineObject, outlineWords } from "./describe-outline.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -143,7 +144,7 @@ export interface AnimationDescription extends Finding {
 }
 
 export interface DescribedEffect extends Finding {
-  kind: "drawing" | "counter" | "related-object" | "helper";
+  kind: "drawing" | "counter" | "related-object" | "helper" | "outline";
   description: string;
   condition?: Predicate;
   field?: number;
@@ -3027,7 +3028,10 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
       field: counter.offset,
       ...finding([counter]),
     });
-  for (const effect of report.relatedObjectEffects.filter((effect) => effect.sourceType === part.type))
+  const outline = outlineObject(report);
+  for (const effect of report.relatedObjectEffects.filter(
+    (effect) => effect.sourceType === part.type && effect.write.object !== outline,
+  ))
     effects.push({
       kind: "related-object",
       description: fieldEffectWords(effect.write, report, true),
@@ -3064,8 +3068,26 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   for (const callback of part.routines) {
     const routine = report.routines.find((routine) => routine.address === callback.address);
     for (const call of routine?.calls ?? []) if (call.target) visit(call.target.address, call.evidence, 0);
+    // Writes through the outline pointer change this part's own outline: one effect per path.
+    const paths = new Map<string, FieldWrite[]>();
     for (const write of routine?.writes ?? [])
-      if (write.object !== "part" && write.object !== "data")
+      if (write.object === outline) {
+        const key = JSON.stringify(write.condition);
+        paths.set(key, [...(paths.get(key) ?? []), write]);
+      }
+    for (const writes of paths.values()) {
+      const description = outlineWords(writes, report);
+      if (description)
+        effects.push({
+          kind: "outline",
+          description,
+          condition: writes[0]!.condition,
+          routine: writes[0]!.routine,
+          ...finding(writes),
+        });
+    }
+    for (const write of routine?.writes ?? [])
+      if (write.object !== "part" && write.object !== "data" && write.object !== outline)
         effects.push({
           kind: "related-object",
           description: fieldEffectWords(write, report, true),

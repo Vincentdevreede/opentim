@@ -1217,6 +1217,29 @@ input cases less in each build: they were partitions by the counter value 5 that
 asked for, and the walk no longer stops there. Describing takes about 6.4 seconds for Even More and 6.9 for TIM 1,
 up from 6.3 and 5.7; most of it is the mouse motor's exact runs after a hit, up to the tree's budget.
 
+### Outlines
+
+Many parts build their own outline in their reset: the shape other parts bounce off. The part's outline pointer at
+`0x82` (the layout's `outlinePoints`) leads to a list of four-byte records, an X byte, a Y byte and an edge word the
+shared geometry helper works out from the corners. The descriptions used to read writes through that pointer as fields
+of another part, so the balls' reset showed "Selects state 31 on another part" where it really writes corner 4's Y.
+
+Writes through the outline pointer now become one line per routine path, "Sets its outline to 8 corners: (8, 0),
+(23, 0), ..." when a path writes every corner from the first, and "Moves outline corner 2 x to ..." when it writes
+only some. A size field in a corner reads as that size, and adding 255 to it in a byte reads as the size minus 1. In
+Even More:
+
+- the bowling ball, basketball and gear: an octagon from (8, 0) to (0, 8) in a 32 by 32 box;
+- the pinball, super ball and pool ball: an octagon in a 23 by 23 box; the baseball and tennis ball: in a 15 by 15 box;
+- the walls and the grass floor: a rectangle from (0, 0) to their frame width and height minus 1, which their resize
+  moves when the size changes;
+- the conveyor belt and mouse motor: a rectangle as large as their frame;
+- the birdcage (12 corners), the bucket (6), the fish bowl (3), the generator and the jack-in-the-box (4).
+
+The curved pipe wall copies its 8 corners from one of four tables in the data segment, chosen by its frame (`0x1c83e`
+in Even More). It writes them through a copy of the pointer kept on the stack, which the reader doesn't follow, so
+that reset shows no outline line yet.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
