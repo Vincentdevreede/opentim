@@ -117,4 +117,94 @@ describe("state-preserving forwarding wrappers", () => {
     addStatePreservingForwarders(new Map([[0, code]]), summaries);
     expect(summaries.has(0)).toBe(false);
   });
+
+  const complete = (helper: EngineSummary) => {
+    helper.footprint = {
+      complete: false,
+      partMemoryComplete: true,
+      preservesArgumentMemory: false,
+      preservesPartState: true,
+      unknownEffects: ["A notification may queue rectangles."],
+      unknownPartEffects: [],
+      unknownGlobalEffects: ["A notification may queue rectangles."],
+    };
+    helper.writes = [
+      {
+        root: "argument",
+        argumentOffset: 6,
+        path: [],
+        offset: 0x14,
+        width: 8,
+        value: { kind: "field", object: "argument", offset: 8, width: 8 },
+        condition: { kind: "true" },
+        confidence: "inferred",
+        evidence: [],
+        assumptions: [],
+      },
+      {
+        root: "unknown",
+        path: [],
+        offset: 0x9c,
+        width: 16,
+        value: { kind: "unknown", reason: "A connected part.", width: 16 },
+        condition: { kind: "true" },
+        confidence: "inferred",
+        evidence: [],
+        assumptions: [],
+      },
+    ];
+    helper.connected = {
+      confidence: "inferred",
+      evidence: [],
+      assumptions: [],
+      partFields: [{ offset: 0x9c, width: 16 }],
+      recordFields: [],
+      recordLinks: [0x54, 0x66, 0x68],
+    };
+  };
+  it("writes the union of its helpers' footprints when each is complete", () => {
+    const { code, summaries, helper } = fixture();
+    complete(helper);
+    addStatePreservingForwarders(new Map([[0, code]]), summaries);
+    const wrapper = summaries.get(0)!;
+    expect(wrapper.footprint).toMatchObject({
+      partMemoryComplete: true,
+      preservesPartState: true,
+      unknownPartEffects: [],
+    });
+    expect(wrapper.footprint.unknownGlobalEffects).toContain("A notification may queue rectangles.");
+    expect(wrapper.connected?.partFields).toEqual([{ offset: 0x9c, width: 16 }]);
+    // The helper's byte comes from its own argument, not the wrapper's, so only where it writes carries over.
+    const owner = wrapper.writes.find((write) => write.root === "argument")!;
+    expect(owner).toMatchObject({ offset: 0x14, width: 8, argumentOffset: 6, path: [] });
+    expect(owner.value.kind).toBe("unknown");
+    expect(owner.condition.kind).toBe("unknown");
+  });
+  it("composes again once a later proof completes a helper's footprint", () => {
+    const { code, summaries, helper } = fixture();
+    const codes = new Map([[0, code]]);
+    addStatePreservingForwarders(codes, summaries);
+    expect(summaries.get(0)?.footprint.partMemoryComplete).toBe(false);
+    complete(helper);
+    addStatePreservingForwarders(codes, summaries, true);
+    expect(summaries.get(0)?.footprint.partMemoryComplete).toBe(true);
+  });
+  it("proves no new wrapper when composing again", () => {
+    const { code, summaries } = fixture();
+    addStatePreservingForwarders(new Map([[0, code]]), summaries, true);
+    expect(summaries.has(0)).toBe(false);
+  });
+  it.each([
+    ["a write through another argument", (h: EngineSummary) => (h.writes[0]!.argumentOffset = 8)],
+    ["a write to an unnamed object", (h: EngineSummary) => (h.connected!.partFields = [])],
+    ["a selected object", (h: EngineSummary) => (h.writes[1]!.selection = "overlap-candidate")],
+    ["a node pool", (h: EngineSummary) => (h.nodePool = { nodeSize: 4 })],
+  ])("keeps the state-only contract for a helper with %s", (_, change) => {
+    const { code, summaries, helper } = fixture();
+    complete(helper);
+    change(helper);
+    addStatePreservingForwarders(new Map([[0, code]]), summaries);
+    expect(summaries.get(0)?.footprint.partMemoryComplete).toBe(false);
+    expect(summaries.get(0)?.writes).toEqual([]);
+  });
 });
