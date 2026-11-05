@@ -568,14 +568,18 @@ cycle. Four changes let these walks close:
 
 All four only follow cases the code allows. They choose no value and add no assumption.
 
-Every walk of the cat now ends in each of its branches, in both recorded builds. The monkey bike's walks end too,
-except where a level would start it on frames 5 to 12 while it isn't being pedalled and has a direction: then its own
-code counts on past frame 12 to a frame 13 that has no picture, and the walk stops there. In play it leaves frames 5
-to 12 when its counter runs out, so only a level that saves it mid-pedal starts that way.
+Every walk of the cat now ends in each of its branches, in both recorded builds. The monkey bike's walks then still
+stopped where a walk started it on frames 5 to 12 with its counter at 0 and a direction set: its own code counts on
+past frame 12 to a frame 13 that has no picture. The code shows a level never starts it like that, so this is now a
+decided assumption ([the monkey bike's starting frame](behaviour-assumptions.md#4-the-monkey-bikes-starting-frame)):
+such starting frames, input cases and branches are left out, and every walk of the monkey bike ends in each of its
+branches too.
 
 Over all parts, walks that end in every branch went from 180 to 302 in Even More and from 153 to 255 in TIM 1. Walks
 that stop went from 175 to 158 and from 158 to 141. No recorded animation changes. Describing a build takes about 5
 seconds instead of 4; the text of each condition and the evidence of each set of rules are now worked out once.
+With the monkey bike's starting frame decided, walks that end in every branch go to 330 and 283, and walks that stop
+to 152 and 135; 10 of the bike's input cases are left out in each build.
 
 The lab still shows two levels of branches. A split deeper than that shows how many ways it has, and a split whose ways
 all end, also deeper than shown, reads "N ways, all end". In conditions, the part a find-first loop found reads as

@@ -1,5 +1,6 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
+import { IMPOSSIBLE_STATES } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import type {
   BehaviourReport,
@@ -619,6 +620,16 @@ const BRANCH_DEPTH = 24;
 const BRANCH_BUDGET = 400;
 /** How many ways one step may split into. */
 const BRANCH_WAYS = 8;
+/** The decided assumption that rules out a part's state with these fields, when one does. */
+function impossibleState(part: PartBehaviour, stateOffset: number, bindings: Bindings): string | undefined {
+  const rule = IMPOSSIBLE_STATES.get(part.id);
+  if (!rule) return undefined;
+  const state = readField(bindings, "part", stateOffset, 16);
+  const field = readField(bindings, "part", rule.field.offset, rule.field.width);
+  return known(state) && rule.frames.includes(state.value) && known(field) && field.value === rule.field.value
+    ? rule.assumption
+    : undefined;
+}
 function signature(bindings: Bindings) {
   return JSON.stringify([...bindings].filter(([, value]) => value.mask).sort(([a], [b]) => a.localeCompare(b)));
 }
@@ -954,8 +965,19 @@ export function walkBehaviourRules(
             ),
           )
           .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
-    if (values.length < 2) return undefined;
-    return values.map((value) => {
+    // A decided assumption can rule out some starting states, like the monkey bike's pedalling frames.
+    const seededWith = (value: number) => {
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", stateOffset, bits(value, 0xffff, 16));
+      return seeded;
+    };
+    const excluded = [
+      ...new Set(values.flatMap((value) => impossibleState(part, stateOffset, seededWith(value)) ?? [])),
+    ];
+    const allowed = values.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
+    if (allowed.length < 2) return undefined;
+    if (excluded.length) proof = finding([proof], excluded);
+    return allowed.map((value) => {
       const condition: Predicate = {
         kind: "compare",
         operator: "==",
@@ -963,8 +985,7 @@ export function walkBehaviourRules(
         right: { kind: "constant", value, width: 16 },
         signed: false,
       };
-      const seeded = new Map(bindings);
-      writeField(seeded, "part", stateOffset, bits(value, 0xffff, 16));
+      const seeded = seededWith(value);
       const walk = walkBehaviourRules(report, partType, fieldsOf(seeded, definitions, proof), {
         maxRunCalls: options.maxRunCalls,
         condition: { kind: "and", terms: [...constraints, condition] },
@@ -1179,11 +1200,18 @@ export function walkBehaviourRules(
     if (!deciding.length || !deciding.every((term) => inputPredicate(term) || runValuePredicate(term)))
       return undefined;
     const ways = new Map<string, { rules: WithUpdates[]; next: Bindings; kept: Predicate[][] }>();
+    const excluded = new Set<string>();
     for (const outcome of outcomes) {
       const { rule } = outcome;
       // Within this branch the rule's condition holds, so a part field it tests for one number has that number before
       // the step; the step and the next frame are worked out again with it, like a counter that counts down.
       const pre = withEqualities(bindings, rule.condition);
+      // A way that starts from a state a decided assumption rules out isn't followed.
+      const ruledOut = impossibleState(part, stateOffset, pre);
+      if (ruledOut) {
+        excluded.add(ruledOut);
+        continue;
+      }
       let next = outcome.next;
       if (pre !== bindings) {
         next = ruleBindings(rule, pre, routine);
@@ -1204,7 +1232,9 @@ export function walkBehaviourRules(
         way.kept.push(kept);
       } else ways.set(key, { rules: [rule], next, kept: [kept] });
     }
-    if (ways.size < 2 || ways.size > BRANCH_WAYS) return undefined;
+    // With ways ruled out, the one left is still followed as a branch of its own.
+    if (ways.size < (excluded.size ? 1 : 2) || ways.size > BRANCH_WAYS) return undefined;
+    if (excluded.size) proof = finding([proof], [...excluded]);
     const shared = (lists: Predicate[][]) =>
       lists[0]!.filter((term) => lists.every((list) => list.some((other) => textOf(other) === textOf(term))));
     return [...ways.values()].map(({ rules, next, kept }) => {
@@ -2555,6 +2585,9 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
     const inputCases = conditionalInputCases(report, part);
     if (run)
       inputCases.cases.forEach((input, index) => {
+        // A case a decided assumption rules out, like the monkey bike pedalling with its counter at 0, isn't walked.
+        const offset = stateOffsetOf(report);
+        if (offset !== undefined && impossibleState(part, offset, bindingsOf(input.fields))) return;
         const trigger: AnimationTrigger = {
           kind: "input-case",
           name: inputConditionWords(input.condition, report, part),

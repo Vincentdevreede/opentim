@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate, Transition } from "../src/read/behaviour.ts";
+import { MONKEY_BIKE_ASSUMPTION } from "../src/read/behaviour-saved-frames.ts";
 import { describeBehaviour, walkBehaviourRules, type KnownField } from "../src/read/describe-behaviour.ts";
 
 const proof = {
@@ -539,6 +540,44 @@ describe("descriptions from extracted behaviour rules", () => {
         [[1, 2], "joins"],
         [[0], "joins"],
       ]);
+    });
+  });
+
+  describe("states a decided assumption rules out", () => {
+    /** A monkey bike with 13 frames, whose run rules are given. */
+    const bike = (transitions: Transition[]) => {
+      const data = report(transitions);
+      data.parts[0] = { ...data.parts[0]!, id: "monkey-bike", frameCount: 13 } as never;
+      data.routines[0] = {
+        ...data.routines[0]!,
+        uncertainties: [],
+        returnPathsComplete: true,
+        outcomes: [
+          { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+        ],
+      } as never;
+      return data;
+    };
+
+    it("doesn't start the monkey bike on a pedalling frame with its counter at 0", () => {
+      const data = bike([rule(constant(0), { kind: "true" })]);
+      const walk = walkBehaviourRules(data, 39, [known(0x96, 0)]);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2, 3, 4]);
+      expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+
+    it("doesn't follow the way where its counter is 0 on a pedalling frame, and follows the one left", () => {
+      const data = bike([
+        rule(constant(10), both(test(12, "==", 9), test(0x96, "!=", 0))),
+        rule(constant(0), both(test(12, "==", 9), test(0x96, "==", 0))),
+        rule(field(12), test(12, "==", 10)),
+        rule(field(12), test(12, "==", 0)),
+      ]);
+      const walk = walkBehaviourRules(data, 39, [known(12, 9)]);
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[10, 10], "rest"],
+      ]);
+      expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
     });
   });
 

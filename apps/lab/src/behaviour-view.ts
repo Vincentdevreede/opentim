@@ -384,8 +384,11 @@ export function endText(path: WalkPath): string {
       );
     case "joins":
       return "continues like another way";
-    case "branches":
-      return `${path.ways ?? path.branches.length} ways${path.settled ? ", all end" : ""}`;
+    case "branches": {
+      const ways = path.ways ?? path.branches.length;
+      if (ways === 1) return path.settled ? "1 way, it ends" : "1 way";
+      return path.settled ? `${ways} ways, all end` : `${ways} ways`;
+    }
     case "stop":
       return "stops";
   }

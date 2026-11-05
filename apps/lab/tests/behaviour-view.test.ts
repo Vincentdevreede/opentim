@@ -370,5 +370,6 @@ describe("endText", () => {
     expect(endText(path("branches", [0], { branches: [{}, {}] }))).toBe("2 ways");
     expect(endText(path("branches", [0], { branches: [{}, {}], settled: true }))).toBe("2 ways, all end");
     expect(endText(path("branches", [0], { ways: 3 }))).toBe("3 ways");
+    expect(endText(path("branches", [0], { ways: 1, settled: true }))).toBe("1 way, it ends");
   });
 });

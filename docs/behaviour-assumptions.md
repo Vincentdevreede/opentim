@@ -105,3 +105,44 @@ walks end.
   already on a list.
 - If a build turns out to skip the owner in this search, nothing breaks: the analysis only gets more careful than
   needed.
+
+## 4. The monkey bike's starting frame
+
+Decided on 2026-11-05, after checking the code. In the code: `MONKEY_BIKE_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[walks that split at every step](behaviour.md#walks-that-split-at-every-step).
+
+**The question.** While the monkey bike pedals, it shows frames 5 to 12 and counts down a counter. When the counter
+runs out, it goes back to frame 0 or 1. If it were on frames 5 to 12 with the counter already at 0 and a direction set,
+its own code would count on past frame 12 to a frame 13 that has no picture. Could a level start it like that?
+
+**What the code shows** (Even More, English floppy):
+
+- A level stores each part's saved frame, at `0x90`, and its saved control value, at `0x92`: the writer at `0x13c97`
+  passes those fields, not the frame the part shows while the machine runs. The loader fills the same fields.
+- The reset at `0x892b` puts the saved frame back and sets the counter at `0x96` to 0.
+- For the monkey bike, the saved frame is only set by a level file, by copying another part (`0x67fe`), and by the
+  editor's shared actions, which save the frame the part shows after its resize callback (`0x5de4`, `0x5e9d`,
+  `0x8a9c` and others). None of the bike's own routines writes it.
+- The bike shows frames 5 to 12 only after its bounce at `0x1bd05`, which sets frame 5 or 9 and starts the counter at
+  28 in the same step. Its run leaves those frames when the counter runs out. Its reset and resize don't change its
+  frame.
+- Every shipped level of all eleven builds saves the monkey bike on frame 0.
+
+**What we assume.**
+
+- The monkey bike is never on frames 5 to 12 with its counter at `0x96` at 0. In play it reaches them only from its
+  bounce, which starts the counter, and leaves them when the counter runs out; a level never starts it there.
+
+Not proved: whether an editor action can happen while the machine runs (it would save the frame shown then), and
+whether a level file made outside the game holds such a frame.
+
+**What it gives.** Walks don't start the bike there, and a branch that would put it there is left out. All 65 walks of
+the monkey bike now end in each of their branches, in both recorded builds. Walks that end in every branch went from
+302 to 330 in Even More and from 255 to 283 in TIM 1.
+
+**How to recheck.**
+
+- Find where the game stops the machine and check that it calls the reset at `0x892b` before any editing.
+- Check that the editor's actions that call a part's resize callback only run while the machine is stopped.
+- Look at levels saved by players for a monkey bike with a saved frame from 5 to 12.
