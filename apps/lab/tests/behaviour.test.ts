@@ -50,6 +50,9 @@ describe("writer", () => {
     expect(expression(field(0x0c, "overlap candidate at 0x4a70"))).toBe("found.state");
     expect(expression(field(0x62))).toBe("socket1");
     expect(expression(field(0x00, "address of part"))).toBe("this");
+    expect(expression(field(0x0c, "member found by the loop at 0x1a01a"))).toBe("found.state");
+    expect(expression(field(0x00, "member found by the loop at 0x1a01a link"))).toBe("found");
+    expect(expression(field(0x00, "answer of the query at 0x19fd3"))).toBe("answer at 0x19fd3");
   });
 
   it("gives this part's own fields the names that only hold for it", () => {
@@ -227,11 +230,66 @@ describe("summariseWalks", () => {
             "A recorded effect of explosion",
             walk({ parameterised: { kind: "hold", state: field(0x0c) } }),
           ),
+          animation(
+            "callback",
+            "bounce callback candidate",
+            walk({
+              status: "unresolved",
+              stop: {
+                kind: "ambiguity",
+                description: "The recorded branches have different field effects.",
+                evidence: [],
+                branches: [
+                  {
+                    condition: { kind: "and", terms: [compare("==", field(0x0c), constant(0))] },
+                    alternatives: [compare("==", field(0x12), constant(0)), compare("==", field(0x12), constant(2))],
+                    walk: walk({ status: "rest", frames: [visit(1), visit(1)] }),
+                  },
+                  {
+                    condition: compare("!=", field(0x0c), constant(0)),
+                    // Splits again twice more, past the branches the summary shows, and every way ends.
+                    walk: walk({
+                      status: "unresolved",
+                      stop: {
+                        kind: "ambiguity",
+                        description: "The recorded branches have different field effects.",
+                        evidence: [],
+                        branches: [
+                          {
+                            condition: compare("==", field(0x12), constant(1)),
+                            walk: walk({
+                              status: "unresolved",
+                              stop: {
+                                kind: "ambiguity",
+                                description: "The recorded branches have different field effects.",
+                                evidence: [],
+                                branches: [
+                                  {
+                                    condition: compare("==", field(0x12), constant(3)),
+                                    walk: walk({ status: "joins" }),
+                                  },
+                                  {
+                                    condition: compare("!=", field(0x12), constant(3)),
+                                    walk: walk({ status: "rest" }),
+                                  },
+                                ],
+                              },
+                            }),
+                          },
+                          { condition: compare("!=", field(0x12), constant(1)), walk: walk({ status: "joins" }) },
+                        ],
+                      },
+                    }),
+                  },
+                ],
+              },
+            }),
+          ),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [run, rope, explosion] = summariseWalks(report, description)[3]!;
+  const [run, rope, explosion, bounce] = summariseWalks(report, description)[3]!;
 
   it("names each walk by its trigger and writes its condition as terms", () => {
     expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
@@ -246,5 +304,20 @@ describe("summariseWalks", () => {
       reason: "The seed fixes only some bits of the state.",
       branches: [{ condition: ["state == 0"], path: { frames: [0], end: "stop", reason: "Needs the control value." } }],
     });
+    expect(rope!.settled).toBeUndefined();
+  });
+
+  it("says when every way a walk splits into ends, also past the branches it shows", () => {
+    expect(bounce).toMatchObject({ end: "branches", settled: true });
+    expect(bounce!.branches[1]!.path.branches[0]!.path).toMatchObject({
+      end: "branches",
+      settled: true,
+      ways: 2,
+      branches: [],
+    });
+  });
+
+  it("writes rules that lead to the same next fields as what they all test and one of their cases", () => {
+    expect(bounce!.branches[0]!.condition).toEqual(["state == 0", "one of 2 cases"]);
   });
 });

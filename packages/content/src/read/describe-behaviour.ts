@@ -61,7 +61,12 @@ export interface BehaviourWalk extends Finding {
      * When an unknown input decides between rules, the walk that follows each of them, under that rule's own
      * condition. The input is not chosen: every branch stays conditional, and the walk itself stays unresolved.
      */
-    branches?: { condition: Predicate; walk: BehaviourWalk }[];
+    branches?: {
+      condition: Predicate;
+      /** When several rules lead to the same next fields: what else each of them tests, of which one holds. */
+      alternatives?: Predicate[];
+      walk: BehaviourWalk;
+    }[];
     /**
      * For a stop on a field's value: the writes to that field the analysis found, with their routines and values.
      * They say where the value can come from; they are not proved to be every writer.
@@ -327,7 +332,14 @@ function predicateWithoutConstraints(predicate: Predicate, bindings: Bindings): 
 
 const predicateTerms = (predicate: Predicate): Predicate[] =>
   predicate.kind === "and" ? predicate.terms.flatMap(predicateTerms) : predicate.kind === "true" ? [] : [predicate];
-const sameExpression = (left: Expression, right: Expression) => JSON.stringify(left) === JSON.stringify(right);
+/** The text of an expression or condition, kept per object: the walks compare the same ones many times. */
+const texts = new WeakMap<object, string>();
+const textOf = (value: Expression | Predicate): string => {
+  let text = texts.get(value);
+  if (text === undefined) texts.set(value, (text = JSON.stringify(value)));
+  return text;
+};
+const sameExpression = (left: Expression, right: Expression) => left === right || textOf(left) === textOf(right);
 const inverseComparison: Record<string, string> = {
   "==": "!=",
   "!=": "==",
@@ -460,10 +472,16 @@ export function evaluateBehaviourCondition(
   return predicateOf(condition, bindingsOf(fields));
 }
 
+/** The finding of each set of rules a part's walks take a step under, by the rules' places in its transitions. */
+const stepFindings = new WeakMap<PartBehaviour, { index: Map<unknown, number>; steps: Map<string, Finding> }>();
+/** The fields each part's walks track, worked out once per part; callers get their own copy to add to. */
+const definitionsOf = new WeakMap<PartBehaviour, { object: string; offset: number; width: number }[]>();
 function fieldDefinitions(
   report: BehaviourReport,
   part: PartBehaviour,
 ): { object: string; offset: number; width: number }[] {
+  const cached = definitionsOf.get(part);
+  if (cached) return [...cached];
   const fields = new Map<string, { object: string; offset: number; width: number }>();
   const add = (object: string, offset: number, width: number) =>
     fields.set(`${object}:${offset}:${width}`, { object, offset, width });
@@ -477,6 +495,7 @@ function fieldDefinitions(
   for (const item of report.layout.fields) add("part", item.offset, 16);
   for (const transition of part.transitions as WithUpdates[])
     for (const item of transition.updates ?? []) add(item.object, item.offset, item.width);
+  definitionsOf.set(part, [...fields.values()]);
   return [...fields.values()];
 }
 /**
@@ -553,13 +572,22 @@ function containsUnknown(value: Expression | Predicate, fields = true): boolean 
       return false;
   }
 }
-/** A comparison whose only unknowns are fields the same run rewrote, like the result of a contact scan. */
+/** A part the run found itself, like the member a find-first loop stopped at. Its fields are read during that run. */
+const runObject = (object: string) => /^(member found by the loop|part returned by list-(head|next)) at /.test(object);
+const mentionsRunObject = (value: Expression): boolean =>
+  (value.kind === "field" && runObject(value.object)) ||
+  (value.kind === "binary" && (mentionsRunObject(value.left) || mentionsRunObject(value.right)));
+/**
+ * A comparison whose only unknowns are values of the same run: fields it rewrote, like the result of a contact scan, a
+ * query's answer, or fields of a part it found, like the type of the part a cat looks at.
+ */
 const runValuePredicate = (predicate: Predicate) =>
-  predicate.kind === "compare" && containsUnknown(predicate) && !containsUnknown(predicate, false);
+  predicate.kind === "compare" &&
+  !containsUnknown(predicate, false) &&
+  (containsUnknown(predicate) || mentionsRunObject(predicate.left) || mentionsRunObject(predicate.right));
 function completeRuleEffects(rule: WithUpdates, routine?: RoutineAnalysis): boolean {
   if (routine?.uncertainEffects !== true) return true;
-  const matching =
-    routine?.outcomes?.filter((outcome) => JSON.stringify(outcome.condition) === JSON.stringify(rule.condition)) ?? [];
+  const matching = routine?.outcomes?.filter((outcome) => textOf(outcome.condition) === textOf(rule.condition)) ?? [];
   return (
     (matching.length > 0 && matching.every((outcome) => outcome.effectsComplete === true)) ||
     (!!routine?.outcomes?.length && routine.outcomes.every((outcome) => outcome.effectsComplete === true))
@@ -577,6 +605,20 @@ function ruleBindings(rule: WithUpdates, initial: Bindings, routine?: RoutineAna
     if (write.object === "part") writeField(next, write.object, write.offset, unknownBits(write.width));
   return next;
 }
+/** What the branches of one walk have followed: by known fields, the frame and the tests known there. */
+interface Explored {
+  states: Map<string, { frame: number; tests: Set<string> }[]>;
+  /** How many states the tree has followed: once it reaches the budget, no further branch is opened. */
+  size: number;
+}
+/**
+ * How deep branches may nest, and how many states one tree of branches may follow. A branch that reaches a state the
+ * tree already follows ends there, so most trees close by themselves; these only bound the ones that don't.
+ */
+const BRANCH_DEPTH = 24;
+const BRANCH_BUDGET = 400;
+/** How many ways one step may split into. */
+const BRANCH_WAYS = 8;
 function signature(bindings: Bindings) {
   return JSON.stringify([...bindings].filter(([, value]) => value.mask).sort(([a], [b]) => a.localeCompare(b)));
 }
@@ -846,11 +888,16 @@ export function walkBehaviourRules(
     maxRunCalls?: number;
     condition?: Predicate;
     branchDepth?: number;
-    /** The states the walks of one tree have followed, shared by its branches, with the frame each was at. */
-    explored?: Map<string, number>;
+    /**
+     * The states the walks of one tree have followed, shared by its branches: by known fields, the frame each was at
+     * and the tests it knew there.
+     */
+    explored?: Explored;
+    /** A starting frame a level can save: it shows its own path, so it doesn't join another branch at its start. */
+    levelStart?: boolean;
   } = {},
 ): BehaviourWalk {
-  const explored = options.explored ?? new Map<string, number>();
+  const explored: Explored = options.explored ?? { states: new Map(), size: 0 };
   const part = report.parts.find((item) => item.type === partType);
   if (!part) throw new Error(`No behaviour for part type ${partType}`);
   const stateOffset = stateOffsetOf(report);
@@ -890,7 +937,7 @@ export function walkBehaviourRules(
    * shows its state as one of at most 16 frames, they are its frames.
    */
   const possibleStates = (partial: Bits): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
-    const depth = options.branchDepth ?? 2;
+    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
     const open = ~partial.mask & 0xffff;
     const openBits = [...Array(16).keys()].filter((bit) => open & (1 << bit));
     const frameCount = (part as WithFrameCount).frameCount;
@@ -923,6 +970,7 @@ export function walkBehaviourRules(
         condition: { kind: "and", terms: [...constraints, condition] },
         branchDepth: depth - 1,
         explored,
+        levelStart: true,
       });
       return { condition, walk };
     });
@@ -954,7 +1002,7 @@ export function walkBehaviourRules(
     producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
     run: number,
   ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
-    const depth = options.branchDepth ?? 2;
+    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
     const values = producedValues(fields, producers);
     if (!values || depth <= 0) return undefined;
     const field = fields[0]!;
@@ -1100,17 +1148,29 @@ export function walkBehaviourRules(
           ],
         }
       : rule;
+  /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
+  const stepFinding = (candidates: WithUpdates[]): Finding => {
+    let cache = stepFindings.get(part);
+    if (!cache)
+      stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
+    const id = candidates.map((rule) => cache.index.get(rule)).join();
+    let step = cache.steps.get(id);
+    if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
+    return step;
+  };
   /**
-   * Follows each rule an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
+   * Follows each way an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
    * fields may decide; the deciding terms then hold for the rest of that branch, as far as its own writes keep them.
+   * Rules that lead to the same next fields are one way: its condition is what they all test, and any one of their own
+   * remaining tests may hold.
    */
   const branchesAt = (
     outcomes: { rule: WithUpdates; next: Bindings; destination: ReturnType<typeof valueOf> }[],
     guards: WithUpdates[],
     run: number,
-  ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
-    const depth = options.branchDepth ?? 2;
-    if (!guards.length || depth <= 0 || outcomes.length > 6) return undefined;
+  ): { condition: Predicate; alternatives?: Predicate[]; walk: BehaviourWalk }[] | undefined => {
+    const depth = explored.size >= BRANCH_BUDGET ? 0 : (options.branchDepth ?? BRANCH_DEPTH);
+    if (!guards.length || depth <= 0) return undefined;
     const deciding = guards
       .flatMap((rule) => predicateTerms(rule.condition))
       .filter((term) => predicateOf(term, bindings, constraints) === undefined);
@@ -1118,8 +1178,7 @@ export function walkBehaviourRules(
     // next run computes its own values again.
     if (!deciding.length || !deciding.every((term) => inputPredicate(term) || runValuePredicate(term)))
       return undefined;
-    const seen = new Set<string>();
-    const branches: { condition: Predicate; walk: BehaviourWalk }[] = [];
+    const ways = new Map<string, { rules: WithUpdates[]; next: Bindings; kept: Predicate[][] }>();
     for (const outcome of outcomes) {
       const { rule } = outcome;
       // Within this branch the rule's condition holds, so a part field it tests for one number has that number before
@@ -1130,9 +1189,6 @@ export function walkBehaviourRules(
         next = ruleBindings(rule, pre, routine);
         writeField(next, "part", stateOffset, valueOf(rule.to, pre));
       }
-      const key = JSON.stringify([rule.condition, signature(next)]);
-      if (seen.has(key)) continue;
-      seen.add(key);
       const kept = retainConstraints(
         completeRuleEffects(rule, routine)
           ? [...constraints, ...predicateTerms(rule.condition).filter(inputPredicate)]
@@ -1141,30 +1197,63 @@ export function walkBehaviourRules(
         stateOffset,
         rule.to,
       );
-      const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, finding([proof, rule])), {
+      const key = signature(next);
+      const way = ways.get(key);
+      if (way) {
+        way.rules.push(rule);
+        way.kept.push(kept);
+      } else ways.set(key, { rules: [rule], next, kept: [kept] });
+    }
+    if (ways.size < 2 || ways.size > BRANCH_WAYS) return undefined;
+    const shared = (lists: Predicate[][]) =>
+      lists[0]!.filter((term) => lists.every((list) => list.some((other) => textOf(other) === textOf(term))));
+    return [...ways.values()].map(({ rules, next, kept }) => {
+      const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, finding([proof, ...rules])), {
         maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
-        condition: { kind: "and", terms: kept },
+        condition: { kind: "and", terms: shared(kept) },
         branchDepth: depth - 1,
         explored,
       });
-      branches.push({ condition: rule.condition, walk });
-    }
-    return branches.length > 1 ? branches : undefined;
+      if (rules.length === 1) return { condition: rules[0]!.condition, walk };
+      const common = shared(rules.map((rule) => predicateTerms(rule.condition)));
+      const commonText = new Set(common.map(textOf));
+      const alternatives = rules.map((rule): Predicate => ({
+        kind: "and",
+        terms: predicateTerms(rule.condition).filter((term) => !commonText.has(textOf(term))),
+      }));
+      const unique = [...new Map(alternatives.map((item) => [textOf(item), item])).values()];
+      return { condition: { kind: "and", terms: common }, alternatives: unique, walk };
+    });
   };
-  const walkSignature = () => JSON.stringify([signature(bindings), constraints]);
-  const joined = (id: string): BehaviourWalk | undefined =>
-    explored.has(id)
-      ? {
-          ...base(
-            "joins",
-            `From frame ${explored.get(id)} on, it continues exactly like another branch of the same walk, which follows it from there.`,
-          ),
-        }
+  const walkSignature = () => JSON.stringify([signature(bindings), constraints.map(textOf)]);
+  /**
+   * A state another branch of the same tree already follows, with the same known fields and no test this one doesn't
+   * know too. That branch covers every way this one can go on, so this one ends there.
+   */
+  const joined = (): BehaviourWalk | undefined => {
+    const known = new Set(constraints.map(textOf));
+    const other = explored.states
+      .get(signature(bindings))
+      ?.find((item) => [...item.tests].every((test) => known.has(test)));
+    return other
+      ? base(
+          "joins",
+          `From frame ${other.frame} on, it continues like another branch of the same walk, which follows it from there.`,
+        )
       : undefined;
+  };
+  const explore = () => {
+    const id = signature(bindings);
+    explored.size++;
+    explored.states.set(id, [
+      ...(explored.states.get(id) ?? []),
+      { frame: states.at(-1)!, tests: new Set(constraints.map(textOf)) },
+    ]);
+  };
   const startId = walkSignature();
-  const joinedAtStart = options.explored ? joined(startId) : undefined;
+  const joinedAtStart = options.explored && !options.levelStart ? joined() : undefined;
   if (joinedAtStart) return joinedAtStart;
-  explored.set(startId, states.at(-1)!);
+  explore();
   const seen = new Map([[startId, 0]]);
   const max = options.maxRunCalls ?? 256;
   for (let run = 0; run < max; run++) {
@@ -1285,7 +1374,8 @@ export function walkBehaviourRules(
     }
     if ((part as WithFrameCount).frameCount && next.destination.value >= (part as WithFrameCount).frameCount!)
       return { ...base("unresolved", "The next state has no known visible frame."), confidence: "unresolved" };
-    proof = finding([proof, ...candidates.map(pathFinding)]);
+    const step = stepFinding(candidates);
+    proof = finding([proof, step]);
     constraints = retainConstraints(
       candidates.every((rule) => completeRuleEffects(rule, routine)) ? constraints : [],
       candidates.flatMap((rule) => rule.updates ?? routine?.writes ?? []),
@@ -1294,13 +1384,13 @@ export function walkBehaviourRules(
     );
     bindings = next.next;
     states.push(next.destination.value);
-    proofs.push(finding(candidates.map(pathFinding)));
+    proofs.push(step);
     const id = walkSignature();
     const prior = seen.get(id);
     if (prior !== undefined) return base(prior === states.length - 2 ? "rest" : "loop", undefined, prior);
-    const join = joined(id);
+    const join = joined();
     if (join) return join;
-    explored.set(id, states.at(-1)!);
+    explore();
     seen.set(id, states.length - 1);
   }
   return { ...base("limit", `The walk reached its limit of ${max} run invocations.`), confidence: "unresolved" };

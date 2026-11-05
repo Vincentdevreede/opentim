@@ -64,7 +64,7 @@ const tip = computed(() => {
       <div v-for="(b, i) in branches" :key="i" class="flex flex-col" :style="{ paddingLeft: `${b.depth * 14}px` }">
         <span class="break-words text-soft">when {{ b.condition }}</span>
         <BehaviourPath :path="b.path" :frames="frames" full @show-frame="emit('showFrame', $event)" />
-        <span v-if="b.path.reason && !b.path.branches.length" class="font-sans break-words text-faint">{{
+        <span v-if="b.path.reason && b.path.end !== 'branches'" class="font-sans break-words text-faint">{{
           b.path.reason
         }}</span>
       </div>

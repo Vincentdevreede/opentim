@@ -100,6 +100,10 @@ export interface WalkPath {
   reason?: string;
   /** When an unknown input decides between rules: the path under each condition, as the terms of that condition. */
   branches: { condition: string[]; path: WalkPath }[];
+  /** For a split: every way it splits into ends, also past the branches shown here. */
+  settled?: boolean;
+  /** For a split deeper than the branches shown: how many ways it splits into. */
+  ways?: number;
 }
 
 /** What follows one trigger: its name, where it starts, under which condition, and the path of frames. */
@@ -238,6 +242,8 @@ export function writer(
     if (text === "collider") return { name: "collider", kind: "part" };
     if (text === "address of part") return { name: "this", kind: "other" };
     if (/^overlap candidate at /.test(text)) return { name: "found", kind: "part" };
+    // The part a find-first loop stopped at, like the mouse the cat looks at.
+    if (/^member found by the loop at 0x[0-9a-f]+$/.test(text)) return { name: "found", kind: "part" };
     const linked = /^referenced-by\((.+)\+0x([0-9a-f]+)\)$/.exec(text);
     if (linked) {
       const inner = object(linked[1]!);
@@ -270,6 +276,10 @@ export function writer(
   };
   const place = (target: string, offset: number) => {
     if (target === "data") return `ds:${hex(offset, 4)}`;
+    // Whether a find-first loop found a part, and what a query answered, like whether a spot is blocked.
+    if (offset === 0 && /^member found by the loop at 0x[0-9a-f]+ link$/.test(target)) return "found";
+    const answer = /^answer of the query at (0x[0-9a-f]+)$/.exec(target);
+    if (answer && offset === 0) return `answer at ${answer[1]}`;
     if (target === "stack") return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)}`;
     if (target === "argument") return `argument+${hex(offset, 2)}`;
     return field(object(target), offset);
@@ -490,12 +500,23 @@ function termsOf(p: Predicate | undefined, write: ReturnType<typeof writer>): st
   return [write.predicate(p)];
 }
 
+/** Whether a walk ends in every way it can go: none of its branches, at any depth, stops. */
+function settles(walk: BehaviourWalk): boolean {
+  if (["rest", "loop", "joins"].includes(walk.status)) return true;
+  const branches = walk.stop?.branches;
+  return !!branches?.length && branches.every((b) => settles(b.walk));
+}
+
 function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0): WalkPath {
   const frames = walk.frames.map((f) => f.state);
   const branches =
     depth < BRANCH_DEPTH
       ? (walk.stop?.branches ?? []).map((b) => ({
-          condition: termsOf(b.condition, write),
+          // Rules that lead to the same next fields are one way: what they all test, and one of their own cases.
+          condition: [
+            ...termsOf(b.condition, write),
+            ...(b.alternatives?.length ? [`one of ${b.alternatives.length} cases`] : []),
+          ],
           path: pathOf(b.walk, write, depth + 1),
         }))
       : [];
@@ -529,6 +550,8 @@ function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0
           ? walk.reason
           : undefined,
     branches,
+    ...(end === "branches" && settles(walk) ? { settled: true } : {}),
+    ...(end === "branches" && !branches.length ? { ways: walk.stop!.branches!.length } : {}),
   };
 }
 

@@ -342,6 +342,15 @@ describe("walkGroups", () => {
     ]);
     expect(group!.rows[0]!.path.branches[0]!.condition).toEqual(["state == 0"]);
   });
+
+  it("keeps whether every way a split goes ends, and doesn't put it in a row with an open split", () => {
+    const split = { end: "branches" as const, branches: [] };
+    const [group] = walkGroups([
+      walk("run", "reset", [0], [], { ...split, settled: true }),
+      walk("run", "reset", [0], [], split),
+    ]);
+    expect(group!.rows.map((row) => row.path.settled)).toEqual([true, undefined]);
+  });
 });
 
 describe("endText", () => {
@@ -358,5 +367,8 @@ describe("endText", () => {
     expect(endText(path("cycle", [], { cycle: { period: 4, direction: -1 } }))).toBe("cycles 4 frames down");
     expect(endText(path("stop", [3]))).toBe("stops");
     expect(endText(path("joins", [2]))).toBe("continues like another way");
+    expect(endText(path("branches", [0], { branches: [{}, {}] }))).toBe("2 ways");
+    expect(endText(path("branches", [0], { branches: [{}, {}], settled: true }))).toBe("2 ways, all end");
+    expect(endText(path("branches", [0], { ways: 3 }))).toBe("3 ways");
   });
 });

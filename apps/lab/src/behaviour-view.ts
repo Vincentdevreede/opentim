@@ -331,9 +331,10 @@ export function walkGroups(walks: readonly Walk[]): { trigger: string; rows: Wal
   const rows = new Map<string, { walks: Walk[]; path: WalkPath }>();
   for (const w of walks) {
     const path = tidyPath(w);
-    const { confidence, frames, end, loopFrom, cycle, reason, branches } = path;
-    const key = `${w.trigger}|${w.start}|${JSON.stringify({ confidence, frames, end, loopFrom, cycle, reason, branches })}`;
-    const row = rows.get(key) ?? { walks: [], path: { confidence, frames, end, loopFrom, cycle, reason, branches } };
+    const { confidence, frames, end, loopFrom, cycle, reason, branches, settled, ways } = path;
+    const shape = { confidence, frames, end, loopFrom, cycle, reason, branches, settled, ways };
+    const key = `${w.trigger}|${w.start}|${JSON.stringify(shape)}`;
+    const row = rows.get(key) ?? { walks: [], path: shape };
     row.walks.push(w);
     rows.set(key, row);
   }
@@ -384,7 +385,7 @@ export function endText(path: WalkPath): string {
     case "joins":
       return "continues like another way";
     case "branches":
-      return `${path.branches.length} ways`;
+      return `${path.ways ?? path.branches.length} ways${path.settled ? ", all end" : ""}`;
     case "stop":
       return "stops";
   }

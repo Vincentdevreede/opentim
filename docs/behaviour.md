@@ -544,11 +544,42 @@ counts down from a tested value. That removes 48 of the stops at the branch dept
 The branches of one walk also share what they have followed. A branch that reaches a state, with the same known
 fields and kept conditions, that another branch of the same walk already follows from there on ends as `joins`: it
 continues exactly like that branch, so it isn't followed twice. The lab shows it as "continues like another way". In
-each recorded build 3 more walks end in every branch. With joins, a branch depth of four adds only 2 walks in Even
-More for descriptions 40% larger, so the depth stays at two.
+each recorded build 3 more walks end in every branch.
 
-Raising the branch depth from two to three or four was measured too: it changes no walk's ending and makes the
-descriptions half again to twice as large, so it stays at two.
+### Walks that split at every step
+
+Some parts decide again at every step on something the walk can't know. The cat looks for a mouse each time it sits,
+and when it moves it asks whether the new spot is blocked. The monkey bike counts down a counter it was given while it
+pedals, so every frame of its cycle can be the last. Branching only twice could never follow such a part round its
+cycle. Four changes let these walks close:
+
+- A test on a field of a part the run found itself, like the type or position of the part the cat looks at, is a
+  value of that run, like a query's answer. A walk may branch on it; like other run values, it doesn't carry over to
+  the next step.
+- Rules that lead to the same next fields are one way. Its condition is what they all test, and one of their own
+  remaining tests holds (`alternatives`). The lab writes it as the shared terms and "one of N cases". The cat's sitting
+  step has 18 rules but only two or three next states.
+- A branch ends as `joins` also when the branch it continues like knows fewer tests: one that follows a state knowing
+  nothing about a field covers the case where that field is known. Before, the kept tests had to match exactly, so a
+  branch that had tested the cat's position on the ground never met one that hadn't.
+- Instead of two levels, branches may nest 24 levels deep, and one tree of branches may follow 400 states. Since
+  branches that reach a state already followed end there, most trees close long before that. The monkey bike's
+  cycle needs about 13 levels. A step still splits into at most 8 ways.
+
+All four only follow cases the code allows. They choose no value and add no assumption.
+
+Every walk of the cat now ends in each of its branches, in both recorded builds. The monkey bike's walks end too,
+except where a level would start it on frames 5 to 12 while it isn't being pedalled and has a direction: then its own
+code counts on past frame 12 to a frame 13 that has no picture, and the walk stops there. In play it leaves frames 5
+to 12 when its counter runs out, so only a level that saves it mid-pedal starts that way.
+
+Over all parts, walks that end in every branch went from 180 to 302 in Even More and from 153 to 255 in TIM 1. Walks
+that stop went from 175 to 158 and from 158 to 141. No recorded animation changes. Describing a build takes about 5
+seconds instead of 4; the text of each condition and the evidence of each set of rules are now worked out once.
+
+The lab still shows two levels of branches. A split deeper than that shows how many ways it has, and a split whose ways
+all end, also deeper than shown, reads "N ways, all end". In conditions, the part a find-first loop found reads as
+`found` (its fields as `found.state` and so on), and a query's answer as `answer at` the call's address.
 
 ## Saved evidence
 

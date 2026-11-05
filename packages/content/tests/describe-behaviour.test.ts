@@ -456,6 +456,92 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(branches[2]!.walk.stop?.kind).toBe("state");
   });
 
+  describe("ways a run decides by itself", () => {
+    const settled = (data: ReturnType<typeof report>) => {
+      data.routines[0] = {
+        ...data.routines[0]!,
+        uncertainties: [],
+        returnPathsComplete: true,
+        outcomes: [
+          { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+        ],
+      } as never;
+      return data;
+    };
+    const compare = (left: Expression, operator: string, value: number): Predicate => ({
+      kind: "compare",
+      left,
+      operator,
+      right: constant(value),
+      signed: false,
+    });
+    const answer: Expression = {
+      kind: "field",
+      object: "answer of the query at 0x50",
+      offset: 0,
+      width: 16,
+      unresolved: true,
+    };
+    const found: Expression = { kind: "field", object: "member found by the loop at 0x60", offset: 4, width: 16 };
+
+    it("branches on the fields of a part the run found, like the type of the part a cat looks at", () => {
+      const data = settled(
+        report([
+          rule(constant(1), both(test(12, "==", 0), compare(found, "==", 42))),
+          rule(constant(2), both(test(12, "==", 0), compare(found, "!=", 42))),
+          rule(field(12), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[1, 1], "rest"],
+        [[2, 2], "rest"],
+      ]);
+    });
+
+    it("follows rules that lead to the same next fields as one way, under what they all test", () => {
+      const data = settled(
+        report([
+          rule(constant(1), both(test(12, "==", 0), compare(answer, "==", 0))),
+          rule(constant(1), both(test(12, "==", 0), compare(answer, "!=", 0), compare(found, "==", 42))),
+          rule(constant(2), both(test(12, "==", 0), compare(answer, "!=", 0), compare(found, "!=", 42))),
+          rule(field(12), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      const branches = walk.stop?.branches ?? [];
+      expect(branches.map((branch) => branch.walk.states)).toEqual([
+        [1, 1],
+        [2, 2],
+      ]);
+      expect(branches[0]!.condition).toEqual({ kind: "and", terms: [test(12, "==", 0)] });
+      expect(branches[0]!.alternatives).toHaveLength(2);
+      expect(branches[1]!.alternatives).toBeUndefined();
+    });
+
+    it("ends a branch that knows more tests than another branch following the same state", () => {
+      const data = settled(
+        report([
+          rule(constant(2), both(test(12, "==", 0), compare(answer, "==", 0))),
+          rule(constant(1), both(test(12, "==", 0), compare(answer, "!=", 0), test(0x40, "==", 0))),
+          rule(field(12), both(test(12, "==", 0), compare(answer, "!=", 0), test(0x40, "!=", 0))),
+          rule(constant(2), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      // The second branch reaches frame 2 knowing the field at 0x40 is 0. The first follows frame 2 knowing nothing
+      // about it, which covers that case too. The third stays at frame 0, which the walk itself follows.
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[2, 2], "rest"],
+        [[1, 2], "joins"],
+        [[0], "joins"],
+      ]);
+    });
+  });
+
   it("goes on without a branch when the rules that apply all lead to the same frame", () => {
     const data = report([
       rule(constant(1), both(test(12, "==", 0), test(0x40, "==", 0)), [write(0x30, constant(1))]),
