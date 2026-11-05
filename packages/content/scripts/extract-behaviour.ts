@@ -18,7 +18,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
-import { readBehaviour, type BehaviourReport } from "../src/read/behaviour.ts";
+import { readBehaviour, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
 import { readProgramParts } from "../src/read/parts.ts";
 
 function readResources(folder: string): Map<string, Uint8Array> {
@@ -169,11 +169,11 @@ function partSummary(part: BehaviourReport["parts"][number], report: BehaviourRe
     report.routines.find((routine) => routine.address === callback.address),
   );
   const partial = callbacks.filter((routine) => !routine || routine.status !== "complete").length;
-  const unknown = part.transitions.filter((transition) => transition.confidence === "unresolved").length;
+  const counts = transitionCounts(part.transitions);
   const notes = [
     ...part.uncertainties.slice(0, 2),
     ...(part.uncertainties.length > 2 ? [`${part.uncertainties.length - 2} further uncertainties in JSON`] : []),
-    `${partial} incomplete callbacks; ${unknown} unresolved transition conditions`,
+    `${partial} incomplete callbacks; ${counts.unresolved} unresolved transition conditions; ${counts.conditional} conditional on run values; ${counts.unknownWrites} with unknown writes`,
   ];
   const row = `| ${part.type}: ${part.id} | ${part.stateWrites.length} | ${part.transitions.length} | ${part.reset.length} | ${part.counters.length} | ${part.visibleEffects.length} | ${notes.join("; ").replaceAll("|", "\\|").replaceAll("\n", " ")} |`;
   return { type: part.type, id: part.id, semantics: hashes, row };

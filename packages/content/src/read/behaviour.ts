@@ -93,6 +93,11 @@ export interface Transition extends Finding {
   routine: number;
   /** Final object fields, expressed in terms of the invocation inputs. */
   updates?: FieldWrite[];
+  /**
+   * Set on a conditional rule: its condition or next frame tests values found during the run, like a query's answer
+   * or the part a loop found, and nothing else is unknown in them. These are the values it tests.
+   */
+  runValues?: string[];
 }
 export interface RoutineOutcome extends Finding {
   /** No untracked object write or call can replace these final fields on this path. */
@@ -2595,7 +2600,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s.memory.set(
             `${effect.object}:${effect.offset}:${effect.width}`,
             tracked(
-              unknown(`The complete list scan may change field ${hex(effect.offset)}`, effect.width),
+              effect.object === "part"
+                ? // The owner's field holds one value after the scan, like a local the scan leaves behind.
+                  ({
+                    ...field(`part after list scan at ${hex(list.header)}`, effect.offset, effect.width),
+                    unresolved: true,
+                  } as Expression)
+                : unknown(`The complete list scan may change field ${hex(effect.offset)}`, effect.width),
               list.evidence,
               i.address,
             ),
@@ -4109,7 +4120,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: uniqueEvidence(pointerEvidence),
     },
     writes: dedup(writes),
-    transitions: mergeTransitions(dedup(transitions), !uncertainEffects),
+    transitions: markConditional(mergeTransitions(dedup(transitions), !uncertainEffects), !uncertainEffects),
     comparisons: dedup(comparisons),
     outcomes: dedup(outcomes),
     iterationOutcomes: dedup(iterationOutcomes),
@@ -4124,6 +4135,57 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     loops: dedup(usedLoops),
     listLoops: dedup(usedListLoops),
     uncertainEffects,
+  };
+}
+
+/** Names of values a run finds itself: a query's answer, a part a loop found, or what a list scan leaves behind. */
+const RUN_VALUE =
+  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection) at /;
+/** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
+function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
+  switch (value.kind) {
+    case "unknown":
+      return undefined;
+    case "field":
+      if (!value.unresolved) return found;
+      if (!RUN_VALUE.test(value.object)) return undefined;
+      found.add(value.object);
+      return found;
+    case "binary":
+      return runValuesIn(value.left, found) && runValuesIn(value.right, found);
+    case "table":
+      return runValuesIn(value.index, found);
+    case "compare":
+      return runValuesIn(value.left, found) && runValuesIn(value.right, found);
+    case "and":
+      return value.terms.every((term) => runValuesIn(term, found)) ? found : undefined;
+    default:
+      return found;
+  }
+}
+/**
+ * A rule that is unresolved only because it tests values found during the run is conditional: for each value the run
+ * finds, it says what happens. That needs every path of the routine to have kept track of its effects.
+ */
+function markConditional(transitions: Transition[], pathsCertain: boolean): Transition[] {
+  if (!pathsCertain) return transitions;
+  return transitions.map((transition) => {
+    if (transition.confidence !== "unresolved") return transition;
+    const values = runValuesIn(transition.condition);
+    if (!values || !runValuesIn(transition.to, values) || !values.size) return transition;
+    return { ...transition, runValues: [...values].sort() };
+  });
+}
+
+/**
+ * Counts a part's rules: unresolved ones, conditional ones (they test only values found during the run) and, apart from
+ * both, those that write a field whose value is still unknown.
+ */
+export function transitionCounts(transitions: Transition[]) {
+  return {
+    unresolved: transitions.filter((t) => t.confidence === "unresolved" && !t.runValues).length,
+    conditional: transitions.filter((t) => t.runValues).length,
+    unknownWrites: transitions.filter((t) => t.updates?.some((update) => containsUnknown(update.value))).length,
   };
 }
 

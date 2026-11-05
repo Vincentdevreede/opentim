@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyseRoutine } from "../src/read/behaviour.ts";
+import { analyseRoutine, transitionCounts } from "../src/read/behaviour.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 
 const entry = { address: 0, segment: 0, offset: 0 };
@@ -86,5 +86,36 @@ describe("query answers", () => {
     const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
     expect(routine.uncertainEffects).toBe(true);
     expect(routine.transitions.every((transition) => transition.confidence === "unresolved")).toBe(true);
+  });
+
+  it("counts a rule that tests only the answer as conditional", () => {
+    const { image, helpers } = fixture("private-buffer-query");
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(routine.transitions.length).toBeGreaterThan(1);
+    // The walks still branch on the answer, so the rule keeps its confidence and names the value it tests.
+    expect(routine.transitions.every((t) => t.confidence === "unresolved")).toBe(true);
+    expect(routine.transitions.every((t) => text(t.runValues) === text(["answer of the query at 0x8"]))).toBe(true);
+    expect(transitionCounts(routine.transitions)).toEqual({
+      unresolved: 0,
+      conditional: routine.transitions.length,
+      unknownWrites: 0,
+    });
+  });
+
+  it("keeps a rule unresolved when it tests an opaque value or its routine lost an effect", () => {
+    const opaque = fixture("frame-position");
+    const opaqueRoutine = analyseRoutine(opaque.image, entry, { engineSummaries: opaque.helpers, stateCount: 4 });
+    expect(opaqueRoutine.transitions.some((t) => t.confidence === "unresolved")).toBe(true);
+    expect(opaqueRoutine.transitions.some((t) => t.runValues)).toBe(false);
+    const lost = fixture("private-buffer-query", 12, [0x37]);
+    const lostRoutine = analyseRoutine(lost.image, entry, { engineSummaries: lost.helpers, stateCount: 4 });
+    expect(lostRoutine.transitions.some((t) => t.runValues)).toBe(false);
+    expect(transitionCounts(lostRoutine.transitions).unresolved).toBe(lostRoutine.transitions.length);
+  });
+
+  it("counts rules that write an unknown value apart", () => {
+    const { image, helpers } = fixture("private-buffer-query", 0x12);
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    expect(transitionCounts(routine.transitions)).toEqual({ unresolved: 0, conditional: 0, unknownWrites: 1 });
   });
 });

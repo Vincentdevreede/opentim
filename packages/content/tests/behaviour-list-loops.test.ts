@@ -113,6 +113,21 @@ describe("overlap-list invariants", () => {
     expect(loop?.assumptions.join(" ")).toContain("may list the owner");
   });
 
+  it("names a field of the owner that the scan may change as one value after the scan", () => {
+    const { image, helpers, query } = fixture({ memberField: 0x24 });
+    query.list!.excludesArgument = false;
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    const header = routine.listLoops![0]!.header;
+    const writes = routine.transitions.flatMap((t) => t.updates ?? []).filter((u) => u.object === "part");
+    expect(writes.find((u) => u.offset === 0x24)?.value).toEqual({
+      kind: "field",
+      object: `part after list scan at 0x${header.toString(16)}`,
+      offset: 0x24,
+      width: 16,
+      unresolved: true,
+    });
+  });
+
   it.each([{ ownerWrite: true }, { linkWrite: true }, { missingProgress: true }, { unknownCall: true }])(
     "rejects an unproved loop footprint %s",
     (options) => {

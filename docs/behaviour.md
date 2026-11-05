@@ -14,7 +14,8 @@ takes a few seconds, and shows a summary of each part in the Behaviour tab of th
 Every finding contains instruction addresses relative to the unpacked load image, original bytes, decoded text,
 confidence and assumptions. A far address also retains its segment and offset. `checked` means a direct instruction
 fact; `inferred` includes stated calling-convention or symbolic-analysis assumptions; `unresolved` asserts no
-particular interpretation of an unknown value or effect.
+particular interpretation of an unknown value or effect. A transition that tests only values found during its run is
+counted as conditional rather than unresolved (see [Conditional rules](#conditional-rules)).
 
 - Each part has six callback references, with its record field, code address, sharing and default-body status.
   The traditional event names remain candidates: dispatch establishes a code pointer more strongly than the
@@ -734,6 +735,30 @@ write differently stay unknown, as before.
 The teeter-totter's bounce asks a query and its rope callback asks along the rope; their frame does not depend on the
 answers. In each recorded build its unresolved transitions go from 15 to 6, and no walk changes.
 
+### Conditional rules
+
+Many rules depend on what the part finds during that step: whether the cat sees a mouse, whether its new spot is
+blocked, which part the mouse finds nearest, whether the mouse motor touches a mouse. The analysis names such a value
+(the answer of a query, a part a loop found, a local or an owner field a list scan leaves behind, a field after a rope
+query) and keeps it as one unknown value of that run. A rule that tests it says what happens for each value the run
+finds; the rules for every value together cover all cases, and no value is chosen.
+
+Such a rule is conditional, not unresolved, when every unknown in its condition and its next frame is one of those
+named values and no path of its routine lost track of an effect. It lists them in `runValues`. It keeps its
+`unresolved` confidence, because the walks still branch on those values and do not carry them to the next step.
+The counts treat it as conditional: `transitionCounts` gives unresolved rules without them, conditional rules, and,
+apart from both, rules that write a field whose value is still unknown, so the writes that remain open are not hidden.
+The extraction notes and the comparison table show all three.
+
+A field of the owner that a list scan may change is now named `part after list scan at` the scan's address, like a
+local the scan leaves behind, instead of an unknown write. This names the mouse motor's and Mel's house's control
+value after their scan.
+
+In Even More, unresolved transitions go from 128 to 2 and 126 are conditional; in TIM 1 from 122 to 2, with 120
+conditional. The 2 left in each build are the magnifying glass: its run calls a helper that keeps the part's state but
+not a complete footprint of its other fields, so its routine lost track of an effect. 462 of 925 rules in Even More
+and 402 of 764 in TIM 1 write a field whose value is still unknown. No walk and no recording comparison changes.
+
 ### The control value's known numbers
 
 Many parts move their frame by a control value, as in "frame + control value", that other parts and their own
@@ -1250,7 +1275,7 @@ only its list head at `0x78` changes. When another part asks, the owner may be s
 forgotten. The teeter-totter's outline search (`0x437d`) does not skip the part that asks and keeps the old rule.
 
 The cat, for example, now keeps its own `0x7a` and `0x7c` through its search for a mouse. No walk and no transition
-count changes: those transitions stay unresolved because they test what the search found.
+count changes: those transitions test what the search found, so they count as conditional.
 
 ## Connection-query bypasses
 
