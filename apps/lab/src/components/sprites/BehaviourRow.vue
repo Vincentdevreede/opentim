@@ -30,9 +30,13 @@ function measure() {
     );
 }
 // Opening and closing, a resize of the panel and new text all change the line's size, so it is measured again then.
-const observer = new ResizeObserver(measure);
-onMounted(() => line.value && observer.observe(line.value));
-onBeforeUnmount(() => observer.disconnect());
+// The observer is made on mount, so the row still renders where there is no ResizeObserver, like on the server.
+let observer: ResizeObserver | undefined;
+onMounted(() => {
+  observer = new ResizeObserver(measure);
+  if (line.value) observer.observe(line.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
 /** Whether opening the row shows more. An open row can always close. */
 const expandable = computed(() => open.value || cut.value || !!slots.detail);
 /** Opens or closes the row, unless the click ends a text selection, like copying an instruction. */
