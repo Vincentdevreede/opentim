@@ -2445,6 +2445,8 @@ export function discoverEngineSummaries(
       summaries.set(code.address, pair);
   }
   addConnectionSummaries(codes, summaries);
+  // The connection summaries complete some forwarded helpers' footprints, so the wrappers that call them compose again.
+  addStatePreservingForwarders(codes, summaries, true);
   // The rope cut uses the rope geometry summary the connection summaries add.
   addRopeCutSummary(codes, summaries);
   addOutlineSearchSummary(codes, summaries);

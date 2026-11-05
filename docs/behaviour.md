@@ -812,6 +812,31 @@ conditional. The 2 left in each build are the magnifying glass: its run calls a 
 not a complete footprint of its other fields, so its routine lost track of an effect. 462 of 925 rules in Even More
 and 402 of 764 in TIM 1 write a field whose value is still unknown. No walk and no recording comparison changes.
 
+### The magnifying glass's last call
+
+At the end of its run, the magnifying glass (Even More English floppy: run at `0x1c0ac`, call at `0x1c21c`) passes
+itself to the routine at `0x793f`. That routine writes no memory itself. It calls three helpers with the same part and
+the byte 1: `0x65c1` copies the byte to field `0x14` of the part and of the parts at the other end of its belt and
+ropes, updating the belt and rope geometry on the way; `0x6b30` and `0x70fb` write only globals (the screen rectangle
+queue).
+The wrapper was proved before the connection summaries existed, so it kept only the part's frame, and the caller
+forgot every other field of every part after the call. That made the run's routine lose track of an effect, and its
+two rules stayed unresolved.
+
+The wrappers are now proved again after the connection summaries. When every helper a wrapper calls has a complete
+footprint for its part, the wrapper's footprint is their union: the same part fields, the fields named on parts and
+records reached through ropes, belts and pulleys, and the globals. Only where a helper writes carries over, never
+its values or conditions, since those come from the helper's own arguments. A helper that writes through another
+argument, through a selected object, or that carries anything a caller reads specially, keeps the old state only
+contract. After the call the magnifying glass forgets field `0x14` and the fields a rope, belt or pulley update may
+change, on itself and on any part such a link reaches, and keeps the rest.
+
+Its two run rules are now conditional on the part its list scan finds, in all eleven builds. Unresolved transitions
+go from 2 to 0 in each build (the Even More English CD goes from 5 to 3: the cannon's 2 and the gun's 1 remain), and
+conditional ones from 126 to 128 in Even More and from 120 to 122 in TIM 1. One more wrapper per build composes the
+same way (`0x8744` in the Even More English floppy). No walk changes, and no routine keeps the forgotten footprint any
+more.
+
 ### The control value's known numbers
 
 Many parts move their frame by a control value, as in "frame + control value", that other parts and their own

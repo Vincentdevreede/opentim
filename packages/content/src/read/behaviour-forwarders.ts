@@ -1,6 +1,6 @@
 /** Proves state preservation for wrappers forwarding the same part argument to scoped helpers. */
 import type { RoutineCode } from "./behaviour-code.ts";
-import type { EngineSummary } from "./behaviour-helpers.ts";
+import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Instruction, Operand } from "./x86.ts";
 
 const register = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
@@ -11,12 +11,76 @@ const writesFirst = (i: Instruction) =>
   i.flow === "next" && !["push", "cmp", "test", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
 const evidence = ({ address, bytes, text }: Instruction) => ({ address, bytes, text });
 
-/** Only the state contract composes here; unresolved nonstate storage and return values remain unknown. */
-export function addStatePreservingForwarders(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSummary>) {
+/** The summary fields a forwarder can carry over from its callees; any other one changes how a caller reads a call. */
+const PLAIN = new Set([
+  "confidence",
+  "evidence",
+  "assumptions",
+  "address",
+  "kind",
+  "purpose",
+  "argumentOffset",
+  "argumentKind",
+  "writes",
+  "returns",
+  "calls",
+  "returnConvention",
+  "footprint",
+  "connected",
+]);
+
+/**
+ * A callee whose part memory footprint is complete, relative to the part it is passed: it writes that part's own fields
+ * (directly, never through a second argument), globals, and fields of parts and records reached through ropes, belts or
+ * pulleys, which it names. A forwarder that passes its own part to each such callee writes exactly their union.
+ */
+function composable(callee: EngineSummary) {
+  const connected = [...(callee.connected?.partFields ?? []), ...(callee.connected?.recordFields ?? [])];
+  return (
+    callee.footprint.partMemoryComplete === true &&
+    Object.entries(callee).every(([key, value]) => value === undefined || PLAIN.has(key)) &&
+    callee.writes.every(
+      (write) =>
+        !write.selection &&
+        !write.separateStorage &&
+        (write.root === "global" ||
+          (write.root === "argument" &&
+            !write.path.length &&
+            (write.argumentOffset ?? callee.argumentOffset) === callee.argumentOffset) ||
+          (write.root === "unknown" &&
+            !write.path.length &&
+            connected.some((field) => field.offset === write.offset && field.width === write.width))),
+    )
+  );
+}
+
+/** Each distinct field once. */
+const distinct = (fields: { offset: number; width: number }[]) => [
+  ...new Map(fields.map(({ offset, width }) => [`${offset}:${width}`, { offset, width }])).values(),
+];
+
+/**
+ * Proves state preservation for wrappers that forward their part to helpers. When every helper's part memory footprint
+ * is complete, the wrapper's footprint is their union; otherwise only the state contract composes, and other part
+ * fields, globals and return values remain unknown. With `recompose`, only wrappers already proved are checked again
+ * against the callee summaries as they are now, since later proofs can complete a callee's footprint.
+ */
+export function addStatePreservingForwarders(
+  codes: Map<number, RoutineCode>,
+  summaries: Map<number, EngineSummary>,
+  recompose = false,
+) {
   for (let pass = 0; pass < 6; pass++) {
     let changed = false;
     for (const code of codes.values()) {
-      if (code.status !== "complete" || !code.calls.length || summaries.get(code.address)?.footprint.preservesPartState)
+      const prior = summaries.get(code.address);
+      if (
+        code.status !== "complete" ||
+        !code.calls.length ||
+        (recompose
+          ? prior?.kind !== "state-preserving-forwarder"
+          : prior?.footprint.preservesPartState && prior.kind !== "state-preserving-forwarder")
+      )
         continue;
       const [push, move] = code.instructions;
       const returns = code.instructions.filter((i) => i.flow === "return");
@@ -173,14 +237,31 @@ export function addStatePreservingForwarders(codes: Map<number, RoutineCode>, su
       }
       if (invalid) continue;
       const unknown = [...new Set(callees.flatMap((c) => c.footprint.unknownEffects))];
-      summaries.set(code.address, {
+      const globalEffects = [...new Set(callees.flatMap((c) => c.footprint.unknownGlobalEffects ?? []))];
+      // A callee's values and conditions refer to its own arguments, which are not the wrapper's: only where they write
+      // carries over.
+      const complete = callees.every(composable);
+      const writes: EngineWrite[] = complete
+        ? callees.flatMap((callee) =>
+            callee.writes.map((write) => ({
+              ...write,
+              ...(write.root === "argument" ? { argumentOffset: first } : {}),
+              value: { kind: "unknown", reason: `A helper the wrapper calls writes this field.`, width: write.width },
+              condition: { kind: "unknown", reason: "The helper writes the field on some of its paths." },
+            })),
+          )
+        : [];
+      const reached = callees.flatMap((c) => (c.connected ? [c.connected] : []));
+      const summary: EngineSummary = {
         address: code.address,
         kind: "state-preserving-forwarder",
         argumentKind: "object",
         argumentOffset: first,
-        purpose: "Calls the recorded helpers with the same part argument, preserving its selected state.",
+        purpose: complete
+          ? "Calls the recorded helpers with the same part argument; it writes what they write."
+          : "Calls the recorded helpers with the same part argument, preserving its selected state.",
         returnConvention: { kind: first === 6 ? "far" : "near", stackBytes: 0 },
-        writes: [],
+        writes,
         returns: [],
         calls: callees.map((c) => c.address),
         confidence: "inferred",
@@ -190,24 +271,54 @@ export function addStatePreservingForwarders(codes: Map<number, RoutineCode>, su
             ...callees.flatMap((c) => c.assumptions),
             "Each object helper receives the same complete part base through the checked C argument and return conventions. SI, DI, BP and DS are preserved across these calls.",
             "The C stack has capacity for the proved balanced pushes and calls; no stack operation overwrites the entry arguments.",
-            "This composed contract preserves only the selected state; other part fields, globals and the numeric return remain unresolved. It is conditional on the wrapper returning.",
+            complete
+              ? "The wrapper writes no memory itself, so its footprint is the union of its helpers' complete footprints. It is conditional on the wrapper returning."
+              : "This composed contract preserves only the selected state; other part fields, globals and the numeric return remain unresolved. It is conditional on the wrapper returning.",
           ]),
         ],
-        footprint: {
-          complete: false,
-          partMemoryComplete: false,
-          preservesArgumentMemory: false,
-          preservesPartState: true,
-          unknownEffects: unknown,
-          unknownPartEffects: ["The composed nonstate part-memory footprint is incomplete."],
-          unknownGlobalEffects: [
-            ...new Set([
-              ...callees.flatMap((c) => c.footprint.unknownGlobalEffects ?? []),
-              "The forwarded helpers' global changes are not composed by this state-only contract.",
-            ]),
-          ],
-        },
-      });
+        footprint: complete
+          ? {
+              complete: callees.every((c) => c.footprint.complete) && !globalEffects.length,
+              partMemoryComplete: true,
+              preservesArgumentMemory: callees.every((c) => c.footprint.preservesArgumentMemory),
+              preservesPartState: true,
+              unknownEffects: unknown,
+              unknownPartEffects: [],
+              unknownGlobalEffects: globalEffects,
+            }
+          : {
+              complete: false,
+              partMemoryComplete: false,
+              preservesArgumentMemory: false,
+              preservesPartState: true,
+              unknownEffects: unknown,
+              unknownPartEffects: ["The composed nonstate part-memory footprint is incomplete."],
+              unknownGlobalEffects: [
+                ...globalEffects,
+                "The forwarded helpers' global changes are not composed by this state-only contract.",
+              ],
+            },
+        ...(complete && reached.length
+          ? {
+              connected: {
+                confidence: "inferred" as const,
+                evidence: reached.flatMap((c) => c.evidence),
+                assumptions: [...new Set(reached.flatMap((c) => c.assumptions))],
+                partFields: distinct(reached.flatMap((c) => c.partFields)),
+                recordFields: distinct(reached.flatMap((c) => c.recordFields)),
+                recordLinks: [...new Set(reached.flatMap((c) => c.recordLinks))],
+              },
+            }
+          : {}),
+      };
+      // Only a different footprint is a change, so proving the same wrappers again comes to rest.
+      if (
+        prior?.kind === "state-preserving-forwarder" &&
+        JSON.stringify([prior.footprint, prior.calls, prior.writes.length]) ===
+          JSON.stringify([summary.footprint, summary.calls, summary.writes.length])
+      )
+        continue;
+      summaries.set(code.address, summary);
       changed = true;
     }
     if (!changed) break;
