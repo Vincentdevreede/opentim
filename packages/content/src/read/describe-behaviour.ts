@@ -2955,15 +2955,36 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
     if (write.offset === 0x96 || write.offset === 0x9c) return `May move the rope ends of ${reached}.`;
     return `May change a field of ${reached}.`;
   }
+  // The records a part's belt (0x54) and ropes (0x66, 0x68) link to are records, not parts.
+  const record = /^referenced-by\(part\+0x(54|66|68)\)$/.exec(write.object);
+  if (record) {
+    const what = record[1] === "54" ? "its belt's record" : `the record of its rope at 0x${record[1]}`;
+    const self =
+      write.value.kind === "binary" &&
+      write.value.left.kind === "field" &&
+      write.value.left.object === write.object &&
+      write.value.left.offset === write.offset &&
+      write.value.right.kind === "constant";
+    const field = `field 0x${write.offset.toString(16).padStart(2, "0")}`;
+    return self &&
+      write.value.kind === "binary" &&
+      write.value.operator === "+" &&
+      write.value.right.kind === "constant"
+      ? `Adds ${write.value.right.value} to ${field} of ${what}.`
+      : `Updates ${field} of ${what}.`;
+  }
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
+  // A bounce callback's argument is the part that touched its owner.
   const subject = write.object.startsWith("a listed part at ")
     ? "a listed part's"
-    : other
-      ? "another part's"
-      : "the part's";
+    : write.object === "collider"
+      ? "the touching part's"
+      : other
+        ? "another part's"
+        : "the part's";
   if (name === "state")
     return write.value.kind === "constant"
-      ? `Selects state ${write.value.value}${other ? " on another part" : ""}.`
+      ? `Selects state ${write.value.value}${write.object === "collider" ? " on the touching part" : other ? " on another part" : ""}.`
       : `Updates ${subject} selected state.`;
   if (name === "stateDelta") return `Updates ${subject} value that advances the animation state.`;
   // The level reset copies this field into the state before it calls the part's reset.
@@ -3002,7 +3023,8 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   if (name === "frameWidth" || name === "frameHeight") return `Updates ${subject} current frame dimensions.`;
   if (name === "horizontalExtent" || name === "verticalExtent" || name === "baseWidth" || name === "baseHeight")
     return `Updates ${subject} stored dimensions.`;
-  if (name === "drawX" || name === "drawY") return `Updates where ${other ? "another part's" : "the"} frame is drawn.`;
+  if (name === "drawX" || name === "drawY")
+    return `Updates where ${subject === "the part's" ? "the" : subject} frame is drawn.`;
   if (name === "positionX" || name === "positionY") return `Updates ${subject} position.`;
   if (name === "velocityX" || name === "velocityY") return `Updates ${subject} motion.`;
   if (name === "contactPart" || name === "contactAngle" || name === "contactEdge")

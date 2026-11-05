@@ -1288,6 +1288,25 @@ describe("creation defaults and related input conditions", () => {
     expect(lines.join(" ")).not.toContain("another part's");
   });
 
+  it("names writes to a rope's record and to the part that touches a bounce callback's owner", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    const rope = "referenced-by(part+0x66)";
+    const counter: Expression = {
+      kind: "binary",
+      operator: "+",
+      left: { kind: "field", object: rope, offset: 0x0e, width: 16 },
+      right: constant(1),
+      width: 16,
+    };
+    data.routines[2]!.writes = [
+      { ...write(0x0e, counter), object: rope, routine: 300 },
+      { ...write(12, constant(9)), object: "collider", routine: 300 },
+    ];
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain("Adds 1 to field 0x0e of the record of its rope at 0x66.");
+    expect(lines).toContain("Selects state 9 on the touching part.");
+  });
+
   it("rests on each frame when the run keeps every field", () => {
     const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
     data.parts[0]!.frameCount = 3;

@@ -1350,6 +1350,12 @@ value the relay passes along), the rope links `0x5a` to `0x60`, `0x6a` and `0x6c
 end words `0x96` and `0x9c`, each on "a part its ropes, belt or pulleys reach (this part too)". The flips of the eye
 hook, the wood incline and the curved pipe wall, among others, show these three lines.
 
+Two more kinds of writes got plain lines. A write through a part's belt link `0x54` or rope links `0x66` and `0x68`
+goes to a belt or rope record, not a part: the birdcage's, bucket's and heart's rope callbacks "Add 1 to field 0x0e
+of the record of its rope at 0x66" when asked with mode 1. A bounce callback's writes to its argument go to the part
+that touched its owner (see [walks from parts that touch](#walks-from-parts-that-touch)): "Selects state 9 on the
+touching part" instead of "on another part".
+
 ### Parts whose run keeps everything
 
 Most simple parts share one empty run routine (`0x29f` in Even More: it only sets up and restores `bp`), and the same
