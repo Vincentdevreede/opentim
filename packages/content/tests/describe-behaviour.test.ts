@@ -418,16 +418,21 @@ describe("descriptions from extracted behaviour rules", () => {
       [test(12, "==", 1), [1, 1], "rest"],
       [test(12, "==", 2), [2, 2], "rest"],
     ]);
-    const wide = walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]);
-    expect(wide.stop?.branches).toBeUndefined();
     const none = walkBehaviourRules(data, 39, []);
     expect(none.stop?.branches?.map((branch) => [branch.condition, branch.walk.states])).toEqual([
       [test(12, "==", 0), [0, 1, 1]],
       [test(12, "==", 1), [1, 1]],
       [test(12, "==", 2), [2, 2]],
     ]);
+    // More than three unknown bits still allow only the frames, like a generator whose reset keeps two bits.
+    const wide = walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]);
+    expect(wide.stop?.branches?.map((branch) => branch.condition)).toEqual([0, 1, 2].map((n) => test(12, "==", n)));
+    data.parts[0]!.frameCount = 16;
+    const low = walkBehaviourRules(data, 39, [{ ...known(12, 3), knownMask: 0x0003 }]);
+    expect(low.stop?.branches?.map((branch) => branch.condition)).toEqual([3, 7, 11, 15].map((n) => test(12, "==", n)));
     data.parts[0]!.frameCount = 0;
     expect(walkBehaviourRules(data, 39, []).stop?.branches).toBeUndefined();
+    expect(walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]).stop?.branches).toBeUndefined();
   });
 
   it("lists where a stopping field's value comes from without claiming every writer", () => {

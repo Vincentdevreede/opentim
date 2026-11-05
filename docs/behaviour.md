@@ -608,6 +608,19 @@ The gear's walks that stay open are only the branches for a control value other 
 analysis found its writers set. Over all parts, walks that end in every branch went from 330 to 380 in Even More and from
 283 to 333 in TIM 1, and walks that stop from 152 to 98 and from 135 to 81. No recorded animation changes.
 
+### Frames a partly known state allows
+
+The generator shows its state as one of 16 frames. Its run turns the two low bits round, and its reset at `0x1aeb3`
+(Even More, English floppy) keeps those two bits and sets bit 2 and bit 3 when the words at `0x62` and `0x64` are not
+zero. Shipped levels save it on frame 0 or 4. Walks that knew only some of these bits, like the reset or a trigger
+that kept the low bits, used to stop: more than three bits were unknown, and the frame bound only applied when no bit
+was known.
+
+A part with at most 16 frames can only be on one of them, so the walk now follows each frame whose number has the
+known bits, the same way it does when no bit is known. A part drawn without frames still stops. All 45 walks of the
+generator now end, in both recorded builds. After the belt and the gear, walks that end in every branch went from 380
+to 395 in Even More and from 333 to 348 in TIM 1, and walks that stop from 98 to 83 and from 81 to 66.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
