@@ -146,3 +146,70 @@ the monkey bike now end in each of their branches, in both recorded builds. Walk
 - Find where the game stops the machine and check that it calls the reset at `0x892b` before any editing.
 - Check that the editor's actions that call a part's resize callback only run while the machine is stopped.
 - Look at levels saved by players for a monkey bike with a saved frame from 5 to 12.
+
+## 5. The conveyor belt's starting frame
+
+Decided on 2026-11-05, after checking the code. In the code: `CONVEYOR_BELT_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+
+**The question.** The conveyor belt is drawn by its own code, so its type has no list of frames to count, and the walks
+had no frames to start it on. Which frames can a level start it on?
+
+**What the code shows** (Even More, English floppy):
+
+- The belt's frame is a block of 7 frames per width. Its run at `0x1b640` moves the frame one step within its block,
+  forward or backward by the sign of its control value, and wraps at the block's ends (`0x1b692` to `0x1b6c6`).
+- The editor grows a part's width at `0x50` by 16 while it is below the type record's maximum at `+0x0c`
+  (`0x11419`), and shrinks it by 16 while it is above the minimum at `+0x10` (`0x11486`). For the belt those are 96
+  and 32. Then it calls the part's resize callback (`0x114d8`).
+- The belt's resize at `0x1b6cd` sets both the shown frame at `0x0c` and the saved frame at `0x90` to
+  `(width - 32) / 16 * 7`, the first frame of the block for that width. A new belt starts on frame 28.
+- Every shipped level of all eleven builds saves the belt on frame 0, 7, 14, 21 or 28.
+
+**What we assume.**
+
+- A level starts the conveyor belt on frame 0, 7, 14, 21 or 28, the first frame of the block of 7 its width selects. The
+  editor keeps the width between 32 and 96 in steps of 16, and the belt's resize sets its saved frame to the start of
+  that block.
+
+Not proved: whether an editor action can save the frame shown while the machine runs (see assumption 4), and what a
+level file made outside the game holds.
+
+**What it gives.** The belt's walks start on those five frames. All 73 of its walks now end in each of their branches,
+in both recorded builds.
+
+**How to recheck.**
+
+- Check the width limits at `+0x0c` and `+0x10` of the belt's type record in each build.
+- Look at levels saved by players for a belt whose saved frame isn't a multiple of 7, or is above 28.
+
+## 6. The gear's starting frame
+
+Decided on 2026-11-05, after checking the code. In the code: `GEAR_ASSUMPTION` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+
+**The question.** The gear is drawn by its own code too, so the walks had no frames to start it on either.
+
+**What the code shows** (Even More, English floppy):
+
+- The gear's run at `0x1b1b0` ends in `0x1b2d7`, which adds the control value at `0x12` to the frame and wraps it:
+  frame -1 becomes 3 and frame 4 becomes 0. Then it sets the control value to 0. No other routine of the gear writes
+  its frame.
+- Every shipped level of all eleven builds saves the gear on frame 0.
+
+**What we assume.**
+
+- A level starts the gear on one of its four frames, 0 to 3. Its run wraps the frame within them, and every shipped
+  level saves it on frame 0.
+
+This allows more than the shipped levels use: it only rules out frames the gear doesn't have.
+
+**What it gives.** The gear's walks start on its four frames. Together with branching on whether its gear train is
+blocked, all of its walks end in every branch they can follow. The ones still open are only the branches for a control
+value other than 0, 1 and -1.
+
+**How to recheck.**
+
+- Look at levels saved by players for a gear with a saved frame above 3.

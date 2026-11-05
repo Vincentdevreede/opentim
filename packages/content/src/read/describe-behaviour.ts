@@ -1,6 +1,6 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
-import { IMPOSSIBLE_STATES } from "./behaviour-saved-frames.ts";
+import { IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import type {
   BehaviourReport,
@@ -573,8 +573,12 @@ function containsUnknown(value: Expression | Predicate, fields = true): boolean 
       return false;
   }
 }
-/** A part the run found itself, like the member a find-first loop stopped at. Its fields are read during that run. */
-const runObject = (object: string) => /^(member found by the loop|part returned by list-(head|next)) at /.test(object);
+/**
+ * A part the run found itself, like the member a find-first loop stopped at, or a value the run worked out from other
+ * parts, like whether a gear's train is blocked. Its fields are read during that run.
+ */
+const runObject = (object: string) =>
+  /^(member found by the loop|part returned by list-(head|next)|gear connection conflict) at /.test(object);
 const mentionsRunObject = (value: Expression): boolean =>
   (value.kind === "field" && runObject(value.object)) ||
   (value.kind === "binary" && (mentionsRunObject(value.left) || mentionsRunObject(value.right)));
@@ -953,18 +957,22 @@ export function walkBehaviourRules(
     const openBits = [...Array(16).keys()].filter((bit) => open & (1 << bit));
     const frameCount = (part as WithFrameCount).frameCount;
     if (!openBits.length || depth <= 0) return undefined;
+    // A part drawn by its own code has no frame list; a decided assumption can give the frames a level starts it on.
+    const levelFrames = !partial.mask && !frameCount ? LEVEL_FRAMES.get(part.id) : undefined;
     const framed = !partial.mask && frameCount !== undefined && frameCount > 1 && frameCount <= 16;
-    if (!framed && (!partial.mask || openBits.length > 3)) return undefined;
-    const values = framed
-      ? [...Array(frameCount).keys()]
-      : [...Array(1 << openBits.length).keys()]
-          .map((choice) =>
-            openBits.reduce(
-              (value, bit, n) => (choice & (1 << n) ? value | (1 << bit) : value),
-              partial.value & partial.mask,
-            ),
-          )
-          .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
+    if (!framed && !levelFrames && (!partial.mask || openBits.length > 3)) return undefined;
+    const values = levelFrames
+      ? levelFrames.frames
+      : framed
+        ? [...Array(frameCount).keys()]
+        : [...Array(1 << openBits.length).keys()]
+            .map((choice) =>
+              openBits.reduce(
+                (value, bit, n) => (choice & (1 << n) ? value | (1 << bit) : value),
+                partial.value & partial.mask,
+              ),
+            )
+            .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
     // A decided assumption can rule out some starting states, like the monkey bike's pedalling frames.
     const seededWith = (value: number) => {
       const seeded = new Map(bindings);
@@ -976,7 +984,8 @@ export function walkBehaviourRules(
     ];
     const allowed = values.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
     if (allowed.length < 2) return undefined;
-    if (excluded.length) proof = finding([proof], excluded);
+    if (excluded.length || levelFrames)
+      proof = finding([proof], [...excluded, ...(levelFrames ? [levelFrames.assumption] : [])]);
     return allowed.map((value) => {
       const condition: Predicate = {
         kind: "compare",

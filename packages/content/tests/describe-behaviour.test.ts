@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate, Transition } from "../src/read/behaviour.ts";
-import { MONKEY_BIKE_ASSUMPTION } from "../src/read/behaviour-saved-frames.ts";
+import {
+  CONVEYOR_BELT_ASSUMPTION,
+  GEAR_ASSUMPTION,
+  MONKEY_BIKE_ASSUMPTION,
+} from "../src/read/behaviour-saved-frames.ts";
 import { describeBehaviour, walkBehaviourRules, type KnownField } from "../src/read/describe-behaviour.ts";
 
 const proof = {
@@ -501,6 +505,23 @@ describe("descriptions from extracted behaviour rules", () => {
       ]);
     });
 
+    it("branches on whether a gear's train is blocked, a value the run works out from the other gears", () => {
+      const blocked: Expression = { kind: "field", object: "gear connection conflict at 0x70", offset: 0, width: 16 };
+      const data = settled(
+        report([
+          rule(constant(1), both(test(12, "==", 0), compare(blocked, "==", 0))),
+          rule(constant(2), both(test(12, "==", 0), compare(blocked, "!=", 0))),
+          rule(field(12), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[1, 1], "rest"],
+        [[2, 2], "rest"],
+      ]);
+    });
+
     it("follows rules that lead to the same next fields as one way, under what they all test", () => {
       const data = settled(
         report([
@@ -578,6 +599,34 @@ describe("descriptions from extracted behaviour rules", () => {
         [[10, 10], "rest"],
       ]);
       expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+  });
+
+  describe("starting frames of parts drawn by their own code", () => {
+    /** A part without a frame list, whose run always goes to frame 0. */
+    const drawn = (id: string) => {
+      const data = report([rule(constant(0), { kind: "true" })]);
+      data.parts[0] = { ...data.parts[0]!, id, frameCount: 0 } as never;
+      return data;
+    };
+
+    it("starts the conveyor belt on the first frame of each block of 7", () => {
+      const walk = walkBehaviourRules(drawn("conveyor-belt"), 39, []);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 7, 14, 21, 28]);
+      expect(walk.stop?.branches?.every((branch) => ["rest", "joins"].includes(branch.walk.status))).toBe(true);
+      expect(walk.assumptions).toContain(CONVEYOR_BELT_ASSUMPTION);
+    });
+
+    it("starts the gear on each of its four frames", () => {
+      const walk = walkBehaviourRules(drawn("gear"), 39, []);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2, 3]);
+      expect(walk.assumptions).toContain(GEAR_ASSUMPTION);
+    });
+
+    it("still gives no starting frame to another part without a frame list", () => {
+      const walk = walkBehaviourRules(drawn("rope"), 39, []);
+      expect(walk.stop?.branches).toBeUndefined();
+      expect(walk.status).toBe("unresolved");
     });
   });
 

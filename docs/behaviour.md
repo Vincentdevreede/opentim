@@ -585,6 +585,29 @@ The lab still shows two levels of branches. A split deeper than that shows how m
 all end, also deeper than shown, reads "N ways, all end". In conditions, the part a find-first loop found reads as
 `found` (its fields as `found.state` and so on), and a query's answer as `answer at` the call's address.
 
+### Parts drawn by their own code
+
+The conveyor belt and the gear have no list of frames in their type record: their own code draws them. So the walks
+had no number of frames to start them on, and every walk that began from a level's saved frame stopped at once.
+
+The code shows which frames they have. The belt's frame is a block of 7 frames per width: the editor keeps its width
+between 32 and 96 in steps of 16, its resize sets the shown and the saved frame to the first frame of that width's
+block, and its run only moves within the block. The gear's run adds its control value to its frame and wraps it within
+0 to 3. Two decided assumptions now give these starting frames
+([the conveyor belt's](behaviour-assumptions.md#5-the-conveyor-belts-starting-frame) and
+[the gear's](behaviour-assumptions.md#6-the-gears-starting-frame)): the belt starts on frame 0, 7, 14, 21 or 28, the
+gear on any of its four frames. Every shipped level of all eleven builds fits them.
+
+The belt then stops when the part at the other end of its belt link is a gear whose train is blocked, and a gear stops
+when its own train is blocked. Whether a train is blocked is the "gear connection conflict" the analysis already
+works out from the connected gears (see [the full gear conflict relation](#the-full-gear-conflict-relation)). It is a
+value of that run, like a query's answer, so walks may now branch on it.
+
+All 73 walks of the belt and all walks of the gear now end in every branch they can follow, in both recorded builds.
+The gear's walks that stay open are only the branches for a control value other than 0, 1 and -1, the numbers the
+analysis found its writers set. Over all parts, walks that end in every branch went from 330 to 380 in Even More and from
+283 to 333 in TIM 1, and walks that stop from 152 to 98 and from 135 to 81. No recorded animation changes.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
