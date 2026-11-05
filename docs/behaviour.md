@@ -628,6 +628,8 @@ These effects of other parts are left out, so they are known gaps:
   part's type, like where the part is.
 
 Describing a build takes as long as before (about 6 seconds for Even More and 5.5 for TIM 1), and no walk changes.
+The lab shows the lines in the Behaviour tab, under "From other parts": one row each, with the other part's name, what
+it sets and the value, and a chip for what either part must be.
 
 ### The outline search
 

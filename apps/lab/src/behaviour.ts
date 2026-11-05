@@ -119,6 +119,22 @@ export interface Walk extends WalkPath {
   description?: string;
 }
 
+/** Something another part does to this one without changing its frame, like the explosion's push. */
+export interface OtherEffect extends Finding {
+  /** The part that does it. */
+  sourceType: number;
+  source: string;
+  /** What it sets, like `speed` or `velocity`, and to what, as text. */
+  sets: { what: string; value: string }[];
+  /** What this part must be, in a few words, like `moving list`. */
+  when: string[];
+  /** What the source must be, in a few words, like `mirrored`, and its whole condition as text. */
+  sourceWhen: string[];
+  sourceCondition: string;
+  /** The analysis's own sentence. */
+  description: string;
+}
+
 export interface PartSummary {
   routines: Routine[];
   changes: Change[];
@@ -588,6 +604,50 @@ export function summariseWalks(report: BehaviourReport, description: BehaviourDe
   );
 }
 
+/** What other parts do to each part without changing its frame, by type, from the report's description. */
+export function summariseEffects(
+  report: BehaviourReport,
+  description: BehaviourDescription,
+): Record<number, OtherEffect[]> {
+  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const write = writer(fields);
+  const signedText = (n: number) => String(n > 0x7fff ? n - 0x10000 : n);
+  return Object.fromEntries(
+    description.parts.map((d) => [
+      d.type,
+      d.effectsFromOthers.map((e): OtherEffect => {
+        const fieldValue = (offset: number) =>
+          e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
+        const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
+        // Both velocities read as one pair, across then down.
+        const pair = x && y ? [{ what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` }] : [];
+        const sets = [
+          ...pair,
+          ...e.sets.flatMap((s) =>
+            s.kind === "speed"
+              ? [{ what: "speed", value: String(s.speed) }]
+              : pair.length && (s.offset === 0x36 || s.offset === 0x38)
+                ? []
+                : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
+          ),
+        ];
+        return {
+          confidence: e.confidence,
+          assumptions: e.assumptions,
+          evidence: instructions(e.evidence),
+          sourceType: e.sourceType,
+          source: e.sourcePart,
+          sets,
+          when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
+          sourceWhen: e.sourceConditionWords,
+          sourceCondition: write.predicate(e.sourceCondition),
+          description: e.description,
+        };
+      }),
+    ]),
+  );
+}
+
 /** The summary of a behaviour report, for the lab. */
 export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   const fields = report.layout.fields.map(({ offset, name, confidence }) => ({ offset, name, confidence }));
@@ -629,9 +689,10 @@ export function statesText(states: readonly number[] | null): string {
 export type BehaviourResult =
   { status: "done"; summary: BehaviourSummary; seconds: number } | { status: "error"; message: string };
 
-/** The walks of every part, by type, which take a few more seconds to read after the rest. */
+/** The walks of every part, by type, which take a few more seconds to read after the rest, and the effects of others. */
 export type WalksResult =
-  { status: "done"; walks: Record<number, Walk[]>; seconds: number } | { status: "error"; message: string };
+  | { status: "done"; walks: Record<number, Walk[]>; effects: Record<number, OtherEffect[]>; seconds: number }
+  | { status: "error"; message: string };
 
 /** What the worker is asked: the program as it ships, and what was read from it before. */
 export interface BehaviourRequest {

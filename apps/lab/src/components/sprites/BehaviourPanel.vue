@@ -20,6 +20,7 @@ import LabSection from "../LabSection.vue";
 import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
+import BehaviourEffect from "./BehaviourEffect.vue";
 import BehaviourRow from "./BehaviourRow.vue";
 import BehaviourWalk from "./BehaviourWalk.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
@@ -65,6 +66,8 @@ const walkList = computed(() => {
   const w = props.walks?.status === "done" ? props.walks.walks[props.type] : undefined;
   return w ? walkGroups(w) : [];
 });
+/** What other parts do to this one without changing its frame, which comes with the walks. */
+const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
 const walkCount = (rows: { variants: unknown[] }[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
 /** Whether a walk starts from the frame on the stage. */
 const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
@@ -392,6 +395,12 @@ const more = computed(() => {
           </div>
         </LabSection>
       </div>
+
+      <LabSection v-if="effects.length" title="From other parts">
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+          <BehaviourEffect v-for="(e, i) in effects" :key="i" :effect="e" :name="nameOf(e.sourceType)" />
+        </div>
+      </LabSection>
 
       <LabSection v-if="gear" title="Gear">
         <template #action>

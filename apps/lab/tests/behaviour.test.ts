@@ -8,7 +8,7 @@ import type {
   Predicate,
 } from "@opentim/content";
 import { describe, expect, it } from "vitest";
-import { statesText, summariseBehaviour, summariseWalks, writer } from "../src/behaviour.ts";
+import { statesText, summariseBehaviour, summariseEffects, summariseWalks, writer } from "../src/behaviour.ts";
 
 const fields = [
   { offset: 0x0c, name: "state" },
@@ -319,5 +319,75 @@ describe("summariseWalks", () => {
 
   it("writes rules that lead to the same next fields as what they all test and one of their cases", () => {
     expect(bounce!.branches[0]!.condition).toEqual(["state == 0", "one of 2 cases"]);
+  });
+});
+
+describe("summariseEffects", () => {
+  const report = {
+    layout: {
+      fields: [...fields, { offset: 0x36, name: "velocityX" }, { offset: 0x38, name: "velocityY" }].map((f) => ({
+        ...f,
+        confidence: "checked",
+        evidence: [],
+        assumptions: [],
+      })),
+    },
+    parts: [{ type: 12, routines: [] }],
+  } as unknown as BehaviourReport;
+  const effect = (more: object) => ({
+    ...finding,
+    sourceType: 41,
+    sourcePart: "explosion",
+    routine: 0x1a73a,
+    sourceCondition: compare(
+      "==",
+      { kind: "binary", operator: "+", left: field(0x0c), right: constant(1), width: 16 },
+      constant(2),
+    ),
+    sourceConditionWords: [],
+    condition: compare(
+      "!=",
+      { kind: "binary", operator: "&", left: field(0x06), right: constant(0x1000), width: 16 },
+      constant(0),
+    ),
+    conditionWords: ["on the moving list"],
+    description: "An explosion that reaches it sets its speed to 4096.",
+    ...more,
+  });
+  const description = {
+    parts: [
+      {
+        type: 12,
+        effectsFromOthers: [
+          effect({ sets: [{ kind: "speed", fields: [0x36, 0x38], speed: 4096, setter: 0x7d97 }] }),
+          effect({
+            sourceType: 13,
+            sourcePart: "jack-in-the-box",
+            sourceConditionWords: ["mirrored"],
+            sets: [
+              { kind: "field", offset: 0x36, width: 16, value: 4096 },
+              { kind: "field", offset: 0x38, width: 16, value: 0xf000 },
+            ],
+          }),
+        ],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const [push, punch] = summariseEffects(report, description)[12]!;
+
+  it("writes what another part sets and the value, with what this part must be in a few words", () => {
+    expect(push).toMatchObject({
+      sourceType: 41,
+      source: "explosion",
+      sets: [{ what: "speed", value: "4096" }],
+      when: ["moving list"],
+      sourceWhen: [],
+      sourceCondition: "state + 1 == 2",
+      confidence: "inferred",
+    });
+  });
+
+  it("reads both velocities as one signed pair", () => {
+    expect(punch).toMatchObject({ sets: [{ what: "velocity", value: "4096, -4096" }], sourceWhen: ["mirrored"] });
   });
 });
