@@ -547,3 +547,25 @@ punch. The explosion's push doesn't need it: "away from the explosion" is proved
 
 - Follow the drawing code from `drawY` at `0x2c` to the screen and check that a smaller value is drawn higher.
 - In the game, flip a jack-in-the-box and check that it knocks a part up and to the right.
+
+## 13. Parts with one frame
+
+**What the code shows** (Even More, English floppy):
+
+- The level reset keeps the frame a level saved at `0x90` for most parts: no reset path writes the frame at `0x0c`.
+- Many parts have a single frame: the bowling ball, basketball, rope, birdcage, bucket, eye hook, baseball,
+  magnifying glass, jack-o-lantern, heart, Christmas tree, pinball, tennis ball, cheese, thumb tack, pool ball and
+  shamrock.
+- Every part in every shipped level of the eleven builds is saved on one of its own frames, and every one-frame part on
+  frame 0.
+
+**What we assume.**
+
+- A level saves a part on one of its own frames, so a part with one frame starts on frame 0. Every part in every shipped level of the eleven builds is saved on one of its own frames.
+
+**What it gives.** These parts' reset is known: frame 0, so their reset walks start there.
+
+**How to recheck.**
+
+- Run the saved frame check over the levels of every build (a level saved on a frame the part doesn't have fails it).
+- In the editor, check that no part offers a frame its sheet doesn't have.
