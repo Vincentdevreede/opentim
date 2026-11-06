@@ -75,8 +75,14 @@ const router = useRouter();
 const showKeys = ref(false);
 const hasFiles = computed(() => resources.value.length > 0);
 const route = useRoute();
-/** The menu item of the page that is open, which says whether the page needs files. */
-const page = computed(() => [...FILES, ...RESOURCES, ...TOOLS].find((item) => item.to === route.path));
+/**
+ * The menu item of the page that is open, which says whether the page needs files. It is looked up by the
+ * matched route record, so `/sprites/` or `/Sprites` still finds the Sprites item.
+ */
+const page = computed(() => {
+  const path = route.matched.at(-1)?.path;
+  return [...FILES, ...RESOURCES, ...TOOLS].find((item) => item.to === path);
+});
 const readingIndex = computed(() => progress.value.findIndex((f) => f.state !== "done") + 1 || progress.value.length);
 
 function onDragOver(e: DragEvent) {
