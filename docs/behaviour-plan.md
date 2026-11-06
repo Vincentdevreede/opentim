@@ -19,7 +19,7 @@ Starting point:
 
 - [x] **A1. One scoreboard.** Add the counts above to the measured metrics, so each later step shows its effect in one
       run. Done when the comparison prints them.
-- [ ] **A2. Resets that keep the saved frame.** 41 parts are reported as "unresolved" because their reset keeps the
+- [x] **A2. Resets that keep the saved frame.** 41 parts are reported as "unresolved" because their reset keeps the
       frame the level saved. That is the game's real behaviour, not a gap: report it as "keeps the saved frame" with the
       frames it can be. Done when "unresolved" only remains where the reset itself can't be read.
 - [ ] **A3. Resting frames.** 33 parts show "Unknown" resting frames while their walks end. Take them from where the

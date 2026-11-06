@@ -222,6 +222,7 @@ interface ComparisonResult {
     extractionMilliseconds: number | null;
     describeMilliseconds: number;
     knownResetStates: number;
+    levelResets: number;
     unresolvedResets: number;
     vagueEffects: number;
     partsWithoutStableStates: number;
@@ -316,7 +317,9 @@ for (const phase of ["baseline", "reports"] as const) {
       extractionMilliseconds: extractionMilliseconds(data, path),
       describeMilliseconds,
       knownResetStates: description.parts.filter((part) => part.rest.status === "known").length,
-      unresolvedResets: description.parts.filter((part) => part.rest.status !== "known").length,
+      // Resets that keep the saved frame or set it from the sockets are the game's own: the level gives the frame.
+      levelResets: description.parts.filter((part) => ["saved", "sockets"].includes(part.rest.status)).length,
+      unresolvedResets: description.parts.filter((part) => part.rest.status === "unresolved").length,
       // Effect lines that say their meaning or value isn't known, counted once per part and wording.
       vagueEffects: description.parts.reduce(
         (sum, part) =>
@@ -354,7 +357,7 @@ for (const phase of ["baseline", "reports"] as const) {
         : "No exact executable hash matched an oracle model; measured walk coverage is unavailable.",
     });
     console.log(
-      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
+      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
     );
   }
 }
@@ -374,6 +377,7 @@ const comparisons = results
       "pointerLosses",
       "unresolvedLoops",
       "knownResetStates",
+      "levelResets",
       "unresolvedResets",
       "vagueEffects",
       "partsWithoutStableStates",

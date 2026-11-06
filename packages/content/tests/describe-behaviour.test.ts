@@ -1353,11 +1353,12 @@ describe("creation defaults and related input conditions", () => {
   it("says when the starting frame is the one the level saved, rather than an unresolved reset", () => {
     const data = report([rule(field(12), test(12, "==", 0))], [write(0x12, constant(0))]);
     data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    data.parts[0]!.frameCount = 40;
     expect(describeBehaviour(data).parts[0]!.rest).toMatchObject({
-      status: "unresolved",
-      reason:
-        "The starting frame is the one the level saved: the reset paths keep it, so TIM.EXE alone doesn't give it.",
+      status: "saved",
+      description: "The reset keeps the frame the level saved, one of the part's 40 frames.",
     });
+    expect(describeBehaviour(data).parts[0]!.rest.confidence).not.toBe("unresolved");
     // A reset path that writes the frame leaves it to that path instead.
     const writes = report([rule(field(12), test(12, "==", 0))], [write(12, field(0x62))]);
     writes.lifecycle = data.lifecycle;
@@ -1477,7 +1478,7 @@ describe("creation defaults and related input conditions", () => {
     expect(part.rest).toMatchObject({ status: "known", state: 0, frame: 0 });
     expect(part.rest.assumptions.join(" ")).toContain("a part with one frame starts on frame 0");
     data.parts[0]!.frameCount = 3;
-    expect(describeBehaviour(data).parts[0]!.rest.status).toBe("unresolved");
+    expect(describeBehaviour(data).parts[0]!.rest.status).toBe("saved");
   });
 
   it("starts parts the program draws itself on the frames a decided assumption gives", () => {
@@ -1495,20 +1496,26 @@ describe("creation defaults and related input conditions", () => {
     expect(wall.stableStates.map((stable) => stable.state)).toEqual([0]);
     // A pulley can start on any of its four rope directions.
     const pulley = keepSaved("pulley");
-    expect(pulley.rest).toMatchObject({ status: "unresolved", frames: [0, 1, 2, 3] });
+    expect(pulley.rest).toMatchObject({ status: "saved", frames: [0, 1, 2, 3] });
     expect(pulley.stableStates.map((stable) => stable.state)).toEqual([0, 1, 2, 3]);
-    // A part without such an assumption keeps no frames.
+    // A part without such an assumption keeps the saved frame, but no frames are listed.
     expect(keepSaved("trampoline").rest.frames).toBeUndefined();
+    expect(keepSaved("trampoline").rest).toMatchObject({
+      status: "saved",
+      reason:
+        "The reset keeps the frame the level saved; the part has no frame list to count, and no decided assumption gives the frames a level saves it on.",
+    });
   });
 
   it("lists the frames a part with a frame list can start on when its reset keeps the saved frame", () => {
     const data = report([rule(field(12), test(12, "==", 0))], [write(0x12, constant(0))]);
     data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
     expect(describeBehaviour(data).parts[0]!.rest).toMatchObject({
-      status: "unresolved",
+      status: "saved",
       frames: [0, 1, 2],
       description: "The reset keeps the frame the level saved: one of frames 0 to 2.",
     });
+    expect(describeBehaviour(data).parts[0]!.rest.reason).toBeUndefined();
   });
 
   it("gives the same effect of one routine on several paths one line with each path's condition", () => {
@@ -1538,7 +1545,7 @@ describe("creation defaults and related input conditions", () => {
 
   // A reset like the electric switch's: it keeps bit 2 of the frame and sets bit 0 and bit 1 by whether the words at
   // 0x62 and 0x64 are 0. Each path is one outcome of the reset routine.
-  function bitReset(keep: number | undefined, frameCount: number, low = 0, id = "trampoline") {
+  function bitReset(keep: number | undefined, frameCount: number, low = 0, id = "trampoline", tested = [0x62, 0x64]) {
     const data = report([rule(field(12), test(12, "==", 0))]);
     data.parts[0]!.id = id;
     const base = (bits: number): Expression =>
@@ -1554,7 +1561,7 @@ describe("creation defaults and related input conditions", () => {
             }
           : { kind: "binary", operator: "&", left: field(12), right: constant(keep), width: 16 };
     const outcomes = [0, 1, 2, 3].map((bits) => ({
-      condition: both(test(0x62, bits & 1 ? "!=" : "==", 0), test(0x64, bits & 2 ? "!=" : "==", 0)),
+      condition: both(test(tested[0]!, bits & 1 ? "!=" : "==", 0), test(tested[1]!, bits & 2 ? "!=" : "==", 0)),
       fields: [write(12, base(bits << low))],
       ...proof,
     }));
@@ -1566,14 +1573,12 @@ describe("creation defaults and related input conditions", () => {
 
   it("lists the frames a reset leaves when it keeps some bits of the saved frame and sets the others by tests", () => {
     const rest = bitReset(4, 8);
-    expect(rest.status).toBe("unresolved");
+    expect(rest.status).toBe("sockets");
     expect(rest.frames).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(rest.description).toBe(
-      "The reset keeps bit 2 of the frame saved in the level and sets bit 0 when the word at +0x62 is not 0 and bit 1 when the word at +0x64 is not 0, so it leaves one of frames 0 to 7.",
+      "The reset keeps bit 2 of the frame saved in the level and sets bit 0 when a plug is in its first socket (+0x62) and bit 1 when a plug is in its second socket (+0x64), so it leaves one of frames 0 to 7.",
     );
-    expect(rest.reason).toBe(
-      "The reset paths are resolved; which of these frames they leave depends on fields the reset doesn't fix.",
-    );
+    expect(rest.reason).toBeUndefined();
     // Like the generator: it keeps the two low bits and sets bits 2 and 3.
     expect(bitReset(3, 16, 2).description).toContain("keeps bits 0 and 1 of the frame saved in the level");
     // The generator never starts partway through a turn (decided), so bits 0 and 1 of the saved frame are 0.
@@ -1584,8 +1589,14 @@ describe("creation defaults and related input conditions", () => {
     expect(bitReset(undefined, 4)).toMatchObject({
       frames: [0, 1, 2, 3],
       description:
-        "The reset sets bit 0 when the word at +0x62 is not 0 and bit 1 when the word at +0x64 is not 0, so it leaves one of frames 0 to 3, whatever the frame saved in the level.",
+        "The reset sets bit 0 when a plug is in its first socket (+0x62) and bit 1 when a plug is in its second socket (+0x64), so it leaves one of frames 0 to 3, whatever the frame saved in the level.",
     });
+  });
+
+  it("keeps a reset unresolved when fields other than the sockets set its frame", () => {
+    const rest = bitReset(4, 8, 0, "trampoline", [0x62, 0x30]);
+    expect(rest).toMatchObject({ status: "unresolved", confidence: "unresolved", frames: [0, 1, 2, 3, 4, 5, 6, 7] });
+    expect(rest.description).toContain("bit 1 when the word at +0x30 is not 0");
   });
 
   it("names no frames when a reset path can leave a frame the part doesn't have", () => {

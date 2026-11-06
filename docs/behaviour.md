@@ -226,7 +226,7 @@ before/after metrics count graph transitions and unique callback call sites, poi
 They do not count every transitive engine diagnostic as a separate part failure.
 
 The comparison also keeps a scoreboard of what is still open in the descriptions: effect lines that say their meaning
-or value isn't established (counted once per part and wording), parts whose reset isn't known, parts without a listed
+or value isn't established (counted once per part and wording), parts whose reset can't be read, parts without a listed
 resting frame and parts that have no recording. Each count appears in the summary line, the table and the before and
 after changes, so a step shows its effect in one run.
 
@@ -1730,6 +1730,25 @@ known: the one-frame parts, the walls, the grass floor and the super ball start 
 everything rests there. The generator's reset keeps bits 0 and 1 of the saved frame, which are 0, so it leaves frame 0,
 4, 8 or 12, and its walks start on those. The table of these frames is `LEVEL_FRAMES` in
 `behaviour-saved-frames.ts`; an entry with `framed` narrows a part that has a frame list.
+
+### Resets the level gives
+
+A reset whose paths are all read and keep the frame the level saved used to count as unresolved. That is what the
+game does: the level gives the frame. The reset now has status `saved` in that case, with the frames it can be
+(`rest.frames`) when they are known: the part's own frames up to 32, or the ones in `LEVEL_FRAMES`. A part without a
+frame list and without a decided assumption (the wood incline, the belt, the rope end and the pinball bumper) keeps
+the status with no frames listed, and its uncertainty says why.
+
+A reset that sets bits of the frame by whether its words at `0x62` and `0x64` are 0, as the electric switch, the
+generator and the solar panel do, has status `sockets`. Those two words are where the part's plugs are (see the
+section above): the level loader fills them and the editor's plug code takes `0x62` first. The description now says
+"when a plug is in its first socket (+0x62)" instead of naming the word. Only a reset whose varying bits are all
+decided by those two words gets this status; any other field keeps it unresolved.
+
+So `unresolved` only remains where a reset path can't be read, or where its frame depends on another field. The
+comparison counts only those as unresolved resets and counts the other two as resets the level gives. In Even More
+that is 0 unresolved and 41 given by the level (38 saved, 3 from sockets); in TIM 1, 0 and 36. The lab doesn't show
+the reset's status, so it needed no change.
 
 ### Where a part is drawn and how large its frame is
 
