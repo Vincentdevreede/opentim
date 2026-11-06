@@ -1815,6 +1815,14 @@ keep the read for a frame past the sheet). In TIM 1, French, it is 640 of 1,122,
 were never unknown, so transitions with unknown writes stay at 365 and 324, every walk ends as before and no recorded
 animation changes; a walk now has numbers for these fields where it knows the frame.
 
+What the size helper reads for a frame the sheet doesn't have (`0x6940`, Even More English floppy): it takes the
+frame's entry of the list, `list[frame]`, with no test of the frame or of the entry, and reads the width and height at
+that entry plus 6 and plus 8. The list ends with a 0 entry after its last frame. So the frame just past the last one
+reads `DS:0x0006` and `DS:0x0008`, which in both recorded builds hold bytes of the compiler's copyright string at the
+start of the data segment ("Borland C++ ..."): a width of 27762 and a height of 28257, as long as nothing writes
+there. A frame further on reads past the list into memory filled while the game runs. The analysis keeps both cases
+unknown: no walk puts a part on a frame its sheet doesn't have, so neither size is ever needed.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
