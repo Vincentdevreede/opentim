@@ -1562,6 +1562,18 @@ describe("creation defaults and related input conditions", () => {
     );
   });
 
+  it("keeps every conditional input case past 64", () => {
+    const data = report(
+      Array.from({ length: 70 }, (_, frame) =>
+        rule(constant(0), both(test(12, "==", frame), test(0x30, "==", frame + 1))),
+      ),
+    );
+    data.parts[0]!.frameCount = 0;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.animations.filter((animation) => animation.initial === "run-guard")).toHaveLength(70);
+    expect(part.uncertainties.join(" ")).not.toContain("conditional input cases");
+  });
+
   it("lists the frames the walks rest on when no run outcome gives one", () => {
     // From the saved frame the run goes 0, 1, 2 and stays on 2, but no single run outcome shows that.
     const data = report(

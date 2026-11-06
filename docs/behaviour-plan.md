@@ -27,7 +27,7 @@ Starting point:
 - [x] **A4. The two vague start notes.** "The seed does not establish the state" (34 parts) and "the unknown
       condition selects different next fields" (15). Check each one and either resolve it or replace it with the condition
       in plain words. Done when neither note is left without a named reason.
-- [ ] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
+- [x] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
       Show all of them or prove the rest repeat the first 64.
 - [ ] **A6. The gear's frame 65535.** One gear note talks about frame 65535 (that is -1). Find out whether a gear can
       really reach it or whether it is a reading error.

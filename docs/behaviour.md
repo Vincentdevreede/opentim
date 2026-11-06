@@ -1782,6 +1782,16 @@ doesn't know, so each way is followed." Fields go by their plain or layout name,
 by how the part reaches them (the part linked at `+0x54`, the part a search found, its fields when the walk started).
 At most four tests are named. Neither old wording is left.
 
+### All input cases
+
+The description used to keep at most 64 conditional input cases per part, and the jack-in-the-box and the monkey bike
+went past that. The rest weren't repeats: without the bound the jack-in-the-box has 156 cases with 89 different walks
+(39 before) and the monkey bike 154 with 60 (30 before), in Even More and in TIM 1 alike. The list is finite on its
+own: the cases come from the run's tests and from the plain numbers the writers found, and each input is expanded at
+most 64 times. So every case is now kept, with a safety bound of 1024 that no part reaches; a part past it would still
+keep the note that more cases remain. The descriptions grow by about a tenth and take about a tenth longer, and the
+recordings compare the same.
+
 ### Where a part is drawn and how large its frame is
 
 After a routine changes a part's frame, it calls two shared helpers (`0x68aa` and `0x6940` in Even More, English

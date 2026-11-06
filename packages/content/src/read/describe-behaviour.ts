@@ -2990,6 +2990,12 @@ function affineState(expression: Expression, offset: number): { scale: number; a
   const sign = expression.operator === "+" ? 1 : -1;
   return { scale: left.scale + sign * right.scale, amount: left.amount + sign * right.amount };
 }
+/**
+ * A safety bound on a part's conditional input cases. The cases come from the run's own tests and the plain numbers
+ * the writers found, and each input is expanded at most 64 times, so the list is finite; in Even More the jack-in-the-box
+ * has the most, 156. A part past the bound keeps a note that more cases remain.
+ */
+const MAX_INPUT_CASES = 1024;
 function producerPartitions(
   report: BehaviourReport,
   part: PartBehaviour,
@@ -3076,7 +3082,7 @@ function producerPartitions(
         .sort(),
     ]);
     if (result.has(id)) return;
-    if (result.size >= 64) {
+    if (result.size >= MAX_INPUT_CASES) {
       truncated = true;
       return;
     }
@@ -3185,6 +3191,7 @@ function conditionalInputCases(
         .map((rule) => (rule.to as Extract<Expression, { kind: "constant" }>).value),
     ]),
   ];
+  // A bounded test of the frame gives a case per frame when it allows fewer than this many.
   const maxCases = 64;
   for (const rule of part.transitions.filter((rule) => rule.routine === run.address)) {
     const terms = predicateTerms(rule.condition).filter(inputPredicate);
@@ -3266,7 +3273,7 @@ function conditionalInputCases(
       if (predicateOf(condition, bindings) !== false) {
         const id = JSON.stringify([signature(bindings), terms.map((term) => JSON.stringify(term)).sort()]);
         if (!cases.has(id)) {
-          if (cases.size >= maxCases) return producerPartitions(report, part, [...cases.values()], true);
+          if (cases.size >= MAX_INPUT_CASES) return producerPartitions(report, part, [...cases.values()], true);
           cases.set(id, { fields, condition, ...proof });
         }
       }
@@ -3296,7 +3303,7 @@ function conditionalInputCases(
         prior.evidence = evidence(prior.evidence, rule.evidence);
         continue;
       }
-      if (cases.size >= maxCases) return producerPartitions(report, part, [...cases.values()], true);
+      if (cases.size >= MAX_INPUT_CASES) return producerPartitions(report, part, [...cases.values()], true);
       cases.set(id, { fields, condition: caseCondition, ...proof });
     }
   }
@@ -4364,7 +4371,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         ...part.uncertainties,
         ...(inputCases.truncated
           ? [
-              "The description retained at most 64 conditional input cases with bounded producer-value partitions; further cases remain in the extracted report.",
+              `The description retained at most ${MAX_INPUT_CASES} conditional input cases with bounded producer-value partitions; further cases remain in the extracted report.`,
             ]
           : []),
         ...(rest.reason ? [rest.reason] : []),
