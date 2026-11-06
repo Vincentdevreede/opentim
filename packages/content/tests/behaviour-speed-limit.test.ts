@@ -84,6 +84,35 @@ function limiter(): EngineSummary {
     },
   };
 }
+function insertion(): EngineSummary {
+  return {
+    ...fact,
+    address: 0x100,
+    kind: "ordered-part-insertion",
+    purpose: "Inserts the owner into an ordered list.",
+    argumentOffset: 6,
+    argumentKind: "object",
+    calls: [],
+    returns: [],
+    returnConvention: { kind: "far", stackBytes: 0 },
+    orderedLinks: { next: 0, previous: 2 },
+    writes: [0, 2].map((offset) => ({
+      ...fact,
+      root: "argument" as const,
+      argumentOffset: 6,
+      path: [],
+      offset,
+      width: 16,
+      value: {
+        kind: "unknown",
+        reason: "The selected predecessor or successor depends on the ordered-list comparisons.",
+        width: 16,
+      } as Expression,
+      condition: { kind: "true" } as Predicate,
+    })),
+    footprint: { complete: true, preservesArgumentMemory: false, preservesPartState: true, unknownEffects: [] },
+  };
+}
 // push si; call far 0000:0100; pop cx
 const call = [0x56, 0x9a, 0, 1, 0, 0, 0x59];
 function analyse(body: number[], summary: EngineSummary) {
@@ -124,7 +153,7 @@ function evaluate(e: Expression, speed: number, bound: number): number {
 }
 const signed = (n: number) => (n >= 0x8000 ? n - 0x10000 : n);
 
-describe("The speed limit", () => {
+describe("The speed limit and the ordered insertion", () => {
   it("gives each speed exactly: the limit above it, minus the limit below minus it, else the speed", () => {
     const result = analyse(call, limiter());
     const speed = result.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x36)!.value;
@@ -141,5 +170,21 @@ describe("The speed limit", () => {
     const result = analyse([0xc7, 0x44, 0x36, ...word(0x3000), ...call], limiter());
     const speed = result.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x36)!.value;
     expect(speedLimitOf(speed)?.speed).toEqual({ kind: "constant", value: 0x3000, width: 16 });
+  });
+  it("names the neighbours an ordered insertion links its part between", () => {
+    const result = analyse(call, insertion());
+    const links = result.outcomes![0]!.fields.filter((f) => f.object === "part" && f.offset < 4);
+    expect(links.map((f) => f.value)).toEqual([
+      expect.objectContaining({
+        kind: "field",
+        object: "next in the ordered list after the insertion at 0x8",
+        unresolved: true,
+      }),
+      expect.objectContaining({
+        kind: "field",
+        object: "previous in the ordered list after the insertion at 0x8",
+        unresolved: true,
+      }),
+    ]);
   });
 });

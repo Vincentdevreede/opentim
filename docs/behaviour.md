@@ -2047,8 +2047,7 @@ The gun, when not flipped: "Creates a bullet (type 20) at positionX = its positi
 The speeds go through the speed limit at `0x37bc`, which keeps each speed within the limit in the new part's type
 record (see [The speed limit](#the-speed-limit)); the line gives the speed the routine stored before that limit. The
 list insertion at `0x629d` links the new part between neighbours it picks while the game runs ("links it into a list
-of parts")). The code doesn't fix them, so the rules'
-writes of `0x00` and `0x02` on the new part stay unknown.
+of parts")); the rules name those neighbours (see [Parts linked into an ordered list](#parts-linked-into-an-ordered-list)).
 
 ### The type record words the game writes
 
@@ -2087,6 +2086,21 @@ level's air pressure (see above), so for a part whose type the rule knows it is 
 the cannonball it is 12288, no less than any speed the gun and the cannon set, so those speeds stay as set. Rules with
 unknown writes go from 33 to 25 of 925 in Even More, English floppy, and from 28 to 23 of 764 in TIM 1, French; every
 walk still ends and the recordings stay at 606 complete, 42 prefix, 0 different and 512, 40, 0.
+
+### Parts linked into an ordered list
+
+The insertion at `0x629d` (Even More, English floppy) links a part into a list of parts kept in order. It walks along
+the list from the head slot it is given and stops where comparisons of the type records' words (`+0x20` for the list
+at `0x4cdb`, `+0x02` for the others) and of the parts' fields `0x8e` and `0x8c` say the new part goes. It then sets
+the new part's link `0x00` to the part it now stands before (0 at the end of the list) and its link `0x02` to the
+part before it, or to the head slot when the new part goes first. Which parts those are depends on the parts the level
+has, so the rules name them after the call: `next in the ordered list after the insertion at` and `previous in the
+ordered list after the insertion at` the call's address, in the field form marked `unresolved`, like the other values
+only the run gives (`RUN_VALUE`). The summary keeps which link is which (`orderedLinks`).
+
+This names the links of the rope end, cannonball, bullet and explosion that the balloon, cannon, gun and dynamite
+plunger make. Rules with unknown writes go from 25 to 16 of 925 in Even More, English floppy, and from 23 to 14 of 764
+in TIM 1, French.
 
 ### Frame sizes from the part's sheet
 

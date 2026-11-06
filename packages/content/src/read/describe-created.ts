@@ -105,7 +105,10 @@ export function createdPartLines(
       for (const write of [...writes].sort((a, b) => a.offset - b.offset)) {
         const name = fieldName(write.offset);
         const into = name === "positionX" || name === "positionY" ? place : name.startsWith("velocity") ? speed : given;
-        if (write.value.kind === "unknown" && /ordered-list/.test(write.value.reason)) {
+        if (
+          (write.value.kind === "unknown" && /ordered-list/.test(write.value.reason)) ||
+          (write.value.kind === "field" && / in the ordered list after the insertion at /.test(write.value.object))
+        ) {
           links = true;
           continue;
         }

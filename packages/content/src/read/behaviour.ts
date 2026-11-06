@@ -1885,7 +1885,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (!possible(conjunction([...s.conditions, condition]))) continue;
       // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound.
       const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : undefined;
-      const value = formalValue(effect.value, args, engine.argumentOffset, s, engine.argumentOffset, budget);
+      const links = engine.orderedLinks;
+      const link =
+        links && !effect.path.length && effect.width === 16
+          ? effect.offset === links.next
+            ? "next"
+            : effect.offset === links.previous
+              ? "previous"
+              : undefined
+          : undefined;
+      // The ordered insertion links its part between neighbours its comparisons pick: only the run knows which.
+      const value = link
+        ? tracked(
+            {
+              ...field(`${link} in the ordered list after the insertion at ${hex(i.address)}`, effect.offset, 16),
+              unresolved: true,
+            } as Expression,
+            effect.evidence,
+          )
+        : formalValue(effect.value, args, engine.argumentOffset, s, engine.argumentOffset, budget);
       pending.push({
         pointer,
         offset: effect.offset,
@@ -4421,10 +4439,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
 
 /**
  * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
- * found list, what a call writes to parts it selects, or the part's own field after such a call.
+ * found list, what a call writes to parts it selects, the part's own field after such a call, or the neighbours an
+ * ordered insertion links a part between.
  */
 const RUN_VALUE =
-  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect) at /;
+  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
