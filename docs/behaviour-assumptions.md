@@ -590,3 +590,43 @@ get one, because their rules read the control value, state the assumption in the
 - Search each build again for instructions that set or clear `0x0004` in a part's word at `0x0a`.
 - Look at levels saved by players for a part with `0x0004` in its third flags word that isn't one of these four, or one
   of these four without it.
+
+## 18. The bullet and the jack-in-the-box
+
+Decided on 2026-11-06 with the user. In the code: `BULLET_LIST_ASSUMPTION` in
+`packages/content/src/read/describe-effects.ts`. Explained in
+[hits found by a search's flags](behaviour.md#hits-found-by-a-searchs-flags).
+
+**The question.** The jack-in-the-box's punch sets the velocity of every part it finds that has `0x1000` in its list
+flags at `0x06`, which the analysis calls being on the moving list. The bullet's own rules read its velocity, so the
+punch gave it two walks. Can a bullet ever have that flag?
+
+**What the code shows** (Even More, English floppy):
+
+- The jack-in-the-box's loop (in its run at `0x1b888`) tests `0x1000` at `0x06` of each part its search finds
+  (`0x1b93d`) and only then sets its velocities (`0x1b95c`, `0x1b964`). A part without it is only acted on when its type
+  is in a table of six (the teeter-totter, the mouse motor, the fish bowl, the bellows, the electric switch and the
+  scissors), and the bullet isn't.
+- The gun makes its bullet with the part factory (type 20, `0x1b3a1`) and links it into the list of moving parts itself
+  (`0x629d` at `0x1b3b5`). It then sets `0x0010` at `0x06` (`0x1b3bc`), not `0x1000`.
+- The routine at `0x6469` is the only one that sets `0x1000` (see [assumption 11](#11-parts-on-the-fixed-list)), when
+  the player drops a part. The bullet isn't a part the player can place.
+- No shipped level of the eleven builds saves a bullet.
+
+**What we assume.**
+
+- A jack-in-the-box never punches a bullet: a bullet never has `0x1000` in its list flags at `0x06`, which the analysis
+  calls being on the moving list. The gun doesn't give the bullets it makes that flag, and no shipped level saves a
+  bullet.
+
+Not proved: a level file made outside the game could save a bullet with `0x1000`, since loading keeps the stored flags.
+
+**What it gives.** The bullet gets no walk and no line from the jack-in-the-box's punch. Before, it had two walks:
+punched up and to the left or up and to the right (velocityX -2048 or 2048, velocityY -2048), only when on the moving
+list. It is ruled out the same way as a part of a fixed type by [assumption 11](#11-parts-on-the-fixed-list), but only
+for the bullet, and the bullet states the assumption in its description.
+
+**How to recheck.**
+
+- Look at levels saved by players for a bullet.
+- Check in each build that the gun's run still links the bullet in without `0x1000`, and that nothing else sets it.

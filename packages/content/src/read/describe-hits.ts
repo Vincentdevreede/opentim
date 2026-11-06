@@ -10,13 +10,12 @@
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import {
   type Evaluate,
-  FIXED_LIST_ASSUMPTION,
-  FIXED_TYPE,
   LIST_FLAGS,
   TYPE_TABLE_ASSUMPTION,
   listFlagWords,
   nameOf,
   objects,
+  offMovingList,
   partFields,
   predicateForType,
   renamePredicate,
@@ -206,9 +205,8 @@ export function hitsFromOthers(
   for (const part of report.parts) {
     const hits = new Map<string, { hit: PartHit; tests: Predicate[]; touch: boolean; others: FieldWrite[][] }>();
     const assumptions = new Set<string>();
-    // A part of a fixed type is never on the moving list: a decided assumption says so.
-    const offList =
-      startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0 ? FIXED_LIST_ASSUMPTION : undefined;
+    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so.
+    const offList = offMovingList(part, startingFlags);
     const known = (member: string) =>
       offList ? [{ object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST }] : [];
     // Whether the part is marked as lightable is decided by its type too, with the decided assumption.

@@ -3,7 +3,7 @@
  * on every finding that uses it, and explained in docs/behaviour-assumptions.md so it can be rechecked later.
  */
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
-import { FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "./describe-effects.ts";
+import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "./describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "./describe-hits.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
 import { PART_COPY_ASSUMPTIONS } from "./behaviour-part-copy.ts";
@@ -36,4 +36,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Parts on the fixed list", assumptions: [FIXED_LIST_ASSUMPTION] },
   { title: "Screen directions", assumptions: [SCREEN_DIRECTION_ASSUMPTION] },
   { title: "Parts the candle can light", assumptions: [LIGHTABLE_ASSUMPTION] },
+  { title: "The bullet and the jack-in-the-box", assumptions: [BULLET_LIST_ASSUMPTION] },
 ];

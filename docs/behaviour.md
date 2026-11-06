@@ -792,6 +792,17 @@ More, English floppy).
 No walk is added or lost: walks that end stay at 1,098 in Even More and 926 in TIM 1, and the recordings match as
 before, 564 and 476 complete, none different.
 
+### The bullet and the jack-in-the-box
+
+[Assumption 18](behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box) settles the second point: a bullet
+never has `0x1000` at `0x06`, so the jack-in-the-box never punches it. It works like the assumption on the fixed list
+(`offMovingList` in `describe-effects.ts` gives either one), but only for the bullet. The bullet's two punch walks are
+gone, and the bullet states the assumption in its description instead. The effect lines take it too, though the
+bullet had none.
+
+Walks that end, before and after: Even More 1,098 and 1,096, TIM 1 926 and 924. No part has a walk that stops, and
+the recordings match as before: 564 and 476 complete, none different.
+
 ### Walks from parts that touch
 
 The contact dispatch (`0x1078` and `0x10bc` in Even More) goes through the moving parts. For one that touched another
