@@ -11,6 +11,7 @@ import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, partFields, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
 import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
+import { choiceOf } from "./behaviour.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -1380,8 +1381,8 @@ function testedNumbers(rules: WithUpdates[], offset: number): Set<number> {
 }
 /**
  * A rule stands for the return paths that lead to its frame, joined two at a time where they differ in one test. A
- * field those paths set differently is unknown in the rule, like the mouse motor's control value, which its run clears
- * only when the counter runs out. When the paths split on a test of a field the rule counts up or down, the rule is
+ * field those paths set differently is unknown in the rule, or one of the two values chosen by that test, like the
+ * mouse motor's control value, which its run clears only when the counter runs out. When the paths split on a test of a field the rule counts up or down, the rule is
  * taken apart into its paths again, so a walk can follow the countdown. The paths' extra tests must cover every case
  * between them, so together they stand for exactly what the rule did.
  */
@@ -1416,7 +1417,10 @@ export function splitRules(
   );
   const result = rules.flatMap((rule) => {
     if (!outcomes?.length || routine!.returnPathsComplete !== true || routine!.uncertainEffects === true) return [rule];
-    const unknown = (rule.updates ?? []).filter((write) => write.object === "part" && write.value.kind === "unknown");
+    // A field the paths set differently: unknown, or one of two values chosen by the test that tells the paths apart.
+    const unknown = (rule.updates ?? []).filter(
+      (write) => write.object === "part" && (write.value.kind === "unknown" || !!choiceOf(write.value)),
+    );
     const counted = (rule.updates ?? []).flatMap((write) =>
       pathCounters.has(write.offset) &&
       write.object === "part" &&

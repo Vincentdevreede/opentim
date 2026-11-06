@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate, Transition } from "../src/read/behaviour.ts";
+import { choose } from "../src/read/behaviour.ts";
 import {
   CONTROL_VALUE_ASSUMPTION,
   CONVEYOR_BELT_ASSUMPTION,
@@ -13,6 +14,7 @@ import {
 import {
   START,
   describeBehaviour,
+  splitRules,
   walkBehaviourRules,
   type AnimationDescription,
   type BehaviourWalk,
@@ -1833,6 +1835,44 @@ describe("countdowns", () => {
     const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
     expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
     expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+  });
+
+  it("takes a rule apart into its paths when the countdown picks one of two values for the control value", () => {
+    // The same run, with the control value kept as one of its two values: 0 when the counter runs out, else unchanged.
+    const runsOut = compare(minus(0x96, 1), "==", 0) as Extract<Predicate, { kind: "compare" }>;
+    const data = complete(
+      report([
+        rule(field(12), test(0x12, "!=", 0), [
+          write(0x96, minus(0x96, 1)),
+          write(0x12, choose(runsOut, constant(0), field(0x12))),
+        ]),
+        rule(field(12), test(0x12, "==", 0)),
+      ]),
+      [
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "!=", 0)),
+          fields: [write(0x96, minus(0x96, 1))],
+        },
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "==", 0)),
+          fields: [write(0x96, minus(0x96, 1)), write(0x12, constant(0))],
+        },
+        { ...anyPath, condition: test(0x12, "==", 0) },
+      ],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
+    expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
+    expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+    // The rule is taken apart into the two paths, each with its own control value.
+    const [part] = data.parts;
+    const paths = splitRules(part!, part!.transitions, data.routines[0], 12);
+    expect(paths).toHaveLength(3);
+    expect(paths.slice(0, 2).map((path) => path.updates?.find((item) => item.offset === 0x12)?.value)).toEqual([
+      field(0x12),
+      constant(0),
+    ]);
   });
 
   it("knows a field the run stores from its list scan when the rule tests that value, like the mouse motor's", () => {

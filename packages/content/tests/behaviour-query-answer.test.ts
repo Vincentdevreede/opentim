@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyseRoutine, transitionCounts } from "../src/read/behaviour.ts";
+import { analyseRoutine, choiceOf, transitionCounts } from "../src/read/behaviour.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 
 const entry = { address: 0, segment: 0, offset: 0 };
@@ -76,8 +76,15 @@ describe("query answers", () => {
     const [transition] = routine.transitions;
     expect(transition!.confidence).toBe("inferred");
     expect(text(transition!.condition)).not.toContain("answer of the query");
+    // Field 0x12 is 2 when the answer is 0 and keeps its value otherwise: the answer picks one of the two.
     const write = transition!.updates?.find((update) => update.offset === 0x12);
-    expect(write?.value.kind).toBe("unknown");
+    const choice = choiceOf(write!.value);
+    expect(choice?.test).toMatchObject({ left: { object: "answer of the query at 0x8" }, right: { value: 0 } });
+    const [zero, other] =
+      choice!.test.operator === "==" ? [choice!.then, choice!.otherwise] : [choice!.otherwise, choice!.then];
+    expect(choice!.test.operator).toMatch(/^[!=]=$/);
+    expect(zero).toMatchObject({ kind: "constant", value: 2 });
+    expect(other).toMatchObject({ kind: "field", object: "part", offset: 0x12 });
   });
 
   it("keeps the merged path unresolved when the routine lost track of an effect", () => {
@@ -113,7 +120,7 @@ describe("query answers", () => {
     expect(transitionCounts(lostRoutine.transitions).unresolved).toBe(lostRoutine.transitions.length);
   });
 
-  it("counts rules that write an unknown value apart", () => {
+  it("counts rules that write an unknown value apart, like a value the answer picks", () => {
     const { image, helpers } = fixture("private-buffer-query", 0x12);
     const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
     expect(transitionCounts(routine.transitions)).toEqual({ unresolved: 0, conditional: 0, unknownWrites: 1 });

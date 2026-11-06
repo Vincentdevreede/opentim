@@ -29,6 +29,7 @@ export { readRoutineCode, type RoutineCode } from "./read/behaviour-code.ts";
 export {
   readBehaviour,
   analyseRoutine,
+  choiceOf,
   type BehaviourReport,
   type PartBehaviour,
   type RoutineAnalysis,

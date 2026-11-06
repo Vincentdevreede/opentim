@@ -336,6 +336,71 @@ export function binary(
   return { kind: "binary", operator, left, right, width };
 }
 
+type Comparison = Extract<Predicate, { kind: "compare" }>;
+const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
+const ORDER = ["<", "<=", ">", ">="];
+/**
+ * A test as a value, 1 when it holds and 0 when it doesn't. The value operators compare as unsigned numbers, so a
+ * signed order test compares both sides with their sign bit turned round, which orders them the same way.
+ */
+function testValue(test: Comparison, width: number, budget: number): Expression {
+  const bits = test.left.width;
+  const side = (e: Expression) =>
+    test.signed && ORDER.includes(test.operator) ? binary("^", e, constant(2 ** (bits - 1), bits), bits, budget) : e;
+  return binary(test.operator, side(test.left), side(test.right), width, budget);
+}
+/**
+ * The value `then` where the test holds and `otherwise` where it doesn't, as `(test) * then + (opposite) * otherwise`
+ * with each test 0 or 1. Exactly one of the two tests holds, so the value is exact. When a value or a side of the test
+ * is unknown, the choice is that unknown, with its own reason.
+ */
+export function choose(
+  test: Comparison,
+  then: Expression,
+  otherwise: Expression,
+  width = then.width,
+  budget = FRAME_DRAWING_BUDGET,
+): Expression {
+  if (same(then, otherwise)) return then;
+  for (const value of [then, otherwise, test.left, test.right])
+    if (value.kind === "unknown") return { ...value, width };
+  const opposite = { ...test, operator: OPPOSITE[test.operator]! };
+  return binary(
+    "+",
+    binary("*", testValue(test, width, budget), then, width, budget),
+    binary("*", testValue(opposite, width, budget), otherwise, width, budget),
+    width,
+    budget,
+  );
+}
+/**
+ * The test and the two values of a value `choose` made, or undefined for any other value. A signed order test is
+ * given back with its sides as they were.
+ */
+export function choiceOf(e: Expression): { test: Comparison; then: Expression; otherwise: Expression } | undefined {
+  if (e.kind !== "binary" || e.operator !== "+" || e.left.kind !== "binary" || e.right.kind !== "binary") return;
+  const [a, b] = [e.left, e.right];
+  if (a.operator !== "*" || b.operator !== "*" || a.left.kind !== "binary" || b.left.kind !== "binary") return;
+  const [x, y] = [a.left, b.left];
+  if (OPPOSITE[x.operator] === undefined || OPPOSITE[x.operator] !== y.operator) return;
+  if (!same(x.left, y.left) || !same(x.right, y.right)) return;
+  const sign = (side: Expression) => 2 ** (side.width - 1);
+  // A side of a signed order test: the value with its sign bit turned round, or a constant that was folded so.
+  const unflip = (side: Expression) =>
+    side.kind === "binary" && side.operator === "^" && side.right.kind === "constant" && side.right.value === sign(side)
+      ? side.left
+      : side.kind === "constant"
+        ? constant(unsigned(side.value ^ sign(side), side.width), side.width)
+        : undefined;
+  const [left, right] = [unflip(x.left), unflip(x.right)];
+  const signed =
+    ORDER.includes(x.operator) && !!left && !!right && (x.left.kind !== "constant" || x.right.kind !== "constant");
+  const test: Comparison = signed
+    ? { kind: "compare", operator: x.operator, left: left!, right: right!, signed: true }
+    : { kind: "compare", operator: x.operator, left: x.left, right: x.right, signed: false };
+  return { test, then: a.right, otherwise: b.right };
+}
+
 function substitute(expression: Expression, state: number, stateOffset = 0x0c): Expression {
   if (expression.kind === "field" && expression.object === "part" && expression.offset === stateOffset)
     return constant(state, expression.width);
@@ -4196,18 +4261,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: uniqueEvidence(pointerEvidence),
     },
     writes: dedup(writes),
-    transitions: markConditional(
-      mergeTransitions(
-        dedup(transitions),
-        !uncertainEffects,
-        new Set(
-          (options.layout?.fields ?? [])
-            .filter((f) => ["drawX", "drawY", "frameWidth", "frameHeight"].includes(f.name))
-            .map((f) => f.offset),
-        ),
-      ),
-      !uncertainEffects,
-    ),
+    transitions: markConditional(mergeTransitions(dedup(transitions), !uncertainEffects), !uncertainEffects),
     comparisons: dedup(comparisons),
     outcomes: dedup(outcomes),
     iterationOutcomes: dedup(iterationOutcomes),
@@ -4279,11 +4333,11 @@ export function transitionCounts(transitions: Transition[]) {
 /**
  * Eliminates a branch only when both complementary outcomes have exactly the same final state expression. When no path
  * of the routine lost track of its effects, a pair that was unresolved only through the dropped test, like a query's
- * answer, has a resolved state path once merged: both answers lead to the same state.
+ * answer, has a resolved state path once merged: both answers lead to the same state. A field the two set differently
+ * keeps both values, chosen by the dropped test.
  */
-function mergeTransitions(input: Transition[], pathsCertain = false, drawing = new Set<number>()): Transition[] {
+function mergeTransitions(input: Transition[], pathsCertain = false): Transition[] {
   const result = [...input];
-  const inverse: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
   const terms = (p: Predicate) => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]);
   let changed = true;
   while (changed) {
@@ -4301,7 +4355,8 @@ function mergeTransitions(input: Transition[], pathsCertain = false, drawing = n
         if (onlyLeft.length !== 1 || onlyRight.length !== 1) continue;
         const x = onlyLeft[0]!;
         const y = onlyRight[0]!;
-        if (x.kind !== "compare" || y.kind !== "compare" || !same({ ...x, operator: inverse[x.operator] }, y)) continue;
+        if (x.kind !== "compare" || y.kind !== "compare" || !same({ ...x, operator: OPPOSITE[x.operator] }, y))
+          continue;
         const condition = conjunction(lt.filter((p) => p !== x));
         const updates: FieldWrite[] = [];
         const leftFields = new Map((left.updates ?? []).map((u) => [`${u.object}:${u.offset}:${u.width}`, u]));
@@ -4312,26 +4367,8 @@ function mergeTransitions(input: Transition[], pathsCertain = false, drawing = n
           const exemplar = l ?? r!;
           const lv = l?.value ?? field(exemplar.object, exemplar.offset, exemplar.width);
           const rv = r?.value ?? field(exemplar.object, exemplar.offset, exemplar.width);
-          // A drawing field keeps both values, each times the 0 or 1 of its path's test, as one value.
-          const chosen =
-            exemplar.object === "part" &&
-            drawing.has(exemplar.offset) &&
-            ["==", "!="].includes(x.operator) &&
-            !containsUnknown(lv) &&
-            !containsUnknown(rv)
-              ? binary(
-                  "+",
-                  binary("*", binary(x.operator, x.left, x.right, 16), lv, 16, FRAME_DRAWING_BUDGET),
-                  binary("*", binary(y.operator, y.left, y.right, 16), rv, 16, FRAME_DRAWING_BUDGET),
-                  16,
-                  FRAME_DRAWING_BUDGET,
-                )
-              : undefined;
-          const value = same(lv, rv)
-            ? lv
-            : chosen && !containsUnknown(chosen)
-              ? chosen
-              : unknown(`Field ${hex(exemplar.offset)} differs on complementary paths`, exemplar.width);
+          // A field the two paths set differently keeps both values, with the test that picks one.
+          const value = choose(x, lv, rv, exemplar.width);
           updates.push({
             ...exemplar,
             condition,
