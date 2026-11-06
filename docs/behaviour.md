@@ -954,6 +954,106 @@ early: the trampoline's touch clears the mouse's contact flag `0x0001` at `0x06`
 the walk follows the recording to its end. Recordings: Even More 606 to 610 complete and 42 to 38 prefix, TIM 1 512 to
 516 and 40 to 36, none different.
 
+### Which parts can affect which
+
+`list-other-part-pairs` checks that "From other parts" is complete (step C2 of the plan):
+
+    pnpm --filter @opentim/content list-other-part-pairs --evenmore <game folder> --tim1 <game folder>
+
+It goes over every way the code lets one part change another (`other-part-pairs.ts`):
+
+- **A touch.** The contact dispatch calls the bounce of the touched part's type with the moving part that touched it
+  (`collider`). Every bounce path that writes `collider` is a way the touched part changes the toucher. A path whose
+  tests of the touched part fail for the bounce's own type only runs in Mel's self call (Even More: 5 paths of Mel's
+  bounce, which change Mel himself after he touched something), so it is left out.
+- **An overlap list.** A run walks the parts its search found. Every per-member outcome that writes the member is a
+  way the run changes it.
+- **A list consumer.** A run hands a fresh search's list to a helper that writes its members. Only the teeter-totter
+  does this, see below.
+
+A pair (source type, target type) is allowed when one path writes a part of the target type, or may write it because
+its effects aren't complete, and the path's tests of the part's type, with the type table, don't rule the type out.
+Each allowed pair is then:
+
+- **described**: a line or a walk of the target names the source's routine, and together they name every field the
+  allowed paths write;
+- **partly described**: some of its paths are said and others not; the check names the fields no line or walk says,
+  and why;
+- **ruled out**: every path needs something a decided assumption excludes: a part of a fixed type is never on the
+  moving list, so it never touches and never meets a test for that list ([11](behaviour-assumptions.md#11-parts-on-the-fixed-list)),
+  a bullet never has that flag either ([18](behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box)), and
+  only the cannon, dynamite, rocket and candle can be lit ([17](behaviour-assumptions.md#17-parts-the-candle-can-light));
+- **missing**: with the reason the description can't say it yet.
+
+The search also writes the found list's link at `0x78`, and the explosion's, fan's, bellows', cat's, mouse's, mouse
+motor's, magnifying glass's, solar panel's and vacuum cleaner's search (`0x417e` in Even More, English floppy) two
+more words at `0x7a` and `0x7c`, on every part it finds. No part's own rules read these words, so they never change a
+frame; the check lists them apart, as the searches' bookkeeping. The mouse motor's, the magnifying glass's, the solar
+panel's and the mouse's loops only read their members, so they give no pair.
+
+The first run found that the boxing glove's punch and Mel's house gave no line, although they set a number for every
+type. A loop's line now takes a value the part's type settles, like the punch's speed, which the glove works out from
+the mass word at `+0x02` of the member's type record (5120 for the cat), and a value worked out from the part's own
+fields, like setting a goal mark. When the source names the part's type, or the reader has every flag test of the
+search that found it, the line also keeps the part's own tests that its type doesn't decide, in words, as a touch line
+does: "Only when its state is below 6". Without either, a test the outcome doesn't show could still keep the part out
+of the list, so no such line is made. A flag the search needs must be one the program gives the type, as for the
+walks, and a flag it needs clear is said by name. Mel's house now gives Mel "sets its out-of-play flag 0x2000 in
+drawing flags and sets its goal mark 0x0080 in field 0x0a. Only when its state is below 6", and the glove gives 23
+moving parts in Even More a line like "sets its goal mark 0x0400 in field 0x0a and sets velocityX to -5120" (17 in
+TIM 1, without goal marks). Effect lines in Even More went from 827 to 875 (from loops 64 to 112), in TIM 1 from 554
+to 588. No walk changes: walks that end stay at 1,338 and 1,154 and none stays open, the recordings stay at 648
+complete in Even More and 552 in TIM 1 with none different, and no rule writes an unknown value.
+
+The pairs in Even More (English floppy); TIM 1 (French) has the same for the parts it has:
+
+| Source and way                      | Described                                                                                                                          | Ruled out                              | Missing, and why                                                                                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Alligator, bounce                   | Mel (line and walks), mouse; 22 moving parts in part: the throw that sets `velocityX` reads a table word their type doesn't settle | 39 fixed types (11)                    |                                                                                                                                      |
+| Alligator, run                      | fish bowl, mouse motor (walks)                                                                                                     |                                        | bellows, scissors, teeter-totter: the value depends on where the alligator is; electric switch: a test compares the two places       |
+| Bellows, run                        | candle, windmill (walks)                                                                                                           | 39 fixed types and the bullet (11, 18) | 22 moving parts: the blow's speed reads a table word their type doesn't settle                                                       |
+| Boxing glove, run                   | 23 moving parts (lines), fish bowl and mouse motor (walks)                                                                         | 38 (11, 18)                            |                                                                                                                                      |
+| Bullet, bounce                      | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
+| Candle, run                         | balloon, candle, cannon, cat, dynamite, rocket, teapot (walks)                                                                     | 56 that can't be lit (17)              |                                                                                                                                      |
+| Cat, run                            |                                                                                                                                    |                                        | mouse: the catch is unresolved                                                                                                       |
+| Conveyor belt, bounce               | 23 moving parts (lines)                                                                                                            | 39 (11)                                | bullet: a contact response may change every field its rules read                                                                     |
+| Electric switch, bounce             | bullet (walk)                                                                                                                      |                                        |                                                                                                                                      |
+| Explosion, run                      | 24 (lines and walks)                                                                                                               | 36 (11, 18)                            | brick and wood wall: the split's values aren't known; Mel: his rules read the velocity, whose direction depends on where the two are |
+| Fan, run                            | candle (walk)                                                                                                                      |                                        | 62: the blow's speed reads a table word the type doesn't settle (bullet: a value isn't known; windmill: unresolved)                  |
+| Gear, bounce                        | 22 (lines, the balloon a walk); bullet and Mel in part: a contact response may change every field their rules read                 | 39 (11)                                |                                                                                                                                      |
+| Jack-in-the-box, run                | 25 (lines and walks)                                                                                                               | 34 (11, 18)                            | bellows, scissors: the value depends on where the box is; electric switch, teeter-totter: a test compares the two places             |
+| Mel, bounce                         | Mel in part (walks): turning round reads a table word                                                                              |                                        |                                                                                                                                      |
+| Mel's house, run                    | Mel (line)                                                                                                                         |                                        |                                                                                                                                      |
+| Pinball bumper, bounce              | 22 moving parts (lines)                                                                                                            | 39 (11)                                | bullet, Mel: their rules read the velocity, whose direction depends on where the two are                                             |
+| Rocket, run                         | as the candle                                                                                                                      | 56 (17)                                |                                                                                                                                      |
+| Scissors, bounce                    | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
+| Teapot, run                         | candle, mouse motor, windmill (walks)                                                                                              | 38 (11, 18)                            | 22 moving parts: the spout's speed reads a table word, and a test compares the two places                                            |
+| Teeter-totter, bounce               | 24 moving parts (lines)                                                                                                            | 39 (11)                                |                                                                                                                                      |
+| Teeter-totter, run (contact sweeps) |                                                                                                                                    |                                        | 63: what its contact search finds decides the values (see [effect lines with a proved meaning](#effect-lines-with-a-proved-meaning)) |
+| Teeter-totter, list consumer        |                                                                                                                                    |                                        | mouse motor, fish bowl, bellows, dynamite plunger, flashlight, scissors: see below                                                   |
+| Thumb tack, bounce                  | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
+| Trampoline, bounce                  | cat, mouse (walks), Mel (lines and walk); 21 in part: the bounce's `velocityY` reads a table word                                  | 39 (11)                                |                                                                                                                                      |
+| Vacuum cleaner, bounce              | 24 (lines, the balloon a walk)                                                                                                     | 39 (11)                                |                                                                                                                                      |
+| Vacuum cleaner, run                 |                                                                                                                                    |                                        | 63: the pull compares the two places and some paths are unresolved                                                                   |
+
+In numbers, Even More: 1,084 pairs allowed, 221 described, 46 partly described, 570 ruled out and 247 missing; TIM 1:
+615 allowed, 129 described, 17 partly described, 345 ruled out and 124 missing. Most missing pairs are of four runs
+whose values or tests depend on where the parts are (fan, vacuum cleaner, teeter-totter sweeps, bellows and teapot).
+Every pair that is neither described nor ruled out has a reason.
+
+**The teeter-totter's list consumer.** When a teeter-totter tips, its run (Even More, English floppy: calls at
+`0x1d49a`, `0x1d4f8` and `0x1d521`; TIM 1, French: four calls to `0x1bf09`) hands an overlap list to the helper at
+`0x1d797`. That helper goes through the list and picks by the member's type from a table of six (`0x1d8a4`): it starts
+a mouse motor (`0x1c074`), sets a fish bowl to frame 11 (`0x1ad71`, it breaks), and sets the control value at `0x12` to 1 on a bellows,
+a scissors, and, when the run passes 1, a dynamite plunger and a flashlight, each only when the member is in a range of
+pixels from the teeter-totter's end that depends on whether the member is mirrored. TIM 1 has the same six types. The
+analysis reads this helper only as a footprint (which member fields it may write), not path by path, so these six
+pairs have no line or walk yet. Reading it like a loop's per-member outcomes needs the routine analysis to follow a
+list that comes in from the caller, which is a larger change.
+
+Ropes, belts, pulleys and gears also reach other parts, through connections rather than touch or search. They are the
+next kind of work (see the plan's last section) and this check doesn't count them.
+
 ### Effect lines with a proved meaning
 
 23 effect lines in Even More and 14 in TIM 1 said that what a field means "isn't established". Each now says what the
