@@ -120,10 +120,17 @@ the level), and every one of those is listed by name.
       (effect lines 827 to 875 in Even More, 554 to 588 in TIM 1). Walks and recordings don't change (648 and 552
       complete, none different). See "Which parts can affect which" in `docs/behaviour.md`.
 
-- [ ] **C3. What a teeter-totter's end does to the part lying there.** When it tips, its end hands a list to a helper
+- [x] **C3. What a teeter-totter's end does to the part lying there.** When it tips, its end hands a list to a helper
       that can start a mouse motor, break a fish bowl, or set off a bellows, scissors, dynamite plunger or flashlight, by
       type and distance from the end (6 pairs per build). None of the six parts' descriptions say this yet: the analysis
       needs to follow a list handed in from another part.
+      Done: the helper is read path by path for one member, and each call puts in the numbers it passes (which end, and
+      the flag the plunger and flashlight need). The bellows, scissors, dynamite plunger and flashlight get 4 walks each,
+      named with where the part must lie in words ("when its positionX is 0 to 8 pixels left of the teeter totter's
+      positionX + 74"); the mouse motor and fish bowl join their existing walks. Pairs: Even More 1,090 allowed and 227
+      described (was 1,084 and 221, the six now counted and described), TIM 1 621 and 135; missing stays 247 and 124.
+      Walks that end: Even More 1,338 to 1,366, TIM 1 1,154 to 1,182, none open. Recordings unchanged (648 and 552
+      complete, none different). See "What a teeter-totter's end does to the part lying there" in `docs/behaviour.md`.
 - [ ] **C4. The missing pairs that depend on where parts are.** The C2 check lists 247 pairs in Even More and 124 in
       TIM 1 whose effect depends on positions (sweeps of the fan, vacuum cleaner, bellows and teapot, explosion splits,
       thrown directions). These belong with several parts working together, so this plan only lists them with reasons.

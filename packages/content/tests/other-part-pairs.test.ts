@@ -251,6 +251,36 @@ describe("the pairs of other parts", () => {
     expect(renderOtherPartPairs(pairs)).toContain(CONSUMER_UNREAD);
   });
 
+  it("describes a consumer read path by path apart from the run's own list", () => {
+    const data = report();
+    const consumer = data.helpers!.find((h) => h.address === 0x1d797)!;
+    (consumer.listConsumer as { memberOutcomes?: unknown[] }).memberOutcomes = [];
+    const LISTED = "overlap candidate at 0x1d897";
+    const distance = bin("-", bin("+", f("part", 0x1e), c(74)), f(LISTED, 0x1e));
+    const near = (operator: string, value: number): Predicate => ({
+      kind: "compare",
+      operator,
+      left: distance,
+      right: c(value),
+      signed: true,
+    });
+    data.routines
+      .find((r) => r.address === 0x600)!
+      .iterationOutcomes!.push({
+        ...member(LISTED, 0x1d897, and(compare(f(LISTED, 4), "==", c(45)), near(">=", 0), near("<=", 8)), [
+          write(LISTED, 0x12, c(1)),
+        ]),
+        listConsumer: { address: 0x1d797, call: 0x650 },
+      });
+    const read = otherPartPairs(data, evaluateBehaviourCondition);
+    const find = (target: string, way: string) =>
+      read.pairs.find((p) => p.sourcePart === "teeter-totter" && p.targetPart === target && p.way === way);
+    expect(find("candle", "list consumer")).toMatchObject({ status: "described", walks: 1, fields: [0x12] });
+    // The run's own list keeps its reason, and the consumer isn't listed as unread.
+    expect(find("cat", "overlap list")).toMatchObject({ status: "missing", reasons: [SOURCE_VALUE] });
+    expect(read.consumers).toEqual([]);
+  });
+
   it("counts the found list's link as bookkeeping no part's rules read", () => {
     expect(pairs.foundLists.find((l) => l.sourcePart === "candle")).toMatchObject({
       queries: [{ call: 0x19ab2, helper: 0x448e, fields: [0x78] }],

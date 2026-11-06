@@ -1,5 +1,5 @@
 /** Conditional contracts for routines that consume a list supplied by their caller. */
-import type { Evidence, Finding } from "./behaviour.ts";
+import type { Evidence, Finding, IterationOutcome } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
@@ -17,6 +17,8 @@ export interface ExternalListConsumer extends Finding {
   returnConvention: { kind: "near" | "far"; stackBytes: 0 };
   unknownGlobals: boolean;
   requires: { finite: true; acyclic: true; completeBases: true; excludesArgument: true };
+  /** What it does to one member, path by path, read from the consumer once its own analysis is done. */
+  memberOutcomes?: IterationOutcome[];
 }
 const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
   o?.kind === "register" && (name === undefined || o.name === name);

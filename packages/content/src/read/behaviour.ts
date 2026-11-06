@@ -125,6 +125,8 @@ export interface IterationOutcome extends Finding {
   condition: Predicate;
   fields: FieldWrite[];
   effectsComplete: boolean;
+  /** A member of a list this routine hands to a consumer at `call`, which does this to it. */
+  listConsumer?: { address: number; call: number };
 }
 
 export interface Counter extends Finding {
@@ -739,6 +741,8 @@ export interface RoutineOptions {
    * table, as table reads at that address, like the code does. Used for helpers that only read such tables.
    */
   tableReads?: boolean;
+  /** A list the caller hands in, read like the routine's own list: its members' outcomes become iteration outcomes. */
+  externalList?: ListLoopSummary;
 }
 const memoryKey = (l: Location) => `${l.object}:${l.offset}:${l.width}`;
 const tracked = (value: Value, evidence: Evidence[] = [], writtenAt?: number): Tracked => ({
@@ -965,6 +969,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   if (options.objectArgument !== "collider" && argumentOffset === firstArgumentOffset)
     for (const loop of discoverListLoops(code, options.engineSummaries ?? new Map(), stateOffset, true))
       if (!listLoopsByHeader.has(loop.header)) listLoopsByHeader.set(loop.header, loop);
+  if (options.externalList && !listLoopsByHeader.has(options.externalList.header))
+    listLoopsByHeader.set(options.externalList.header, options.externalList);
   const usedListLoops: ListLoopSummary[] = [];
   const listConsumerCalls = new Map(
     discoverListConsumerCalls(code, options.engineSummaries ?? new Map()).map((c) => [c.instruction, c]),
@@ -1481,6 +1487,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   };
   const formalArgument = (args: Tracked[], base: number, offset: number): Tracked =>
     args.at(-1 - (offset - base) / 2) ?? tracked(unknown(`Argument at frame offset ${offset} was not passed`));
+  /** While a list consumer's member outcomes are mapped into this routine: the member, which keeps its name. */
+  let consumerMember: string | undefined;
   const formalObject = (
     object: string,
     args: Tracked[],
@@ -1489,6 +1497,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     ownerOffset = base,
   ): Tracked => {
     if (object === "part") return formalArgument(args, base, ownerOffset);
+    if (object === consumerMember) return tracked({ kind: "pointer", object, displacement: 0, width: 16 });
     const nested = /^referenced-by\((.*)\+0x([0-9a-f]+)\)$/.exec(object);
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
@@ -1557,6 +1566,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         return tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
+      // A consumer's member is read as it is when the consumer gets it.
+      if (expression.object === consumerMember) return tracked(expression);
       if (expression.object === "data")
         return read(
           {
@@ -3700,6 +3711,43 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               : [],
           },
         };
+        // What the consumer does to each member, read path by path from the consumer itself, with this call's
+        // arguments and this part's fields put in.
+        if (!s.observationOnly)
+          for (const member of contract.memberOutcomes ?? []) {
+            consumerMember = member.object;
+            const mapped = formalPredicate(member.condition, args, contract.argumentOffset, s);
+            const fields = member.fields.map((f) => ({
+              ...f,
+              value: asExpression(formalValue(f.value, args, contract.argumentOffset, s).value),
+            }));
+            consumerMember = undefined;
+            const kept: Predicate[] = [];
+            let reached = true;
+            for (const term of mapped.kind === "and" ? mapped.terms : [mapped]) {
+              const decided = term.kind === "compare" ? compareConstants(term) : undefined;
+              if (decided === false) reached = false;
+              else if (decided === undefined) kept.push(term);
+            }
+            // The member's tests and values are of its fields as the consumer gets it. This part's own tests on the way
+            // to the call are the source's business, as for its own list, and are left out.
+            const condition = conjunction(kept);
+            if (!fields.length || !reached || !possible(conjunction([...s.conditions, condition]))) continue;
+            const proof = finding(constant(0), condition, { ...s, uncertain: false }, [
+              evidenceOf(i),
+              ...member.evidence,
+            ]);
+            iterationOutcomes.push({
+              ...member,
+              condition,
+              fields: fields.map((f) => ({ ...f, condition, routine: entry.address })),
+              listConsumer: { address: contract.address, call: i.address },
+              ...proof,
+              confidence:
+                member.confidence === "unresolved" || proof.confidence === "unresolved" ? "unresolved" : "inferred",
+              assumptions: [...new Set([...proof.assumptions, ...member.assumptions, ...listScope.assumptions])],
+            });
+          }
       }
       if (engine?.factory) {
         const type = args.at(-1 - (engine.factory.typeArgument - engine.argumentOffset) / 2)?.value;
@@ -4889,6 +4937,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       : returnKinds.size === 1 && returnKinds.has("ret")
         ? 4
         : 6;
+    let externalList: ListLoopSummary | undefined;
     if (code && !counts.has(address)) {
       const consumers = discoverExternalListConsumers(code, engineSummaries, stateOffset);
       if (consumers.length === 1) {
@@ -4917,6 +4966,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
           },
         };
         engineSummaries.set(address, conditional);
+        externalList = contract.loop;
         const at = helpers.findIndex((h) => h.address === address);
         if (at < 0) helpers.push(conditional);
         else helpers[at] = conditional;
@@ -4932,6 +4982,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       engineSummaries,
       codes,
       layout,
+      ...(externalList ? { externalList } : {}),
       ...(callbackSlots.get(address)?.size === 1 &&
       callbackSlots.get(address)!.has(0) &&
       layout.callbacks[0]?.objectSource?.path.length === 1
@@ -4939,6 +4990,19 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         : {}),
     });
     summaries.set(address, routine);
+    // A consumer's member outcomes count only when its analysis went over every path within its budget, and they
+    // write every member field its footprint has: a member path the analysis lost would leave one out.
+    const consumer = externalList && engineSummaries.get(address)?.listConsumer;
+    const members = (routine.iterationOutcomes ?? []).filter((o) => o.header === externalList?.header);
+    const written = new Set(members.flatMap((o) => o.fields.map((f) => f.offset)));
+    if (
+      consumer &&
+      routine.analysisWork &&
+      routine.analysisWork.visits < routine.analysisWork.limit &&
+      !routine.analysisWork.pendingPaths &&
+      consumer.fields.every((f) => f.root !== "member" || written.has(f.offset))
+    )
+      consumer.memberOutcomes = members;
     if (!engineSummaries.get(address)?.footprint.partMemoryComplete) {
       const relation = engineFromObjectRelation(routine, layout, engineSummaries);
       if (relation) {

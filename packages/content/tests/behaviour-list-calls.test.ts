@@ -225,4 +225,81 @@ describe("fresh external-list call provenance", () => {
     query.overlapProducer = undefined;
     expect(discoverListConsumerCalls(code, helpers)).toEqual([]);
   });
+  it("puts the call's arguments into what the consumer does to each member, path by path", () => {
+    // The run pushes 0x4a and 1 before the owner, as the teeter-totter does for its right end.
+    const { image, code, helpers, consumer } = fixtures({
+      between: [0xb8, 0x4a, 0, 0x50, 0xb8, 1, 0, 0x50],
+      after: [0x59, 0x59],
+    });
+    const MEMBER = "overlap candidate at 0x160";
+    const field = (object: string, offset: number) => ({ kind: "field" as const, object, offset, width: 16 });
+    const constant = (value: number) => ({ kind: "constant" as const, value, width: 16 });
+    const test = (left: object, operator: string, right: object, signed = false) =>
+      ({ kind: "compare", operator, left, right, signed }) as never;
+    const distance = {
+      kind: "binary" as const,
+      operator: "-",
+      left: {
+        kind: "binary" as const,
+        operator: "+",
+        left: field("part", 0x1e),
+        right: field("argument", 10),
+        width: 16,
+      },
+      right: field(MEMBER, 0x1e),
+      width: 16,
+    };
+    const set = (value: number) => ({
+      ...fact,
+      object: MEMBER,
+      offset: 0x12,
+      width: 16,
+      value: constant(value),
+      condition: { kind: "true" as const },
+      routine: 0x140,
+    });
+    const member = (condition: object, value: number) => ({
+      ...fact,
+      scope: "one overlap-list member" as const,
+      header: 0x160,
+      object: MEMBER,
+      effectsComplete: true,
+      condition: condition as never,
+      fields: [set(value)],
+    });
+    consumer.listConsumer!.memberOutcomes = [
+      // Reached with the first argument at 1: the place test keeps the second argument as a number.
+      member(
+        {
+          kind: "and",
+          terms: [
+            test(field(MEMBER, 4), "==", constant(16)),
+            test(field("argument", 8), "==", constant(1)),
+            test(distance, ">=", constant(54), true),
+          ],
+        },
+        1,
+      ),
+      // Needs the first argument at 0, which this call never passes.
+      member(
+        {
+          kind: "and",
+          terms: [test(field(MEMBER, 4), "==", constant(22)), test(field("argument", 8), "==", constant(0))],
+        },
+        2,
+      ),
+    ];
+    const result = analyseRoutine(image, code, { code, engineSummaries: helpers });
+    const outcomes = result.iterationOutcomes?.filter((o) => o.listConsumer) ?? [];
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({
+      object: MEMBER,
+      listConsumer: { address: 0x140 },
+      fields: [{ object: MEMBER, offset: 0x12, value: constant(1) }],
+    });
+    const words = JSON.stringify(outcomes[0]!.condition);
+    expect(words).not.toContain('"argument"');
+    expect(words).toContain('"value":74');
+    expect(words).toContain(JSON.stringify(field(MEMBER, 0x1e)));
+  });
 });

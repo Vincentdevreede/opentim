@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { describeBehaviour, evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
-import { hitsFromOthers, LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
+import { hitsFromOthers, LIGHTABLE_ASSUMPTION, placeWords } from "../src/read/describe-hits.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const proof = {
@@ -378,5 +378,81 @@ describe("walks from other parts that change a part's frame", () => {
     expect(hit.trigger).toMatchObject({ kind: "related-write", name: "Hit by an explosion" });
     expect(hit.walk.states).toEqual([0, 1, 1]);
     expect(hit.walk.status).toBe("rest");
+  });
+
+  it("walks what a list consumer does to a part, with where it must lie from the source in words", () => {
+    const data = report();
+    data.layout.fields.push({ name: "positionX", offset: 0x1e, ...proof } as never);
+    data.parts.push(
+      part("scissors", 37, [rule(c(1), compare(f("part", 0x12), "!=", c(0)))]) as never,
+      part("teeter-totter", 3, [], [900]) as never,
+    );
+    // The teeter-totter's run hands the list at its right end (its positionX + 74) to the consumer at 0x1d797.
+    const end = (object: string): Expression => ({
+      kind: "binary",
+      operator: "+",
+      left: { ...f(object, 0x1e), unresolved: true } as Expression,
+      right: c(74),
+      width: 16,
+    });
+    const distance: Expression = {
+      kind: "binary",
+      operator: "-",
+      left: end("part after list scan"),
+      right: f(MEMBER, 0x1e),
+      width: 16,
+    };
+    const within = (operator: string, value: number): Predicate => ({
+      kind: "compare",
+      operator,
+      left: distance,
+      right: c(value),
+      signed: true,
+    });
+    const consumed = (condition: Predicate, fields: FieldWrite[]) => ({
+      ...outcome(condition, fields),
+      confidence: "unresolved" as const,
+      listConsumer: { address: 0x1d797, call: 0x1d49a },
+    });
+    data.routines.push({
+      address: 900,
+      writes: [],
+      ...proof,
+      iterationOutcomes: [
+        consumed(and(isType(37), notMirrored, within(">=", 0), within("<=", 12)), [write(MEMBER, 0x12, c(1))]),
+        consumed(and(isType(37), mirrored, within(">=", 25), within("<=", 37)), [write(MEMBER, 0x12, c(1))]),
+        // A test of something else of the two parts isn't a place, so no walk is made from it.
+        consumed(and(isType(37), compare(f("part", 0x20), "<", f(MEMBER, 0x20))), [write(MEMBER, 0x12, c(2))]),
+      ],
+    } as never);
+    const scissors = hitsFromOthers(data, evaluateBehaviourCondition).get(37)!.hits;
+    expect(scissors.map((hit) => hit.name)).toEqual([
+      "Hit by a teeter totter, when its positionX is 0 to 12 pixels left of the teeter totter's positionX + 74",
+      "Hit by a teeter totter, when its positionX is 25 to 37 pixels left of the teeter totter's positionX + 74",
+    ]);
+    expect(scissors[0]).toMatchObject({
+      sources: [{ type: 3, part: "teeter-totter", routine: 900, consumer: 0x1d797 }],
+      writes: [{ object: "part", offset: 0x12, value: c(1) }],
+      condition: compare(masked("part", 8, 0x10), "==", c(0)),
+      placeWords: ["its positionX is 0 to 12 pixels left of the teeter totter's positionX + 74"],
+    });
+    expect(scissors[0]!.assumptions.join(" ")).toContain("the walk doesn't follow where parts are");
+  });
+
+  it("puts place tests in words by the side the part lies on", () => {
+    const name = (offset: number) => (offset === 0x1e ? "positionX" : "?");
+    expect(
+      placeWords(
+        [
+          { offset: 0x1e, shift: 0, high: -4 },
+          { offset: 0x1e, shift: 0, low: -9 },
+        ],
+        "fan",
+        name,
+      ),
+    ).toEqual(["its positionX is 4 to 9 pixels right of the fan's positionX"]);
+    expect(placeWords([{ offset: 0x1e, shift: -6, low: 3 }], "fan", name)).toEqual([
+      "the fan's positionX - 6 minus its positionX is at least 3",
+    ]);
   });
 });

@@ -954,7 +954,9 @@ export function effectsFromOthers(
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
       for (const outcome of routines.get(callback.address)?.iterationOutcomes ?? []) {
-        if (!outcome.effectsComplete || outcome.confidence === "unresolved") continue;
+        // What a list consumer does to a member tests where it lies from the source, which a line can't say yet: it
+        // comes as a walk (`describe-hits.ts`).
+        if (!outcome.effectsComplete || outcome.confidence === "unresolved" || outcome.listConsumer) continue;
         const member = outcome.object;
         const writes = outcome.fields.filter((f) => f.object === member);
         if (!writes.length || writes.length !== outcome.fields.length) continue;
