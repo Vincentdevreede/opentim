@@ -892,14 +892,8 @@ conveyor belt, 2 from the trampoline), 8 for the cat and the mouse and 1 for the
 other parts stay the same, and the recordings match as before: 596 and 504 complete, none different. Describing a build
 takes about as long as before.
 
-These touch outcomes still give no line:
-
-- The vacuum cleaner's (`0x1e5af`): it changes fields `0x08`, `0x0a` and `0x12` through a helper whose values the
-  analysis doesn't know.
-- The electric switch's (`0x1a5d8`): it subtracts 1 from a bullet's `velocityX`, which the bullet's rules read. As the
-  value isn't a number, it is no walk either.
-- The teeter-totter's: its paths depend on a query's answer and stay unresolved.
-- The trampoline's paths for Mel that return 1: they read the frame tables and set `velocityY`, which Mel's rules read.
+The vacuum cleaner's, the electric switch's, the teeter-totter's and the trampoline's paths for Mel gave no line or
+walk at first; see [touch effects of four more parts](#touch-effects-of-four-more-parts) for what they give now.
 
 What the user sees in the game (asked on 2026-11-06) fits two of these lines:
 
@@ -916,6 +910,93 @@ stayed apart. Lines from the same routine that set the same and return the same 
 path's tests, in words, and a line holds when one case holds. The tests every case makes stay on the line. A
 basketball now gets 24 lines from the gear, like "A gear it touches adds 4096 to velocityX in 4 cases: (1) when ...".
 The lab shows a "N cases" chip and lists them in the row's tip.
+
+### Touch effects of four more parts
+
+The contact dispatch calls the bounce of the touched part with the part that touched it as `collider`. Four bounces
+gave the toucher neither a walk nor a line. Each one is now in its "From other parts":
+
+- **The vacuum cleaner** (`0x1e5af`). With the helper above read, its paths are exact. When the vacuum cleaner is on
+  (control value not 0) and the part hits it at edge 5 or at contact angle `0x8000`, a balloon gets control value 1
+  (it pops: the balloon's walk "Touching a bullet, a gear, a scissors, a thumb tack or a vacuum cleaner"), and every
+  other part gets the out-of-play flag and the goal mark `0x0100`. That is a line for the 22 moving types whose rules
+  read neither field, and a walk for the cat, whose rules read its drawing flags. The bounce returns 0 then.
+- **The teeter-totter** (`0x1d06e`). Its bounce asks the bounce pool whether the landing is new and only then clears
+  the toucher's `contactPart` and returns 0. The pool's answer made those paths unresolved. A query's answer is one
+  value of that call ([query answers](#query-answers)), so a touch path whose only unknown is such an answer now keeps
+  it as a test of the touched part, "when the answer of the query at 0x1d12a is not 0", and the line is `inferred`.
+  24 moving types in Even More get the line, 18 in TIM 1.
+- **The electric switch on a bullet** (`0x1a5d8`). It takes 1 from the bullet's `velocityX`, which the bullet's rules
+  read: a flying bullet keeps frame 0 only while `velocityX` is 12288 or -12288 (`0x199f3`). A hit may now set a value
+  worked out from the part's own fields as the touch finds them, like `velocityX - 1`, and the walk works it out from
+  its starting fields. From the reset that value isn't known, so the hit is also walked from each input case that
+  knows every field such a value reads: from frame 0 with `velocityX` 12288 or -12288 the bullet goes to frame 1 and
+  rests on frame 2. The trampoline's halving of `velocityX` gives the bullet the same two walks.
+- **The trampoline on Mel Schlemming** (`0x1cf17`). When Mel lands more than 14 pixels from its centre, it sets his
+  `velocityY` to 0, his frame from 6, 7 or 8 to 9, and returns 1.
+
+To get there, `hitsFromOthers` reads a bounce path like the lines do:
+
+- What the bounce does to the touched part itself is that part's business. Its tests of the touched part, of a query's
+  answer, and those that compare the two parts (where the part landed on the trampoline) are the source's tests: the
+  walk doesn't keep them, and states so.
+- A touch needs no named type: any part on the moving list can touch, so its type tests decide. A part of a fixed type
+  never touches, by [the decided assumption on the fixed list](behaviour-assumptions.md#11-parts-on-the-fixed-list).
+- A bounce that returns anything but 0 lets the dispatch go on to a contact response. Every field a response's relation
+  stores on the moving part (its velocity and fine position, and for the two-part exchange its list flags) is unknown
+  after the touch. A hit whose fields the rules read would all be unknown gets no walk. For Mel this leaves frame 9
+  known and `velocityY` unknown. The exchange's relation lists every store it makes; what stays open about it is only
+  whether it returns when the two weights add up to 0, which the walk states.
+
+In Even More (English floppy) this gives 12 more walks (1,325 to 1,337 walks that end) and in TIM 1 (French) 8 more
+(1,146 to 1,154). Every walk still ends. The new walks also explain 4 recordings of the mouse per build that stopped
+early: the trampoline's touch clears the mouse's contact flag `0x0001` at `0x06`, which its run tests, and from there
+the walk follows the recording to its end. Recordings: Even More 606 to 610 complete and 42 to 38 prefix, TIM 1 512 to
+516 and 40 to 36, none different.
+
+### Effect lines with a proved meaning
+
+23 effect lines in Even More and 14 in TIM 1 said that what a field means "isn't established". Each now says what the
+code does with it (addresses in Even More, English floppy):
+
+- **The out-of-play flag** `0x2000` in the drawing flags. The contact dispatch leaves such a part out (its eligibility),
+  the contact search passes over it (`0x058c`, `0x0663`) and the overlap searches leave it out (`0x41b9`, `0x430b`,
+  `0x44c0`). The bullet, the vacuum cleaner, the cat, the alligator, Mel's house, the dynamite and the wall split set
+  it. When a helper call leaves the drawing flags unknown but its only store to them is an `or` with a number, as in
+  the explosion's dynamite and wall helpers, the line says it may set those bits.
+- **The ran-this-step mark** `0x0040` in the drawing flags. The step's run loop (`0x0e89`) clears it on the list at
+  `0x4e1f` and then calls only the runs of parts without it (`0x0eab`, `0x0ee6`, `0x0f15`). Runs set it on their own
+  part, and the gear propagation sets it on each gear it moves; the gear's line about the parts its connections reach
+  takes the bit from the propagation's relation (`visitedMask`).
+- **The goal marks** `0x0080`, `0x0100`, `0x0200` and `0x0400` in field `0x0a`. No part's code tests them. Only the
+  puzzle goal checks do: the routine at `0x14ae` calls the one the puzzle number at `0x4ac1` picks from the far
+  pointers at `0x201a`, and each goes through the moving list and sets the game mode `0x4a6d` to `0x0200` when every
+  part of one type has its mark. Mel's house marks Mel with `0x0080` (checked at `0x24b3`), the vacuum cleaner marks
+  with `0x0100` (tennis balls `0x29a3`, mice `0x2b50`), the cat and the alligator mark the mouse with `0x0200`
+  (`0x259d`), and the boxing glove marks with `0x0400` (cats `0x256e`, fish bowls `0x28ae`). A linear decode of the
+  whole program finds no other test of these bits in any of the eleven builds; TIM 1 has neither the marks nor the
+  checks.
+- **The contact flag** `0x0001` in the list flags at `0x06`. The contact search sets it after a contact (`0x073f`).
+  While it is set, the mover pulls the part 2 pixels further along its gravity each time it moves it (`0x38aa`, by
+  the sign of the type record's word at `+0x08`), and the dispatch picks the response at `0x3980` instead of the
+  reflection at `0x3c1c` (the dispatch's response selection). The trampoline and the vacuum cleaner clear it.
+- **The fine position**, the longs at `0x16` and `0x1a`. The mover adds the velocity to them and sets positionX and
+  positionY to them shifted right by 9 (`0x3896` to `0x38f5`), so they hold the position in 1/512 pixels. The
+  trampoline and the teeter-totter set the vertical one from positionY.
+- **The previous position** at `0x22` and `0x24` (already named in the layout). The teeter-totter sets it 16 pixels
+  above and below the part and runs the contact search, which sweeps from the previous position to the position.
+- **What a contact search finds.** Those sweeps fill in the part's contact record: the part it touched at `0x84`, the
+  side bytes at `0x86` and `0x87` (`0x0db5`, `0x0dcc`, the helper at `0x04b0`), the angle and the edge, and the
+  contact flags at `0x06` (`0x09af` to `0x09e7`). Which part the search finds depends on where the others are, so the
+  line says the search may change them and that only the run knows what it finds.
+- **Rope links and rope records.** The balloon, when it pops, ties the part on its rope link `0x5a` to the rope end it
+  makes, in that part's link `0x5a` or `0x5c`. The teeter-totter's rope callback adds 1 to or takes 1 from field
+  `0x0e` of the record of the rope it is asked about, its link at `0x66` or `0x68` picked by the callback's rope
+  number.
+
+The flag meanings are a table in `describe-effects.ts` (`PART_FLAGS`), and the touch lines use them too: "clears its
+contact flag 0x0001 in list flags and sets its fine vertical position (the long at 0x1a, in 1/512 pixels) to
+positionY × 512". The comparison now counts 0 vague effect lines in both recorded builds.
 
 ### Exact helper stores
 
@@ -968,6 +1049,20 @@ line in Even More (English floppy) for a basketball:
   contact response, which can change these again."
 
 No other part's lines change.
+
+### Helper paths through calls
+
+The reader that follows every path of a small helper exactly (`ownerPathStores`, above) gave up on any helper with a
+call. It now follows a call when the callee's summary changes no
+part: a complete footprint whose writes are all globals, like a redraw request or a sound. After such a call it
+forgets the scratch registers AX, BX, CX, DX and ES, and keeps the part's fields, the owner register, the frame and
+its locals, by the C calling convention the analysis already assumes. A call through a pointer, or to a callee
+without such a summary, still stops it.
+
+The vacuum cleaner's pull (`0x1e8bb` in Even More, English floppy) is the first helper this reads. It tests its part's
+type: a balloon (type 4) gets control value 1, so it pops; every other part gets `0x2000` set in its drawing flags and
+`0x0100` in field `0x0a`, with a sound for the mouse (type 42). Before, the reader kept those three stores without
+conditions, so a caller only knew that they might happen.
 
 ### The outline search
 

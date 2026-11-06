@@ -71,17 +71,30 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       `0x1e`, `0x36`), mouse (`0x16`, `0x18`), gear (connected parts at `0x0c`, `0x12`), monkey bike and light bulb (`0x6a`,
       `0x6b`), dynamite (`0x08`, `0x72`, `0x73`), mouse motor (`0x12`, `0x96`), electric switch (`0x12`). Prove each one or
       name what it depends on.
-- [ ] **B6. The 23 "isn't established" effect lines** (14 in TIM 1). Most are the teeter-totter's and the vacuum
+- [x] **B6. The 23 "isn't established" effect lines** (14 in TIM 1). Most are the teeter-totter's and the vacuum
       cleaner's, then the gear, trampoline and balloon, and one each for the cat, alligator, boxing glove, Mel's house and
       explosion. Each line gets a meaning or a precise reason why the code can't give one.
+      Done: 0 in both builds. The out-of-play flag `0x2000`, the ran-this-step mark `0x0040`, the goal marks in field
+      `0x0a` (only the puzzle goal checks read them), the contact flag `0x0001` at `0x06`, the fine position at `0x16`
+      and `0x1a`, the previous position, the rope links a popping balloon sets and the rope record the teeter-totter's
+      rope callback counts on each say what the code does with them. What the teeter-totter's contact sweeps write
+      says why it can't be known: it depends on what the contact search finds. See "Effect lines with a proved
+      meaning" in `docs/behaviour.md`.
 
 Done when the first row of the scoreboard counts only rules whose value comes from outside the game (the player or
 the level), and every one of those is listed by name.
 
 ## C. What other parts do to a part
 
-- [ ] **C1. Touch effects that aren't walked yet.** The vacuum cleaner, the teeter-totter, the electric switch on a
+- [x] **C1. Touch effects that aren't walked yet.** The vacuum cleaner, the teeter-totter, the electric switch on a
       bullet and the trampoline's effects on Mel. Done when each one is a line or a walk in "From other parts".
+      Done: the vacuum cleaner pops a balloon (walk) and takes other parts out of play with a goal mark (a line, or a
+      walk for the cat); the teeter-totter clears the toucher's contact part when its bounce pool says the landing is
+      new (a line on 24 types); the electric switch takes 1 from a bullet's velocityX (a walk, and from a flying
+      bullet frame 0, 1, 2); the trampoline sends Mel from frame 6 to 8 to frame 9 (a walk, velocityY unknown after
+      the contact response). Walks that end: Even More 1,325 to 1,337, TIM 1 1,146 to 1,154. Recordings: Even More
+      610 complete and 38 prefix, TIM 1 516 and 36 (the mouse's 4 per build now match through the trampoline's
+      touch), none different. See "Touch effects of four more parts" in `docs/behaviour.md`.
 - [ ] **C2. Check the list is complete.** Go over every part type's bounce, hit and search code and list which types
       it can affect. Done when every pair the code allows appears in some part's "From other parts", or is listed as not
       possible with the reason.

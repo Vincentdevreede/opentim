@@ -9,15 +9,21 @@
  */
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import {
+  ANSWER_ASSUMPTION,
   type Evaluate,
+  FIXED_LIST_ASSUMPTION,
+  FIXED_TYPE,
   LIST_FLAGS,
   TYPE_TABLE_ASSUMPTION,
   listFlagWords,
   nameOf,
   objects,
   offMovingList,
+  onlyAnswersOpen,
   partFields,
   predicateForType,
+  readsAnswer,
+  rename,
   renamePredicate,
   terms,
 } from "./describe-effects.ts";
@@ -113,6 +119,33 @@ function searchTests(report: BehaviourReport, routine: number, header: number): 
   return common;
 }
 
+/**
+ * After a bounce returns anything but 0, the contact dispatch may go on to a contact response, picked by the touching
+ * part's flags. What such a response stores on the touching part is unknown after the touch. `undefined` when a
+ * response has no relation, so what it may change isn't known.
+ */
+function responseFields(report: BehaviourReport): Set<number> | undefined {
+  const fields = new Set<number>();
+  for (const dispatch of report.collisionDispatch ?? [])
+    for (const response of dispatch.responses ?? []) {
+      if (response.status !== "described") return undefined;
+      for (const w of response.writes)
+        if (!w.path.length) for (let byte = 0; byte < w.width / 8; byte++) fields.add(w.offset + byte);
+    }
+  return fields;
+}
+export const RESPONSE_ASSUMPTION =
+  "When the bounce returns anything but 0, the game may go on to a contact response: the fields its relation stores on the touching part (its velocity and fine position, and for the two-part exchange its list flags) are unknown after it, and it changes no other field of it. The exchange's relation lists every store; what stays open about it is only whether it returns when the two weights add up to 0.";
+export const TOUCH_TESTS_ASSUMPTION =
+  "The tests of the bounce that compare the two parts, like where the part is on the source, hold; the walk doesn't follow the source's fields, so it doesn't keep them.";
+
+/** A value worked out from the member's own fields alone, with `part` the member: a walk can work it out. */
+function ownValue(value: Expression, member: string): Expression | undefined {
+  const read = objects(value);
+  if (read.unknown || readsTable(value) || ![...read.objects].every((o) => o === member)) return undefined;
+  return rename(value, member, "part");
+}
+
 interface Candidate {
   sourceType: number;
   sourcePart: string;
@@ -127,6 +160,10 @@ interface Candidate {
   touch: boolean;
   /** Without a named type: the flag tests of the search that found the member, which the walk keeps. */
   search?: SearchTest[];
+  /** For a touch: what the bounce returns on the path, when it is a number. */
+  returns?: number;
+  /** For a touch: the source's tests left out, like those comparing the two parts or a query's answer. */
+  dropped: { both: boolean; answer: boolean };
 }
 
 /**
@@ -166,18 +203,30 @@ export function hitsFromOthers(
       if (callback.sharedDefault) continue;
       const iterations = routines.get(callback.address)?.iterationOutcomes ?? [];
       for (const outcome of [...iterations, ...touches(callback)]) {
-        if (!outcome.effectsComplete || outcome.confidence === "unresolved") continue;
         const member = outcome.object;
+        const touch = member === "collider";
+        // A bounce path whose only unknown is a query's answer, like the teeter-totter's bounce pool: the answer is the
+        // source's business, like its own fields.
+        if (!outcome.effectsComplete || (outcome.confidence === "unresolved" && !(touch && onlyAnswersOpen(outcome))))
+          continue;
         const writes = outcome.fields.filter((f) => f.object === member);
-        if (!writes.length || writes.length !== outcome.fields.length) continue;
+        // What a bounce does to the touched part itself is that part's own business.
+        const extra = outcome.fields.filter((f) => f.object !== member && !(touch && f.object === "part"));
+        if (!writes.length || extra.length) continue;
         const memberTerms: Predicate[] = [];
+        const dropped = { both: false, answer: false };
         let open = false;
         for (const term of terms(outcome.condition)) {
           const { objects: read, unknown } = objects(term);
-          if (unknown || term.kind === "unknown") open = true;
+          if (touch && term.kind === "compare" && readsAnswer(term) && ![...read].includes(member))
+            dropped.answer = true;
+          else if (unknown || term.kind === "unknown") open = true;
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
           // The source's own tests, like the explosion going to frame 2, don't concern this part.
-          else if (![...read].every((o) => o === "part")) open = true;
+          else if ([...read].every((o) => o === "part")) continue;
+          // A bounce's tests that compare the two parts, like where the part landed on a trampoline.
+          else if (touch && [...read].every((o) => o === "part" || o === member)) dropped.both = true;
+          else open = true;
         }
         const types = new Set(memberTerms.flatMap((term) => namedType(term, member, typeOffset) ?? []));
         // Without a named type, every test the search makes on the member must be known: like the candle's first
@@ -186,7 +235,8 @@ export function hitsFromOthers(
           types.size || member === "collider"
             ? undefined
             : searchTests(report, callback.address, "header" in outcome ? outcome.header : 0);
-        if (open || (!types.size && !search)) continue;
+        // Any moving part can touch the source, so a touch needs no named type: its type tests decide.
+        if (open || (!types.size && !search && !touch)) continue;
         candidates.push({
           sourceType: source.type,
           sourcePart: source.id,
@@ -196,12 +246,18 @@ export function hitsFromOthers(
           writes,
           memberTerms,
           types,
-          touch: member === "collider",
+          touch,
           ...(search ? { search } : {}),
+          ...(touch && "returnValue" in outcome && outcome.returnValue.kind === "constant"
+            ? { returns: outcome.returnValue.value }
+            : {}),
+          dropped,
         });
       }
     }
 
+  const afterResponse = responseFields(report);
+  const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
   for (const part of report.parts) {
     const hits = new Map<string, { hit: PartHit; tests: Predicate[]; touch: boolean; others: FieldWrite[][] }>();
     const assumptions = new Set<string>();
@@ -237,7 +293,8 @@ export function hitsFromOthers(
       // type, or from its constructor. The walk still keeps the search's tests, since a part may lose a flag, except
       // the lightable flag, which the decided assumption settles for every type.
       const needs = (t: SearchTest) => t.set && (lightable || !isLightableTest(t));
-      if (c.types.size ? !c.types.has(part.type) : c.search!.some((t) => needs(t) && !gives(part.type, t))) continue;
+      if (c.types.size ? !c.types.has(part.type) : !c.touch && c.search!.some((t) => needs(t) && !gives(part.type, t)))
+        continue;
       const searchTerms = (c.search ?? []).map((t) => flagTest(c.member, t));
       for (const term of [...c.memberTerms, ...searchTerms]) {
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
@@ -262,18 +319,47 @@ export function hitsFromOthers(
         kept.push(renamePredicate(typed, c.member, "part"));
       }
       if (!possible) continue;
+      // A contact response may follow a bounce that doesn't return 0: what it stores is unknown after the touch.
+      const responds = c.touch && c.returns !== 0;
+      if (responds && !afterResponse) continue;
+      const responded = (w: FieldWrite) =>
+        responds && [...Array(w.width / 8).keys()].some((byte) => afterResponse!.has(w.offset + byte));
       const changes = c.writes.filter(readsField);
-      // Only a number in a field the rules read gives the walk something to follow.
-      if (!changes.length || changes.some((w) => w.value.kind !== "constant" || w.directedSpeed)) continue;
+      // A number, or a value of the part's own fields as the touch found them, in a field the rules read gives the walk
+      // something to follow; a field a response may change again is unknown, and at least one other must be known.
+      if (
+        !changes.length ||
+        changes.some((w) => w.directedSpeed || (!responded(w) && !ownValue(w.value, c.member))) ||
+        changes.every(responded)
+      )
+        continue;
+      // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
+      if (c.touch && fixed(part.type)) {
+        assumptions.add(FIXED_LIST_ASSUMPTION);
+        continue;
+      }
       if (ruledBy.size) {
         for (const assumption of ruledBy) assumptions.add(assumption);
         continue;
       }
-      const asPart = (w: FieldWrite): FieldWrite => ({
-        ...w,
-        object: "part",
-        condition: { kind: "true" },
-      });
+      const asPart = (w: FieldWrite): FieldWrite => {
+        const value = ownValue(w.value, c.member);
+        return {
+          ...w,
+          object: "part",
+          condition: { kind: "true" },
+          value:
+            !responded(w) && value
+              ? value
+              : {
+                  kind: "unknown",
+                  reason: responded(w)
+                    ? "A contact response after the bounce may change it."
+                    : "The source sets it to a value the walk can't work out.",
+                  width: w.width,
+                },
+        };
+      };
       const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
       const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value])]);
       const given = (c.search ?? []).flatMap((t) =>
@@ -294,6 +380,9 @@ export function hitsFromOthers(
         ...c.writes.flatMap((w) => w.assumptions),
         ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
         ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
+        ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
+        ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),
+        ...(c.dropped.answer ? [ANSWER_ASSUMPTION] : []),
       ];
       const others = c.writes.filter((w) => !readsField(w)).map(asPart);
       const prior = hits.get(key);
@@ -316,7 +405,8 @@ export function hitsFromOthers(
           condition: { kind: "true" },
           conditionWords: [],
           name: "",
-          confidence: c.outcome.confidence,
+          // Unresolved only because of a query's answer, which is the source's business.
+          confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
           assumptions: [
             ...new Set([
               ...proof,

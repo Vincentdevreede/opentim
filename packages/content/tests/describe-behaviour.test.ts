@@ -1501,19 +1501,59 @@ describe("creation defaults and related input conditions", () => {
     expect(lines).toContain("Turns the part's vertical reflection round.");
     expect(lines).toContain("Turns flag 0x41 of the part's drawing flags round.");
     // An or sets bits and an and clears them, whatever the others were.
-    const set: Expression = { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2040), width: 16 };
+    const set: Expression = { kind: "binary", operator: "|", left: field(0x08), right: constant(0x4200), width: 16 };
     data.parts[0]!.visibleEffects = [
       { ...write(0x08, set), routine: 300 },
       {
-        ...write(0x08, { kind: "binary", operator: "&", left: set, right: constant(0xdfdf), width: 16 }),
+        ...write(0x08, { kind: "binary", operator: "&", left: set, right: constant(0xbfdf), width: 16 }),
         routine: 300,
       },
     ];
     const flags = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
-    expect(flags).toContain("Sets flags 0x40 and 0x2000 of the part's drawing flags.");
+    expect(flags).toContain("Sets flags 0x200 and 0x4000 of the part's drawing flags.");
     expect(flags).toContain(
-      "Sets flag 0x40 of the part's drawing flags. Clears the part's vertical reflection on this path. Clears flag 0x2000 of the part's drawing flags.",
+      "Sets flag 0x200 of the part's drawing flags. Clears the part's vertical reflection on this path. Clears flag 0x4000 of the part's drawing flags.",
     );
+    // A bit whose meaning the code proves says it, like the out-of-play flag the searches pass over.
+    data.parts[0]!.visibleEffects = [
+      {
+        ...write(0x08, { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2000), width: 16 }),
+        routine: 300,
+      },
+    ];
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "Sets the part's out-of-play flag 0x2000 in drawing flags (the contact dispatch, the contact search and the overlap searches pass over a part with it).",
+    );
+  });
+
+  it("names the goal marks in field 0x0a, the fine position and what a contact search may change", () => {
+    const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+    const other = "overlap candidate at 0x1d451";
+    const at = (offset: number, value: Expression) => ({
+      ...write(offset, value),
+      object: other,
+      routine: 300,
+    });
+    const own = (offset: number): Expression => ({ kind: "field", object: other, offset, width: 16 });
+    data.routines[0]!.writes = [
+      at(0x0a, { kind: "binary", operator: "|", left: own(0x0a), right: constant(0x0200), width: 16 }),
+      at(0x1a, own(0x20)),
+      at(0x86, { kind: "unknown", reason: "Conditional contact-search effect on field 0x86", width: 8 }),
+      at(0x24, own(0x20)),
+    ] as never;
+    data.layout.fields.push({ name: "previousY", offset: 0x24, ...proof } as never);
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain(
+      "Sets another part's goal mark 0x0200 in field 0x0a (no part's code reads it, only the puzzle goal checks, which end a puzzle when every part of one type has its mark).",
+    );
+    expect(lines).toContain("Updates another part's fine vertical position (low word), in 1/512 pixels.");
+    expect(lines).toContain(
+      "May change another part's contact side byte at 0x86 through the contact search it runs on it; what that search finds there, only the run knows.",
+    );
+    expect(lines).toContain(
+      "Updates another part's previous position, which the contact search sweeps from to the position.",
+    );
+    expect(lines.filter((line) => /isn't established|not established/.test(line))).toEqual([]);
   });
 
   it("starts a part with one frame on frame 0 when its reset keeps the saved frame", () => {

@@ -216,18 +216,30 @@ const fold = (operator: string, left: Expression, right: Expression, width: numb
 };
 
 /**
- * Every path of a small helper with no calls, read exactly: the registers and the part's fields hold values worked out
- * from the part's fields and the helper's arguments as it got them, and each test compares two such values. So a helper
- * like the gear's push (`0x1afdc` in Even More, English floppy), `velocityX -= s; if (velocityX < s) velocityX = -s`,
- * gives velocityX - s when velocityX - s is at least s, and -s otherwise. Undefined when an instruction or a value
- * isn't one the reader knows exactly, or a path writes memory other than the part's fields.
+ * Every path of a small helper, read exactly: the registers and the part's fields hold values worked out from the
+ * part's fields and the helper's arguments as it got them, and each test compares two such values. So a helper like the
+ * gear's push (`0x1afdc` in Even More, English floppy), `velocityX -= s; if (velocityX < s) velocityX = -s`, gives
+ * velocityX - s when velocityX - s is at least s, and -s otherwise. Undefined when an instruction or a value isn't one
+ * the reader knows exactly, or a path writes memory other than the part's fields.
+ *
+ * A call is followed only when `callKeepsOwner` says the callee leaves the part alone, like the vacuum cleaner's pull
+ * (`0x1e8bb`), which asks for a redraw and a sound before it marks the part. The call keeps the part's fields, the
+ * owner register and the frame (the C calling convention keeps SI, DI and BP) and the helper's locals, which the callee
+ * can't reach; it forgets AX, BX, CX, DX and ES, which it may change.
  *
  * For each field, paths that leave the same value are joined when the tests they share rule out every other path, as
  * `ownerStoreConditions` does; else each path gives its own value with its own tests. A path that doesn't write a field
  * leaves it as it was, so the values cover every path that changes it.
  */
-export function ownerPathStores(code: RoutineCode, owner: string, firstArgument: number): OwnerPathStore[] | undefined {
-  if (code.status !== "complete" || code.calls.length) return undefined;
+export function ownerPathStores(
+  code: RoutineCode,
+  owner: string,
+  firstArgument: number,
+  callKeepsOwner?: (call: Instruction) => boolean,
+): OwnerPathStore[] | undefined {
+  if (code.status !== "complete" || (code.calls.length && !callKeepsOwner)) return undefined;
+  // A call through a pointer, or one the reader can't place, may change anything.
+  if (code.calls.some((call) => call.confidence !== "checked" || !call.target)) return undefined;
   const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
   const next = new Map<number, { to: number; kind: string }[]>();
   for (const edge of code.edges) {
@@ -368,6 +380,10 @@ export function ownerPathStores(code: RoutineCode, owner: string, firstArgument:
           ? fold("-", one, value, width)
           : fold(i.mnemonic === "inc" ? "+" : "-", value, one, width));
       if (!result || !put(dest, result)) return fail();
+    } else if (i.flow === "call") {
+      if (!callKeepsOwner?.(i)) return fail();
+      // The callee may change the scratch registers, but not the part, the frame or the owner register.
+      for (const name of ["ax", "bx", "cx", "dx", "es"]) registers.delete(name);
     } else if (i.flow !== "branch" && i.flow !== "jump" && i.flow !== "return") return fail();
     if (i.flow === "return") {
       if (i.operands.length) return fail();

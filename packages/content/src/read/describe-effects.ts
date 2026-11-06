@@ -75,6 +75,113 @@ export const TYPE_TABLE_ASSUMPTION =
 /** The word of a type record the game writes while it runs: the frame list, set and cleared with a part's pictures. */
 export const TYPE_RECORD_WRITTEN = [0x14];
 
+/**
+ * What single flag bits of a part mean, by field and bit, from the code that reads them (addresses in Even More, English
+ * floppy; every build reads them the same way, and TIM 1 has none of the goal marks):
+ *
+ * - `0x0001` in the list flags at `0x06`: the contact search sets it after a contact (`0x073f`). The mover then moves the
+ *   part 2 pixels more along its gravity each step (`0x38aa`), and after a bounce that doesn't return 0 the contact
+ *   dispatch picks the response at `0x3980` instead of the reflection at `0x3c1c`.
+ * - `0x2000` in the drawing flags: takes the part out of play. The contact dispatch leaves it out (its eligibility), the
+ *   contact search passes over it (`0x058c`, `0x0663`) and the overlap searches leave it out (`0x41b9`, `0x430b`,
+ *   `0x44c0`).
+ * - `0x0040` in the drawing flags: the step's run loop (`0x0e89`) first clears it, with `0x0200` and `0x0400`, on the
+ *   parts of the list at `0x4e1f` (`0x0e97`), and then calls the run callback only of parts without it (`0x0eab`,
+ *   `0x0ee6`, `0x0f15`). Runs like the teeter-totter's set it on their own part, and the gear propagation sets it on
+ *   each gear it moves (`0x1b26a`, `0x1b271`).
+ * - `0x0080`, `0x0100`, `0x0200` and `0x0400` in field `0x0a`: goal marks. No part's code tests them; only the puzzle
+ *   goal checks do, which the routine at `0x14ae` picks by the puzzle number at `0x4ac1` from the table at `0x201a`.
+ *   Each goes through one part type on the moving list and ends the puzzle (the game mode `0x4a6d` becomes `0x0200`)
+ *   when all of them have the mark: Mel Schlemming with `0x0080` (`0x24b3`), alligators with `0x0080` (`0x24f6`),
+ *   tennis balls with `0x0100` (`0x29a3`), mice with `0x0100` (`0x2b50`) or `0x0200` (`0x259d`), cats with `0x0400`
+ *   (`0x256e`), and one check wants `0x0400` on fish bowls (`0x28ae`). A search of the whole program for tests of these
+ *   bits, in all eleven builds, finds no other.
+ */
+export const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[] = [
+  {
+    offset: LIST_FLAGS,
+    mask: 0x0001,
+    name: "contact flag 0x0001",
+    words:
+      "the contact search sets it after a contact; while it is set the mover pulls the part 2 pixels further along its gravity each time it moves it, and the contact dispatch picks the response at 0x3980 over the reflection at 0x3c1c",
+  },
+  {
+    offset: 0x08,
+    mask: 0x2000,
+    name: "out-of-play flag 0x2000",
+    words: "the contact dispatch, the contact search and the overlap searches pass over a part with it",
+  },
+  {
+    offset: 0x08,
+    mask: 0x0040,
+    name: "ran-this-step mark 0x0040",
+    words: "the step's run loop clears it first and then calls no run callback of a part that has it",
+  },
+  ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask) => ({
+    offset: 0x0a,
+    mask,
+    name: `goal mark 0x${mask.toString(16).padStart(4, "0")}`,
+    words:
+      "no part's code reads it, only the puzzle goal checks, which end a puzzle when every part of one type has its mark",
+  })),
+];
+/** Where a flag bit lives, in words: "list flags", "drawing flags" or "field 0x0a". */
+const FLAG_FIELDS: Record<number, string> = { [LIST_FLAGS]: "list flags", 0x08: "drawing flags", 0x0a: "field 0x0a" };
+/**
+ * A set or cleared bit in words, like "sets its out-of-play flag 0x2000 in its drawing flags (the contact dispatch ...
+ * pass over a part with it)", or undefined when the bit has no proved meaning.
+ */
+export function flagWords(offset: number, mask: number, set: boolean, whose: string, long = true): string | undefined {
+  const flag = PART_FLAGS.find((f) => f.offset === offset && f.mask === mask);
+  if (!flag) return undefined;
+  return `${set ? "sets" : "clears"} ${whose} ${flag.name} in ${FLAG_FIELDS[offset]}${long ? ` (${flag.words})` : ""}`;
+}
+/**
+ * The bits a value sets and clears in its own field, when it is the field with bits set by `or` and cleared by `and`,
+ * like `(flags | 0x2000) & 0xfffe`; undefined for any other value.
+ */
+export function changedBits(
+  value: Expression,
+  field: { object: string; offset: number },
+): { set: number; clear: number } | undefined {
+  // The same part later in the routine, like "member found by the loop at 0x1a01a after field effect at 0x1a01a".
+  if (
+    value.kind === "field" &&
+    (value.object === field.object || value.object.startsWith(`${field.object} after `)) &&
+    value.offset === field.offset
+  )
+    return { set: 0, clear: 0 };
+  if (value.kind !== "binary" || value.right.kind !== "constant") return undefined;
+  const inner = changedBits(value.left, field);
+  const mask = value.right.value & 0xffff;
+  if (!inner) return undefined;
+  if (value.operator === "|") return { set: inner.set | mask, clear: inner.clear & ~mask };
+  if (value.operator === "&") return { set: inner.set & mask, clear: inner.clear | (~mask & 0xffff) };
+  return undefined;
+}
+/**
+ * The fine position: the longs at `0x16` (across) and `0x1a` (down) hold the position in 1/512 pixels. The mover adds the
+ * velocity to them and sets positionX and positionY to them shifted right by 9 (`0x3896` to `0x38f5` in Even More,
+ * English floppy; `0x2ccb` to `0x2d24` in TIM 1, French).
+ */
+export const FINE_POSITION: Record<number, string> = {
+  0x16: "fine horizontal position (low word)",
+  0x18: "fine horizontal position (high word)",
+  0x1a: "fine vertical position (low word)",
+  0x1c: "fine vertical position (high word)",
+};
+/**
+ * The contact record a contact search fills in on the part it moves (`0x09eb` to `0x0a06`): the part it touched at
+ * `0x84`, two side bytes at `0x86` and `0x87` (`0x0db5`, `0x0dcc`, and the helper at `0x04b0`), the angle at `0x88` and
+ * the edge at `0x8a`. The contact flags `0x0002` and `0x0004` at `0x06` say which response route follows (`0x09af` to
+ * `0x09e7`), and `0x0001` is set at `0x073f`.
+ */
+export const CONTACT_RECORD: Record<number, string> = {
+  [LIST_FLAGS]: "contact flags in its list flags at 0x06",
+  0x86: "contact side byte at 0x86",
+  0x87: "contact side byte at 0x87",
+};
+
 /** Something another part sets on this part: its velocity to a speed, or a field to a number. */
 export type OtherPartSetting =
   | {
@@ -316,6 +423,44 @@ function readsTable(value: Expression | Predicate): boolean {
   return false;
 }
 
+/**
+ * A query's answer, like the bounce pool's at `0x867c` (Even More, English floppy) that the teeter-totter asks whether a
+ * landing is new: one value of that call, which the analysis names but doesn't know.
+ */
+const ANSWER = /^answer of the query at (0x[0-9a-f]+)$/;
+export const ANSWER_ASSUMPTION =
+  "A query's answer is one value of that call: the line holds when the answer passes the test, whatever it depends on.";
+/** Whether a test reads a query's answer, and nothing else the analysis doesn't know. */
+export function readsAnswer(term: Predicate): boolean {
+  let answer = false,
+    other = false;
+  const visit = (v: Expression | Predicate) => {
+    if (v.kind === "unknown") other = true;
+    else if (v.kind === "field") {
+      if (ANSWER.test(v.object) && v.unresolved) answer = true;
+      else if (v.unresolved) other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  visit(term);
+  return answer && !other;
+}
+/**
+ * Whether an outcome's only unknown is a query's answer in its tests: its effects are complete and every value it writes
+ * is known, so it is unresolved only because the answer is.
+ */
+export function onlyAnswersOpen(outcome: { effectsComplete?: boolean; condition: Predicate; fields: FieldWrite[] }) {
+  return (
+    !!outcome.effectsComplete &&
+    terms(outcome.condition).some(readsAnswer) &&
+    terms(outcome.condition).every((t) => readsAnswer(t) || !objects(t).unknown) &&
+    outcome.fields.every((f) => !objects(f.value).unknown)
+  );
+}
+
 /** A path of a bounce callback that sets fields of the part that touched it. */
 interface TouchCandidate {
   sourceType: number;
@@ -341,7 +486,7 @@ function touchCandidate(
   routine: number,
   outcome: RoutineOutcome,
 ): TouchCandidate | undefined {
-  if (!outcome.effectsComplete || outcome.confidence === "unresolved") return undefined;
+  if (!outcome.effectsComplete || (outcome.confidence === "unresolved" && !onlyAnswersOpen(outcome))) return undefined;
   const writes = outcome.fields.filter((f) => f.object === TOUCHER);
   // What the bounce does to the touched part itself is that part's own business.
   if (!writes.length || outcome.fields.some((f) => f.object !== TOUCHER && f.object !== "part")) return undefined;
@@ -355,7 +500,14 @@ function touchCandidate(
     bothTerms: Predicate[] = [];
   for (const term of terms(outcome.condition)) {
     const { objects: read, unknown } = objects(term);
-    if (unknown || term.kind !== "compare") return undefined;
+    if (term.kind !== "compare") return undefined;
+    // A query's answer is the touched part's business: its bounce asked the query.
+    if (readsAnswer(term)) {
+      if ([...read].every((o) => o === "part" || ANSWER.test(o))) sourceTerms.push(term);
+      else return undefined;
+      continue;
+    }
+    if (unknown) return undefined;
     if ([...read].every((o) => o === TOUCHER)) toucherTerms.push(term);
     else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
     else if ([...read].every((o) => o === "part" || o === TOUCHER)) bothTerms.push(term);
@@ -407,6 +559,11 @@ export function effectsFromOthers(
       }
       // An arithmetic shift right halves a signed word and rounds down.
       if (value.operator === ">>" && n === 1) return `halves ${field} (rounding down)`;
+      // Single bits whose meaning the code proves say it, like the contact flag 0x0001 at 0x06.
+      const bits = value.operator === "&" ? ~n & 0xffff : value.operator === "|" ? n : 0;
+      const named =
+        bits && (bits & (bits - 1)) === 0 ? flagWords(offset, bits, value.operator === "|", "its", false) : undefined;
+      if (named) return named;
       if (value.operator === "&") return `clears ${`0x${(~n & 0xffff).toString(16).padStart(4, "0")}`} in ${field}`;
       if (value.operator === "|") return `sets ${hex} in ${field}`;
       if (value.operator === "^") return `turns ${hex} in ${field} round`;
@@ -511,9 +668,10 @@ export function effectsFromOthers(
           JSON.stringify(longPart(s.value)) === JSON.stringify(part && { ...part, high: true }),
       );
       if (!part || part.high || !high || low.kind !== "expression") continue;
+      const fine = FINE_POSITION[low.offset] ? (low.offset < 0x1a ? "horizontal" : "vertical") : undefined;
       longs.set(
         low,
-        `sets the long at 0x${low.offset.toString(16).padStart(2, "0")} to ${formula(part.word, { field: fieldName, of: (_, what) => what })} × ${2 ** part.shift}`,
+        `sets ${fine ? `its fine ${fine} position (the long at 0x${low.offset.toString(16)}, in 1/512 pixels)` : `the long at 0x${low.offset.toString(16).padStart(2, "0")}`} to ${formula(part.word, { field: fieldName, of: (_, what) => what })} × ${2 ** part.shift}`,
       );
       longs.set(high, "");
     }
@@ -589,11 +747,13 @@ export function effectsFromOthers(
           c,
           sets: settings.sets,
           raw: kept,
-          confidence: c.outcome.confidence,
+          // Unresolved only because of a query's answer, which the line keeps as a test.
+          confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
           assumptions: new Set([
             ...c.outcome.assumptions,
             ...c.writes.flatMap((w) => w.assumptions),
             ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...(c.sourceTerms.some(readsAnswer) ? [ANSWER_ASSUMPTION] : []),
             ...settings.proofs,
           ]),
           evidence: uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]),
@@ -634,12 +794,14 @@ export function effectsFromOthers(
           sourcePhrases: string[] = [];
         for (const test of list) {
           const flag = test.predicates.length === 1 ? test.predicates[0]! : undefined;
-          if ([...test.objects].every((o) => o === TOUCHER)) {
+          // A query's answer belongs to the touched part, whose bounce asked the query.
+          const read = [...test.objects].map((o) => (ANSWER.test(o) ? "part" : o));
+          if (read.every((o) => o === TOUCHER)) {
             const own = test.predicates.map((p) => renamePredicate(p, TOUCHER, "part"));
             toucher.push(...own);
             const drawn = own.length === 1 ? drawingFlagWords(own[0]!, report) : undefined;
             toucherWords.push(drawn ? `it is ${drawn}` : test.words(both));
-          } else if ([...test.objects].every((o) => o === "part")) {
+          } else if (read.every((o) => o === "part")) {
             source.push(...test.predicates);
             const drawn = flag && drawingFlagWords(flag, report);
             sourceWords.push(drawn || test.words(names(() => "")));
