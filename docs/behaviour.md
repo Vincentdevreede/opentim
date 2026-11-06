@@ -889,15 +889,52 @@ takes about as long as before.
 
 These touch outcomes still give no line:
 
-- The gear's (`0x1b032`): it adds or subtracts 4096 or 2048 to a velocity through four small helpers (`0x1afc2`,
-  `0x1afdc`, `0x1affa`, `0x1b014`) that then limit it, like `velocityX = velocityX - s`, and `-s` when that is below
-  `s`. Their summaries keep the written values unknown.
 - The vacuum cleaner's (`0x1e5af`): it changes fields `0x08`, `0x0a` and `0x12` through a helper whose values the
   analysis doesn't know.
 - The electric switch's (`0x1a5d8`): it subtracts 1 from a bullet's `velocityX`, which the bullet's rules read. As the
   value isn't a number, it is no walk either.
 - The teeter-totter's: its paths depend on a query's answer and stay unresolved.
 - The trampoline's paths for Mel that return 1: they read the frame tables and set `velocityY`, which Mel's rules read.
+
+### Exact helper stores
+
+The gear's bounce (`0x1b032` in Even More, English floppy) used to give no line. It pushes the part that touches it
+through four small helpers, each given the part and an amount `s` (4096 or 2048):
+
+- `0x1afc2` and `0x1affa` add `s` to `velocityX` or `velocityY`, and set it to `s` when the sum is above `s`;
+- `0x1afdc` and `0x1b014` subtract `s`, and set it to `-s` when the difference is below `s`. That is not the mirror of
+  the first two: a part still moving the other way at less than twice `s` gets `-s` at once.
+
+The owner paths reader only knew stores of numbers under tests of a field against a number, so their summaries kept
+the written values unknown. A second reader (`ownerPathStores`) now follows every path of such a helper exactly, when
+it makes no calls: registers, locals and the part's fields hold values worked out from the part's fields and the
+helper's arguments as it got them, and each test compares two such values, like `velocityX - s` with `s`. For each
+field it gives the value each path leaves, with that path's tests, and joins paths that leave the same value the way
+the first reader does. It reads `mov`, `add`, `sub`, `and`, `or`, `xor`, `inc`, `dec`, `neg`, `cmp` and `test` on words
+(and fields of a byte), and the branches that follow a `cmp` or `test`. Any other instruction, a call, a store
+elsewhere, a byte register or a value it can't work out, and the helper keeps its old summary. It only fills in fields
+the first reader left open, so the stores that reader proved keep their tests.
+
+A bounce now splits on these tests when it passes the part that touched it (`collider`), as a loop already did for a
+member it observes, so each outcome knows the exact value. The gear's 40 bounce outcomes become 104, all with exact
+writes. Over the eleven builds the four helpers have one compiler form, and all 44 are proved. The reader also proves
+helpers the first reader left open elsewhere (the state helper at `0x1ce45` that ors 1 and 2 into the state, and
+helpers at `0x1badd`, `0x1bb2e` and `0x1bbb8` that test a position against their argument), but no walk changes.
+
+What the gear does to a part that touches it, by the code: it compares its state with its previous state, so it acts
+only while it turns. Which way it pushes follows where it was touched: `contactEdge`, which the contact search sets
+to the index of the gear's outline edge (or corner) it met, counted from corner (8, 0) of its octagon. Turning one
+way (the state went up by one, or wrapped from the last frame to the first) it pushes along its rim: on edge 0 (the
+top) right, on edge 2 (the right side) down, on edge 4 (the bottom) left, on edge 6 (the left side) up, and on the
+slanted edges between both ways at once with half the amount. Turning the other way, it pushes the opposite way. A
+balloon (type 4) pops instead. The bounce returns 1, so a contact response may follow.
+
+In Even More (English floppy) the touch lines grow from 441 to 2,489: 96 from the gear for each of the 21 types that
+can move and don't read the velocity (2 turning directions, each read from two state differences, times the 8 edges
+and the limits each push may meet), 16 for Mel Schlemming (those that leave `velocityY`, which his rules read) and 16
+for the bullet (those that leave `velocityX`). The balloon gets none. TIM 1 (French) grows from 167 to 1,719 the same
+way: 96 for 16 types and 16 for the bullet. No walk changes, and the recordings match as before: 596 and 504
+complete, none different.
 
 ### The outline search
 

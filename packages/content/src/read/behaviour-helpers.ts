@@ -42,7 +42,7 @@ import type { ExternalListConsumer } from "./behaviour-list-consumers.ts";
 import { proveOverlapProducer, type OverlapProducer } from "./behaviour-overlap-producer.ts";
 import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-connection-bypass.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
-import { ownerStoreConditions } from "./behaviour-owner-paths.ts";
+import { ownerPathStores, ownerStoreConditions } from "./behaviour-owner-paths.ts";
 import type { FrameDrawing } from "./behaviour-frame-drawing.ts";
 
 export type EnginePointer =
@@ -2166,6 +2166,32 @@ export function discoverEngineSummaries(
         write.assumptions = [
           "Every path of the helper was followed: the store happens exactly when its tests of the part's fields hold, and it is the last store to that field.",
         ];
+      }
+      // A field those tests leave open may still be read exactly, value and all, like the gear's push `0x1afdc`.
+      const open = new Set(
+        direct.writes.filter((w) => w.condition.kind === "unknown" || w.value.kind === "unknown").map((w) => w.offset),
+      );
+      const exact = open.size ? ownerPathStores(code, owner, firstArgument(code)) : undefined;
+      if (exact && [...open].every((offset) => exact.some((e) => e.offset === offset))) {
+        const kept = direct.writes.filter((w) => !open.has(w.offset));
+        direct.writes.length = 0;
+        direct.writes.push(
+          ...kept,
+          ...exact
+            .filter((e) => open.has(e.offset))
+            .map((e): EngineWrite => ({
+              ...fact([e.store, ...e.tests], "inferred", [
+                "Every path of the helper was followed with the values it reads worked out from the part's fields and its arguments as it got them: the field ends with this value exactly when the tests hold.",
+              ]),
+              root: "argument",
+              argumentOffset: firstArgument(code),
+              path: [],
+              offset: e.offset,
+              width: e.width,
+              value: e.value,
+              condition: e.condition,
+            })),
+        );
       }
       const fields = [
         ...new Set(stores.map((i) => (i.operands[0] as Extract<Operand, { kind: "memory" }>).displacement)),

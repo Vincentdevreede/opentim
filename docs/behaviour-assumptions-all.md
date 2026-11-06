@@ -17,14 +17,14 @@ Program addresses are written as `<address>`, since they differ between builds. 
 findings stating the assumption in one build, then in how many of the builds read it appears. Parts are those whose
 own findings or routines state it; `none, shared` means only shared helpers and report-wide findings do.
 
-Read from 5 TIM 1 and 6 Even More builds: 263 assumptions, most used first.
+Read from 5 TIM 1 and 6 Even More builds: 264 assumptions, most used first.
 
 | Assumption | TIM 1 | Even More | Parts |
 | --- | --- | --- | --- |
-| Memory not written on this path retains its input value. | 45,790 · 5/5 | 64,148 · 6/6 | alligator, balloon, baseball, basketball, bellows, belt and 57 more |
-| The stack argument identified by the dispatch is the part object. | 45,790 · 5/5 | 64,148 · 6/6 | alligator, balloon, baseball, basketball, bellows, belt and 57 more |
+| Memory not written on this path retains its input value. | 46,046 · 5/5 | 64,404 · 6/6 | alligator, balloon, baseball, basketball, bellows, belt and 57 more |
+| The stack argument identified by the dispatch is the part object. | 46,046 · 5/5 | 64,404 · 6/6 | alligator, balloon, baseball, basketball, bellows, belt and 57 more |
 | Private stack storage is distinct from caller-owned part memory. | 41,465 · 5/5 | 58,591 · 6/6 | alligator, balloon, baseball, basketball, bellows, birdcage and 53 more |
-| The stable argument register denotes a complete part object. Every explicit non-stack store has a fixed checked offset; callee contracts retain their separate assumptions and all mapped state stores remain visible. | 21,255 · 5/5 | 36,091 · 6/6 | alligator, bellows, boxing-glove, cannon, cat, curved-pipe-wall and 23 more |
+| The stable argument register denotes a complete part object. Every explicit non-stack store has a fixed checked offset; callee contracts retain their separate assumptions and all mapped state stores remain visible. | 21,511 · 5/5 | 36,347 · 6/6 | alligator, bellows, boxing-glove, cannon, cat, curved-pipe-wall and 23 more |
 | The coordinate interval arithmetic and comparisons are interpreted as a spatial query; the tested exclusion flags retain their numeric meanings. | 19,455 · 5/5 | 33,961 · 6/6 | alligator, bellows, boxing-glove, candle, cat, explosion and 11 more |
 | The list helpers return object base pointers, so writes to their linked-list and overlap metadata fields do not alias the state field. | 19,455 · 5/5 | 33,961 · 6/6 | alligator, bellows, boxing-glove, candle, cat, explosion and 11 more |
 | Exact field equalities from earlier compares substitute only the same symbolic input or post-write storage version; later stores do not retroactively change that earlier value. | 23,131 · 5/5 | 28,757 · 6/6 | alligator, balloon, bellows, boxing-glove, bullet, candle and 27 more |
@@ -155,10 +155,10 @@ Read from 5 TIM 1 and 6 Even More builds: 263 assumptions, most used first.
 | The root's nonzero-movement path marks the owner before folding the four direct contacts in increasing slot order. Null contacts are skipped, but this initial pass does not test the disabled flag. The root peer is not a fifth initial propagation edge. | 174 · 5/5 | 174 · 6/6 | gear |
 | This metadata does not choose a graph or a conflict result. A result reference must be bound to this complete ordered relation and to the invoking owner's pre-pass field and graph versions, not reused as an unconstrained ordinary part field. | 174 · 5/5 | 174 · 6/6 | gear |
 | This symbolic register result is defined by the certified ordered connection relation on the heap before the scan. It is not an independently assignable part field or an assumed external trigger. | 171 · 5/5 | 171 · 6/6 | gear |
-| The destination is interpreted under the routine's stack convention; branch conditions are retained as unresolved here. | 140 · 5/5 | 198 · 6/6 | none, shared |
 | **decided** A new rope piece the part factory makes gets fresh memory: it never overlaps an existing part, a rope record or other storage, and releasing a piece that was never linked changes nothing else. | 152 · 5/5 | 152 · 6/6 | scissors |
 | **decided** A rope end's slot number, in bytes 0x0a and 0x0b of its rope record, is 0 or 1: one of the part's two rope links. | 152 · 5/5 | 152 · 6/6 | scissors |
 | **decided** The parts list and a pulley chain each end: a finite chain without cycles. The fields written are the same on every pass. | 152 · 5/5 | 152 · 6/6 | scissors |
+| The destination is interpreted under the routine's stack convention; branch conditions are retained as unresolved here. | 111 · 5/5 | 160 · 6/6 | none, shared |
 | Named stages are acyclic definitions evaluated from their listed inputs. Every word or long arithmetic result wraps to its declared width before later signed comparisons. Right shifts are arithmetic; word inputs are sign-extended before signed long products. No floating-point angle or unbounded absolute value replaces these operations. | 86 · 5/5 | 86 · 6/6 | none, shared |
 | Private stack, type records and scalar lookup storage are separate from the argument and contact part. Tables remain stable during this call. The data segment and C preserved registers retain their decoded calling-convention meanings; arithmetic runtime stack reads through DS require DS and SS to agree. | 86 · 5/5 | 86 · 6/6 | none, shared |
 | The far C argument is a complete nonwrapping part. Its recorded contact pointer is valid and both runtime types select records in the discovered table. The contact part may be the argument itself. Its type and control, and the contact angle and side inputs, are read before the velocity stores. Those stores change none of those inputs. The later limit and position reads are entry-equivalent because their storage remains unchanged under the separate-storage assumptions. | 86 · 5/5 | 86 · 6/6 | none, shared |
@@ -177,6 +177,7 @@ Read from 5 TIM 1 and 6 Even More builds: 263 assumptions, most used first.
 | The discovered global part list is finite and acyclic, with complete part objects and unchanged next links. It may contain the owner; the body writes only owner fields outside both state and next-link storage. | 64 · 5/5 | 64 · 6/6 | gear |
 | The entry counter is nonnegative; affine indices stay within the statically bounded owner-field footprint without wrapping. | 64 · 5/5 | 64 · 6/6 | gear |
 | The indirect call target is not statically resolved. | 55 · 5/5 | 64 · 6/6 | none, shared |
+| Every path of the helper was followed with the values it reads worked out from the part's fields and its arguments as it got them: the field ends with this value exactly when the tests hold. | 38 · 5/5 | 53 · 6/6 | none, shared |
 | The assignment dominates the selected engine site and the object register is preserved on paths to that site. | 40 · 5/5 | 41 · 6/6 | gear |
 | These are instruction facts before the dispatch; intervening helpers may overwrite fields and are not assumed to be an executable initialization summary. | 40 · 5/5 | 41 · 6/6 | gear |
 | A zero high divisor word and zero high dividend word use hardware unsigned DIV with a zero high numerator, which yields the same nonnegative quotient without overflow. A zero divisor always reaches hardware division by zero and establishes no normal return. | 37 · 5/5 | 37 · 6/6 | none, shared |
