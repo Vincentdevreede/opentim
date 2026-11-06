@@ -120,6 +120,14 @@ the level), and every one of those is listed by name.
       (effect lines 827 to 875 in Even More, 554 to 588 in TIM 1). Walks and recordings don't change (648 and 552
       complete, none different). See "Which parts can affect which" in `docs/behaviour.md`.
 
+- [ ] **C3. What a teeter-totter's end does to the part lying there.** When it tips, its end hands a list to a helper
+      that can start a mouse motor, break a fish bowl, or set off a bellows, scissors, dynamite plunger or flashlight, by
+      type and distance from the end (6 pairs per build). None of the six parts' descriptions say this yet: the analysis
+      needs to follow a list handed in from another part.
+- [ ] **C4. The missing pairs that depend on where parts are.** The C2 check lists 247 pairs in Even More and 124 in
+      TIM 1 whose effect depends on positions (sweeps of the fan, vacuum cleaner, bellows and teapot, explosion splits,
+      thrown directions). These belong with several parts working together, so this plan only lists them with reasons.
+
 ## D. Recordings that stop early
 
 - [x] **D1. Mouse motor restart, cat, mouse and Mel's house** (20 in Even More). They wait for a search to find
