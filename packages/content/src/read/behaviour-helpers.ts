@@ -67,6 +67,8 @@ export interface EngineWrite extends Finding {
   value: Expression;
   condition: Predicate;
   repeated?: { stride: number; countField?: number };
+  /** The routine makes this write exactly when its condition holds, so a caller keeps the old value otherwise. */
+  exact?: true;
 }
 
 export interface EngineReturn extends Finding {
@@ -103,6 +105,11 @@ export interface EngineSummary extends Finding {
     exceptArgument?: number;
     /** The part fields that may still change on the part passed in `exceptArgument`. Absent means none. */
     askingFields?: { offset: number; width: number }[];
+    /**
+     * Part fields whose new value the routine and its callees fix, as an expression of the arguments: a part reached
+     * either keeps its field or gets this value.
+     */
+    values?: { offset: number; width: number; value: Expression }[];
   };
   contactRotation?: ContactRotation;
   /** Sets a part's velocity to a speed in the direction of an angle; a caller keeps the speed it passed. */

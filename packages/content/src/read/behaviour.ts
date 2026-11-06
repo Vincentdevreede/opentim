@@ -244,6 +244,22 @@ const askingKeeps = (connected: NonNullable<EngineSummary["connected"]>) =>
  */
 const scanLocal = (object: string) =>
   /^(local after (list scan|find-first loop)|answer of the query|part after the query) at /.test(object);
+/**
+ * The owner's field after a call that writes parts it selects while the game runs, when the owner may be one of them:
+ * unchanged unless the call selected the owner. It names the call, so within one run it is one value, the same an
+ * uncached read after that call gives.
+ */
+const afterEffect = (effect: { offset: number; width: number }, i: Instruction): Expression =>
+  ({
+    ...field(`part after field effect at ${hex(i.address)}`, effect.offset, effect.width),
+    unresolved: true,
+  }) as Expression;
+/** The value a call writes in a field of a part it selects while the game runs, when its summary doesn't give it. */
+const selectedWrite = (effect: { offset: number; width: number }, i: Instruction): Expression =>
+  ({
+    ...field(`value the call at ${hex(i.address)} writes to a selected part`, effect.offset, effect.width),
+    unresolved: true,
+  }) as Expression;
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
 const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
 const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
@@ -399,6 +415,30 @@ export function choiceOf(e: Expression): { test: Comparison; then: Expression; o
     ? { kind: "compare", operator: x.operator, left: left!, right: right!, signed: true }
     : { kind: "compare", operator: x.operator, left: x.left, right: x.right, signed: false };
   return { test, then: a.right, otherwise: b.right };
+}
+
+/**
+ * A value with the owner's type put in for its type field, folded where a test or a product becomes a number. A part's
+ * own rules run on a part of its type.
+ */
+export function withOwnType(e: Expression, type: number, typeOffset: number): Expression {
+  if (e.kind === "field")
+    return e.object === "part" && e.offset === typeOffset && e.width === 16 && !e.unresolved ? constant(type) : e;
+  if (e.kind === "table") {
+    const index = withOwnType(e.index, type, typeOffset);
+    return index === e.index ? e : { ...e, index };
+  }
+  if (e.kind !== "binary") return e;
+  const left = withOwnType(e.left, type, typeOffset),
+    right = withOwnType(e.right, type, typeOffset);
+  if (left === e.left && right === e.right) return e;
+  const zero = (x: Expression) => x.kind === "constant" && unsigned(x.value, x.width) === 0;
+  const one = (x: Expression) => x.kind === "constant" && unsigned(x.value, x.width) === 1;
+  if (e.operator === "*" && (zero(left) || zero(right))) return constant(0, e.width);
+  if (e.operator === "*" && one(left) && right.width === e.width) return right;
+  if (e.operator === "*" && one(right) && left.width === e.width) return left;
+  if (e.operator === "+" && zero(left) && right.width === e.width) return right;
+  return binary(e.operator, left, right, e.width, Infinity);
 }
 
 function substitute(expression: Expression, state: number, stateOffset = 0x0c): Expression {
@@ -1584,6 +1624,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     preserveOwner: Set<number> = new Set(),
     selectedObject = "a connected part",
     selectedCondition?: Predicate,
+    /** What the helper writes in a field of the parts it selects, when its summary names it. */
+    selectedValue?: (effect: { offset: number; width: number }) => Expression | undefined,
   ) => {
     for (const effect of fields) {
       const exceptOwner = preserveOwner.has(effect.offset);
@@ -1601,20 +1643,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         )
           s.memory.delete(key);
       }
+      // The owner may be one of the selected parts: its field holds one value after the call, unchanged unless the call
+      // selected the owner too. An uncached read after the call names the same value.
       if (!exceptOwner)
-        s.memory.set(
-          `part:${effect.offset}:${effect.width}`,
-          tracked(
-            unknown(
-              selectedObject === "a connected part"
-                ? "A connected part may alias the owner"
-                : "A selected related object may alias the owner",
-              effect.width,
-            ),
-            proof,
-            i.address,
-          ),
-        );
+        s.memory.set(`part:${effect.offset}:${effect.width}`, tracked(afterEffect(effect, i), proof, i.address));
       const name = selectedObject;
       s.registers.set("__graph_pointer", tracked({ kind: "pointer", object: name, displacement: 0, width: 16 }, proof));
       if (selectedCondition) s.conditions.push(selectedCondition);
@@ -1627,16 +1659,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           direct: false,
           width: effect.width === 8 ? 8 : 16,
         },
-        tracked(
-          unknown(
-            selectedObject === "a connected part"
-              ? "A connected part may change this field"
-              : "A selected related object may change this field",
-            effect.width,
-          ),
-          proof,
-          i.address,
-        ),
+        tracked(selectedValue?.(effect) ?? selectedWrite(effect, i), proof, i.address),
         s,
         i,
       );
@@ -1787,6 +1810,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: Evidence[];
       condition: Predicate;
       certain: boolean;
+      exact?: true;
     }[] = [];
     for (const effect of privateOutput ? [] : engine.writes) {
       if (effect.root !== "argument" || effect.path.some((offset) => offset < 0) || effect.repeated) continue;
@@ -1805,6 +1829,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         evidence: effect.evidence,
         condition,
         certain: entails(condition, s),
+        ...(effect.exact ? { exact: true } : {}),
       });
     }
     if ((engine.contactResponseFirst || engine.contactResponsePair) && engine.footprint.partMemoryComplete) {
@@ -1859,6 +1884,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         engine.connected.evidence,
         new Set(askingIsOwner ? askingKeeps(engine.connected) : []),
         `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
+        undefined,
+        // A field whose new value the summary fixes, like the byte the relay passes along, gets that value.
+        (effect) => {
+          const fixed = engine.connected!.values?.find(
+            (item) => item.offset === effect.offset && item.width === effect.width,
+          );
+          return fixed && asExpression(formalValue(fixed.value, args, engine.argumentOffset, s).value);
+        },
       );
       // A field a question that comes back may change holds one value after the call, which the walks can name.
       if (askingIsOwner)
@@ -1949,6 +1982,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const directed = engine.directedVelocity;
     const speed = directed && formalArgument(args, engine.argumentOffset, directed.arguments.speed);
     const angle = directed && formalArgument(args, engine.argumentOffset, directed.arguments.angle);
+    // An overlap query starts its found list empty and puts each part it finds at the head: after the query the head
+    // field holds the part it found last, or 0 when it found none. Which part that is, only the run knows.
+    const foundHead = (effect: (typeof pending)[number]) =>
+      engine.kind === "overlap-list" &&
+      !!engine.list &&
+      engine.list.confidence === "checked" &&
+      effect.offset === engine.list.headField &&
+      effect.width === 16;
     for (const effect of pending) {
       const temporary = "__engine_pointer";
       s.registers.set(temporary, effect.pointer);
@@ -1968,10 +2009,24 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 },
               }
             : effect.value
-          : tracked(
-              unknown(`Conditional ${engine.kind} effect on field ${hex(effect.offset)}`, effect.width),
-              effect.evidence,
-            );
+          : effect.exact && effect.condition.kind === "compare" && !uncertainPredicate(effect.condition)
+            ? // A write made exactly when its test holds: the new value then, the old one otherwise.
+              tracked(
+                choose(effect.condition, asExpression(effect.value.value), asExpression(before.value), effect.width),
+                uniqueEvidence([...effect.value.evidence, ...before.evidence]),
+              )
+            : foundHead(effect)
+              ? tracked(
+                  {
+                    ...field(`found list after the query at ${hex(i.address)}`, effect.offset, effect.width),
+                    unresolved: true,
+                  } as Expression,
+                  uniqueEvidence([...effect.evidence, ...engine.list!.evidence]),
+                )
+              : tracked(
+                  unknown(`Conditional ${engine.kind} effect on field ${hex(effect.offset)}`, effect.width),
+                  effect.evidence,
+                );
       write(
         {
           kind: "memory",
@@ -1994,11 +2049,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (engine.kind === "overlap-list" && engine.list) {
       // A query that skips its argument never selects the owner when the owner asks, so the owner keeps those fields.
       const asking = formalArgument(args, engine.argumentOffset, engine.argumentOffset).value;
-      const skipsOwner =
-        engine.list.excludesArgument &&
-        asking.kind === "pointer" &&
-        asking.object === "part" &&
-        asking.displacement === 0;
+      const asksOwner = asking.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
+      const skipsOwner = engine.list.excludesArgument && asksOwner;
+      // A query that may list the owner links it first and then makes it the head, so the head stays the head.
+      const keepsHead = asksOwner && engine.list.confidence === "checked";
       for (const effect of engine.writes) {
         if (effect.root !== "unknown" || effect.selection !== "overlap-candidate" || effect.path.length) continue;
         const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
@@ -2008,9 +2062,22 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s,
           i,
           skipsOwner ? uniqueEvidence([...effect.evidence, ...engine.list.evidence]) : effect.evidence,
-          new Set(skipsOwner ? [effect.offset] : []),
+          new Set(skipsOwner || (keepsHead && effect.offset === engine.list.headField) ? [effect.offset] : []),
           `a candidate selected by the overlap query at ${hex(i.address)}`,
           condition,
+          // A found part's link gets the head it pushed down: the next part in the found list, or 0 for the first
+          // part found. The query's other stores fill in a value it works out for that part.
+          ({ offset, width }) =>
+            ({
+              ...field(
+                offset === engine.list!.nextField && width === 16 && engine.list!.confidence === "checked"
+                  ? `next in the found list of the query at ${hex(i.address)}`
+                  : `value the query at ${hex(i.address)} writes to a found part`,
+                offset,
+                width,
+              ),
+              unresolved: true,
+            }) as Expression,
         );
       }
     }
@@ -2677,7 +2744,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             s.memory.set(
               key,
               tracked(
-                unknown(`The complete list scan may change field ${hex(effect.offset)}`, width),
+                object === "data"
+                  ? unknown(`The complete list scan may change field ${hex(effect.offset)}`, width)
+                  : // Another part's field holds one value after the scan, which the run gives it.
+                    ({
+                      ...field(`value after the list scan at ${hex(list.header)} in ${object}`, offset, width),
+                      unresolved: true,
+                    } as Expression),
                 list.evidence,
                 i.address,
               ),
@@ -4911,6 +4984,12 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       ...(sheet.sheet ? { evidence: [...write.evidence, ...sheetList!.evidence] } : {}),
     };
   };
+  // A value that tests the owner's type, like whether the relay gives the owner its byte, is decided for the type.
+  const ownTypeWrite = (write: FieldWrite, type: number): FieldWrite => {
+    if (typeOffset === undefined) return write;
+    const value = withOwnType(write.value, type, typeOffset);
+    return value === write.value ? write : { ...write, value };
+  };
   const parts = list.list.parts.map((part): PartBehaviour => {
     const callbacks = references.get(part.type)!;
     const routines = callbacks.map((callback) => {
@@ -4942,7 +5021,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
           : t.from,
       }))
       .map((t) => {
-        const updates = t.updates?.map((write) => frameWriteForType(write, part.type));
+        const updates = t.updates?.map((write) => ownTypeWrite(frameWriteForType(write, part.type), part.type));
         return updates?.some((write, n) => write !== t.updates![n])
           ? {
               ...t,
