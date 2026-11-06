@@ -152,6 +152,27 @@ describe("writes through ropes, belts and pulleys", () => {
     expect(final("part", 0x0c)).toMatchObject({ kind: "constant", value: 1 });
   });
 
+  it("keeps the owner fields a decided assumption gives the routines that call it, and only in those", () => {
+    const keeps = (callers: number[]) =>
+      analyse({
+        ...fact,
+        partFields: [
+          { offset: 0x30, width: 16 },
+          { offset: 0x12, width: 16 },
+        ],
+        recordFields: [],
+        recordLinks: [0x66],
+        ownerKeeps: [{ offset: 0x30, width: 16, assumption: "Only ropes hold rope records.", callers }],
+      });
+    const kept = keeps([0]);
+    expect(kept.final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });
+    expect(kept.final("part", 0x12)).toMatchObject({ object: "part after field effect at 0x1f", unresolved: true });
+    expect(kept.result.outcomes?.[0]?.assumptions).toContain("Only ropes hold rope records.");
+    const other = keeps([0x40]);
+    expect(other.final("part", 0x30)).toMatchObject({ object: "part after field effect at 0x1f", unresolved: true });
+    expect(other.result.outcomes?.[0]?.assumptions).not.toContain("Only ropes hold rope records.");
+  });
+
   it("keeps everything when the helper names no connected writes", () => {
     const { final } = analyse();
     expect(final("part", 0x30)).toMatchObject({ kind: "constant", value: 5 });

@@ -5,6 +5,7 @@
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
 import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "./describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "./describe-hits.ts";
+import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
 import { PART_COPY_ASSUMPTIONS } from "./behaviour-part-copy.ts";
 import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
@@ -21,6 +22,7 @@ import {
   SELF_DRAWN_ASSUMPTION,
   GENERATOR_ASSUMPTION,
   TEETER_TOTTER_END_ASSUMPTION,
+  WOOD_INCLINE_ASSUMPTION,
 } from "./behaviour-saved-frames.ts";
 
 export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
@@ -45,4 +47,7 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The monkey bike's reaction", assumptions: [MONKEY_BIKE_REACTION_ASSUMPTION] },
   { title: "Parts the candle can light", assumptions: [LIGHTABLE_ASSUMPTION] },
   { title: "The bullet and the jack-in-the-box", assumptions: [BULLET_LIST_ASSUMPTION] },
+  { title: "Parts that hold a rope record", assumptions: [ROPE_HOLDER_ASSUMPTION] },
+  { title: "Flipping a part with a loose belt end", assumptions: [FLIP_BELT_ASSUMPTION] },
+  { title: "The wood incline's starting frame", assumptions: [WOOD_INCLINE_ASSUMPTION] },
 ];

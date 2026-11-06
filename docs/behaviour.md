@@ -188,6 +188,65 @@ and six loop gaps. TIM 1 French has 206 out of 797, 13 calls, zero pointer losse
 builds extracted successfully; `readBehaviour` took 2.94–4.23 seconds in the final capture. Description generation
 was measured separately at 1.19–1.44 seconds. These times are observations for this machine, not browser guarantees.
 
+### All eleven builds
+
+Step F1 of the plan measures every supplied build the way the two recorded ones are measured: `extract-behaviour` and
+`compare-behaviour --no-descriptions` over all eleven in one run each, `leaves.ts` (every walk must end),
+`check-level-frames` and `list-assumptions --check`. Nine different executables: the TIM 1 English floppy and disk
+image builds have the same `TIM.EXE`, and so do the two French Even More builds.
+
+| Build                          | Executable | Parts | Unresolved transitions | Conditional | Unknown writes | Named run values | Vague effect lines | Unresolved resets | Resets the level gives | Without resting frames | Walks that end | Levels | Recordings               |
+| ------------------------------ | ---------- | ----: | ---------------------: | ----------: | -------------: | ---------------: | -----------------: | ----------------: | ---------------------: | ---------------------: | -------------: | -----: | ------------------------ |
+| TIM 1 English                  | `1d8702c4` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 English floppy           | `34c844ba` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 English disk image       | `34c844ba` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 French                   | `4a54cc37` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | 552 of 552 complete      |
+| TIM 1 German                   | `8aec613a` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| Even More English floppy       | `b11cf18e` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | 648 of 648 complete      |
+| Even More English CD           | `2557edb3` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    172 | none for this executable |
+| Even More English demo         | `605e9c0a` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |     12 | none for this executable |
+| Even More French               | `9b15a150` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+| Even More French (with German) | `9b15a150` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+| Even More German               | `9cad1156` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+
+The two recorded builds: in Even More 456 recordings match from the reset or a resting frame, 1 from creation, 135
+from an input case, 2 from a seeded state, 38 through the recorder's fields and 16 through a search the recorder
+skipped; in TIM 1 it is 364, 1, 135, 2, 38 and 12. None is a prefix and none differs. Every build has 0 unresolved
+call sites, 0 pointer losses and 0 loop gaps, and the same callbacks (158 routines in Even More, 135 in TIM 1). Every
+shipped level (1,281 files) agrees with the description, and all 267 assumptions are listed.
+
+Only two executables have recordings, so the others were also compared with the recordings of their own game, as a
+check of the description and not as proof about that executable. The French and German builds of both games match
+every recording, like the recorded ones. The Even More CD and demo builds and the English TIM 1 builds match all but
+the recordings that need a search the recorder skipped (16 and 12): the recording names that search by its address in
+the recorded executable, and in these builds the search sits elsewhere, so those walks stop where the search is and
+count as prefixes. None differs.
+
+What differs between the builds, and why it doesn't change a part:
+
+- The code is laid out differently. The CD build keeps far calls as far calls and spreads its code over 81 segments
+  where the floppy has 36 (see [the release wrapper](#the-release-wrapper-in-the-even-more-cd-build)); the demo's
+  engine is smaller (44 fewer routines read, 5 fewer that call an interrupt). So the analysis reads more or fewer
+  engine routines: Even More 889 (floppy), 940 (CD), 845 (demo), 886 (French and German); TIM 1 830 (English) and 832
+  (French and German). The part callbacks and every count in the table are the same.
+- Globals and data tables sit at other addresses. A rule that reads a global (a brick wall's test of a value in the
+  data segment, for example) reads it at another offset in another build. The build comparison counts these as
+  unresolved differences, as it says it would: they can't show a difference in behaviour. The same goes for some
+  rules of the cat and other parts that test a run value: their choices come out nested in another order where the
+  code is laid out differently.
+- The names of run values carry the address of the query or search that gives them (for example "answer of the query
+  at 0x1d2af"). The build comparison now leaves those addresses out, like the addresses in other names.
+- In the CD build the dynamite plunger's rules write a choice with its two ways in the other order (what the new part
+  gets when the allocation fails or succeeds, and the plunger's control value). The build comparison now puts the two
+  sides of `+`, `*`, `&`, `|` and `^` in a fixed order.
+- The demo has the same 63 part types as the full game but only 12 levels; the CD build has 172 levels, 9 more than
+  the floppy.
+
+After the last two changes, the comparison of builds within each game finds no difference in what the analysis
+resolves (before them, the teeter-totter and the balloon differed in every other executable, and the dynamite
+plunger in the CD build). Every part has the same counts of rules of each kind, the same resting frames, the same
+reset kind and the same number of walks in every build of its game.
+
 ## Descriptions and conditional frame walks
 
 `describeBehaviour(report)` returns plain data for every part. `rest.description` explains a known reset frame or
@@ -246,6 +305,9 @@ pnpm --filter @opentim/content compare-behaviour \
   --baseline /path/to/baseline-reports --reports /path/to/new-reports \
   --oracle /path/to/v25/animations.json --out /tmp/behaviour-comparison
 ```
+
+`--baseline` can be left out to measure reports on their own. `--no-descriptions` leaves out the description files
+(about 300 MB a build), so all eleven builds fit in one run; the summary lines, `comparison.json` and `report.md` stay.
 
 Extraction writes an analysis-time sidecar for each build; comparison measures description time separately. The
 before/after metrics count graph transitions and unique callback call sites, pointer losses and loop diagnostics.
@@ -980,6 +1042,106 @@ early: the trampoline's touch clears the mouse's contact flag `0x0001` at `0x06`
 the walk follows the recording to its end. Recordings: Even More 606 to 610 complete and 42 to 38 prefix, TIM 1 512 to
 516 and 40 to 36, none different.
 
+### Which parts can affect which
+
+`list-other-part-pairs` checks that "From other parts" is complete (step C2 of the plan):
+
+    pnpm --filter @opentim/content list-other-part-pairs --evenmore <game folder> --tim1 <game folder>
+
+It goes over every way the code lets one part change another (`other-part-pairs.ts`):
+
+- **A touch.** The contact dispatch calls the bounce of the touched part's type with the moving part that touched it
+  (`collider`). Every bounce path that writes `collider` is a way the touched part changes the toucher. A path whose
+  tests of the touched part fail for the bounce's own type only runs in Mel's self call (Even More: 5 paths of Mel's
+  bounce, which change Mel himself after he touched something), so it is left out.
+- **An overlap list.** A run walks the parts its search found. Every per-member outcome that writes the member is a
+  way the run changes it.
+- **A list consumer.** A run hands a fresh search's list to a helper that writes its members. Only the teeter-totter
+  does this, see below.
+
+A pair (source type, target type) is allowed when one path writes a part of the target type, or may write it because
+its effects aren't complete, and the path's tests of the part's type, with the type table, don't rule the type out.
+Each allowed pair is then:
+
+- **described**: a line or a walk of the target names the source's routine, and together they name every field the
+  allowed paths write;
+- **partly described**: some of its paths are said and others not; the check names the fields no line or walk says,
+  and why;
+- **ruled out**: every path needs something a decided assumption excludes: a part of a fixed type is never on the
+  moving list, so it never touches and never meets a test for that list ([11](behaviour-assumptions.md#11-parts-on-the-fixed-list)),
+  a bullet never has that flag either ([18](behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box)), and
+  only the cannon, dynamite, rocket and candle can be lit ([17](behaviour-assumptions.md#17-parts-the-candle-can-light));
+- **missing**: with the reason the description can't say it yet.
+
+The search also writes the found list's link at `0x78`, and the explosion's, fan's, bellows', cat's, mouse's, mouse
+motor's, magnifying glass's, solar panel's and vacuum cleaner's search (`0x417e` in Even More, English floppy) two
+more words at `0x7a` and `0x7c`, on every part it finds. No part's own rules read these words, so they never change a
+frame; the check lists them apart, as the searches' bookkeeping. The mouse motor's, the magnifying glass's, the solar
+panel's and the mouse's loops only read their members, so they give no pair.
+
+The first run found that the boxing glove's punch and Mel's house gave no line, although they set a number for every
+type. A loop's line now takes a value the part's type settles, like the punch's speed, which the glove works out from
+the mass word at `+0x02` of the member's type record (5120 for the cat), and a value worked out from the part's own
+fields, like setting a goal mark. When the source names the part's type, or the reader has every flag test of the
+search that found it, the line also keeps the part's own tests that its type doesn't decide, in words, as a touch line
+does: "Only when its state is below 6". Without either, a test the outcome doesn't show could still keep the part out
+of the list, so no such line is made. A flag the search needs must be one the program gives the type, as for the
+walks, and a flag it needs clear is said by name. Mel's house now gives Mel "sets its out-of-play flag 0x2000 in
+drawing flags and sets its goal mark 0x0080 in field 0x0a. Only when its state is below 6", and the glove gives 23
+moving parts in Even More a line like "sets its goal mark 0x0400 in field 0x0a and sets velocityX to -5120" (17 in
+TIM 1, without goal marks). Effect lines in Even More went from 827 to 875 (from loops 64 to 112), in TIM 1 from 554
+to 588. No walk changes: walks that end stay at 1,338 and 1,154 and none stays open, the recordings stay at 648
+complete in Even More and 552 in TIM 1 with none different, and no rule writes an unknown value.
+
+The pairs in Even More (English floppy); TIM 1 (French) has the same for the parts it has:
+
+| Source and way                      | Described                                                                                                                          | Ruled out                              | Missing, and why                                                                                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Alligator, bounce                   | Mel (line and walks), mouse; 22 moving parts in part: the throw that sets `velocityX` reads a table word their type doesn't settle | 39 fixed types (11)                    |                                                                                                                                      |
+| Alligator, run                      | fish bowl, mouse motor (walks)                                                                                                     |                                        | bellows, scissors, teeter-totter: the value depends on where the alligator is; electric switch: a test compares the two places       |
+| Bellows, run                        | candle, windmill (walks)                                                                                                           | 39 fixed types and the bullet (11, 18) | 22 moving parts: the blow's speed reads a table word their type doesn't settle                                                       |
+| Boxing glove, run                   | 23 moving parts (lines), fish bowl and mouse motor (walks)                                                                         | 38 (11, 18)                            |                                                                                                                                      |
+| Bullet, bounce                      | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
+| Candle, run                         | balloon, candle, cannon, cat, dynamite, rocket, teapot (walks)                                                                     | 56 that can't be lit (17)              |                                                                                                                                      |
+| Cat, run                            |                                                                                                                                    |                                        | mouse: the catch is unresolved                                                                                                       |
+| Conveyor belt, bounce               | 23 moving parts (lines)                                                                                                            | 39 (11)                                | bullet: a contact response may change every field its rules read                                                                     |
+| Electric switch, bounce             | bullet (walk)                                                                                                                      |                                        |                                                                                                                                      |
+| Explosion, run                      | 24 (lines and walks)                                                                                                               | 36 (11, 18)                            | brick and wood wall: the split's values aren't known; Mel: his rules read the velocity, whose direction depends on where the two are |
+| Fan, run                            | candle (walk)                                                                                                                      |                                        | 62: the blow's speed reads a table word the type doesn't settle (bullet: a value isn't known; windmill: unresolved)                  |
+| Gear, bounce                        | 22 (lines, the balloon a walk); bullet and Mel in part: a contact response may change every field their rules read                 | 39 (11)                                |                                                                                                                                      |
+| Jack-in-the-box, run                | 25 (lines and walks)                                                                                                               | 34 (11, 18)                            | bellows, scissors: the value depends on where the box is; electric switch, teeter-totter: a test compares the two places             |
+| Mel, bounce                         | Mel in part (walks): turning round reads a table word                                                                              |                                        |                                                                                                                                      |
+| Mel's house, run                    | Mel (line)                                                                                                                         |                                        |                                                                                                                                      |
+| Pinball bumper, bounce              | 22 moving parts (lines)                                                                                                            | 39 (11)                                | bullet, Mel: their rules read the velocity, whose direction depends on where the two are                                             |
+| Rocket, run                         | as the candle                                                                                                                      | 56 (17)                                |                                                                                                                                      |
+| Scissors, bounce                    | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
+| Teapot, run                         | candle, mouse motor, windmill (walks)                                                                                              | 38 (11, 18)                            | 22 moving parts: the spout's speed reads a table word, and a test compares the two places                                            |
+| Teeter-totter, bounce               | 24 moving parts (lines)                                                                                                            | 39 (11)                                |                                                                                                                                      |
+| Teeter-totter, run (contact sweeps) |                                                                                                                                    |                                        | 63: what its contact search finds decides the values (see [effect lines with a proved meaning](#effect-lines-with-a-proved-meaning)) |
+| Teeter-totter, list consumer        |                                                                                                                                    |                                        | mouse motor, fish bowl, bellows, dynamite plunger, flashlight, scissors: see below                                                   |
+| Thumb tack, bounce                  | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
+| Trampoline, bounce                  | cat, mouse (walks), Mel (lines and walk); 21 in part: the bounce's `velocityY` reads a table word                                  | 39 (11)                                |                                                                                                                                      |
+| Vacuum cleaner, bounce              | 24 (lines, the balloon a walk)                                                                                                     | 39 (11)                                |                                                                                                                                      |
+| Vacuum cleaner, run                 |                                                                                                                                    |                                        | 63: the pull compares the two places and some paths are unresolved                                                                   |
+
+In numbers, Even More: 1,084 pairs allowed, 221 described, 46 partly described, 570 ruled out and 247 missing; TIM 1:
+615 allowed, 129 described, 17 partly described, 345 ruled out and 124 missing. Most missing pairs are of four runs
+whose values or tests depend on where the parts are (fan, vacuum cleaner, teeter-totter sweeps, bellows and teapot).
+Every pair that is neither described nor ruled out has a reason.
+
+**The teeter-totter's list consumer.** When a teeter-totter tips, its run (Even More, English floppy: calls at
+`0x1d49a`, `0x1d4f8` and `0x1d521`; TIM 1, French: four calls to `0x1bf09`) hands an overlap list to the helper at
+`0x1d797`. That helper goes through the list and picks by the member's type from a table of six (`0x1d8a4`): it starts
+a mouse motor (`0x1c074`), sets a fish bowl to frame 11 (`0x1ad71`, it breaks), and sets the control value at `0x12` to 1 on a bellows,
+a scissors, and, when the run passes 1, a dynamite plunger and a flashlight, each only when the member is in a range of
+pixels from the teeter-totter's end that depends on whether the member is mirrored. TIM 1 has the same six types. The
+analysis reads this helper only as a footprint (which member fields it may write), not path by path, so these six
+pairs have no line or walk yet. Reading it like a loop's per-member outcomes needs the routine analysis to follow a
+list that comes in from the caller, which is a larger change.
+
+Ropes, belts, pulleys and gears also reach other parts, through connections rather than touch or search. They are the
+next kind of work (see the plan's last section) and this check doesn't count them.
+
 ### Effect lines with a proved meaning
 
 23 effect lines in Even More and 14 in TIM 1 said that what a field means "isn't established". Each now says what the
@@ -1275,8 +1437,22 @@ structure in all eleven builds):
   proved: it is set at seven places, three of them only around a call of the rope routine `0x6c3d` (`0x8156`,
   `0x821c`, `0x1cb2c`) and one inside the scissors' cut until `0x1cdee` puts the old mode back (`0x1cd47`).
 
-So the analysis keeps both groups named after the call. Knowing them would take a decision: that only ropes and
-pulleys hold a rope record (the loader trusts the file), and that a flip never meets a belt with a loose end.
+The user decided both on 2026-11-06:
+[decided assumption 19](behaviour-assumptions.md#19-parts-that-hold-a-rope-record), only a rope piece or a pulley ever
+holds a rope record, and [decided assumption 20](behaviour-assumptions.md#20-flipping-a-part-with-a-loose-belt-end), in
+the editor a part is never flipped while one end of its belt is still loose. The reader (`addRelayOwnerKeeps`) now
+records, for each routine that calls the relay, which of the owner's fields it keeps:
+
+- The rope ends `0x96` and `0x9c`, when the routine is named directly by the type table, nothing else calls it, and none
+  of the types that name it is the rope or the pulley. The relay summary says which part fields come only from the
+  rope geometry update (`ropeHolderFields`).
+- The links `0x5a` to `0x60`, `0x6a` and `0x6c`, when the routine is moreover named only as a flip callback. The relay
+  summary says which part fields come only from the belt end check (`beltEndFields`).
+
+Every part callback that calls the relay passes both tests in all eleven builds (27 types in Even More, 23 in TIM 1,
+all flip callbacks). The relay has other callers that the type table doesn't name (eleven in Even More, English
+floppy); they keep nothing, and the analysis doesn't walk them. Assumption 20 concerns flipping a part in the editor; it
+says nothing about the machine running. Parts the relay reaches, other than the owner, still forget these fields.
 
 ### The magnifying glass's last call
 
@@ -2031,8 +2207,8 @@ The statements:
    kind 4, or the end of a reaction that began while pedalling, makes the control value something other than 0, and a
    hit alone never starts a bike that stands still. But the code has no way for a pedalling bike to stop during a run:
    no routine sets its control value to 0 except the bounce, and after that reaction it pedals on. It stops only when
-   the machine is stopped and the level reset puts it back on frame 0 with control value 0. Whether the user saw it
-   stop by itself is asked below.
+   the machine is stopped and the level reset puts it back on frame 0 with control value 0. The user confirmed on
+   2026-11-06 that this is what the game does: a pedalling bike stops only when the machine is stopped.
 5. **A belt from the bike can drive another part, like a jack-in-the-box.** Agrees. The jack's flags have no `0x0800`,
    so the bike's copy reaches it. Its run (`0x1b888`) adds its control value to its frame on frames 0 to 7 (turned round
    when the jack is flipped) and wraps at 8 and -1. The bike writes only -1, 0 or 1, the numbers
@@ -2318,12 +2494,15 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
 - The belt is always saved on frame 0, the rope in TIM 1 (no frame list there) on 0, the pinball bumper on 0. The rope
   end, the heart and the shamrock are in no shipped level; the jack-o-lantern and the Christmas tree are in one level
   each (two builds), on frame 0.
-- The wood incline has no frame list and no decided assumption, so nothing limits its frame. Every shipped incline has
-  the frame its resize gives, its width divided by 16 less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two
-  inclines fit the same rule but not the editor: in "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five
-  full Even More builds, an incline has width 0 and frame -1. The editor keeps the width between 16 and 64 (the type
-  record's limits), so these were made another way, and their reset reads its outline from the word before its table.
-  A decided list of 0 to 3 for the incline would be wrong for those two levels.
+- The wood incline has no frame list. Every shipped incline has the frame its resize gives, its width divided by 16
+  less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two inclines fit the same rule but not the editor: in
+  "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five full Even More builds, an incline has width 0 and
+  frame -1. The editor keeps the width between 16 and 64 (the type record's limits), so these were made another way,
+  and their reset reads its outline from the word before its table. The user decided on 2026-11-06 that an incline
+  starts on the frame its width gives
+  ([decided assumption 21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame)): `LEVEL_FRAMES` lists frames
+  -1 to 3 with the rule, the incline's rest says so, and the check now also compares each incline's frame with the one
+  its width gives (`fromWidth`). The walks can't tie the frame to the width, so they start from the five frames.
 - The decided starting frames still hold everywhere: the conveyor belt on 0, 7, 14, 21 or 28, each the frame its
   width gives; the gear and the electric motor on 0; the mouse motor on 0 or 1; the generator on 0 or 4. Every level
   saves every control value as 0.
@@ -2431,7 +2610,8 @@ so the type is that number:
 | dynamite plunger | `0x1c3c1`        | `0x29` | explosion  |
 
 Part 43 keeps its id `pinball`, since ids never change once published, but in TIM 1 and Even More it is the cannonball
-the cannon fires, so the descriptions call it that.
+the cannon fires, so the descriptions call it that. Only the behaviour descriptions do: the user decided on 2026-11-06
+that the Lab keeps showing "Pinball" as the part's name.
 
 Helpers make parts the same way: an explosion at `0x1a432`, and in the other builds the scissors' rope cut makes two rope ends and a rope (types `0x31` and `0x0a`). The reader takes the type only from `mov` of a number into a
 register and `push` of that register, or a `push` of a number, right before the far call, with nothing jumping to the

@@ -42,8 +42,9 @@ counts as named, not unknown.
 - [x] **B2. The touching part's speed.** The speed limit keeps a speed within the limit from the type record; the
       speed setter's velocity is a formula, and the pinball bumper's angle is the named centre angle answer.
 - [x] **B3. Parts reached through ropes and belts.** Named through the relay: its byte is exact on the owner and on
-      every part it reaches. Unknown writes 242 to 33 (Even More), 218 to 28 (TIM 1). See "The owner's rope fields
-      after the relay"; two questions stay open there.
+      every part it reaches. Unknown writes 242 to 33 (Even More), 218 to 28 (TIM 1). You settled the two questions
+      left (decided assumptions 19 and 20), so a flip callback's part keeps its rope ends and links after the relay.
+      See "The owner's rope fields after the relay".
 - [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger make a rope end, a cannonball, a
       bullet and an explosion, each with its place, speed and other fields.
 - [x] **B5. A part's own fields.** Every field is known or a named run value. Unknown writes 0 of 925 and 0 of 764;
@@ -56,9 +57,14 @@ counts as named, not unknown.
 
 - [x] **C1. Touch effects that aren't walked yet.** The vacuum cleaner, the teeter-totter, the electric switch on a
       bullet and the trampoline on Mel are lines or walks in "From other parts". See "Touch effects of four more parts".
-- [ ] **C2. Check the list is complete.** Go over every part type's bounce, hit and search code and list which types
-      it can affect. Done when every pair the code allows appears in some part's "From other parts", or is listed as not
-      possible with the reason.
+- [x] **C2. Check the list is complete.** `list-other-part-pairs` gives every pair the code allows as described,
+      partly described, ruled out or missing, each with its reason. Even More: 1,084 pairs, 221 described, 46 partly,
+      570 ruled out, 247 missing; TIM 1: 615, 129, 17, 345, 124. See "Which parts can affect which".
+- [ ] **C3. What a teeter-totter's end does to the part lying there.** When it tips, its end hands a list to a helper
+      that can start a mouse motor, break a fish bowl, or set off a bellows, scissors, dynamite plunger or flashlight
+      (6 pairs per build). The analysis needs to follow a list handed in from another part.
+- [ ] **C4. The missing pairs that depend on where parts are.** 247 pairs in Even More and 124 in TIM 1 (sweeps,
+      explosion splits, thrown directions) belong with several parts working together; this plan only lists them.
 
 ## D. Recordings that stop early
 
@@ -66,20 +72,23 @@ counts as named, not unknown.
       search compared with "found nothing", what the recorder writes between runs, and walks only from a start the
       recorder seeded. See "Recordings that wait for a search" and the sections after it.
 - [x] **D2. Monkey bike.** All five things you saw agree with the code; the 32 recordings per build close under the
-      recorder's own basis. See "The monkey bike against what the user saw"; one question stays open.
+      recorder's own basis, and you confirmed it stops only when the machine stops. See "The monkey bike against what
+      the user saw".
 
 Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
 
 ## E. Parts without a recording
 
 - [x] **E1. Check them against the shipped levels.** No level disagrees, in all eleven builds (1,281 level files).
-      See "Starting frames in the shipped levels".
+      The wood incline starts on the frame its width gives, -1 to 3 (decided assumption 21). See "Starting frames in
+      the shipped levels".
 - [x] **E2. A short list for you to try in the game.** 25 items in `docs/behaviour-game-checks.md`.
 
 ## F. All builds
 
-- [ ] **F1. Measure all eleven builds**, not only the two above. Done when every build's numbers are in the report
-      and none has a recording that differs.
+- [x] **F1. Measure all eleven builds.** Every build has the numbers of the recorded build of its game, and every
+      walk ends (Even More 1,338, TIM 1 1,154). No recording differs; 16 (Even More CD and demo) and 12 (TIM 1 English)
+      stop as prefixes because they need a search the recorder skipped. See "All eleven builds".
 - [ ] **F2. Recheck the decided assumptions** over all builds and the shipped levels after A to E.
 
 ## G. Close
