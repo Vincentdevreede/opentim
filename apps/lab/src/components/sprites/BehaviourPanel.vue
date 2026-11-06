@@ -21,6 +21,7 @@ import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
 import BehaviourEffect from "./BehaviourEffect.vue";
+import BehaviourRest from "./BehaviourRest.vue";
 import BehaviourRow from "./BehaviourRow.vue";
 import BehaviourWalk from "./BehaviourWalk.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
@@ -68,6 +69,8 @@ const walkList = computed(() => {
 });
 /** What other parts do to this one without changing its frame, which comes with the walks. */
 const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
+/** How the reset leaves its frame and where it comes to rest, which also comes with the walks. */
+const rest = computed(() => (props.walks?.status === "done" ? props.walks.rests[props.type] : undefined));
 const walkCount = (rows: { variants: unknown[] }[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
 /** Whether a walk starts from the frame on the stage. */
 const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
@@ -395,6 +398,10 @@ const more = computed(() => {
           </div>
         </LabSection>
       </div>
+
+      <LabSection v-if="rest" title="Rest">
+        <BehaviourRest :rest="rest" :frames="frames" @show-frame="emit('showFrame', $event)" />
+      </LabSection>
 
       <LabSection v-if="effects.length" title="From other parts">
         <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">

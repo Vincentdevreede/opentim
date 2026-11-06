@@ -401,3 +401,14 @@ export const START_WORDS: Record<WalkStart, string> = {
   "documented-rest": "at rest",
   "run-guard": "running",
 };
+
+/** How the reset leaves a part's frame, in a few words, when it isn't one frame. */
+export const RESET_WORDS: Record<"saved" | "sockets" | "unresolved", string> = {
+  saved: "keeps the saved frame",
+  sockets: "from its plugs",
+  unresolved: "unresolved",
+};
+
+/** Why a part rests on a frame, in a few words: how many walks end there, or a run that keeps it. */
+export const restingWords = (frame: { walks?: number }) =>
+  frame.walks ? `${frame.walks} ${frame.walks === 1 ? "walk ends" : "walks end"} here` : "a run keeps it";

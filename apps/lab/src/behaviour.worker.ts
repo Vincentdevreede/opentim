@@ -4,6 +4,7 @@ import { describeBehaviour, readBehaviour, type BehaviourReport } from "@opentim
 import {
   summariseBehaviour,
   summariseEffects,
+  summariseRests,
   summariseWalks,
   type BehaviourMessage,
   type BehaviourRequest,
@@ -27,7 +28,11 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
     const description = describeBehaviour(report);
     const walks = summariseWalks(report, description);
     const effects = summariseEffects(report, description);
-    post({ kind: "walks", result: { status: "done", walks, effects, seconds: (performance.now() - started) / 1000 } });
+    const rests = summariseRests(report, description);
+    post({
+      kind: "walks",
+      result: { status: "done", walks, effects, rests, seconds: (performance.now() - started) / 1000 },
+    });
   } catch (error) {
     post({ kind: "walks", result: { status: "error", message: (error as Error).message } });
   }

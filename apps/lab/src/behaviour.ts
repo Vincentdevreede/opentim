@@ -142,6 +142,32 @@ export interface OtherEffect extends Finding {
   description: string;
 }
 
+/** One frame a part comes to rest on: from a run outcome, or where its walks end. */
+export interface RestingFrame extends Finding {
+  state: number;
+  /** How many walk branches come to rest on it, when the walks give it rather than a run outcome. */
+  walks?: number;
+  /** The conditions on the way there, for the first few, as text. */
+  conditions: string[];
+}
+
+/** How a part's frame is when the machine is put back, and the frames it comes to rest on. */
+export interface RestSummary extends Finding {
+  /**
+   * `known`: the reset gives one frame. `saved`: it keeps the frame the level saved. `sockets`: it sets the frame from
+   * whether plugs are in the part's sockets. `unresolved`: the analysis can't tell.
+   */
+  status: "known" | "saved" | "sockets" | "unresolved";
+  /** The frame the reset gives, when it gives one. */
+  state?: number;
+  /** The frames the reset can leave, when they are known. */
+  frames?: number[];
+  /** The analysis's own sentence, and why it can't say more. */
+  description: string;
+  reason?: string;
+  resting: RestingFrame[];
+}
+
 export interface PartSummary {
   routines: Routine[];
   changes: Change[];
@@ -651,6 +677,43 @@ export function summariseWalks(report: BehaviourReport, description: BehaviourDe
   );
 }
 
+/** How each part's reset leaves its frame and where it comes to rest, by type, from the report's description. */
+export function summariseRests(
+  report: BehaviourReport,
+  description: BehaviourDescription,
+): Record<number, RestSummary> {
+  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const parts = new Map(report.parts.map((p) => [p.type, p]));
+  return Object.fromEntries(
+    description.parts.map((d) => {
+      const part = parts.get(d.type);
+      const write = part ? partWriter(part, fields) : writer(fields);
+      const { rest } = d;
+      const summary: RestSummary = {
+        confidence: rest.confidence,
+        assumptions: rest.assumptions,
+        evidence: instructions(rest.evidence),
+        status: rest.status,
+        ...(rest.status === "known" && rest.state !== undefined ? { state: rest.state } : {}),
+        ...(rest.frames ? { frames: rest.frames } : {}),
+        description: rest.description,
+        ...(rest.reason ? { reason: rest.reason } : {}),
+        resting: d.stableStates.map((stable) => ({
+          confidence: stable.confidence,
+          assumptions: stable.assumptions,
+          evidence: instructions(stable.evidence),
+          state: stable.state,
+          ...(stable.walks ? { walks: stable.walks } : {}),
+          conditions: [...new Set(stable.origins.map((o) => write.predicate(o.condition)))].filter(
+            (c) => c !== "always",
+          ),
+        })),
+      };
+      return [d.type, summary];
+    }),
+  );
+}
+
 /** The largest error of a speed that points away from the other part, when one does. */
 function awayWithin(sets: OtherPartEffect["sets"]): { awayWithin?: number } {
   const degrees = sets.flatMap((s) => (s.kind === "speed" && s.away ? [s.away.degrees] : []));
@@ -758,7 +821,13 @@ export type BehaviourResult =
 
 /** The walks of every part, by type, which take a few more seconds to read after the rest, and the effects of others. */
 export type WalksResult =
-  | { status: "done"; walks: Record<number, Walk[]>; effects: Record<number, OtherEffect[]>; seconds: number }
+  | {
+      status: "done";
+      walks: Record<number, Walk[]>;
+      effects: Record<number, OtherEffect[]>;
+      rests: Record<number, RestSummary>;
+      seconds: number;
+    }
   | { status: "error"; message: string };
 
 /** What the worker is asked: the program as it ships, and what was read from it before. */

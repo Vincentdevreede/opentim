@@ -8,7 +8,14 @@ import type {
   Predicate,
 } from "@opentim/content";
 import { describe, expect, it } from "vitest";
-import { statesText, summariseBehaviour, summariseEffects, summariseWalks, writer } from "../src/behaviour.ts";
+import {
+  statesText,
+  summariseBehaviour,
+  summariseEffects,
+  summariseRests,
+  summariseWalks,
+  writer,
+} from "../src/behaviour.ts";
 
 const fields = [
   { offset: 0x0c, name: "state" },
@@ -469,5 +476,65 @@ describe("summariseEffects", () => {
   it("writes a value of the part's own fields as a formula, and marks a touch", () => {
     expect(touch).toMatchObject({ touch: true, sets: [{ what: "velocityX", value: "velocityX >> 1" }] });
     expect(push!.touch).toBeUndefined();
+  });
+});
+
+describe("summariseRests", () => {
+  const report = {
+    layout: { fields: fields.map((f) => ({ ...f, confidence: "checked", evidence: [], assumptions: [] })) },
+    parts: [
+      { type: 3, routines: [] },
+      { type: 21, routines: [] },
+    ],
+  } as unknown as BehaviourReport;
+  const rest = (more: object) => ({ ...finding, fields: [], ...more });
+  const description = {
+    parts: [
+      {
+        type: 3,
+        rest: rest({
+          status: "saved",
+          description: "The reset keeps the frame the level saved: 0, 1 or 2.",
+          frames: [0, 1, 2],
+        }),
+        stableStates: [
+          { ...finding, state: 0, fields: [], origins: [{ condition: { kind: "true" }, evidence }] },
+          {
+            ...finding,
+            state: 2,
+            fields: [],
+            walks: 157,
+            origins: [
+              { condition: compare("!=", field(0x12), constant(0)), evidence },
+              { condition: compare("==", field(0x12), constant(0)), evidence },
+            ],
+          },
+        ],
+      },
+      {
+        type: 21,
+        rest: rest({
+          status: "sockets",
+          description: "The reset sets the frame from the part's sockets.",
+          frames: [0, 4],
+        }),
+        stableStates: [],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const rests = summariseRests(report, description);
+
+  it("keeps how the reset leaves the frame, with the frames it can be", () => {
+    expect(rests[3]).toMatchObject({ status: "saved", frames: [0, 1, 2], confidence: "inferred" });
+    expect(rests[21]).toMatchObject({ status: "sockets", frames: [0, 4], resting: [] });
+    expect(rests[3]!.state).toBeUndefined();
+  });
+
+  it("lists the resting frames with how many walks end there and the conditions on the way", () => {
+    expect(rests[3]!.resting).toMatchObject([
+      { state: 0, conditions: [] },
+      { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"] },
+    ]);
+    expect(rests[3]!.resting[0]!.walks).toBeUndefined();
   });
 });
