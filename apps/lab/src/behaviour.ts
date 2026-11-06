@@ -168,6 +168,16 @@ export interface RestSummary extends Finding {
   resting: RestingFrame[];
 }
 
+/** A line of what the part does, from the analysis: a part it creates, or what it does to itself or to other parts. */
+export interface Doing extends Finding {
+  /** `created`: a part it makes. `itself`: a flag of its own with a proved meaning. `others`: another part's fields. */
+  on: "created" | "itself" | "others";
+  /** The analysis's own sentence. */
+  description: string;
+  /** How many ways through its routines give the same sentence. */
+  ways: number;
+}
+
 export interface PartSummary {
   routines: Routine[];
   changes: Change[];
@@ -714,6 +724,48 @@ export function summariseRests(
   );
 }
 
+/** Flags and fields of a part whose meaning the code proves, as the analysis names them in its lines. */
+const PROVED = /ran-this-step mark|out-of-play flag|goal mark|contact flag|fine (horizontal|vertical) position/;
+
+/**
+ * What each part does, by type, from the report's description: the parts it creates, what it does to other parts, and
+ * the flags of its own whose meaning the code proves. Ways that say the same are one line.
+ */
+export function summariseDoings(description: BehaviourDescription): Record<number, Doing[]> {
+  return Object.fromEntries(
+    description.parts.map((d) => {
+      const lines = new Map<string, Doing>();
+      for (const e of d.effects) {
+        const on =
+          e.kind === "related-object"
+            ? /^Creates /.test(e.description)
+              ? "created"
+              : "others"
+            : e.kind === "drawing" && PROVED.test(e.description)
+              ? "itself"
+              : undefined;
+        if (!on) continue;
+        const line = lines.get(e.description);
+        if (line) {
+          line.ways++;
+          if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
+            line.confidence = e.confidence;
+          continue;
+        }
+        lines.set(e.description, {
+          confidence: e.confidence,
+          assumptions: e.assumptions,
+          evidence: instructions(e.evidence),
+          on,
+          description: e.description,
+          ways: 1,
+        });
+      }
+      return [d.type, [...lines.values()]];
+    }),
+  );
+}
+
 /** The largest error of a speed that points away from the other part, when one does. */
 function awayWithin(sets: OtherPartEffect["sets"]): { awayWithin?: number } {
   const degrees = sets.flatMap((s) => (s.kind === "speed" && s.away ? [s.away.degrees] : []));
@@ -873,6 +925,7 @@ export type WalksResult =
       walks: Record<number, Walk[]>;
       effects: Record<number, OtherEffect[]>;
       rests: Record<number, RestSummary>;
+      doings: Record<number, Doing[]>;
       seconds: number;
     }
   | { status: "error"; message: string };

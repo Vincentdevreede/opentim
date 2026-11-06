@@ -20,6 +20,7 @@ import LabSection from "../LabSection.vue";
 import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
+import BehaviourDoing from "./BehaviourDoing.vue";
 import BehaviourEffect from "./BehaviourEffect.vue";
 import BehaviourRest from "./BehaviourRest.vue";
 import BehaviourRow from "./BehaviourRow.vue";
@@ -71,6 +72,19 @@ const walkList = computed(() => {
 const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
 /** How the reset leaves its frame and where it comes to rest, which also comes with the walks. */
 const rest = computed(() => (props.walks?.status === "done" ? props.walks.rests[props.type] : undefined));
+/** What the part does: the parts it creates, then what it does to itself and to other parts. */
+const doings = computed(() => (props.walks?.status === "done" ? (props.walks.doings[props.type] ?? []) : []));
+const created = computed(() => doings.value.filter((d) => d.on === "created"));
+const doneTo = computed(() =>
+  (["itself", "others"] as const)
+    .map((on) => ({
+      on,
+      title: on === "itself" ? "On itself" : "On other parts",
+      list: doings.value.filter((d) => d.on === on),
+    }))
+    .filter((g) => g.list.length),
+);
+const doneCount = computed(() => doneTo.value.reduce((n, g) => n + g.list.length, 0));
 const walkCount = (rows: { variants: unknown[] }[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
 /** Whether a walk starts from the frame on the stage. */
 const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
@@ -409,6 +423,12 @@ const more = computed(() => {
         </div>
       </LabSection>
 
+      <LabSection v-if="created.length" title="Creates">
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+          <BehaviourDoing v-for="d in created" :key="d.description" :doing="d" />
+        </div>
+      </LabSection>
+
       <LabSection v-if="gear" title="Gear">
         <template #action>
           <LabInfo :text="[gear.text.activation, '', ...gear.text.scheduling].join('\n')" />
@@ -443,6 +463,18 @@ const more = computed(() => {
           </div>
         </template>
       </LabSection>
+
+      <LabDisclosure
+        v-if="doneCount"
+        :title="`To itself and others · ${doneCount} ${doneCount === 1 ? 'line' : 'lines'}`"
+      >
+        <template v-for="g in doneTo" :key="g.on">
+          <PanelTitle class="block px-3 pt-2 pb-1">{{ g.title }}</PanelTitle>
+          <div class="flex flex-col [&>*:first-child]:border-t-0">
+            <BehaviourDoing v-for="d in g.list" :key="d.description" :doing="d" />
+          </div>
+        </template>
+      </LabDisclosure>
 
       <LabDisclosure :title="`More · ${more} findings`">
         <ul class="flex flex-col gap-1 p-3 font-mono text-meta break-words text-muted">

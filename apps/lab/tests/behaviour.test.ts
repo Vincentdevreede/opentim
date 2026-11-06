@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   statesText,
   summariseBehaviour,
+  summariseDoings,
   summariseEffects,
   summariseRests,
   summariseWalks,
@@ -612,5 +613,49 @@ describe("summariseRests", () => {
       { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"] },
     ]);
     expect(rests[3]!.resting[0]!.walks).toBeUndefined();
+  });
+});
+
+describe("summariseDoings", () => {
+  const line = (kind: string, description: string, confidence = "inferred") => ({
+    ...finding,
+    confidence,
+    kind,
+    description,
+  });
+  const cannonball =
+    "Creates a cannonball (type 43, which starts on frame 0) at positionX = its positionX + 97 and positionY = its positionY - 7, moving at velocityX = 12288 and velocityY = -4096 (each kept within the cannonball's speed limit).";
+  const ran =
+    "Sets the part's ran-this-step mark 0x0040 in drawing flags (the step's run loop clears it first and then calls no run callback of a part that has it).";
+  const relay =
+    "May change field 0x14 of a part its ropes, belt or pulleys reach (this part too): the value the relay passes along.";
+  const description = {
+    parts: [
+      {
+        type: 18,
+        effects: [
+          line("related-object", cannonball),
+          line("drawing", ran),
+          line("drawing", ran, "unresolved"),
+          line("drawing", "Sets flag 0x200 of the part's drawing flags."),
+          line("helper", "Can call a shared helper: Turns a rope around."),
+          line("related-object", relay),
+        ],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const doings = summariseDoings(description)[18]!;
+
+  it("keeps the parts it creates, what it does to other parts and its own flags with a proved meaning", () => {
+    expect(doings.map((d) => [d.on, d.description])).toEqual([
+      ["created", cannonball],
+      ["itself", ran],
+      ["others", relay],
+    ]);
+  });
+
+  it("makes ways that say the same one line, as unsure as the least sure of them", () => {
+    expect(doings[1]).toMatchObject({ ways: 2, confidence: "unresolved" });
+    expect(doings[0]).toMatchObject({ ways: 1, confidence: "inferred" });
   });
 });
