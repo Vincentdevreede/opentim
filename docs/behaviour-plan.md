@@ -101,6 +101,9 @@ the level), and every one of those is listed by name.
       motor's 4 run recordings (countdown), the cat's 4 still recordings per build (position fields the recorder sets),
       the TIM 1 cat's 2 move recordings (its loop isn't summed up as a list loop) and the mouse's 4 per build (no
       search skipped).
+      Then also compared with what the recorder writes between runs and the fields it clears that nothing in the clip
+      writes (see "What the recorder writes between runs"), with their own basis: Even More 606 to 612 (the mouse 4,
+      the cat's still recordings 2), TIM 1 512 to 516 (the mouse 4), none different.
 - [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Still open. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

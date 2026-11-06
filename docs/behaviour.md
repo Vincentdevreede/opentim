@@ -1714,6 +1714,40 @@ TIM 1 all eight mouse motor recordings close. What stays open, and why:
   set; the recorder clears those flags and the run never sets them, but the comparison only takes them as clear on the
   first run.
 
+### What the recorder writes between runs
+
+Decided with the user, on the same principle as the skipped search: a recording may be compared with exactly what the
+recorder did to the part between runs, not only with what its clip saved. Read in `research/v24/verify_animations.py`:
+
+- `setup` loads the program again, clears the part's 0x300 bytes, sets the six words at `0x1e` to `0x28` to 100 and
+  sets the type, flags, size and the pointers at `0x80` to `0x84`; `apply` writes the seed (frame, control value,
+  counter, heat, speed, flags);
+- before each run `clip` writes its hold values, which the comparison already follows;
+- after each run `step` copies `0x0e` into `0x10`, then the frame into `0x0e`, and sets the six words at `0x1e` to `0x28`
+  to 100 again.
+
+So before every run the words at `0x1e` to `0x28` are 100, and `0x0e` holds the frame the clip saved there (0 before the
+first run, since the recorder cleared it). `0x10` holds the frame of the run before, and 0 before the first two runs,
+but only when nothing in the clip writes `0x0e`, since the recorder copies whatever `0x0e` holds after the run.
+
+Every other byte the recorder clears stays 0 on every run when nothing in the clip can write it. That is shown from the
+code, not assumed: the comparison goes through every instruction of the run routine and of the routines it calls in its
+own code segment, counts each data write by its offset whatever pointer it goes through, and gives up on string
+instructions, interrupts, a call it can't follow and a pointer the routine moves by an offset. A call that leaves the
+code segment writes nothing, since the recorder skips it. The mouse's list flags at `0x06` are such a field: its run
+never writes them, so they are 0 on every run, not only the contact bits on the first.
+
+These fields replace what a walk knew for them at each run. A walk that knew another value for one (or something other
+than 0 for a cleared field nothing writes) isn't on the recorder's way there and stays open, and a start that knows
+another value isn't the recorder's start. The comparison only takes them when the walks as they are don't match; such a
+match has its own basis, `recorder-fields`, counted apart. A skipped search's empty found list comes on top of them and
+keeps the basis `recorder-skipped-search`. Neither says what the game does.
+
+Complete matches went from 606 to 612 in Even More (4 through the recorder's fields, 12 through a skipped search) and
+from 512 to 516 in TIM 1 (4 and 8), prefixes from 42 to 36 and from 40 to 36. None is different. The mouse's four run
+recordings close in both builds (its flags at `0x06`), and in Even More the cat's two still recordings that look in the
+found list (the position words at 100 rule out the frame it shows when they differ).
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
