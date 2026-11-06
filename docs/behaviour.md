@@ -2044,20 +2044,49 @@ The gun, when not flipped: "Creates a bullet (type 20) at positionX = its positi
   positionY. The balloon's rope end starts at the end point its rope record keeps for the balloon's end of the rope, and
   takes over the balloon's rope links at `0x5a` and `0x66`.
 
-Two values stay unnamed and the lines say so in words. The speeds go through the speed limit at `0x37bc`, which
-limits each speed to the value in the new part's type record; the routine's speed is given as the value it stored
-before that limit. And the list insertion at `0x629d` links the new part between neighbours it picks while the game
-runs ("links it into a list of parts"). Neither is fixed by the code, so the rules' writes of `0x00`, `0x02`, `0x36`
-and `0x38` on the new part stay unknown, and the rules that make a part still count as rules with an unknown write.
-Their other unknown writes come from merging paths that set a field differently (step B0 of the plan).
+The speeds go through the speed limit at `0x37bc`, which keeps each speed within the limit in the new part's type
+record (see [The speed limit](#the-speed-limit)); the line gives the speed the routine stored before that limit. The
+list insertion at `0x629d` links the new part between neighbours it picks while the game runs ("links it into a list
+of parts")). The code doesn't fix them, so the rules'
+writes of `0x00` and `0x02` on the new part stay unknown.
 
-### The type record word the game writes
+### The type record words the game writes
 
 Lines about other parts read words of a type record from TIM.EXE, like the mass at `+0x02` that picks the explosion's
-speed class, under the assumption that a type record keeps its words while a level runs. One word doesn't: the game
-stores a part's frame list at `+0x14` when it loads the part's pictures and clears it when it frees them (`0x107dc`
-and `0x1084c` in Even More English floppy, `0xfcda` and `0xfd38` in TIM 1 French). That word is now never read from
-the program, and the assumption says so. No line or walk used it in the recorded builds, so nothing else changes.
+speed class, under the assumption that a type record keeps its words while a level runs. Three words don't, so they
+are never read from the program, and the assumption says so:
+
+- **The frame list at `+0x14`.** The game stores a part's frame list there when it loads the part's pictures and
+  clears it when it frees them (`0x107dc` and `0x1084c` in Even More English floppy, `0xfcda` and `0xfd38` in TIM 1
+  French).
+- **The acceleration at `+0x08` and the speed limit at `+0x0a`.** Both are 0 in the program for every type. The
+  routine at `0x369c` (Even More, English floppy; `0x2af1` in TIM 1, French, where the table sits in the data
+  segment) works them out for every type: the acceleration from the type's density, the air pressure (`[0x4cb7]`) and
+  the gravity (`[0x4cb9]`), and the speed limit as `0x3000` (12288) for the bullet (type 20) and the cannonball (type 43) and as `0x2600` minus a value of the air pressure for every other type: `9728 - (air >> 1)` when the air
+  pressure is below 70, else `9728 - (air << 4)`. The level loader calls it right after it reads the air pressure and
+  the gravity (`0x13b46`), and so do `0x12593`, right after it stores a new air pressure, and `0x15d90`. In the Even More
+  builds no other store reaches those words (the other `es:` stores to `+0x08` and `+0x0a`, at `0x7193` to `0x71f2`,
+  go to a block the game allocates); in TIM 1 the table sits in the data segment, where a store to it doesn't show by
+  its form. Leaving the words out holds either way.
+
+No line or walk read `+0x08` or `+0x0a` in the recorded builds before the speed limit below, so nothing else changes.
+
+### The speed limit
+
+The routine at `0x37bc` (Even More, English floppy) keeps a part's speeds within its type's speed limit, vertical
+first: a speed above the limit becomes the limit, else a speed below minus the limit becomes minus the limit, else it
+stays. Its matcher gives two writes per speed, each with its test, and a caller used to call the field unknown
+("Conditional contact-velocity-limit effect"). The two tests for a speed never both hold, so the new speed is now one
+exact value: `limit if speed > limit, else -limit if speed < -limit, else speed`, signed, built with `choose` from the
+speed the caller holds and the limit word `+0x0a` of the part's type record. `speedLimitOf` gives the speed and the
+limit back.
+
+This names the speeds of the touching part that the trampoline and the alligator write, the rocket's own speeds and
+the speeds of the bullet and the cannonball the gun and the cannon make. The limit is a word the game works out from the
+level's air pressure (see above), so for a part whose type the rule knows it is that type's limit; for the bullet and
+the cannonball it is 12288, no less than any speed the gun and the cannon set, so those speeds stay as set. Rules with
+unknown writes go from 33 to 25 of 925 in Even More, English floppy, and from 28 to 23 of 764 in TIM 1, French; every
+walk still ends and the recordings stay at 606 complete, 42 prefix, 0 different and 512, 40, 0.
 
 ### Frame sizes from the part's sheet
 

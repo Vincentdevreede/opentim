@@ -419,6 +419,22 @@ export function choiceOf(e: Expression): { test: Comparison; then: Expression; o
     : { kind: "compare", operator: x.operator, left: x.left, right: x.right, signed: false };
   return { test, then: a.right, otherwise: b.right };
 }
+/**
+ * The speed and the limit of a value the speed limit made: `limit if speed > limit, else -limit if speed < -limit,
+ * else speed`, signed. Undefined for any other value.
+ */
+export function speedLimitOf(e: Expression): { speed: Expression; limit: Expression } | undefined {
+  const upper = choiceOf(e);
+  if (!upper || upper.test.operator !== ">" || !upper.test.signed || !same(upper.test.right, upper.then)) return;
+  const lower = choiceOf(upper.otherwise);
+  const [speed, limit] = [upper.test.left, upper.then];
+  if (!lower || lower.test.operator !== "<" || !lower.test.signed || !same(lower.test.left, speed)) return;
+  if (!same(lower.test.right, lower.then) || !same(lower.otherwise, speed)) return;
+  const negative = lower.then;
+  if (negative.kind !== "binary" || negative.operator !== "-" || !same(negative.right, limit)) return;
+  if (negative.left.kind !== "constant" || negative.left.value !== 0) return;
+  return { speed, limit };
+}
 
 /**
  * A value with the owner's type put in for its type field, folded where a test or a product becomes a number. A part's
@@ -1565,6 +1581,52 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       return conjunction(predicate.terms.map((p) => formalPredicate(p, args, base, s, ownerOffset)));
     return predicate;
   };
+  /**
+   * The speed limit's writes as one exact value per speed. Its two cases for a speed never both hold: above the limit
+   * the speed becomes the limit, else below minus the limit it becomes minus the limit, else it stays. Undefined for
+   * any other helper, or when a test can't be put as a comparison.
+   */
+  const speedLimitWrites = (engine: EngineSummary, args: Tracked[], s: AbstractState) => {
+    const limiter = engine.contactResponse;
+    if (limiter?.kind !== "velocity-limit") return undefined;
+    const pointer = formalArgument(args, engine.argumentOffset, limiter.ownerArgument);
+    const pick = (test: Predicate, then: Expression, otherwise: Expression) =>
+      entails(test, s)
+        ? then
+        : !possible(conjunction([...s.conditions, test]))
+          ? otherwise
+          : test.kind === "compare"
+            ? choose(test, then, otherwise, 16)
+            : undefined;
+    const out = [];
+    for (const offset of limiter.fields) {
+      const [upper, lower] = limiter.cases.filter((item) => item.field === offset);
+      const below = lower?.condition.kind === "and" ? lower.condition.terms[1] : undefined;
+      if (!upper || !lower || !below) return undefined;
+      const before = memoryAt(pointer, offset, 16, s);
+      const high = formalValue(upper.value, args, engine.argumentOffset, s),
+        low = formalValue(lower.value, args, engine.argumentOffset, s);
+      const kept = pick(
+        formalPredicate(below, args, engine.argumentOffset, s),
+        asExpression(low.value),
+        asExpression(before.value),
+      );
+      const value =
+        kept && pick(formalPredicate(upper.condition, args, engine.argumentOffset, s), asExpression(high.value), kept);
+      if (!value) return undefined;
+      const evidence = uniqueEvidence([...before.evidence, ...high.evidence, ...low.evidence, ...engine.evidence]);
+      out.push({
+        pointer,
+        offset,
+        width: 16,
+        value: tracked(value, evidence),
+        evidence: engine.evidence,
+        condition: { kind: "true" } as Predicate,
+        certain: true,
+      });
+    }
+    return out;
+  };
   const pointerResult = (
     pointer: EnginePointer,
     args: Tracked[],
@@ -1835,6 +1897,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         ...(effect.exact ? { exact: true } : {}),
       });
     }
+    const limited = speedLimitWrites(engine, args, s);
+    if (limited) pending.splice(0, pending.length, ...limited);
     if ((engine.contactResponseFirst || engine.contactResponsePair) && engine.footprint.partMemoryComplete) {
       // Either participant can alias an already tracked part. Invalidate the complete possible footprint first.
       const fields = new Map(

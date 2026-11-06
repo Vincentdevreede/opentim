@@ -71,9 +71,13 @@ const CENTRES_ASSUMPTION =
 export const SCREEN_DIRECTION_ASSUMPTION =
   "On the screen, a negative velocityX at 0x36 moves a part to the left and a negative velocityY at 0x38 moves it up. In the game, a jack-in-the-box that isn't flipped, which sets both negative, knocks a part up and to the left.";
 export const TYPE_TABLE_ASSUMPTION =
-  "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE. The frame list word at +0x14 is left out: the game sets it when it loads a part's pictures and clears it when it frees them.";
-/** The word of a type record the game writes while it runs: the frame list, set and cleared with a part's pictures. */
-export const TYPE_RECORD_WRITTEN = [0x14];
+  "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE. Three words are left out: the game works out the acceleration at +0x08 and the speed limit at +0x0a for every type from the level's air pressure and gravity, and sets the frame list at +0x14 when it loads a part's pictures and clears it when it frees them.";
+/**
+ * The words of a type record the game writes while it runs: the acceleration and the speed limit, worked out from the
+ * level's air pressure and gravity (`0x369c` in Even More, English floppy), and the frame list, set and cleared with a
+ * part's pictures.
+ */
+export const TYPE_RECORD_WRITTEN = [0x08, 0x0a, 0x14];
 
 /** Something another part sets on this part: its velocity to a speed, or a field to a number. */
 export type OtherPartSetting =
