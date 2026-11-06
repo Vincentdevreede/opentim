@@ -139,6 +139,11 @@ the level), and every one of those is listed by name.
       (see "Walks from a trigger the recorder never performs"). No clip lost its match (648 and 552 complete): per build
       11 trigger matches became 2 seeded state (the bike's rope), 6 recorder fields (the mouse's 4 run clips again, the
       flipped bike's 2) and 3 input case (the mouse's still clips).
+      A start that knows another value than the recorder had for a field the run reads no longer counts (see "Starts
+      that know another value than the recorder had"); 140 per build differ only in fields the run never reads and
+      stand. Still 648 and 552 complete: per build 31 moved (the bike's 30, the mouse's creation clip), 26 to recorder
+      fields, 4 to seeded state and 1 to input case. Matches that need the part untouched at the start (decided)
+      now say so: 8 per build.
 - [x] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

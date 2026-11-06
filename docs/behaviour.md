@@ -2025,7 +2025,7 @@ recording the bike had no belt. The recorder skipped the belt helper as well (ev
 `0x6df5`, as skipped), which also gives 0. The comparison now also checks an input case's starting condition against
 those cleared fields, under the basis `recorder-fields`: it says the bike's run keeps the frame on the recorder's bench,
 not that the game puts the bike there. All 32 close in both builds: complete matches go from 616 to 648 of 648 in Even
-More and from 520 to 552 of 552 in TIM 1 (36 of them through the recorder's fields in each), none is a prefix and none
+More and from 520 to 552 of 552 in TIM 1 (32 of them through the recorder's fields in each), none is a prefix and none
 is different. Walks don't change.
 
 ### Walks from a trigger the recorder never performs
@@ -2064,8 +2064,35 @@ Per build the bases go from 1 creation, 11 trigger, 456 reset or rest (364 in TI
 and 16 skipped search (12 in TIM 1) to 1 creation, 456 (364) reset or rest, 135 input case, 2 seeded state, 38 recorder
 fields and 16 (12) skipped search.
 
-Still open: an input case may test the contact bits too, and the comparison takes them as clear from the start as
-decided. Seven input case matches per build rely on that (the cat's 4 and the mouse's 3 still clips just named).
+An input case may test the contact bits too, and the comparison takes them as clear from the start, as decided with
+the user. A complete match that needs them now says so (`untouchedStart`, with a sentence in its reason), whatever its
+basis, and the comparison counts those apart: 8 per build, the cat's 4 still clips and the mouse's 4 still clips.
+
+### Starts that know another value than the recorder had
+
+A walk from the reset, a resting frame or a seeded state starts from the fields that start knows, like the monkey bike's
+reset putting `0x2d` at `0x6b`. The recorder never runs the reset: before the first run the part holds its cleared
+bytes, the fields `setup` writes (type, flags, position words, pointers) and the clip's seed. The comparison now has that
+start for every clip (only the size at `0x40` to `0x46`, the drawing bit `0x1000` of the flags and bytes past `0x300` stay unknown) and the
+part's bytes its run rules test, show or work a value out from. A start that knows another value for such a byte isn't
+the recorder's start and doesn't count, under any basis; the comparison then needs a walk that starts from the
+recorder's value. A start that differs only in bytes the run never reads still stands.
+
+Per build 140 matches from the reset know other values the run never reads, so they stand: the generator (76) and the
+electric motor (20) at `0x56` to `0x58`, the candle (12), rocket (8), dynamite (8) and cannon (4) at `0x72` and `0x73`,
+the gun (8) at `0x6a` and `0x6b`, the fish bowl (4) at `0x80`. 31 per build read one, and all still match from the
+recorder's value, so complete stays 648 and 552:
+
+- the monkey bike's 24 still clips (its normal and stop clips on frames 0 to 4): the run's input case with the belt
+  link the recorder cleared, `recorder-fields` (the run reads `0x6b`, which the reset sets to `0x2d`);
+- its 4 reaction clips: the walk from its flip callback, `seeded-state`. That walk knows nothing of the part but its
+  type, so nothing it knows differs from the seed;
+- its 2 run clips that matched the rope: the run's input case under `recorder-fields`, like the other two;
+- the mouse's still clip that matched its creation (creation sets flags and position words the run reads): the run's
+  input case.
+
+Per build the bases go from 1 creation, 456 reset or rest (364 in TIM 1), 135 input case, 2 seeded state, 38 recorder
+fields and 16 skipped search (12) to 0, 428 (336), 136, 4, 64 and 16 (12).
 
 ### Outlines
 

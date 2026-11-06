@@ -37,6 +37,8 @@ export interface DescribedWalkMatch {
   prefixFrames: number;
   animation?: string;
   conditionCompatibility: "established" | "unresolved";
+  /** The match needs the part to touch nothing at the start (its contact bits at 0x06 clear), as decided with the user. */
+  untouchedStart?: true;
   reason: string;
   evidenceAddresses: number[];
 }
@@ -53,6 +55,8 @@ export interface DescribedWalkCoverage {
   completeFromInputCases: number;
   completeFromRecorderFields: number;
   completeFromRecorderSkippedSearches: number;
+  /** Complete matches, whatever their basis, that need the part to touch nothing at the start. */
+  completeWithUntouchedStart: number;
   matches: DescribedWalkMatch[];
 }
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -63,10 +67,11 @@ const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
  * The v25 recording adapter names the fields it actually saved. Flags are masked in the recording. No other
  * fields, including zeros from its old artificial objects, are supplied to this compatibility check.
  */
-function recordedFields(report: BehaviourReport | undefined, clip: MeasuredClip): RecordedField[] {
+function recordedFields(report: BehaviourReport | undefined, clip: MeasuredClip, touched = false): RecordedField[] {
   const seed = object(clip.input.seed) ? clip.input.seed : {};
   const write = recorderWrite(clip, 0);
-  return [...namedFields(report, { ...clip.partSeed, ...seed, ...clip.frames[0], ...write }), RECORDER_CONTACT];
+  const named = namedFields(report, { ...clip.partSeed, ...seed, ...clip.frames[0], ...write });
+  return touched ? named : [...named, RECORDER_CONTACT];
 }
 /** The part fields the recorder names, with the values given for them. Its flags are masked as it saves them. */
 function namedFields(report: BehaviourReport | undefined, values: Record<string, unknown>): RecordedField[] {
@@ -1000,6 +1005,99 @@ interface StartMode {
   bounded: boolean;
   external: boolean;
   facts?: RecorderFacts;
+  start?: RecorderStart;
+}
+/**
+ * What the v25 recorder had in the part when a clip began (`setup` and `apply` in `research/v24/verify_animations.py`),
+ * and the part's bytes the run's rules read. With `touched`, the comparison leaves out the contact bits a recording is
+ * decided to start with clear, to see whether a match needs them.
+ */
+interface RecorderStart {
+  /** By byte of the part: the bits the recorder set there before the first run, and their values. */
+  bytes: ReadonlyMap<number, { value: number; mask: number }>;
+  reads: ReadonlySet<number>;
+  touched?: boolean;
+}
+/** The part bytes the run's rules test, show or work a value out from, with the pointer fields they go through. */
+const runReadsOf = new WeakMap<BehaviourReport, Map<number, Set<number>>>();
+function runReads(report: BehaviourReport, partType: number): Set<number> {
+  let parts = runReadsOf.get(report);
+  if (!parts) runReadsOf.set(report, (parts = new Map()));
+  let read = parts.get(partType);
+  if (read) return read;
+  read = new Set<number>();
+  const add = (offset: number, width: number) => {
+    for (let byte = 0; byte < Math.max(1, width / 8); byte++) read!.add(offset + byte);
+  };
+  const visit = (value: Expression | Predicate | undefined) => {
+    if (!value) return;
+    if (value.kind === "field") {
+      if (value.object === "part") add(value.offset, value.width);
+      for (const pointer of value.object.matchAll(/part\+0x([0-9a-f]+)/g)) add(parseInt(pointer[1]!, 16), 16);
+    } else if (value.kind === "binary" || value.kind === "compare") {
+      visit(value.left);
+      visit(value.right);
+    } else if (value.kind === "table") visit(value.index);
+    else if (value.kind === "and") value.terms.forEach(visit);
+  };
+  const part = report.parts.find((item) => item.type === partType);
+  const run = part?.routines.find((routine) => routine.slot === 1)?.address;
+  for (const rule of (part?.transitions ?? []).filter((item) => item.routine === run)) {
+    visit(rule.condition);
+    visit(rule.to);
+    for (const update of rule.updates ?? []) {
+      visit(update.value);
+      visit(update.condition);
+    }
+  }
+  parts.set(partType, read);
+  return read;
+}
+/**
+ * The recorder's part before the first run: it clears 0x300 bytes, sets the type at `0x04`, the flags at `0x08` (bit
+ * `0x1000` from the part's drawing, which the comparison doesn't know), the six position words at `0x1e` to `0x28` to
+ * 100, the size at `0x40` to `0x46` (not known here either) and `0x80` to `0x84` to 20, `0x7200` and `0x7600`, then
+ * writes the clip's seed and its first hold values.
+ */
+function benchStart(report: BehaviourReport, partType: number, clip: MeasuredClip): RecorderStart {
+  const bytes = new Map<number, { value: number; mask: number }>();
+  for (let byte = 0; byte < RECORDER_PART_SIZE; byte++) bytes.set(byte, { value: 0, mask: 0xff });
+  for (let byte = 0x40; byte < 0x48; byte++) bytes.delete(byte);
+  const word = (offset: number, value: number, mask = 0xffff) => {
+    bytes.set(offset, { value: value & 0xff & mask, mask: mask & 0xff });
+    bytes.set(offset + 1, { value: (value >>> 8) & 0xff & (mask >>> 8), mask: (mask >>> 8) & 0xff });
+  };
+  word(0x04, partType);
+  word(0x08, 0, 0xefff);
+  for (const offset of [0x1e, 0x20, 0x22, 0x24, 0x26, 0x28]) word(offset, 100);
+  word(0x80, 20);
+  word(0x82, 0x7200);
+  word(0x84, 0x7600);
+  const seed = object(clip.input.seed) ? clip.input.seed : {};
+  const values: Record<string, unknown> = { ...clip.partSeed, ...seed, ...recorderWrite(clip, 0) };
+  const state = report.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
+  const delta = report.layout.fields.find((field) => field.name === "stateDelta")?.offset ?? 18;
+  const offsets = { state, control: delta, timer: 0x96, heat: 0x9c, vx: 0x36, vy: 0x38, flags8: 8 };
+  for (const [name, offset] of Object.entries(offsets)) {
+    const value = values[name];
+    if (typeof value === "number") word(offset, value);
+  }
+  return { bytes, reads: runReads(report, partType) };
+}
+/** Whether a start knows another value than the recorder had for a part byte the run reads. */
+function startDiffers(fields: KnownField[], start: RecorderStart): boolean {
+  return fields.some(
+    (field) =>
+      field.object === "part" &&
+      [...Array(field.width / 8).keys()].some((byte) => {
+        const offset = field.offset + byte,
+          recorder = start.bytes.get(offset);
+        if (!recorder || !start.reads.has(offset)) return false;
+        const value = (field.value >>> (8 * byte)) & 0xff,
+          mask = (field.knownMask >>> (8 * byte)) & 0xff;
+        return ((value ^ recorder.value) & mask & recorder.mask) !== 0;
+      }),
+  );
 }
 /** The objects of the fields an expression or condition reads. */
 function objectsRead(value: Expression | Predicate, found: string[] = []): string[] {
@@ -1084,7 +1182,10 @@ function matchStart(
   const walk = animation.walk;
   if (!clip.frames.length) return undefined;
   const parameter = clip.frames[0]!.state;
-  const recorded = recordedFields(report, clip);
+  const recorded = recordedFields(report, clip, mode.start?.touched);
+  // A start that knows another value than the recorder had for a field the run reads isn't the recorder's start, like
+  // the monkey bike's reset at 0x6b: the run must start from the recorder's value there.
+  if (mode.start && startDiffers(animation.initialFields ?? [], mode.start)) return undefined;
   // A start that knows another value for a field the recorder gives itself isn't the recorder's start.
   if (mode.facts && !recorderAgrees(animation.initialFields ?? [], mode.facts.inputs?.(0) ?? [], mode.facts.zero))
     return undefined;
@@ -1425,6 +1526,7 @@ function matchWalk(
   clip: MeasuredClip,
   restarts: () => Segments | undefined,
   facts?: RecorderFacts,
+  start?: RecorderStart,
 ): DescribedWalkMatch | undefined {
   const plan = recorderRestarts(report, clip);
   const later = "unsupported" in plan ? undefined : restarts();
@@ -1433,6 +1535,7 @@ function matchWalk(
       bounded: false,
       external: "unsupported" in plan || (!!plan.restarts.length && !later),
       facts,
+      start,
     });
   const first = plan.restarts[0]!.run,
     count = clip.frames.length;
@@ -1448,7 +1551,7 @@ function matchWalk(
       ),
       loopStart: null,
     },
-    { bounded: true, external: false, facts },
+    { bounded: true, external: false, facts, start },
   );
   if (!head) return undefined;
   const whole = {
@@ -1487,10 +1590,16 @@ function withRecorder(
   report: BehaviourReport | undefined,
   partType: number | undefined,
   clip: MeasuredClip,
-  best: (facts?: RecorderFacts) => DescribedWalkMatch | undefined,
+  best: Best,
 ): DescribedWalkMatch | undefined {
+  // A complete match that needs the contact bits clear at the start says so: the walk alone, without them, isn't.
+  const untouched = (match: DescribedWalkMatch | undefined, facts?: RecorderFacts) => {
+    if (match?.classification !== "complete" || !match.animation) return match;
+    if (best(facts, { animation: match.animation, touched: true })?.classification === "complete") return match;
+    return { ...match, untouchedStart: true as const, reason: `${match.reason} ${UNTOUCHED_WORDS}` };
+  };
   const plain = best();
-  if (plain?.classification === "complete" || !report || partType === undefined) return plain;
+  if (plain?.classification === "complete" || !report || partType === undefined) return untouched(plain);
   const better = (match: DescribedWalkMatch | undefined, than: DescribedWalkMatch | undefined) =>
     !!match &&
     (match.classification === "complete" ||
@@ -1506,17 +1615,50 @@ function withRecorder(
       basis: "recorder-fields",
       reason: `${fields!.reason} ${RECORDER_FIELDS_WORDS}`,
     };
-  if (result?.classification === "complete" || result?.classification === "different") return result;
+  if (result?.classification === "complete" || result?.classification === "different")
+    return untouched(result, result === plain ? undefined : facts);
   const recorder = recorderView(report, partType, clip);
-  const seen = recorder && best({ ...facts, view: recorder.view });
+  const viewed = recorder && { ...facts, view: recorder.view };
+  const seen = viewed && best(viewed);
   if (!recorder || !better(seen, result)) return result;
   const searches = recorder.searches.map((address) => `0x${address.toString(16)}`);
-  return {
-    ...seen!,
-    basis: "recorder-skipped-search",
-    reason: `${seen!.reason} ${RECORDER_FIELDS_WORDS} The recorder skipped the search at ${searches.join(" and ")}: in the recording it returned 0 and wrote nothing, so the run found no part. That is the recorder's answer, not the game's.`,
+  return untouched(
+    {
+      ...seen!,
+      basis: "recorder-skipped-search",
+      reason: `${seen!.reason} ${RECORDER_FIELDS_WORDS} The recorder skipped the search at ${searches.join(" and ")}: in the recording it returned 0 and wrote nothing, so the run found no part. That is the recorder's answer, not the game's.`,
+    },
+    viewed,
+  );
+}
+/** The best match from the walks, or with `only` from one walk, with the recorder's facts given. */
+type Best = (facts?: RecorderFacts, only?: { animation: string; touched: true }) => DescribedWalkMatch | undefined;
+/** The best match of a clip among these walks. */
+function bestOf(
+  report: BehaviourReport | undefined,
+  animations: AnimationDescription[],
+  clip: MeasuredClip,
+  walkFrom: RestartWalk | undefined,
+  partType: number | undefined,
+): Best {
+  const start = report && partType !== undefined ? benchStart(report, partType, clip) : undefined;
+  // The recording's later parts are compared once for each set of facts, also when one walk is checked again.
+  const later = new Map<RecorderFacts | undefined, () => Segments | undefined>();
+  return (facts, only) => {
+    let restarts = later.get(facts);
+    if (!restarts) later.set(facts, (restarts = restartsOnce(report, clip, walkFrom, facts)));
+    const bench = only ? { bytes: new Map(), reads: new Set<number>(), ...start, touched: true } : start;
+    return animations
+      .filter((animation) => !only || animation.id === only.animation)
+      .flatMap((animation) => {
+        const match = matchWalk(report, animation, clip, restarts, facts, bench);
+        return match ? [match] : [];
+      })
+      .sort(byRank)[0];
   };
 }
+const UNTOUCHED_WORDS =
+  "It takes the part as touching nothing at the start, its contact bits at 0x06 clear, as decided with the user.";
 const RECORDER_FIELDS_WORDS =
   "It takes the fields the recorder writes before every run, and the fields it clears that nothing in the clip writes, as the recorder gave them: that is the recorder's bench, not the game's.";
 const RANK = { complete: 3, prefix: 2, different: 1, unavailable: 0 };
@@ -1547,15 +1689,7 @@ export function validateDescribedWalks(
       animation.walk.states.length || animation.walk.parameterised || animation.walk.stop?.branches?.length,
   );
   const matches = clips.map((clip): DescribedWalkMatch => {
-    const best = (facts?: RecorderFacts) => {
-      const restarts = restartsOnce(report, clip, walkFrom, facts);
-      return animations
-        .flatMap((animation) => {
-          const match = matchWalk(report, animation, clip, restarts, facts);
-          return match ? [match] : [];
-        })
-        .sort(byRank)[0];
-    };
+    const best = bestOf(report, animations, clip, walkFrom, part.type);
     return (
       withRecorder(report, part.type, clip, best) ?? {
         clip: clip.path,
@@ -1594,6 +1728,8 @@ export function validateDescribedWalks(
     completeFromRecorderSkippedSearches: matches.filter(
       (match) => match.classification === "complete" && match.basis === "recorder-skipped-search",
     ).length,
+    completeWithUntouchedStart: matches.filter((match) => match.classification === "complete" && match.untouchedStart)
+      .length,
     matches,
   };
 }
@@ -1612,15 +1748,7 @@ export function compareMeasuredWalks(
   walkFrom?: RestartWalk,
   partType?: number,
 ): WalkMatch {
-  const best = (facts?: RecorderFacts) => {
-    const restarts = restartsOnce(report, clip, walkFrom, facts);
-    return animations
-      .flatMap((animation) => {
-        const match = matchWalk(report, animation, clip, restarts, facts);
-        return match ? [match] : [];
-      })
-      .sort(byRank)[0];
-  };
+  const best = bestOf(report, animations, clip, walkFrom, partType);
   return (
     withRecorder(report, partType, clip, best) ?? {
       clip: clip.path,
