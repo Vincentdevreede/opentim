@@ -140,9 +140,15 @@ the level), and every one of those is listed by name.
 
 ## E. Parts without a recording
 
-- [ ] **E1. Check them against the shipped levels.** 28 parts have no recording (walls, balls, ropes, pulley, belt,
+- [x] **E1. Check them against the shipped levels.** 28 parts have no recording (walls, balls, ropes, pulley, belt,
       electric switch, solar panel, magnifying glass, rope end and the holiday parts). Compare their starting frames and
       resting frames with every shipped level. Done when no level disagrees.
+      Done: no level disagrees, in all eleven builds (1,281 level files). Every saved frame is one the description
+      allows, the switch and the solar panel start on a resting frame once their plugs are counted, every control value
+      is 0, and the decided starting frames (assumptions 5 to 8 and 13 to 15) hold everywhere. The wood incline has no
+      frame list to check; its frame always matches its width, and two Even More levels have an incline of width 0 on
+      frame -1, which the editor can't make. The rope end, heart and shamrock are in no level. `check-level-frames`
+      repeats the check (for F2). See "Starting frames in the shipped levels" in `docs/behaviour.md`.
 - [ ] **E2. A short list for you to try in the game.** Decided: yes. For the parts where code alone leaves room, a
       few things to try, each with what the analysis expects.
 
