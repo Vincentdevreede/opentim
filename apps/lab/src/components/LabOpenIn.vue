@@ -3,11 +3,11 @@ import type { IconName } from "../icons.ts";
 import LabButton from "./LabButton.vue";
 import LabIcon from "./LabIcon.vue";
 
-export type OpenTarget = "files" | "sprites" | "levels";
+export type OpenTarget = "files" | "sprites" | "levels" | "audio";
 
 /**
  * The bar right under the header of a details panel that opens the same file on another page: Files for its bytes,
- * Sprites for its images, Levels for its drawing. Every page shows it in the same place. The slot adds buttons that
+ * Sprites for its images, Levels for its drawing, Audio for its sounds. Every page shows it in the same place. The slot adds buttons that
  * open a related file, like the sprite sheet of a part.
  */
 defineProps<{ targets: readonly OpenTarget[] }>();
@@ -17,6 +17,7 @@ const TARGETS: Record<OpenTarget, { label: string; icon: IconName }> = {
   files: { label: "Open in Files", icon: "files" },
   sprites: { label: "Open in Sprites", icon: "sprites" },
   levels: { label: "Open in Levels", icon: "levels" },
+  audio: { label: "Open in Audio", icon: "audio" },
 };
 </script>
 

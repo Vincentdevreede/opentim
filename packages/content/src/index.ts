@@ -101,7 +101,11 @@ export type {
 export type { ContactSmallRelation } from "./read/behaviour-contact-small.ts";
 export type { ContactMotionAngle } from "./read/behaviour-contact-motion-angle.ts";
 
-export type { CollisionDispatch, CollisionTarget } from "./read/behaviour-collision-dispatch.ts";
+export type {
+  CollisionDispatch,
+  CollisionTarget,
+  CollisionResponseDescription,
+} from "./read/behaviour-collision-dispatch.ts";
 
 export type { ContactResponse } from "./read/behaviour-contact-response.ts";
 
@@ -118,3 +122,13 @@ export {
   type PartGroup,
   type RopeSlot,
 } from "./read/level.ts";
+
+export type { ContactRotation, RotationScalar } from "./read/behaviour-contact-rotation.ts";
+export type { ContactResponseFirst, FirstResponseFormula } from "./read/behaviour-contact-response-first.ts";
+
+export type {
+  ContactResponsePair,
+  PairResponseOperation,
+  PairResponseFormula,
+  PairCentreAngle,
+} from "./read/behaviour-contact-response-pair.ts";

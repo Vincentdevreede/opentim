@@ -230,6 +230,43 @@ describe("collision callback routing", () => {
     expect(contract!.responseSupport![0]!.assumptions.join(" ")).toContain("does not prove that its path is taken");
     expect(contract!.passes[0]!.callbackZero).toBe("advanceWithoutResponse");
   });
+  it("describes the selected response without supplying a collision or a callback return", () => {
+    const f = fixture();
+    const helper: EngineSummary = {
+      ...finding,
+      address: 0x610,
+      kind: "contact-first-response",
+      purpose: "Changes velocity and reconstructs vertical position.",
+      argumentOffset: 6,
+      argumentKind: "object",
+      writes: [],
+      returns: [],
+      calls: [],
+      footprint: {
+        complete: true,
+        partMemoryComplete: true,
+        preservesArgumentMemory: false,
+        preservesPartState: true,
+        unknownEffects: [],
+      },
+      contactResponseFirst: { kind: "sliding-contact-response" } as NonNullable<EngineSummary["contactResponseFirst"]>,
+    };
+    const contracts = discoverCollisionDispatch(
+      f.image,
+      f.codes,
+      f.layout,
+      f.program,
+      new Map([[helper.address, helper]]),
+    );
+    expect(contracts[0]!.responses!.map((r) => r.status)).toEqual(["unresolved", "described", "unresolved"]);
+    expect(contracts[0]!.responses![1]!.preservesState).toBe(true);
+    expect(contracts[0]!.responses![1]!.relation).toBe(helper.contactResponseFirst);
+    expect(contracts[0]!.responses![1]!.assumptions.join(" ")).toContain("Selection follows the callback");
+    const zero = describeCollisionDispatch(contracts, { type: 0, routines: [{ slot: 0, address: 0x500 } as never] });
+    expect(zero!.responses).toEqual([]);
+    const nonzero = describeCollisionDispatch(contracts, { type: 1, routines: [{ slot: 0, address: 0x510 } as never] });
+    expect(nonzero!.responses![1]!.description).toContain("velocity");
+  });
   it("certifies the far table and the earlier self callback without freezing later flags", () => {
     const f = fixture(0x80, 0x1000, true),
       [c] = f.discover();

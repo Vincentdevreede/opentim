@@ -176,9 +176,7 @@ function rows(p: LevelPart): { key: string; value: string; note?: string; link?:
         >
           {{ f.key === "magic" || f.key === "version" ? word(Number(f.value)) : shown(f.value) }}
           <template v-if="MEANING[f.key]" #note>
-            <span class="shrink-0" :title="MEANING[f.key]!.title">
-              <LabBadge :status="MEANING[f.key]!.status" :label="MEANING[f.key]!.label" />
-            </span>
+            <LabBadge :status="MEANING[f.key]!.status" :label="MEANING[f.key]!.label" :title="MEANING[f.key]!.title" />
           </template>
         </LabFact>
       </LabFacts>

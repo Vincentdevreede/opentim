@@ -16,10 +16,7 @@ export const openSprite = ref<number>();
 /** True while files are dragged over the window. */
 export const dragging = ref(false);
 
-/** Which detail the Sprites page shows: the selected part, or the selected image file. */
-export const spritesView = ref<"parts" | "images">("parts");
-
-/** The id of the part selected on the Sprites page. */
+/** The id of the part selected on the Parts page. */
 export const selectedPart = ref<string>();
 
 /** How the behaviour tab lays out a part: by its routines, or by the states a change starts from. */

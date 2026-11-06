@@ -1411,7 +1411,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             unknown(
               selectedObject === "a connected part"
                 ? "A connected part may alias the owner"
-                : "A selected overlap candidate may alias the owner",
+                : "A selected related object may alias the owner",
               effect.width,
             ),
             proof,
@@ -1450,7 +1450,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const angleFrameMatches = (engine: EngineSummary | undefined, i: Instruction): boolean => {
     if (
       !engine ||
-      (!engine.contactResponse && !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind))
+      (!engine.contactResponse &&
+        !engine.contactRotation &&
+        !engine.rotationScalar &&
+        !engine.contactResponseFirst &&
+        !engine.contactResponsePair &&
+        !engine.numeric &&
+        !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind))
     )
       return true;
     const previous = precedingByEnd.get(i.address);
@@ -1601,6 +1607,22 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         condition,
         certain: entails(condition, s),
       });
+    }
+    if ((engine.contactResponseFirst || engine.contactResponsePair) && engine.footprint.partMemoryComplete) {
+      // Either participant can alias an already tracked part. Invalidate the complete possible footprint first.
+      const fields = new Map(
+        engine.writes
+          .filter((effect) => effect.root === "argument")
+          .map((effect) => [`${effect.offset}:${effect.width}`, { offset: effect.offset, width: effect.width }]),
+      );
+      invalidateSelectedPartFields(
+        [...fields.values()],
+        s,
+        i,
+        engine.evidence,
+        new Set(),
+        `an object written by a contact response at ${hex(i.address)}`,
+      );
     }
     if (engine.partGraph) {
       const preserve = new Set<number>();
@@ -2880,7 +2902,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     } else if (i.flow === "call") {
       const angleEngine = i.target ? options.engineSummaries?.get(i.target.address) : undefined;
       if (!angleFrameMatches(angleEngine, i)) {
-        const reason = `${angleEngine?.contactResponse ? "Contact response" : "Scalar"} helper return frame at ${hex(i.address)} is not established`;
+        const reason = `${angleEngine?.contactResponse || angleEngine?.contactResponseFirst || angleEngine?.contactResponsePair || angleEngine?.contactRotation ? "Contact response" : "Scalar"} helper return frame at ${hex(i.address)} is not established`;
         uncertainEffects = true;
         diagnostics.add(reason);
         unresolvedExit(s, i, reason);

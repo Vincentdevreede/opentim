@@ -3,9 +3,15 @@ import { computed, reactive } from "vue";
 import type { BehaviourResult } from "../../behaviour.ts";
 import { outlineSides, routineGroups, stateGroups, type ChangeRow, type WriteRow } from "../../behaviour-view.ts";
 import { behaviourLayout } from "../../ui.ts";
+import LabAlert from "../LabAlert.vue";
+import LabChip from "../LabChip.vue";
+import LabDisclosure from "../LabDisclosure.vue";
 import LabIcon from "../LabIcon.vue";
+import LabInfo from "../LabInfo.vue";
+import LabListRow from "../LabListRow.vue";
+import LabSection from "../LabSection.vue";
 import LabSegmented from "../LabSegmented.vue";
-import LabTip from "../LabTip.vue";
+import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
 import BehaviourRow from "./BehaviourRow.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
@@ -117,6 +123,9 @@ const nameOf = (type: number) => props.names?.get(type) ?? `type ${type}`;
 
 const closed = reactive(new Set<string>());
 const toggle = (key: string) => (closed.has(key) ? closed.delete(key) : closed.add(key));
+/** Whether a routine has anything to open. */
+const opens = (g: { changes: unknown[]; draws: unknown[]; sets: unknown[] }) =>
+  g.changes.length > 0 || g.draws.length > 0 || g.sets.length > 0;
 
 function routineTip(role: string, at?: string, address?: number) {
   const others = (address !== undefined ? (users.value.get(address) ?? []) : []).filter((t) => t !== props.type);
@@ -139,6 +148,16 @@ const writeText = (w: WriteRow) =>
   isPoints(w)
     ? `${w.values.length} points ${w.values.join(" ")}`
     : `= ${w.values.length > 1 ? `${w.values.length} values` : w.values[0]}`;
+/**
+ * What an opened write row adds: each value with its condition, unless the row already shows every value; then only
+ * the condition they share, if there is one.
+ */
+const writeDetail = (w: WriteRow): string[] => {
+  const conditions = [...new Set(w.writes.map((x) => x.condition))];
+  if ((w.values.length === 1 || isPoints(w)) && conditions.length === 1)
+    return conditions[0] === "always" ? [] : [`when ${conditions[0]}`];
+  return w.writes.map((x) => `= ${x.value}${x.condition === "always" ? "" : ` when ${x.condition}`}`);
+};
 const writeTip = (w: WriteRow) =>
   isPoints(w)
     ? `${w.routine} sets the outline to ${w.values.length} points:\n${w.values.join(" ")}\n\nEdges run clockwise from the first point.`
@@ -147,16 +166,11 @@ const writeTip = (w: WriteRow) =>
         .concat("", `${w.writes.length} ${w.writes.length === 1 ? "path" : "paths"}, ${w.confidence}. Click for each.`)
         .join("\n");
 
-const legend = computed(() =>
-  [
-    "Read from the program’s instructions without running it" +
-      (props.result?.status === "done" ? `, in ${props.result.seconds.toFixed(1)} s.` : "."),
-    "State N shows frame N.",
-    "",
-    "● checked: follows from the instructions",
-    "◇ inferred: follows with the assumptions it lists",
-    "○ unresolved: the analysis can’t tell",
-  ].join("\n"),
+/** How the analysis was made, for the end of the findings. */
+const howRead = computed(
+  () =>
+    "read from the program’s instructions without running it" +
+    (props.result?.status === "done" ? `, in ${props.result.seconds.toFixed(1)} s` : ""),
 );
 const timing = computed(() => {
   const t = summary.value?.timing;
@@ -173,7 +187,8 @@ const more = computed(() => {
         p.counters.length +
         p.uncertainties.length +
         (p.gear?.text.limits.length ?? 0) +
-        (timing.value ? 1 : 0)
+        (timing.value ? 1 : 0) +
+        1
     : 0;
 });
 </script>
@@ -185,62 +200,45 @@ const more = computed(() => {
       <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
       Reading the behaviour from the program. This takes a few seconds.
     </p>
-    <p v-else-if="result.status === 'error'" class="text-error">
-      Couldn’t read the behaviour: <span class="font-mono">{{ result.message }}</span>
-    </p>
+    <LabAlert v-else-if="result.status === 'error'" title="Couldn’t read the behaviour">
+      <span class="font-mono text-meta break-words">{{ result.message }}</span>
+    </LabAlert>
     <p v-else-if="!part" class="text-muted">The program has no behaviour for this part.</p>
 
     <template v-else>
-      <div class="flex items-center gap-2">
-        <LabSegmented v-model="behaviourLayout" label="Layout" :options="LAYOUTS" />
-        <div class="flex-1"></div>
-        <LabTip :text="legend">
-          <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
-        </LabTip>
-      </div>
+      <LabSegmented v-model="behaviourLayout" label="Layout" :options="LAYOUTS" full />
 
-      <div v-if="behaviourLayout === 'routine'" class="flex flex-col">
-        <section v-for="g in routines" :key="g.role" class="flex flex-col">
-          <div class="flex h-7 items-center gap-1.5">
-            <button
-              type="button"
-              class="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-              :class="g.changes.length || g.draws.length || g.sets.length ? 'cursor-pointer' : 'cursor-default'"
-              :aria-expanded="!closed.has(g.role)"
-              @click="toggle(g.role)"
-            >
-              <LabIcon
-                v-if="g.changes.length || g.draws.length || g.sets.length"
-                :name="closed.has(g.role) ? 'chevronRight' : 'chevronDown'"
-                :size="12"
-                :stroke="2.5"
-                class="shrink-0 text-faint"
-              />
-              <span v-else class="w-3 shrink-0"></span>
-              <span class="font-mono text-ui font-semibold" :class="g.empty ? 'text-faint' : 'text-ink'">{{
-                g.role
-              }}</span>
-              <span class="flex-1"></span>
-              <span v-if="g.changes.length" class="chip text-accent"
-                >{{ g.changes.length }} {{ g.changes.length === 1 ? "change" : "changes" }}</span
-              >
-              <span v-if="g.draws.length" class="chip text-soft">draws</span>
-              <span v-if="g.sets.length" class="chip text-soft">sets</span>
-              <span v-if="g.open" class="chip text-error">open</span>
-              <span
-                v-if="!g.changes.length && !g.draws.length && !g.sets.length"
-                class="text-meta whitespace-nowrap text-faint"
-                >{{ g.empty ? "does nothing" : "no change" }}</span
-              >
-              <span v-if="sharedCount(g.address) > 1" class="chip text-faint"
-                >shared ×{{ sharedCount(g.address) }}</span
-              >
-            </button>
-            <LabTip :text="routineTip(g.role, g.at, g.address)">
-              <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
-            </LabTip>
+      <div v-if="behaviourLayout === 'routine'" class="-mx-3 flex flex-col">
+        <section v-for="g in routines" :key="`${g.role} ${opens(g)}`" class="flex flex-col">
+          <div class="relative">
+            <LabListRow v-if="opens(g)" :expanded="!closed.has(g.role)" class="pr-9!" @click="toggle(g.role)">
+              <span class="font-mono font-semibold" :class="g.empty ? 'text-faint' : 'text-ink'">{{ g.role }}</span>
+              <template #end>
+                <LabChip v-if="g.changes.length" tone="accent"
+                  >{{ g.changes.length }} {{ g.changes.length === 1 ? "change" : "changes" }}</LabChip
+                >
+                <LabChip v-if="g.draws.length">draws</LabChip>
+                <LabChip v-if="g.sets.length">sets</LabChip>
+                <LabChip v-if="g.open" tone="error">open</LabChip>
+                <LabChip v-if="sharedCount(g.address) > 1" tone="faint">shared ×{{ sharedCount(g.address) }}</LabChip>
+              </template>
+            </LabListRow>
+            <LabListRow v-else class="pr-9! pl-[28px]!">
+              <span class="font-mono font-semibold" :class="g.empty ? 'text-faint' : 'text-ink'">{{ g.role }}</span>
+              <template #end>
+                <LabChip v-if="g.open" tone="error">open</LabChip>
+                <span class="text-meta whitespace-nowrap text-faint">{{ g.empty ? "does nothing" : "no change" }}</span>
+                <LabChip v-if="sharedCount(g.address) > 1" tone="faint">shared ×{{ sharedCount(g.address) }}</LabChip>
+              </template>
+            </LabListRow>
+            <span class="absolute top-1/2 right-3 flex -translate-y-1/2">
+              <LabInfo :text="routineTip(g.role, g.at, g.address)" />
+            </span>
           </div>
-          <div v-if="!closed.has(g.role)" class="flex flex-col pb-1.5 pl-[18px]">
+          <div
+            v-if="opens(g) && !closed.has(g.role)"
+            class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
+          >
             <BehaviourChange
               v-for="row in g.changes"
               :key="row.key"
@@ -249,13 +247,14 @@ const more = computed(() => {
               :frames="frames"
               :sides="sides"
               :highlight="fromHere(row)"
+              indent
               @show-frame="emit('showFrame', $event)"
             />
             <div
               v-if="g.changes.length && g.kept"
-              class="flex h-7 items-center gap-2 border-t border-line-soft text-meta text-faint"
+              class="flex h-7 items-center gap-2 border-t border-line-soft pr-3 pl-[30px] text-meta text-faint"
             >
-              <ConfidenceMark confidence="inferred" />
+              <ConfidenceMark confidence="inferred" focusable />
               otherwise no change · {{ g.kept }} {{ g.kept === 1 ? "path" : "paths" }}
             </div>
             <template
@@ -265,20 +264,18 @@ const more = computed(() => {
               ] as const"
               :key="title"
             >
-              <h4
-                v-if="list.length"
-                class="pt-1.5 pb-0.5 text-label font-semibold tracking-[.07em] text-faint uppercase"
-              >
-                {{ title }}
-              </h4>
-              <BehaviourRow v-for="w in list" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
-                <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
-                <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted">{{ writeText(w) }}</span>
-                <template #detail>
-                  <span v-for="(x, i) in w.writes" :key="i" class="break-words"
-                    ><span class="text-soft">= {{ x.value }}</span>
-                    <template v-if="x.condition !== 'always'"> when {{ x.condition }}</template></span
+              <PanelTitle v-if="list.length" class="block pt-2 pr-3 pb-1 pl-[30px]">{{ title }}</PanelTitle>
+              <BehaviourRow v-for="w in list" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)" indent>
+                <template #default="{ open }">
+                  <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
+                  <span
+                    class="min-w-0 flex-1 font-mono text-meta text-muted"
+                    :class="open ? 'break-words' : 'truncate'"
+                    >{{ writeText(w) }}</span
                   >
+                </template>
+                <template v-if="writeDetail(w).length" #detail>
+                  <span v-for="(t, i) in writeDetail(w)" :key="i" class="break-words">{{ t }}</span>
                 </template>
               </BehaviourRow>
             </template>
@@ -288,137 +285,128 @@ const more = computed(() => {
 
       <div v-else class="flex flex-col">
         <p v-if="!states.length" class="text-muted">No routine changes the state.</p>
-        <section v-for="g in states" :key="g.fromText" class="flex flex-col">
-          <button
-            type="button"
-            class="flex h-7 cursor-pointer items-center gap-1.5 text-left"
-            :aria-expanded="!closed.has(`state ${g.fromText}`)"
-            @click="toggle(`state ${g.fromText}`)"
-          >
-            <LabIcon
-              :name="closed.has(`state ${g.fromText}`) ? 'chevronRight' : 'chevronDown'"
-              :size="12"
-              :stroke="2.5"
-              class="shrink-0 text-faint"
-            />
-            <span
-              class="font-mono text-ui font-semibold"
-              :class="
-                current !== undefined && (g.from === null || g.from.includes(current)) ? 'text-accent' : 'text-ink'
-              "
-              >{{ g.from === null ? "any state" : g.from.length ? `state ${g.fromText}` : "none of its own" }}</span
-            >
-            <span class="flex-1"></span>
-            <span class="chip text-accent">{{ g.rows.length }} {{ g.rows.length === 1 ? "way" : "ways" }} out</span>
-          </button>
-          <div v-if="!closed.has(`state ${g.fromText}`)" class="flex flex-col pb-1.5 pl-[18px]">
-            <BehaviourChange
-              v-for="row in g.rows"
-              :key="row.key"
-              :row="row"
-              lead="routine"
-              :frames="frames"
-              :sides="sides"
-              :highlight="fromHere(row)"
-              @show-frame="emit('showFrame', $event)"
-            />
-          </div>
-        </section>
-        <template v-if="draws.length">
-          <h4 class="pt-1.5 pb-0.5 text-label font-semibold tracking-[.07em] text-faint uppercase">Draws</h4>
-          <BehaviourRow v-for="w in draws" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
-            <span class="shrink-0 font-mono font-semibold text-accent">{{ w.routine }}</span>
-            <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
-            <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted">{{ writeText(w) }}</span>
-            <template #detail>
-              <span v-for="(x, i) in w.writes" :key="i" class="break-words"
-                ><span class="text-soft">= {{ x.value }}</span>
-                <template v-if="x.condition !== 'always'"> when {{ x.condition }}</template></span
+        <div class="-mx-3 flex flex-col">
+          <section v-for="g in states" :key="g.fromText" class="flex flex-col">
+            <LabListRow :expanded="!closed.has(`state ${g.fromText}`)" @click="toggle(`state ${g.fromText}`)">
+              <span
+                class="font-mono font-semibold"
+                :class="
+                  current !== undefined && (g.from === null || g.from.includes(current)) ? 'text-accent' : 'text-ink'
+                "
+                >{{ g.from === null ? "any state" : g.from.length ? `state ${g.fromText}` : "none of its own" }}</span
               >
-            </template>
-          </BehaviourRow>
-        </template>
+              <template #end>
+                <LabChip tone="accent">{{ g.rows.length }} {{ g.rows.length === 1 ? "way" : "ways" }} out</LabChip>
+              </template>
+            </LabListRow>
+            <div
+              v-if="!closed.has(`state ${g.fromText}`)"
+              class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
+            >
+              <BehaviourChange
+                v-for="row in g.rows"
+                :key="row.key"
+                :row="row"
+                lead="routine"
+                :frames="frames"
+                :sides="sides"
+                :highlight="fromHere(row)"
+                indent
+                @show-frame="emit('showFrame', $event)"
+              />
+            </div>
+          </section>
+        </div>
+        <LabSection v-if="draws.length" title="Draws" class="pt-3">
+          <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+            <BehaviourRow v-for="w in draws" :key="w.key" :confidence="w.confidence" :tip="writeTip(w)">
+              <template #default="{ open }">
+                <span class="shrink-0 font-mono font-semibold text-accent">{{ w.routine }}</span>
+                <span class="shrink-0 font-mono text-ink">{{ w.target }}</span>
+                <span
+                  class="min-w-0 flex-1 font-mono text-meta text-muted"
+                  :class="open ? 'break-words' : 'truncate'"
+                  >{{ writeText(w) }}</span
+                >
+              </template>
+              <template v-if="writeDetail(w).length" #detail>
+                <span v-for="(t, i) in writeDetail(w)" :key="i" class="break-words">{{ t }}</span>
+              </template>
+            </BehaviourRow>
+          </div>
+        </LabSection>
       </div>
 
-      <section v-if="gear" class="flex flex-col">
-        <div class="flex h-7 items-center gap-1.5">
-          <h3 class="text-label font-semibold tracking-[.07em] text-faint uppercase">Gear</h3>
-          <span class="flex-1"></span>
-          <LabTip :text="[gear.text.activation, '', ...gear.text.scheduling].join('\n')">
-            <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
-          </LabTip>
-        </div>
-        <BehaviourRow v-for="r in gearRows" :key="r.what" :confidence="gear.confidence" :tip="r.tip">
-          <span class="shrink-0 font-mono text-ink">{{ r.what }}</span>
-          <span class="shrink-0 font-mono text-accent">{{ r.then }}</span>
-          <span class="min-w-0 flex-1 truncate text-meta text-muted">{{ r.note }}</span>
-          <template #detail>
-            <p class="font-sans break-words">{{ r.detail }}</p>
-          </template>
-        </BehaviourRow>
-        <template v-if="gear.drivers.length">
-          <h4 class="pt-1.5 pb-0.5 text-label font-semibold tracking-[.07em] text-faint uppercase">Driven by</h4>
-          <BehaviourRow
-            v-for="d in gear.drivers"
-            :key="d.type"
-            :confidence="d.confidence"
-            :tip="`If this gear is the belt end ${nameOf(d.type)} picks, ${nameOf(d.type)} writes its step.\n\n${d.steps.length} ${d.steps.length === 1 ? 'value' : 'values'}, ${d.confidence}. Click for each.`"
-          >
-            <span class="shrink-0 text-ink">{{ nameOf(d.type) }}</span>
-            <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted">step = {{ d.steps.join(", ") }}</span>
+      <LabSection v-if="gear" title="Gear">
+        <template #action>
+          <LabInfo :text="[gear.text.activation, '', ...gear.text.scheduling].join('\n')" />
+        </template>
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+          <BehaviourRow v-for="r in gearRows" :key="r.what" :confidence="gear.confidence" :tip="r.tip">
+            <span class="shrink-0 font-mono text-ink">{{ r.what }}</span>
+            <span class="shrink-0 font-mono text-accent">{{ r.then }}</span>
+            <span class="min-w-0 flex-1 truncate text-meta text-muted">{{ r.note }}</span>
             <template #detail>
-              <p v-for="t in d.descriptions" :key="t" class="font-sans break-words">{{ t }}</p>
+              <p class="font-sans break-words">{{ r.detail }}</p>
             </template>
           </BehaviourRow>
+        </div>
+        <template v-if="gear.drivers.length">
+          <PanelTitle class="block pt-1.5">Driven by</PanelTitle>
+          <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+            <BehaviourRow
+              v-for="d in gear.drivers"
+              :key="d.type"
+              :confidence="d.confidence"
+              :tip="`If this gear is the belt end ${nameOf(d.type)} picks, ${nameOf(d.type)} writes its step.\n\n${d.steps.length} ${d.steps.length === 1 ? 'value' : 'values'}, ${d.confidence}. Click for each.`"
+            >
+              <span class="shrink-0 text-ink">{{ nameOf(d.type) }}</span>
+              <span class="min-w-0 flex-1 truncate font-mono text-meta text-muted"
+                >step = {{ d.steps.join(", ") }}</span
+              >
+              <template #detail>
+                <p v-for="t in d.descriptions" :key="t" class="font-sans break-words">{{ t }}</p>
+              </template>
+            </BehaviourRow>
+          </div>
         </template>
-      </section>
+      </LabSection>
 
-      <details class="border-t border-line pt-2 text-meta text-muted">
-        <summary class="cursor-pointer text-label font-semibold tracking-[.07em] uppercase">
-          More · {{ more }} findings
-        </summary>
-        <ul class="mt-1.5 flex flex-col gap-1 font-mono break-words">
+      <LabDisclosure :title="`More · ${more} findings`">
+        <ul class="flex flex-col gap-1 p-3 font-mono text-meta break-words text-muted">
           <li v-for="(t, i) in part.triggers" :key="`t${i}`" class="flex gap-1.5">
-            <ConfidenceMark :confidence="t.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="t.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">trigger</span> {{ t.routine }}: {{ t.name
               }}<template v-if="t.condition"> when {{ t.condition }}</template></span
             >
           </li>
           <li v-for="c in part.counters" :key="c.field" class="flex gap-1.5">
-            <ConfidenceMark :confidence="c.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="c.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">counter</span> {{ c.field }} = {{ c.updates.join(", ")
               }}<template v-if="c.comparisons.length"> · {{ c.comparisons.join(", ") }}</template></span
             >
           </li>
           <li v-for="u in part.uncertainties" :key="u" class="flex gap-1.5">
-            <ConfidenceMark confidence="unresolved" class="mt-1.5" /><span
+            <ConfidenceMark confidence="unresolved" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">open</span> {{ u }}</span
             >
           </li>
           <li v-for="l in gear?.text.limits ?? []" :key="l" class="flex gap-1.5">
-            <ConfidenceMark :confidence="gear!.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="gear!.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">gear</span> {{ l }}</span
             >
           </li>
+          <li class="flex gap-1.5">
+            <span class="w-1.5 shrink-0" aria-hidden="true"></span
+            ><span><span class="font-sans text-faint">analysis</span> {{ howRead }}</span>
+          </li>
           <li v-if="timing" class="flex gap-1.5">
-            <ConfidenceMark :confidence="summary!.timing.confidence" class="mt-1.5" /><span
+            <ConfidenceMark :confidence="summary!.timing.confidence" class="mt-1.5" focusable /><span
               ><span class="font-sans text-faint">timing</span> {{ timing }}</span
             >
           </li>
         </ul>
-      </details>
+      </LabDisclosure>
     </template>
   </div>
 </template>
-
-<style scoped>
-.chip {
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  padding: 0 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 16px;
-  white-space: nowrap;
-}
-</style>

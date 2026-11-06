@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Sample } from "@opentim/resources";
 import { samplePcm, type Pcm } from "@opentim/sound";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { useRouter } from "vue-router";
 import {
   RATES,
@@ -23,8 +23,12 @@ import SamplePlayer from "../components/audio/SamplePlayer.vue";
 import LabBadge from "../components/LabBadge.vue";
 import LabButton from "../components/LabButton.vue";
 import LabEmpty from "../components/LabEmpty.vue";
-import LabDot from "../components/LabDot.vue";
-import LabField from "../components/LabField.vue";
+import LabListHeading from "../components/LabListHeading.vue";
+import LabListRow from "../components/LabListRow.vue";
+import LabNoMatch from "../components/LabNoMatch.vue";
+import LabSearch from "../components/LabSearch.vue";
+import LabSidePanel from "../components/LabSidePanel.vue";
+import LabToolbar from "../components/LabToolbar.vue";
 import LabIcon from "../components/LabIcon.vue";
 import LabKbd from "../components/LabKbd.vue";
 import LabSegmented from "../components/LabSegmented.vue";
@@ -36,16 +40,16 @@ import { resources, selected } from "../library.ts";
 import { crumb, fmCard, formatBytes, hex, openAt, selectedSound } from "../ui.ts";
 
 const router = useRouter();
-const search = useTemplateRef<InstanceType<typeof LabField>>("search");
 const query = ref("");
 const rate = ref(RAW_RATE);
 const rateOptions = RATES.map((r) => ({ value: r, label: `${r / 1000} kHz` }));
 
 const sections = computed(() => audioSections(resources.value));
 const all = computed(() => sections.value.flatMap((s) => s.items));
-const shown = computed(() =>
-  sections.value.map((s) => ({ ...s, items: s.items.filter((i) => matches(i, query.value)) })),
-);
+/** Every sound in one list, the bank's first and then the `.RAW` files, as far as they match the filter. */
+const shown = computed(() => all.value.filter((i) => matches(i, query.value)));
+/** The sources that can't be read, like a damaged bank. */
+const failed = computed(() => sections.value.filter((s) => s.error));
 const current = computed(() => all.value.find((i) => i.key === selectedSound.value) ?? all.value[0]);
 
 const decoded = computed(() => (current.value?.type === "bank" ? decodeEntry(current.value.entry) : undefined));
@@ -87,9 +91,19 @@ const pcm = computed<Pcm | undefined>(() => {
   return sample.value && samplePcm(sample.value);
 });
 
-const bankCount = computed(() => sections.value.filter((s) => s.title !== "Samples").length);
+/** The file the bank's sounds come from, like `TIM.SX`. */
+const bankFile = computed(() => sections.value.find((s) => s.title !== "Samples")?.title);
 const soundCount = computed(() => all.value.filter((i) => i.type === "bank").length);
 const sampleCount = computed(() => all.value.filter((i) => i.type === "raw").length);
+/** With more than one bank loaded, a row names its bank too, as their sounds share one list. */
+const manyBanks = computed(() => sections.value.filter((s) => s.title !== "Samples").length > 1);
+/** The meta of a row: the sound's id, with its bank when that's needed, or the sample file's size. */
+const rowMeta = (item: AudioItem) =>
+  item.type === "raw"
+    ? formatBytes(item.resource.data.length)
+    : manyBanks.value
+      ? `${item.resource.name} · ${item.entry.id}`
+      : String(item.entry.id);
 
 /** How the lab plays an item: its sample as it is, its MIDI on the emulated AdLib, or not at all. */
 function statusOf(item: AudioItem): { status: Confidence; label: string } {
@@ -137,11 +151,8 @@ watch(
 function onKeydown(e: KeyboardEvent) {
   if (e.ctrlKey || e.metaKey || e.altKey || !(e.target instanceof HTMLElement)) return;
   if (e.target.closest("input, textarea, select, [contenteditable]")) return;
-  if (e.key === "/") {
-    e.preventDefault();
-    search.value?.focus();
-  } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-    const list = shown.value.flatMap((s) => s.items);
+  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    const list = shown.value;
     const at = list.findIndex((i) => i.key === current.value?.key);
     const next = list[Math.max(0, Math.min(list.length - 1, at + (e.key === "ArrowUp" ? -1 : 1)))];
     if (!next) return;
@@ -167,11 +178,11 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
 <template>
   <PageHeader title="Audio">
     <template #subtitle>
-      <template v-if="bankCount">
+      <template v-if="bankFile">
         <span class="font-mono text-ink">{{ soundCount }}</span> sounds in
-        <span class="font-mono text-ink">{{ bankCount }}</span> {{ bankCount === 1 ? "bank" : "banks" }}
+        <span class="font-mono text-ink">{{ bankFile }}</span>
       </template>
-      <template v-if="bankCount && sampleCount"> · </template>
+      <template v-if="bankFile && sampleCount"> · </template>
       <template v-if="sampleCount">
         <span class="font-mono text-ink">{{ sampleCount }}</span> sample files
       </template>
@@ -182,49 +193,30 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
   </PageHeader>
 
   <div v-if="current" class="flex min-h-0 flex-1">
-    <aside aria-label="Sounds" class="flex w-[260px] shrink-0 flex-col border-r border-line bg-sunken">
-      <div class="border-b border-line p-2">
-        <LabField ref="search" v-model="query" label="Filter sounds" type="search" placeholder="Name or id…">
-          <template #prefix><LabIcon name="search" :size="14" :stroke="2" /></template>
-          <template #suffix><LabKbd>/</LabKbd></template>
-        </LabField>
-      </div>
-      <div class="min-h-0 flex-1 overflow-auto pb-1.5">
-        <template v-for="section in shown" :key="section.title">
-          <div class="flex items-center justify-between px-3 pt-2.5 pb-1">
-            <PanelTitle>{{ section.title }}</PanelTitle>
-            <span class="font-mono text-meta text-muted">{{ section.items.length }}</span>
-          </div>
-          <p v-if="section.error" class="flex items-start gap-1.5 px-3 py-1 text-meta text-error">
-            <LabIcon name="warning" :size="13" :stroke="2" class="mt-px" />{{ section.error.message }}
-          </p>
-          <button
-            v-for="item in section.items"
-            :key="item.key"
-            type="button"
-            :data-sound="item.key === current.key ? 'selected' : ''"
-            class="grid h-[26px] w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_8px] items-center gap-2 px-3 text-left focus-visible:-outline-offset-2"
-            :class="
-              item.key === current.key
-                ? 'bg-accent/12 text-ink shadow-[inset_2px_0_0_var(--color-accent)]'
-                : 'text-soft hover:bg-hover hover:text-ink'
-            "
-            :title="statusOf(item).label"
-            @click="pick(item)"
-          >
-            <span class="truncate font-mono">{{ itemName(item) }}</span>
-            <span class="font-mono text-meta text-muted">{{
-              item.type === "bank" ? item.entry.id : formatBytes(item.resource.data.length)
-            }}</span>
-            <LabDot :status="statusOf(item).status" />
-          </button>
-        </template>
-        <p v-if="!shown.some((s) => s.items.length)" class="px-3 py-2 text-muted">
-          No sounds match “<span class="font-mono text-ink">{{ query }}</span
-          >”.
+    <LabSidePanel side="left" aria-label="Sounds">
+      <LabToolbar>
+        <LabSearch v-model="query" label="Filter sounds" placeholder="Name or id…" class="flex-1" />
+      </LabToolbar>
+      <div class="min-h-0 flex-1 overflow-auto pb-2">
+        <LabListHeading title="Audio" :meta="`${shown.length} of ${all.length}`" />
+        <p v-for="f in failed" :key="f.title" class="flex items-start gap-1.5 px-3 py-1 text-meta text-error">
+          <LabIcon name="warning" :size="13" :stroke="2" class="mt-px" />{{ f.title }}: {{ f.error!.message }}
         </p>
+        <LabListRow
+          v-for="item in shown"
+          :key="item.key"
+          :name="itemName(item)"
+          :meta="rowMeta(item)"
+          :status="statusOf(item).status"
+          :status-title="statusOf(item).label"
+          :aria-description="statusOf(item).label"
+          :selected="item.key === current.key"
+          :data-sound="item.key === current.key ? 'selected' : ''"
+          @click="pick(item)"
+        />
+        <LabNoMatch v-if="!shown.length" what="sounds" :query="query" />
       </div>
-    </aside>
+    </LabSidePanel>
 
     <section class="min-w-0 flex-1 overflow-auto px-10 py-10">
       <div class="mx-auto flex max-w-[720px] flex-col gap-6">

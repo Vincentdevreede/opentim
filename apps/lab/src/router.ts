@@ -4,6 +4,7 @@ import FilesPage from "./pages/FilesPage.vue";
 import ImportPage from "./pages/ImportPage.vue";
 import LevelsPage from "./pages/LevelsPage.vue";
 import MissingPage from "./pages/MissingPage.vue";
+import PartsPage from "./pages/PartsPage.vue";
 import SandboxPage from "./pages/SandboxPage.vue";
 import SpritesPage from "./pages/SpritesPage.vue";
 
@@ -12,6 +13,7 @@ export const router = createRouter({
   routes: [
     { path: "/", component: ImportPage },
     { path: "/sprites", component: SpritesPage },
+    { path: "/parts", component: PartsPage },
     { path: "/levels", component: LevelsPage },
     { path: "/files", component: FilesPage },
     { path: "/audio", component: AudioPage },

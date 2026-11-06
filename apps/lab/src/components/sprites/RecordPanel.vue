@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { RECORD_FIELDS, type RecordField, type TypeRecord } from "@opentim/content";
 import { computed } from "vue";
-import LabIcon from "../LabIcon.vue";
-import LabTip from "../LabTip.vue";
+import LabDisclosure from "../LabDisclosure.vue";
+import LabFact from "../LabFact.vue";
+import LabFacts from "../LabFacts.vue";
+import LabInfo from "../LabInfo.vue";
+import LabSection from "../LabSection.vue";
+import ConfidenceMark from "./ConfidenceMark.vue";
 
 /** A part's 58-byte record in the program's type table, in groups of fields that belong together. */
 const props = defineProps<{
@@ -49,13 +53,11 @@ const groups = computed(() => {
   }));
 });
 
-const KNOWN: Record<RecordField["known"], { class: string; tip: string }> = {
-  checked: { class: "rounded-full bg-decoded", tip: "Checked: the program’s own code uses it this way." },
-  guess: {
-    class: "rotate-45 rounded-[1px] border-[1.5px] border-hypothesis",
-    tip: "A guess from patterns in the values. The code hasn’t shown it yet.",
-  },
-  unknown: { class: "rounded-full border-[1.5px] border-faint", tip: "Unknown." },
+/** How well a field is known, as the mark of a finding that is as sure. */
+const KNOWN: Record<RecordField["known"], { mark: "checked" | "inferred" | "unresolved"; tip: string }> = {
+  checked: { mark: "checked", tip: "Checked: the program’s own code uses it this way." },
+  guess: { mark: "inferred", tip: "A guess from patterns in the values. The code hasn’t shown it yet." },
+  unknown: { mark: "unresolved", tip: "Unknown." },
 };
 
 /** The record as rows of 16 bytes. */
@@ -76,32 +78,25 @@ const dump = computed(() => {
       <span class="font-mono text-ink">TIM.EXE</span> to the import to see it.
     </p>
     <template v-else>
-      <section v-for="g in groups" :key="g.title" class="flex flex-col">
-        <h3 class="pb-1 text-label font-semibold tracking-[.07em] text-faint uppercase">{{ g.title }}</h3>
-        <div
-          v-for="{ field, value, tip } in g.rows"
-          :key="field.offset"
-          class="flex h-7 items-center gap-2 border-t border-line-soft text-ui"
-        >
-          <LabTip :text="KNOWN[field.known].tip">
-            <span class="box-border inline-block size-1.5 shrink-0" :class="KNOWN[field.known].class"></span>
-          </LabTip>
-          <span class="min-w-0 truncate text-ink">{{ field.name }}</span>
-          <LabTip :text="tip">
-            <span class="cursor-help text-faint hover:text-ink"><LabIcon name="info" :size="14" :stroke="2" /></span>
-          </LabTip>
-          <span class="flex-1"></span>
-          <span class="font-mono whitespace-nowrap" :class="value === 'none' ? 'text-faint' : 'text-ink'">{{
-            value
-          }}</span>
-        </div>
-      </section>
-      <details class="text-meta text-muted">
-        <summary class="cursor-pointer">Raw bytes, at 0x{{ hex(record.at, 5) }} in the unpacked program</summary>
-        <pre class="mt-1.5 overflow-auto rounded-md border border-line bg-surface p-2 font-mono"><template
-          v-for="row in dump" :key="row.offset"><span class="text-muted">{{ row.offset }}</span>  {{ row.bytes }}
+      <LabSection v-for="g in groups" :key="g.title" :title="g.title">
+        <LabFacts label-width="auto">
+          <LabFact v-for="{ field, value, tip } in g.rows" :key="field.offset" align="right">
+            <template #label>
+              <span class="flex items-center gap-2 self-center">
+                <ConfidenceMark :confidence="KNOWN[field.known].mark" :title="KNOWN[field.known].tip" focusable />
+                {{ field.name }}
+                <LabInfo :text="tip" />
+              </span>
+            </template>
+            <span :class="value === 'none' && 'text-faint'">{{ value }}</span>
+          </LabFact>
+        </LabFacts>
+      </LabSection>
+      <LabDisclosure :title="`Raw bytes, at 0x${hex(record.at, 5)} in the unpacked program`">
+        <pre class="overflow-auto p-3 font-mono text-meta text-muted"><template
+          v-for="row in dump" :key="row.offset"><span class="text-faint">{{ row.offset }}</span>  {{ row.bytes }}
 </template></pre>
-      </details>
+      </LabDisclosure>
     </template>
   </div>
 </template>

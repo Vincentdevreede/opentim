@@ -2,6 +2,8 @@
 import { collisionPatterns } from "./behaviour-collision-patterns.ts";
 import { matchHeapRoutine, matchInstructionRegion } from "./behaviour-heap-release.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
+import type { ContactResponsePair } from "./behaviour-contact-response-pair.ts";
+import type { ContactResponseFirst } from "./behaviour-contact-response-first.ts";
 import type { ContactResponse } from "./behaviour-contact-response.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
@@ -17,6 +19,16 @@ export interface CollisionTarget extends CodeAddress {
   constantReturn?: number;
   returnEvidence?: Evidence[];
 }
+export interface CollisionResponseDescription extends Finding {
+  routine: number;
+  status: "described" | "unresolved";
+  description: string;
+  partFootprintComplete: boolean;
+  preservesState: boolean;
+  writes: { path: number[]; offset: number; width: number }[];
+  relation?: ContactResponseFirst | ContactResponsePair;
+}
+
 export interface CollisionDispatch extends Finding {
   routine: number;
   entry: number;
@@ -51,6 +63,7 @@ export interface CollisionDispatch extends Finding {
     callbackNonzero: { condition: Predicate; routine: number; argument: "collider" }[];
     responseConditionsReadAfterCallback: true;
   }[];
+  responses?: CollisionResponseDescription[];
   responseSupport?: (Finding & { response: number; helper: number; description: string; relation: ContactResponse })[];
   advance: "readCurrentNextAfterCallbacks";
   description: string;
@@ -303,6 +316,33 @@ export function discoverCollisionDispatch(
           responseConditionsReadAfterCallback: true,
         },
       ],
+      responses: ["helperA", "helperB", "helperC"].map((name): CollisionResponseDescription => {
+        const routine = binding!.get(name)!,
+          helper = summaries?.get(routine);
+        const relation = helper?.contactResponseFirst ?? helper?.contactResponsePair;
+        const known = !!relation && !!helper;
+        return {
+          routine,
+          status: known ? "described" : "unresolved",
+          description: known ? helper.purpose : "The selected response has no complete checked numerical relation yet.",
+          partFootprintComplete: known && helper.footprint.partMemoryComplete === true,
+          preservesState: known && helper.footprint.preservesPartState,
+          writes: known
+            ? helper.writes
+                .filter((w) => w.root === "argument")
+                .map((w) => ({ path: w.path, offset: w.offset, width: w.width }))
+            : [],
+          ...(relation ? { relation } : {}),
+          confidence: known ? helper.confidence : "unresolved",
+          evidence: known ? helper.evidence : (codes.get(routine)?.instructions.map(fact) ?? []),
+          assumptions: known
+            ? [
+                ...helper.assumptions,
+                "The dispatcher passes the moving part when this response route is selected. Selection follows the callback and current response gates; a collision or nonzero callback return is not supplied by this description.",
+              ]
+            : [],
+        };
+      }),
       responseSupport: ["helperA", "helperB", "helperC"].flatMap((name) => {
         const response = binding!.get(name)!,
           visited = new Set<number>(),
@@ -358,6 +398,7 @@ export function describeCollisionDispatch(
       sites: number[];
       selfCall?: boolean;
       responseSupport?: CollisionDispatch["responseSupport"];
+      responses?: CollisionResponseDescription[];
     })
   | undefined {
   const callback = part.routines.find((r) => r.slot === 0);
@@ -381,6 +422,14 @@ export function describeCollisionDispatch(
     sites: [...contract.passes.map((p) => p.instruction), ...(selfCall ? [contract.specialSelfCall!.instruction] : [])],
     selfCall,
     responseSupport: contract.responseSupport,
+    responses:
+      target.constantReturn === 0
+        ? []
+        : contract.responses?.map((response) => {
+            const description = { ...response };
+            delete description.relation;
+            return description;
+          }),
     description: `If an eligible moving part records this part as its contact partner and has a contact-response flag, the engine calls this part's contact callback with the moving part as the argument. ${returned}${selfCall ? " This type also receives an earlier self callback when either contact-response flag is set; that return value is ignored and the later gates read its updated fields." : ""}`,
   };
 }
