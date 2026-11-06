@@ -329,17 +329,27 @@ describe("summariseWalks", () => {
             }),
           ),
           animation("related-write", "Hit by an explosion", walk({ status: "rest", frames: [visit(0)] })),
+          animation(
+            "related-write",
+            "Touching an electric switch, if the frame is 0 and a part-specific value is 12288",
+            walk({ status: "rest", frames: [visit(0)] }),
+          ),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [run, rope, explosion, bounce, hit] = summariseWalks(report, description)[3]!;
+  const [run, rope, explosion, bounce, hit, touch] = summariseWalks(report, description)[3]!;
 
   it("names each walk by its trigger and writes its condition as terms", () => {
     expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
     expect(rope).toMatchObject({ trigger: "rope", condition: [] });
     expect(explosion).toMatchObject({ trigger: "by explosion", end: "hold" });
     expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest" });
+  });
+
+  it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {
+    expect(touch).toMatchObject({ trigger: "touching an electric switch" });
+    expect(touch!.about).toBe("Touching an electric switch, if the frame is 0 and a part-specific value is 12288");
   });
 
   it("keeps the frames, where a loop goes back to, and the path under each condition where it splits", () => {
