@@ -151,7 +151,7 @@ the level), and every one of those is listed by name.
 
   Done (see "The monkey bike against what the user saw" in `docs/behaviour.md`): all five agree with the code. The
   shade is the bike's own rope: its rope callback starts it. The code has no way for a pedalling bike to stop during a
-  run (a hit only pauses it), so it stops only when the machine is stopped; one question about that stays open. The
+  run (a hit only pauses it), so it stops only when the machine is stopped, which the user confirmed. The
   walk after a hit while pedalling now pedals on in every branch (it knew -1 or 1 isn't 0). The recorder clears the
   belt link and the bike's run never writes it, so the recorded bikes had no belt: the 32 recordings close under the
   recorder's own basis. Even More 616 to 648 of 648 complete, TIM 1 520 to 552 of 552, none different.

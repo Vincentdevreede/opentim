@@ -2005,8 +2005,8 @@ The statements:
    kind 4, or the end of a reaction that began while pedalling, makes the control value something other than 0, and a
    hit alone never starts a bike that stands still. But the code has no way for a pedalling bike to stop during a run:
    no routine sets its control value to 0 except the bounce, and after that reaction it pedals on. It stops only when
-   the machine is stopped and the level reset puts it back on frame 0 with control value 0. Whether the user saw it
-   stop by itself is asked below.
+   the machine is stopped and the level reset puts it back on frame 0 with control value 0. The user confirmed on
+   2026-11-06 that this is what the game does: a pedalling bike stops only when the machine is stopped.
 5. **A belt from the bike can drive another part, like a jack-in-the-box.** Agrees. The jack's flags have no `0x0800`,
    so the bike's copy reaches it. Its run (`0x1b888`) adds its control value to its frame on frames 0 to 7 (turned round
    when the jack is flipped) and wraps at 8 and -1. The bike writes only -1, 0 or 1, the numbers
@@ -2362,7 +2362,8 @@ so the type is that number:
 | dynamite plunger | `0x1c3c1`        | `0x29` | explosion  |
 
 Part 43 keeps its id `pinball`, since ids never change once published, but in TIM 1 and Even More it is the cannonball
-the cannon fires, so the descriptions call it that.
+the cannon fires, so the descriptions call it that. Only the behaviour descriptions do: the user decided on 2026-11-06
+that the Lab keeps showing "Pinball" as the part's name.
 
 Helpers make parts the same way: an explosion at `0x1a432`, and in the other builds the scissors' rope cut makes two rope ends and a rope (types `0x31` and `0x0a`). The reader takes the type only from `mov` of a number into a
 register and `push` of that register, or a `push` of a number, right before the far call, with nothing jumping to the
