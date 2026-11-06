@@ -55,6 +55,22 @@ describe("writer", () => {
     expect(expression(field(0x00, "answer of the query at 0x19fd3"))).toBe("answer at 0x19fd3");
   });
 
+  it("names what a search or a call leaves on the parts it selects", () => {
+    expect(expression(field(0x78, "found list after the query at 0x19ef6"))).toBe("found");
+    expect(expression(field(0x0c, "referenced-by(found list after the query at 0x19ef6+0x78)"))).toBe("found.state");
+    expect(expression(field(0x78, "next in the found list of the query at 0x19ef6"))).toBe("next found");
+    expect(expression(field(0x7a, "value the query at 0x19ef6 writes to a found part"))).toBe(
+      "overlapX from the call at 0x19ef6",
+    );
+    expect(expression(field(0x96, "value the call at 0x1a730 writes to a selected part"))).toBe(
+      "part+0x96 from the call at 0x1a730",
+    );
+    expect(expression(field(0x5a, "part after field effect at 0x1a730"))).toBe("link0");
+    expect(expression(field(0x0c, "value after the list scan at 0x1d451 in member found by the loop at 0x1a01a"))).toBe(
+      "found.state after the scan at 0x1d451",
+    );
+  });
+
   it("gives this part's own fields the names that only hold for it", () => {
     const gear = writer(fields, new Map([[0x5a, "gearLeft"]]));
     expect(gear.expression(field(0x5a))).toBe("gearLeft");

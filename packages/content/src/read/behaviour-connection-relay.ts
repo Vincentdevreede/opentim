@@ -315,6 +315,8 @@ export function addConnectionSummaries(
       belt.writes.length > 0 &&
       belt.writes.every((write) => write.root === "argument" && !write.path.length);
     if (!geometry || !ends || !belt || !beltRecord) continue;
+    const byte: Expression = { kind: "field", object: "argument", offset: 8, width: 8 };
+    // The owner gets the byte first, unless its type (field 0x04) is 49, the number the pattern matches.
     const owner: EngineWrite = {
       confidence: "inferred",
       evidence: proof(code),
@@ -324,22 +326,35 @@ export function addConnectionSummaries(
       path: [],
       offset: 0x14,
       width: 8,
-      value: { kind: "field", object: "argument", offset: 8, width: 8 },
-      condition: { kind: "unknown", reason: "The owner gets the byte unless its type is the one the code excludes." },
+      value: byte,
+      condition: {
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "field", object: "part", offset: 4, width: 16 },
+        right: { kind: "constant", value: 49, width: 16 },
+        signed: false,
+      },
+      exact: true,
     };
-    summaries.set(
-      code.address,
-      composite(
-        code,
-        "related-byte-propagation",
-        "Copies the caller's byte to the owner and to the parts at the other end of its belt and ropes, updating the belt and rope geometry on the way.",
-        6,
-        [],
-        [ends],
-        [belt, geometry],
-        [{ offset: 0x14, width: 8 }],
-        [owner],
-      ),
+    const summary = composite(
+      code,
+      "related-byte-propagation",
+      "Copies the caller's byte to the owner and to the parts at the other end of its belt and ropes, updating the belt and rope geometry on the way.",
+      6,
+      [],
+      [ends],
+      [belt, geometry],
+      [{ offset: 0x14, width: 8 }],
+      [owner],
     );
+    // Every store to 0x14 in the relay copies the byte, and no callee writes 0x14 of any part: a part the relay reaches
+    // keeps its 0x14 or gets the byte. That part may be the owner, which already holds the byte unless it is of type
+    // 49, so the owner's field ends as the byte too.
+    // The records the callees write are separate allocations; the part fields they may write are listed.
+    const touches = (fields: Field[] = []) =>
+      fields.some((field) => field.offset <= 0x14 && 0x14 < field.offset + field.width / 8);
+    if (![ends, belt, geometry].some((callee) => touches(callee.connected?.partFields)))
+      summary.connected!.values = [{ offset: 0x14, width: 8, value: byte }];
+    summaries.set(code.address, summary);
   }
 }

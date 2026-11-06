@@ -211,7 +211,13 @@ describe("complete part-graph footprints", () => {
   it("clears owner movement before the next invocation without claiming exact related-object values", () => {
     const result = analyse([0xc7, 0x44, 12, 3, 0, 0xc7, 0x44, 18, 1, 0, ...call, ...call], helper(true));
     expect(result.transitions.at(-1)!.to).toMatchObject({ kind: "constant", value: 0 });
-    expect(result.writes.find((w) => w.object === "a connected part")!.value.kind).toBe("unknown");
+    expect(result.writes.find((w) => w.object === "a connected part")!.value).toMatchObject({
+      kind: "field",
+      unresolved: true,
+    });
+    expect((result.writes.find((w) => w.object === "a connected part")!.value as { object: string }).object).toMatch(
+      /^value the call at 0x[0-9a-f]+ writes to a selected part$/,
+    );
   });
   it("invalidates an uncached overlapping read, including partial words", () => {
     const result = analyse([...call, 0x8b, 0x44, 0x5f, 0x89, 0x44, 12]);

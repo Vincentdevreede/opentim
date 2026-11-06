@@ -77,6 +77,10 @@ function metricsOf(report: BehaviourReport) {
       (sum, part) => sum + transitionCounts(part.transitions).unknownWrites,
       0,
     ),
+    namedRunValueTransitions: report.parts.reduce(
+      (sum, part) => sum + transitionCounts(part.transitions).namedRunValues,
+      0,
+    ),
     unresolvedCallsites: diagnostics.filter((item) => item.startsWith("Effects of call")).length,
     pointerLosses: diagnostics.filter((item) => /(?:pointer.*lost|lost.*pointer)/i.test(item)).length,
     unresolvedLoops: diagnostics.filter((item) => /back edge|loop invariant/i.test(item)).length,
@@ -357,7 +361,7 @@ for (const phase of ["baseline", "reports"] as const) {
         : "No exact executable hash matched an oracle model; measured walk coverage is unavailable.",
     });
     console.log(
-      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
+      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.namedRunValueTransitions} with named run values, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
     );
   }
 }
@@ -373,6 +377,7 @@ const comparisons = results
       "unresolvedTransitions",
       "conditionalTransitions",
       "unknownWriteTransitions",
+      "namedRunValueTransitions",
       "unresolvedCallsites",
       "pointerLosses",
       "unresolvedLoops",
@@ -403,7 +408,7 @@ const comparisons = results
     };
   });
 const limitations = [
-  "Unresolved transitions leave out conditional ones: a conditional transition tests only values found during that run, like a query's answer, the part a loop found or what a list scan leaves behind, and its routine lost no effect. Transitions with unknown writes are counted apart from both, whatever their condition.",
+  "Unresolved transitions leave out conditional ones: a conditional transition tests only values found during that run, like a query's answer, the part a loop found or what a list scan leaves behind, and its routine lost no effect. Transitions with unknown writes are counted apart from both, whatever their condition: they write a value nobody named, an unknown or a value read again after one. Transitions with named run values write only known values and values named after the run-time thing that gives them, like a search's found list, a value a list scan leaves behind, what a call writes to the parts it selects, or the part's field after such a call, and at least one of those.",
   "Oracle coverage is counted in saved clips. Changed-state edge checks are a separate count.",
   "Complete walks refer to state-selected frame numbers and run-call positions. Hiding, reflection, physics and wall time are outside these match counts.",
   "A complete match requires a proved stable ending or matching repeating visible cycles; unknown endings are prefixes.",
@@ -432,13 +437,13 @@ const lines = [
   "",
   ...limitations.map((item) => `- ${item}`),
   "",
-  "| Phase and build | Unresolved transitions | Conditional transitions | Transitions with unknown writes | Vague effect lines | Unresolved resets | Parts without resting frames | Unmeasured parts | Unresolved call sites | Pointer losses | Loops | Oracle clips | Complete walks | Prefixes | Different | No compatible start | Extract ms | Describe ms |",
-  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| Phase and build | Unresolved transitions | Conditional transitions | Transitions with unknown writes | Transitions with named run values | Vague effect lines | Unresolved resets | Parts without resting frames | Unmeasured parts | Unresolved call sites | Pointer losses | Loops | Oracle clips | Complete walks | Prefixes | Different | No compatible start | Extract ms | Describe ms |",
+  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 ];
 for (const result of results) {
   const s = result.summary;
   lines.push(
-    `| ${result.phase}: ${result.source?.folder ?? result.report} | ${s.unresolvedTransitions}/${s.transitions} | ${s.conditionalTransitions} | ${s.unknownWriteTransitions} | ${s.vagueEffects} | ${s.unresolvedResets} | ${s.partsWithoutStableStates} | ${s.unmeasuredParts} | ${s.unresolvedCallsites} | ${s.pointerLosses} | ${s.unresolvedLoops} | ${s.measuredClips} | ${s.walkMatches.complete} | ${s.walkMatches.prefix} | ${s.walkMatches.different} | ${s.walkMatches.unavailable} | ${s.extractionMilliseconds?.toFixed(1) ?? "Unavailable"} | ${s.describeMilliseconds.toFixed(1)} |`,
+    `| ${result.phase}: ${result.source?.folder ?? result.report} | ${s.unresolvedTransitions}/${s.transitions} | ${s.conditionalTransitions} | ${s.unknownWriteTransitions} | ${s.namedRunValueTransitions} | ${s.vagueEffects} | ${s.unresolvedResets} | ${s.partsWithoutStableStates} | ${s.unmeasuredParts} | ${s.unresolvedCallsites} | ${s.pointerLosses} | ${s.unresolvedLoops} | ${s.measuredClips} | ${s.walkMatches.complete} | ${s.walkMatches.prefix} | ${s.walkMatches.different} | ${s.walkMatches.unavailable} | ${s.extractionMilliseconds?.toFixed(1) ?? "Unavailable"} | ${s.describeMilliseconds.toFixed(1)} |`,
   );
 }
 for (const result of results.filter((item) => item.phase === "final")) {

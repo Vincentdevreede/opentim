@@ -1075,6 +1075,51 @@ conditional. The 2 left in each build are the magnifying glass: its run calls a 
 not a complete footprint of its other fields, so its routine lost track of an effect. 462 of 925 rules in Even More
 and 402 of 764 in TIM 1 write a field whose value is still unknown. No walk and no recording comparison changes.
 
+### Found lists and parts reached through ropes
+
+A search or a rope, belt or pulley helper writes parts that only the running game picks: the parts a search finds,
+the parts at the other end of a rope. Those writes used to be anonymous unknowns ("A selected related object may
+change this field", "Conditional overlap-list effect on field 0x78"). Each value is now named after the call that
+gives it, with the existing expression form of a field marked `unresolved`, so every traversal reads it as before
+and a walk still forgets it. Within one run a name is one value: no path passes the same call twice.
+
+- **The found list.** An overlap query clears the asking part's head at `0x78` and puts each part it finds at the
+  front (`linkedInsertion`, or the outline search's checked graph). After the query the head is `found list after
+the query at` the call's address: the part found last, or 0 when none. The outline search may list the asking part
+  itself, but it stores the link before the head, so the head still ends as the head.
+- **The found parts.** A found part's link at `0x78` gets the head it pushed down, `next in the found list of the
+query at` the call: the next part in the list, or 0 for the part found first. The query at `0x417e` (Even More,
+  English floppy) also fills in `0x7a` and `0x7c`, the shorter of the two edge distances between the boxes across and
+  down; that value is named `value the query at` the call `writes to a found part`, without claiming the formula.
+- **The relay's byte.** The relay gives the owner its byte first unless the owner's type (field `0x04`) is 49, the
+  number its pattern matches, and every other store to `0x14` copies the same byte; no callee writes `0x14` of a part.
+  So the summary now has an exact owner write (`exact`, chosen with `choose` against the old value) and
+  `connected.values` gives a reached part's `0x14` as the byte. A part's own rules run on a part of its type, so
+  `withOwnType` puts the type in and the test folds: the owner's `0x14` is the byte, 2 in every caller of both measured
+  builds. Even if a rope led back to the owner, the reached store writes the same byte, or nothing when it only fills a
+  zero.
+- **Other fields of reached or selected parts.** The rope links `0x5a` to `0x60`, `0x6a`, `0x6c` and the rope ends
+  `0x96`, `0x9c` of a reached part, and the fields a gear graph or contact response changes on its selected part, are
+  `value the call at` the address `writes to a selected part`.
+- **The owner after such a call.** A reached or selected part may be the owner itself (the code doesn't rule out a
+  rope back to the same part), so the owner's field is `part after field effect at` the call: unchanged unless the call
+  reached the owner. An uncached read after the call already gave that name.
+- **After a list scan.** Another part's field a complete list scan may change is `value after the list scan at` the
+  scan `in` that part, like the owner's `part after list scan at`.
+
+`transitionCounts` now counts two groups apart. Rules with unknown writes write at least one value nobody named: an
+unknown, or a field read again after an unknown write. Rules with named run values write only known values and values
+named after the run time thing that gives them (the names in `RUN_VALUE`: a query's answer, a part a loop found, what
+a list scan leaves behind, a found list, what a call writes to the parts it selects, the owner after such a call), and
+at least one of those. The extraction notes and the comparison table show both.
+
+Measured by the new rule, rules with unknown writes go from 242 to 33 of 925 in Even More, English floppy, and from
+218 to 28 of 764 in TIM 1, French; rules with named run values go from 5 to 214 and from 5 to 195. The relay's owner
+byte is now known in 37 rules of Even More and 33 of TIM 1. Every walk still ends and the recordings stay at 596 complete, 52 prefix
+and 0 different (Even More) and 504, 48, 0 (TIM 1). What is left unknown is a helper's conditional effect without an
+exact condition (the contact speed limit, owner field relations), the order a created object takes in a sorted list,
+and a few values the symbolic budget gives up on.
+
 ### The magnifying glass's last call
 
 At the end of its run, the magnifying glass (Even More English floppy: run at `0x1c0ac`, call at `0x1c21c`) passes
