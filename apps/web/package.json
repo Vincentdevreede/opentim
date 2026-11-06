@@ -14,7 +14,7 @@
   "dependencies": {
     "@fontsource/silkscreen": "^5.3.0",
     "@opentim/theme": "workspace:*",
-    "nuxt": "^4.6.2",
+    "nuxt": "^4.6.4",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0"
   },
