@@ -37,10 +37,14 @@ Starting point:
 These can never become a number, but each one can become a plain value like "the part its search found" or "the
 touching part's speed, reversed". A rule then counts as named, not unknown.
 
-- [ ] **B0. Values that differ by path.** When two rules lead to the same frame and differ only in one test, they are
+- [x] **B0. Values that differ by path.** When two rules lead to the same frame and differ only in one test, they are
       merged into one rule. A field the two set differently then becomes unknown ("Field 0x12 differs on complementary
       paths"), although both values are known. This is the largest group: about 40 fields in most parts. Keep both values
       with the test that picks them. Done when no write is unknown only because of this merge.
+      Done: the field keeps both values, `(test) * a + (opposite) * b`, for every comparison. Rules that write a value
+      the analysis can't name went from 365 to 247 of 925 in Even More and from 324 to 223 of 764 in TIM 1. Every walk
+      still ends, and the recordings stay at 596 complete, 52 prefix, 0 different (Even More) and 504, 48, 0 (TIM 1).
+      In 4 teeter-totter rules per build both values are known but a query's answer picks one: that belongs to B1.
 - [ ] **B1. Search results (found list `0x78`, `0x7a`, `0x7c`).** About 160 rules, most of them the cat (108), then the
       teeter-totter, jack-in-the-box, mouse, teapot, candle, rocket, fan, bellows, vacuum cleaner, magnifying glass, Mel's
       house, solar panel and explosion. Name the list links and the found part's fields.

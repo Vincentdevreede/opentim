@@ -1025,11 +1025,31 @@ When both answers of a test lead to the same next frame, the reader joins the tw
 its condition or its next frame holds a value the analysis doesn't know, like a query's answer. If that answer was the
 only such value and the joined rule no longer tests it, the frame path no longer depends on it, so the joined rule is
 no longer unresolved. This needs every path of the routine to have known effects: a path that lost track of a write
-could have made the rule unresolved for another reason, and then the rule stays unresolved. Fields the two answers
-write differently stay unknown, as before.
+could have made the rule unresolved for another reason, and then the rule stays unresolved. A field the two answers
+write differently keeps both values, chosen by the answer (see [Values two paths set differently](#values-two-paths-set-differently)).
 
 The teeter-totter's bounce asks a query and its rope callback asks along the rope; their frame does not depend on the
 answers. In each recorded build its unresolved transitions go from 15 to 6, and no walk changes.
+
+### Values two paths set differently
+
+Two return paths that lead to the same frame and differ only in one test and its opposite are joined into one rule.
+When they write a field differently, the joined rule used to call the field unknown ("differs on complementary
+paths"), although both values were known. It now keeps both: the field is `(test) * a + (opposite) * b`, with each
+test 0 or 1, the same form the drawing fields already had. Exactly one of the two tests holds, so the value is exact.
+This works for every comparison: the values compare as unsigned numbers, so a signed test (`jl`, `jg` and the like)
+compares both sides with their sign bit turned round, which orders them the same way. A value or a side of the test
+that is unknown keeps the joined value unknown, with that value's own reason. `choiceOf` gives the test and the two
+values back; the lab shows such a value as "3 if test, else 5". A walk works the value out when it knows the fields
+the test reads, and otherwise forgets it, as it did with the unknown value. A rule whose paths split on a countdown
+is still taken apart into its paths, as in [Countdowns](#countdowns).
+
+Rules that write an unknown value go from 365 to 247 of 925 in Even More, English floppy, and from 324 to 223 of 764
+in TIM 1, French. No write is unknown only because of the join any more: what is left is unknown for its own reason,
+like a related part a helper may change or a field after a list scan. In 4 rules of the teeter-totter in each build
+both values are known but a query's answer picks one, so they still count. Every walk still ends and no recording
+comparison changes; the rocket's walks from frames 0 and 7 now know its field `0x84` after frame 7, so they repeat one
+cycle later, with the same frames.
 
 ### Conditional rules
 
@@ -1755,7 +1775,7 @@ part's fields and table words, and its writes are values of those. A field's val
 the path's value times the 0 or 1 of its tests, with a test that every path makes taken out in front. Exactly one
 path's tests hold, so the value is exact, and a caller gets it in place of an unknown write. When two paths of a rule
 differ only in one test and give a drawing field different values, the rule keeps both values the same way instead of
-an unknown one.
+an unknown one, like any other field (see [Values two paths set differently](#values-two-paths-set-differently)).
 
 A part's own rules run on a part of its type, so for each part the type field becomes its type and the words at
 `+0x18` and `+0x1a` of its type record become the words in the program, under the type table assumption of
