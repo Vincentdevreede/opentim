@@ -7,7 +7,7 @@
  * - an overlap list: a run walks the parts its search found and writes some of them (the explosion, the candle and
  *   rocket lighting, the jack-in-the-box's punch, the vacuum cleaner and others), read as per-member outcomes;
  * - a list consumer: a run hands a fresh search's list to a helper that writes its members, like the teeter-totter's
- *   ends. The analysis only has the helper's footprint, not its per-member outcomes.
+ *   ends. The helper is read path by path for one member, and the run puts in its arguments at each call.
  *
  * A pair is allowed when one path of the source's code writes the part, or may write it, and the path's tests of the
  * part's type (with the type table) don't rule its type out. It is then described (a line or a walk in the part's
@@ -36,6 +36,7 @@ import {
   LIGHTABLE,
   LIGHTABLE_ASSUMPTION,
   LIGHTABLE_PARTS,
+  placeTest,
   searchTests,
 } from "./describe-hits.ts";
 
@@ -180,7 +181,8 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
           ...(header === undefined ? {} : { header }),
         });
       };
-      for (const outcome of code.iterationOutcomes ?? []) add("overlap list", outcome.object, outcome, outcome.header);
+      for (const outcome of code.iterationOutcomes ?? [])
+        add(outcome.listConsumer ? "list consumer" : "overlap list", outcome.object, outcome, outcome.header);
       if (callback.slot === 0) {
         let selfOnly = 0;
         for (const outcome of code.outcomes ?? []) {
@@ -215,7 +217,8 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
               ),
             ].sort((a, b) => a - b),
           });
-        if (helper?.listConsumer)
+        // A consumer read path by path gives its members' outcomes to the run, above.
+        if (helper?.listConsumer && !helper.listConsumer.memberOutcomes)
           consumerCalls.set(helper.address, [...(consumerCalls.get(helper.address) ?? []), call.instruction]);
       }
       if (queries.length) {
@@ -247,12 +250,24 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   const missingReason = (path: Path, type: number): string => {
     const { outcome, way, member } = path;
     const touch = way === "touch";
+    // A consumer's test of where the member lies from the source is said in words.
+    const placed = (term: Predicate) => way === "list consumer" && placeTest(term, member) !== undefined;
     if (!outcome.effectsComplete) return NO_COMPLETE_EFFECTS;
-    if (outcome.confidence === "unresolved" && !(touch && onlyAnswersOpen(outcome))) return UNRESOLVED_PATH;
+    if (
+      outcome.confidence === "unresolved" &&
+      !(touch && onlyAnswersOpen(outcome)) &&
+      !(
+        way === "list consumer" &&
+        terms(outcome.condition).every((t) => placed(t) || !objects(t).unknown) &&
+        outcome.fields.every((f) => !objects(f.value).unknown)
+      )
+    )
+      return UNRESOLVED_PATH;
     if (outcome.fields.some((f) => f.object !== member && !(touch && f.object === "part"))) return OTHER_OBJECTS;
     for (const term of terms(outcome.condition)) {
       const read = objects(term);
       if (touch && term.kind === "compare" && readsAnswer(term) && !read.objects.has(member)) continue;
+      if (placed(term)) continue;
       if (read.unknown || term.kind === "unknown") return OPEN_TEST;
       const only = [...read.objects];
       // A loop's tests may read the source or the member, a bounce's both together.
@@ -292,7 +307,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       path.writes.some(readsRule)
     )
       return RESPONSE_FIELDS;
-    if (way === "overlap list") return UNDECIDED_TEST;
+    if (way !== "touch") return UNDECIDED_TEST;
     return UNCLASSIFIED;
   };
 
@@ -347,8 +362,14 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
     const lines = (effects.get(type)?.effects ?? []).filter(
       (e) => e.sourceType === path.sourceType && e.routine === path.routine,
     );
+    // A consumer's walks name it, apart from the run's own list.
     const walks = (hits.get(type)?.hits ?? []).filter((h) =>
-      h.sources.some((s) => s.type === path.sourceType && s.routine === path.routine),
+      h.sources.some(
+        (s) =>
+          s.type === path.sourceType &&
+          s.routine === path.routine &&
+          (s.consumer !== undefined) === (path.way === "list consumer"),
+      ),
     );
     const fields = [...new Set(open.flatMap((item) => item.path.writes.map((w) => w.offset)))].sort((a, b) => a - b);
     const said = new Set<number>();

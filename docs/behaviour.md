@@ -1119,29 +1119,72 @@ The pairs in Even More (English floppy); TIM 1 (French) has the same for the par
 | Teapot, run                         | candle, mouse motor, windmill (walks)                                                                                              | 38 (11, 18)                            | 22 moving parts: the spout's speed reads a table word, and a test compares the two places                                            |
 | Teeter-totter, bounce               | 24 moving parts (lines)                                                                                                            | 39 (11)                                |                                                                                                                                      |
 | Teeter-totter, run (contact sweeps) |                                                                                                                                    |                                        | 63: what its contact search finds decides the values (see [effect lines with a proved meaning](#effect-lines-with-a-proved-meaning)) |
-| Teeter-totter, list consumer        |                                                                                                                                    |                                        | mouse motor, fish bowl, bellows, dynamite plunger, flashlight, scissors: see below                                                   |
+| Teeter-totter, list consumer        | bellows, dynamite plunger, flashlight, scissors (4 walks each), fish bowl, mouse motor (walks shared with other parts)             |                                        |                                                                                                                                      |
 | Thumb tack, bounce                  | balloon (walk)                                                                                                                     |                                        |                                                                                                                                      |
 | Trampoline, bounce                  | cat, mouse (walks), Mel (lines and walk); 21 in part: the bounce's `velocityY` reads a table word                                  | 39 (11)                                |                                                                                                                                      |
 | Vacuum cleaner, bounce              | 24 (lines, the balloon a walk)                                                                                                     | 39 (11)                                |                                                                                                                                      |
 | Vacuum cleaner, run                 |                                                                                                                                    |                                        | 63: the pull compares the two places and some paths are unresolved                                                                   |
 
-In numbers, Even More: 1,084 pairs allowed, 221 described, 46 partly described, 570 ruled out and 247 missing; TIM 1:
-615 allowed, 129 described, 17 partly described, 345 ruled out and 124 missing. Most missing pairs are of four runs
+In numbers, Even More: 1,090 pairs allowed, 227 described, 46 partly described, 570 ruled out and 247 missing; TIM 1:
+621 allowed, 135 described, 17 partly described, 345 ruled out and 124 missing (the teeter-totter's list consumer
+gives the six more pairs, all described, see below). Most missing pairs are of four runs
 whose values or tests depend on where the parts are (fan, vacuum cleaner, teeter-totter sweeps, bellows and teapot).
 Every pair that is neither described nor ruled out has a reason.
 
 **The teeter-totter's list consumer.** When a teeter-totter tips, its run (Even More, English floppy: calls at
 `0x1d49a`, `0x1d4f8` and `0x1d521`; TIM 1, French: four calls to `0x1bf09`) hands an overlap list to the helper at
-`0x1d797`. That helper goes through the list and picks by the member's type from a table of six (`0x1d8a4`): it starts
-a mouse motor (`0x1c074`), sets a fish bowl to frame 11 (`0x1ad71`, it breaks), and sets the control value at `0x12` to 1 on a bellows,
-a scissors, and, when the run passes 1, a dynamite plunger and a flashlight, each only when the member is in a range of
-pixels from the teeter-totter's end that depends on whether the member is mirrored. TIM 1 has the same six types. The
-analysis reads this helper only as a footprint (which member fields it may write), not path by path, so these six
-pairs have no line or walk yet. Reading it like a loop's per-member outcomes needs the routine analysis to follow a
-list that comes in from the caller, which is a larger change.
+`0x1d797`. That helper goes through the list and picks by the member's type from a table of six (`0x1d8a4`). It is
+now read path by path, and each of the six parts has walks for it, see
+[what a teeter-totter's end does to the part lying there](#what-a-teeter-totters-end-does-to-the-part-lying-there).
 
 Ropes, belts, pulleys and gears also reach other parts, through connections rather than touch or search. They are the
 next kind of work (see the plan's last section) and this check doesn't count them.
+
+### What a teeter-totter's end does to the part lying there
+
+When a teeter-totter tips, its run searches a small box at each end and hands each list it finds to a helper (Even
+More, English floppy: `0x1d797`; TIM 1, French: `0x1bf09`) with two numbers: where the end is, as pixels to add to
+the teeter-totter's `positionX` (74 for its right end, 0 for its left end), and a flag. The helper then goes through
+the list and, by each part's type:
+
+- starts a mouse motor (`0x1c074`: sets its control value to 1, or to -1 when it is mirrored, and its counter at
+  `0x96` to 100);
+- breaks a fish bowl (`0x1ad71`): when its frame is below 11 it sets frame 11 and updates its drawing position, size
+  and outline;
+- sets the control value of a bellows or a scissors to 1, when it lies close enough to the end;
+- sets the control value of a dynamite plunger or a flashlight to 1, the same way, but only at the end that gets
+  the flag: the left end when the teeter-totter has just come to frame 0 (its previous frame is 0 and the one before
+  isn't), the right end when it has just come to frame 2.
+
+"Close enough" is the end minus the part's `positionX`, in pixels, and the range depends on whether the part is
+mirrored. In Even More and TIM 1 alike: bellows 0 to 8 (mirrored 54 to 60), scissors 0 to 12 (25 to 37), dynamite
+plunger 103 to 135 (0 to 31) and flashlight 5 to 16 (13 to 24). A positive number means the part's `positionX` is
+that many pixels left of the end.
+
+How the analysis reads it. The helper is a list consumer: its loop goes over a list its caller hands in. When the
+reader finds such a helper, it now also analyses it with that loop read like a run's own list, which gives what it
+does to one member, path by path (`memberOutcomes` on the consumer, taken only when the helper's analysis went over
+every path within its budget and its paths write every member field of its footprint). At each call that proves the list is fresh and the helper gets the run's own part,
+the run puts in its numbers: the helper's arguments become the numbers the call pushes, and the teeter-totter's
+fields become their values at the call. A path that needs another number, like the plunger's path at the end without
+the flag, is dropped. The member's tests and values stay of its own fields as the helper gets it. What is left becomes
+a per-member outcome of the run that names the consumer, and the hits and the pair check use it like any other list.
+
+A test of where the part lies from the end compares two places, which a walk doesn't follow. Such a test, the end
+plus a number minus the part's own field of the same kind, is said in words in the walk's name, for example "Hit by a
+teeter totter, when its positionX is 0 to 8 pixels left of the teeter totter's positionX + 74", and the walk keeps
+the part's own tests, like whether it is mirrored. Walks with different places stay apart. The mouse motor's and the
+fish bowl's paths test no place, so they join the walks the alligator, boxing glove, explosion and others already
+give. The teeter-totter's own tests on the way to the call (which frame it has just come to, the answer along its
+ropes) are its own business and are left out, as for any run's list.
+
+Each of the six parts now has walks from the teeter-totter: the bellows, the scissors, the dynamite plunger and the
+flashlight 4 each (two ends, mirrored or not), and the mouse motor and fish bowl through their shared walks.
+`list-other-part-pairs` counts the six as their own way, "list consumer", described, and no longer lists the helper
+as read only as a footprint. Walks that end: 28 more in each build (Even More 1,363 to 1,391, TIM 1 1,179 to
+1,207), and none stays open.
+The recordings stay at 648 complete in Even More and 552 in TIM 1 with none different, no rule writes an unknown
+value and no effect line is vague.
 
 ### Effect lines with a proved meaning
 

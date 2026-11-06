@@ -60,9 +60,11 @@ counts as named, not unknown.
 - [x] **C2. Check the list is complete.** `list-other-part-pairs` gives every pair the code allows as described,
       partly described, ruled out or missing, each with its reason. Even More: 1,084 pairs, 221 described, 46 partly,
       570 ruled out, 247 missing; TIM 1: 615, 129, 17, 345, 124. See "Which parts can affect which".
-- [ ] **C3. What a teeter-totter's end does to the part lying there.** When it tips, its end hands a list to a helper
-      that can start a mouse motor, break a fish bowl, or set off a bellows, scissors, dynamite plunger or flashlight
-      (6 pairs per build). The analysis needs to follow a list handed in from another part.
+- [x] **C3. What a teeter-totter's end does to the part lying there.** The helper its ends hand their lists to is read
+      path by path, with each call's numbers put in. The bellows, scissors, dynamite plunger and flashlight get 4 walks
+      each, named with where the part must lie ("when its positionX is 0 to 8 pixels left of the teeter totter's
+      positionX + 74"); the mouse motor and fish bowl join their walks. Pairs: Even More 1,090 and 227 described, TIM 1
+      621 and 135, the six all described. See "What a teeter-totter's end does to the part lying there".
 - [ ] **C4. The missing pairs that depend on where parts are.** 247 pairs in Even More and 124 in TIM 1 (sweeps,
       explosion splits, thrown directions) belong with several parts working together; this plan only lists them.
 

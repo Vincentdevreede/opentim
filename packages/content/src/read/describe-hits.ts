@@ -44,14 +44,16 @@ export const isLightableTest = (t: { offset: number; mask: number }) =>
 
 /** One way other parts change this part's fields that its rules read. */
 export interface PartHit extends Finding {
-  /** The parts whose routines do it, with the routine. */
-  sources: { type: number; part: string; routine: number }[];
+  /** The parts whose routines do it, with the routine, and the list consumer the routine hands its list to. */
+  sources: { type: number; part: string; routine: number; consumer?: number }[];
   /** What the hit leaves in this part's fields, with `part` this part. A field set differently by the sources is unknown. */
   writes: FieldWrite[];
   /** What must hold for this part, with `part` this part: like being mirrored, or on the moving list. */
   condition: Predicate;
   /** The tests of `condition` on the part's list, in words, like "on the moving list". */
   conditionWords: string[];
+  /** Where the part must lie from the source, in words, which the walk doesn't follow. */
+  placeWords?: string[];
   name: string;
 }
 
@@ -77,6 +79,85 @@ function readsTable(value: Expression | Predicate): boolean {
   if (value.kind === "binary" || value.kind === "compare") return readsTable(value.left) || readsTable(value.right);
   if (value.kind === "and") return value.terms.some(readsTable);
   return false;
+}
+
+/**
+ * A test of where the member lies from a point of the source, like the teeter-totter's list consumer testing
+ * `(teeter-totter positionX + 74) - member positionX >= 54`: the distance from the point to the member's field, in
+ * the field's own unit, and a bound on it.
+ */
+export interface PlaceTest {
+  offset: number;
+  /** What the source adds to its own field to get the point, like 74 for the teeter-totter's right end. */
+  shift: number;
+  low?: number;
+  high?: number;
+}
+const signedOf = (value: number, width: number) => {
+  const wrapped = value & (2 ** width - 1);
+  return wrapped >= 2 ** (width - 1) ? wrapped - 2 ** width : wrapped;
+};
+/** The place test a term makes, or undefined when it isn't one: the source's field must be the member's same field. */
+export function placeTest(term: Predicate, member: string): PlaceTest | undefined {
+  if (term.kind !== "compare" || !term.signed || term.right.kind !== "constant") return undefined;
+  const left = term.left;
+  if (left.kind !== "binary" || left.operator !== "-") return undefined;
+  const mine = left.right,
+    point = left.left;
+  if (mine.kind !== "field" || mine.object !== member || mine.unresolved) return undefined;
+  const theirs = point.kind === "binary" && point.operator === "+" ? point.left : point;
+  const shift =
+    point.kind === "binary" && point.operator === "+"
+      ? point.right.kind === "constant"
+        ? signedOf(point.right.value, point.right.width)
+        : undefined
+      : 0;
+  if (
+    shift === undefined ||
+    theirs.kind !== "field" ||
+    theirs.object === member ||
+    theirs.offset !== mine.offset ||
+    theirs.width !== mine.width
+  )
+    return undefined;
+  const n = signedOf(term.right.value, term.right.width);
+  const bound =
+    term.operator === ">="
+      ? { low: n }
+      : term.operator === ">"
+        ? { low: n + 1 }
+        : term.operator === "<="
+          ? { high: n }
+          : term.operator === "<"
+            ? { high: n - 1 }
+            : undefined;
+  return bound && { offset: mine.offset, shift, ...bound };
+}
+/**
+ * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter-totter's positionX + 74". The
+ * distance is the source's point minus the member's field, so a positive one is to the left.
+ */
+export function placeWords(tests: PlaceTest[], source: string, field: (offset: number) => string): string[] {
+  const groups = new Map<string, { offset: number; shift: number; low?: number; high?: number }>();
+  for (const t of tests) {
+    const key = `${t.offset}:${t.shift}`;
+    const g = groups.get(key) ?? { offset: t.offset, shift: t.shift };
+    if (t.low !== undefined) g.low = Math.max(g.low ?? t.low, t.low);
+    if (t.high !== undefined) g.high = Math.min(g.high ?? t.high, t.high);
+    groups.set(key, g);
+  }
+  return [...groups.values()].map(({ offset, shift, low, high }) => {
+    const name = field(offset);
+    const point = `the ${source}'s ${name}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
+    if (low !== undefined && high !== undefined && low >= 0)
+      return `its ${name} is ${low} to ${high} pixels left of ${point}`;
+    if (low !== undefined && high !== undefined && high <= 0)
+      return `its ${name} is ${-high} to ${-low} pixels right of ${point}`;
+    if (low !== undefined && high !== undefined)
+      return `its ${name} is between ${-low} pixels right and ${high} pixels left of ${point}`;
+    if (low !== undefined) return `${point} minus its ${name} is at least ${low}`;
+    return `${point} minus its ${name} is at most ${high}`;
+  });
 }
 
 /** A flag test of a search on the member it keeps, like `(member + 0x0a & 0x0004) != 0`. */
@@ -136,6 +217,8 @@ function responseFields(report: BehaviourReport): Set<number> | undefined {
 }
 export const RESPONSE_ASSUMPTION =
   "When the bounce returns anything but 0, the game may go on to a contact response: the fields its relation stores on the touching part (its velocity and fine position, and for the two-part exchange its list flags) are unknown after it, and it changes no other field of it. The exchange's relation lists every store; what stays open about it is only whether it returns when the two weights add up to 0.";
+export const PLACE_ASSUMPTION =
+  "The part lies where the source's tests of the two places need it, like within a number of pixels from the teeter-totter's end, and the two places are close enough that the 16-bit difference the code takes doesn't wrap round; the walk doesn't follow where parts are, so it says this in words.";
 export const TOUCH_TESTS_ASSUMPTION =
   "The tests of the bounce that compare the two parts, like where the part is on the source, hold; the walk doesn't follow the source's fields, so it doesn't keep them.";
 
@@ -164,6 +247,9 @@ interface Candidate {
   returns?: number;
   /** For a touch: the source's tests left out, like those comparing the two parts or a query's answer. */
   dropped: { both: boolean; answer: boolean };
+  /** For a list the source hands to a consumer: the consumer, and the tests of where the part lies from the source. */
+  consumer?: number;
+  place?: PlaceTest[];
 }
 
 /**
@@ -178,6 +264,8 @@ export function hitsFromOthers(
   const typeOffset = report.layout.fields.find((f) => f.name === "type")?.offset;
   const stateOffset = report.layout.fields.find((f) => f.name === "state")?.offset;
   if (typeOffset === undefined || stateOffset === undefined) return result;
+  const fieldName = (offset: number) =>
+    report.layout.fields.find((f) => f.offset === offset)?.name ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
@@ -205,9 +293,16 @@ export function hitsFromOthers(
       for (const outcome of [...iterations, ...touches(callback)]) {
         const member = outcome.object;
         const touch = member === "collider";
+        const consumed = "listConsumer" in outcome && !!outcome.listConsumer;
         // A bounce path whose only unknown is a query's answer, like the teeter-totter's bounce pool: the answer is the
-        // source's business, like its own fields.
-        if (!outcome.effectsComplete || (outcome.confidence === "unresolved" && !(touch && onlyAnswersOpen(outcome))))
+        // source's business, like its own fields. So is where the source is, in a consumer's place test.
+        const placeOnly = () =>
+          terms(outcome.condition).every((t) => !objects(t).unknown || placeTest(t, member) !== undefined) &&
+          outcome.fields.every((f) => !objects(f.value).unknown);
+        if (
+          !outcome.effectsComplete ||
+          (outcome.confidence === "unresolved" && !(touch && onlyAnswersOpen(outcome)) && !(consumed && placeOnly()))
+        )
           continue;
         const writes = outcome.fields.filter((f) => f.object === member);
         // What a bounce does to the touched part itself is that part's own business.
@@ -215,10 +310,13 @@ export function hitsFromOthers(
         if (!writes.length || extra.length) continue;
         const memberTerms: Predicate[] = [];
         const dropped = { both: false, answer: false };
+        const place: PlaceTest[] = [];
         let open = false;
         for (const term of terms(outcome.condition)) {
           const { objects: read, unknown } = objects(term);
-          if (touch && term.kind === "compare" && readsAnswer(term) && ![...read].includes(member))
+          const placed = consumed ? placeTest(term, member) : undefined;
+          if (placed) place.push(placed);
+          else if (touch && term.kind === "compare" && readsAnswer(term) && ![...read].includes(member))
             dropped.answer = true;
           else if (unknown || term.kind === "unknown") open = true;
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
@@ -252,6 +350,7 @@ export function hitsFromOthers(
             ? { returns: outcome.returnValue.value }
             : {}),
           dropped,
+          ...(consumed ? { consumer: outcome.listConsumer!.address, place } : {}),
         });
       }
     }
@@ -259,7 +358,10 @@ export function hitsFromOthers(
   const afterResponse = responseFields(report);
   const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
   for (const part of report.parts) {
-    const hits = new Map<string, { hit: PartHit; tests: Predicate[]; touch: boolean; others: FieldWrite[][] }>();
+    const hits = new Map<
+      string,
+      { hit: PartHit; tests: Predicate[]; place: string[]; touch: boolean; others: FieldWrite[][] }
+    >();
     const assumptions = new Set<string>();
     // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so.
     const offList = offMovingList(part, startingFlags);
@@ -361,7 +463,9 @@ export function hitsFromOthers(
         };
       };
       const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
-      const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value])]);
+      // Where the part must lie from the source stays in words; the walk doesn't follow where parts are.
+      const place = c.place?.length ? placeWords(c.place, nameOf(c.sourcePart), fieldName) : [];
+      const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value]), place]);
       const given = (c.search ?? []).flatMap((t) =>
         t.set
           ? (factory?.constructorFlags ?? []).filter(
@@ -383,13 +487,19 @@ export function hitsFromOthers(
         ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
         ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),
         ...(c.dropped.answer ? [ANSWER_ASSUMPTION] : []),
+        ...(place.length ? [PLACE_ASSUMPTION] : []),
       ];
       const others = c.writes.filter((w) => !readsField(w)).map(asPart);
       const prior = hits.get(key);
       if (prior) {
         const hit = prior.hit;
-        if (!hit.sources.some((s) => s.type === c.sourceType && s.routine === c.routine))
-          hit.sources.push({ type: c.sourceType, part: c.sourcePart, routine: c.routine });
+        if (!hit.sources.some((s) => s.type === c.sourceType && s.routine === c.routine && s.consumer === c.consumer))
+          hit.sources.push({
+            type: c.sourceType,
+            part: c.sourcePart,
+            routine: c.routine,
+            ...(c.consumer === undefined ? {} : { consumer: c.consumer }),
+          });
         hit.evidence = uniqueEvidence([...hit.evidence, ...evidence]);
         // A walk for several paths starts from what they all need: the tests every one of them makes.
         prior.tests = prior.tests.filter((t) => kept.some((u) => JSON.stringify(u) === JSON.stringify(t)));
@@ -399,8 +509,16 @@ export function hitsFromOthers(
       }
       hits.set(key, {
         tests: kept,
+        place,
         hit: {
-          sources: [{ type: c.sourceType, part: c.sourcePart, routine: c.routine }],
+          sources: [
+            {
+              type: c.sourceType,
+              part: c.sourcePart,
+              routine: c.routine,
+              ...(c.consumer === undefined ? {} : { consumer: c.consumer }),
+            },
+          ],
           writes: sortedChanges,
           condition: { kind: "true" },
           conditionWords: [],
@@ -421,7 +539,7 @@ export function hitsFromOthers(
         others: [others],
       });
     }
-    const list = [...hits.values()].map(({ hit, tests, touch, others }) => {
+    const list = [...hits.values()].map(({ hit, tests, place, touch, others }) => {
       hit.condition = conjunction(tests);
       hit.conditionWords = tests.flatMap((t) => listFlagWords(t, "part") ?? []);
       // A field the rules don't read keeps the value every source gives it, or becomes unknown.
@@ -444,6 +562,10 @@ export function hitsFromOthers(
       const names = [...new Set(hit.sources.map((s) => nameOf(s.part)))].map((n) => `${article(n)} ${n}`);
       const listed = names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names[0];
       hit.name = touch ? `Touching ${listed}` : `Hit by ${listed}`;
+      if (place.length) {
+        hit.placeWords = place;
+        hit.name += `, when ${place.join(" and ")}`;
+      }
       return hit;
     });
     if (list.length || assumptions.size) result.set(part.type, { hits: list, assumptions: [...assumptions] });
