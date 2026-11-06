@@ -917,6 +917,29 @@ describe("recordings compared with what the recorder writes between runs", () =>
     );
     expect(compareMeasuredWalks([model], still, report(), undefined, 6).classification).toBe("prefix");
   });
+  it("takes a field an input case tests as 0 when the recorder cleared it and nothing writes it", () => {
+    // Like the monkey bike seeded on frame 5 with its counter at 0: the run keeps the frame when its belt link at 0x54
+    // is 0, which the clip doesn't save.
+    const model: AnimationDescription = {
+      ...animation([]),
+      initial: "run-guard",
+      initialFields: [],
+      inputCondition: { kind: "and", terms: [test(0x54, "==", 0), test(0x12, "==", 0)] },
+      walk: {
+        ...walk([], "rest"),
+        runCalls: 1,
+        parameterised: { kind: "hold", state: { kind: "field", object: "part", offset: 12, width: 16 } },
+      },
+    };
+    model.trigger.kind = "input-case";
+    const seeded: MeasuredClip = { ...still, frames: [{ state: 5, control: 0 }] };
+    expect(compareMeasuredWalks([model], seeded, report()).classification).toBe("prefix");
+    expect(compareMeasuredWalks([model], seeded, report(), undefined, 6)).toMatchObject({
+      classification: "complete",
+      basis: "recorder-fields",
+    });
+    expect(compareMeasuredWalks([model], seeded, report([write(0x54)]), undefined, 6).classification).toBe("prefix");
+  });
 });
 
 describe("a loop that stops at the first part it finds in a skipped search's list", () => {

@@ -121,8 +121,8 @@ the level), and every one of those is listed by name.
       "The TIM 1 cat's loop over the found list"): TIM 1 516 to 520.
       The Even More mouse motor's control value is now kept at the end of its count (see "The mouse motor's control
       value at the end of its count"): Even More 612 to 616. Only the monkey bike stays open in both builds.
-- [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
-      save. Still open. Check what you saw in the game against the code:
+- [x] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
+      save. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;
   - a belt on it works like the mouse motor's wheel while it bikes;
   - when hit, it pauses and shows stars, then bikes on;
@@ -131,8 +131,12 @@ the level), and every one of those is listed by name.
   - a belt from the bike can drive another part, like a jack-in-the-box: check that what the bike writes into the
     belt is what the jack reads.
 
-  Whether the recorded bikes had a belt attached is unknown (the bike works with or without one), so the 32
-  recordings stay open.
+  Done (see "The monkey bike against what the user saw" in `docs/behaviour.md`): all five agree with the code. The
+  shade is the bike's own rope: its rope callback starts it. The code has no way for a pedalling bike to stop during a
+  run (a hit only pauses it), so it stops only when the machine is stopped; one question about that stays open. The
+  walk after a hit while pedalling now pedals on in every branch (it knew -1 or 1 isn't 0). The recorder clears the
+  belt link and the bike's run never writes it, so the recorded bikes had no belt: the 32 recordings close under the
+  recorder's own basis. Even More 616 to 648 of 648 complete, TIM 1 520 to 552 of 552, none different.
 
 ## E. Parts without a recording
 

@@ -307,7 +307,8 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
     return bits(one, zero | one, width);
   }
   if (expression.operator === "^") return bits(left.value ^ right.value, left.mask & right.mask, width);
-  if (!known(left) || !known(right)) return unknownBits(width);
+  if (!known(left) || !known(right))
+    return expression.operator === "+" ? choiceBits(expression, bindings) : unknownBits(width);
   if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
     const a = wrap(left.value, expression.left.width),
       b = wrap(right.value, expression.left.width),
@@ -370,6 +371,28 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
       return unknownBits(width);
   }
   return bits(value, full(width), width);
+}
+const choices = new WeakMap<Expression, ReturnType<typeof choiceOf> | null>();
+/**
+ * A value two paths set differently, `(test) * a + (opposite) * b` (see `choose`), that the walk can't work out the
+ * plain way. Exactly one of the two tests holds, so the value is `a` or `b`: the one the test picks when the walk can
+ * decide the test, and otherwise the bits both agree on. The monkey bike's control value after its reaction on frames 9
+ * to 12 is -1 or 1 by a drawing flag the walk doesn't know; either way bit 0 is set, so it isn't 0.
+ */
+function choiceBits(expression: Expression, bindings: Bindings): Bits {
+  const width = expression.width;
+  let choice = choices.get(expression);
+  if (choice === undefined) choices.set(expression, (choice = choiceOf(expression) ?? null));
+  if (!choice) return unknownBits(width);
+  const test = predicateWithoutConstraints(choice.test, bindings);
+  if (test !== undefined) {
+    const value = valueOf(test ? choice.then : choice.otherwise, bindings);
+    return bits(value.value, value.mask, width);
+  }
+  const then = valueOf(choice.then, bindings),
+    otherwise = valueOf(choice.otherwise, bindings);
+  const mask = then.mask & otherwise.mask & ~(then.value ^ otherwise.value) & full(width);
+  return bits(then.value & mask, mask, width);
 }
 function predicateWithoutConstraints(predicate: Predicate, bindings: Bindings): boolean | undefined {
   if (predicate.kind === "true") return true;

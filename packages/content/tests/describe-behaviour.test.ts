@@ -1026,6 +1026,38 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(tested?.walk.status).toBe("rest");
   });
 
+  describe("a value two paths set differently, when the walk can't tell which path", () => {
+    // Like the monkey bike after its reaction on frames 9 to 12: -1 or 1 by a flag the walk doesn't know, then the next
+    // run moves on unless the value is 0.
+    const choice = (then: number, otherwise: number) =>
+      report([
+        rule(constant(1), test(12, "==", 0), [
+          write(0x12, choose(test(0x40, "==", 0) as never, constant(then), constant(otherwise))),
+        ]),
+        rule(constant(2), both(test(12, "==", 1), test(0x12, "!=", 0))),
+        rule(field(12), both(test(12, "==", 1), test(0x12, "==", 0))),
+        rule(field(12), test(12, "==", 2)),
+      ]);
+
+    it("keeps the bits both values agree on, so -1 or 1 isn't 0", () => {
+      const walk = walkBehaviourRules(choice(0xffff, 1), 39, [known(12, 0)]);
+      expect(walk.stop).toBeUndefined();
+      expect(walk.states.slice(0, 3)).toEqual([0, 1, 2]);
+      expect(walk.status).toBe("rest");
+    });
+
+    it("still branches when the values share no bit that decides the test", () => {
+      const walk = walkBehaviourRules(choice(1, 2), 39, [known(12, 0)]);
+      expect(walk.stop?.branches).toHaveLength(2);
+    });
+
+    it("takes the value the test picks when the walk knows the field it tests", () => {
+      const walk = walkBehaviourRules(choice(0, 1), 39, [known(12, 0), known(0x40, 5)]);
+      expect(walk.stop).toBeUndefined();
+      expect(walk.states.slice(0, 3)).toEqual([0, 1, 2]);
+    });
+  });
+
   it("does not branch on an opaque deciding value", () => {
     const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
     const guard = (operator: string): Predicate => ({
