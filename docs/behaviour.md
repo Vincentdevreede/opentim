@@ -1667,6 +1667,53 @@ what the part got in place of its answer comes from the recorder, not from the g
 would be a new assumption. The mouse's clips skip no search: what its run tests there, bit 0 of the list flags at
 `0x06`, is a field the clips don't save.
 
+### What the recorder gives for a skipped search
+
+Decided with the user: a clip that lists a search as skipped may be compared with the walk's "found nothing" way,
+since that is what the recorder gave the part. This is a fact about the recorder, not about the game.
+
+The recorder (`research/v24/verify_animations.py`) runs only the part's run routine. Its hook catches the first
+instruction of any routine outside the part types' code segment, pops the far return address, sets AX and DX to 0 and
+writes no memory, and counts the call in `skippedEngineServices`. Before each clip it loads the program again and
+clears the part's 0x300 bytes, then sets the type, the flags, the frame, the fields `0x1e` to `0x28` (the position) at
+100, the size, the outline and drawing pointers at `0x80` to `0x84` and the clip's seed (the control value, counter,
+heat, speed). Between runs it only writes the previous frames at `0x0e` and `0x10`, the position fields at 100 again
+and its hold values.
+
+An overlap search like `0x417e` first clears the found list at `0x78` of the part and then links each part it finds.
+Skipped, it writes nothing, so the field keeps the 0 the recorder cleared it to, as long as nothing else writes it. The
+comparison checks that on the run routine: no instruction outside the loops over the list writes `0x78` through any
+pointer, and every call outside those loops leaves the part's code segment (so the recorder skips it too). Then every
+loop over that list finds it empty:
+
+- a loop that stops at the first part it acts on, like the cat's at `0x1a01a`, finds no part: its member link is 0;
+- after a loop over every part, like the mouse motor's at `0x1bff5` and Mel's house's at `0x1e29b`, the part's fields
+  hold what they held before the loop. That is the value at the run's start when nothing on the way from the start to
+  the loop writes the field and the only call is the search.
+
+The comparison rewrites the walk's branch conditions with those values, and a condition that then tests a field for one
+number and for another (like "the control value is 0 and the control value after the scan isn't 0") is ruled out. A
+search's answer in AX is 0 too, but none of these runs uses it. Only clips that list the search get this, and only when
+the walks as they are don't already match. Such a match has its own basis, `recorder-skipped-search`, and is counted
+apart: it shows the walk agrees with the recorder, not that the game finds nothing.
+
+Complete matches went from 596 to 606 in Even More (10 through a skipped search) and from 504 to 512 in TIM 1 (8), and
+prefixes from 52 to 42 and from 48 to 40. None is different. In Even More Mel's house's four still recordings close,
+and so do the mouse motor's four still recordings and the cat's two move recordings that look in the found list. In
+TIM 1 all eight mouse motor recordings close. What stays open, and why:
+
+- the mouse motor's four run recordings in Even More: at the end of the countdown some joined branches no longer know
+  the control value is 0, so they may still flip the frame. That is the countdown, not the search;
+- the cat's four still recordings in both builds: the cat first compares two of its position fields, `0x20` and `0x28`
+  (when they differ by more than 1 it counts up and then shows frame 1), and after the first run the walk no longer knows its counter, its flags
+  or whether it touches something. The recorder sets both position fields to 100 before every run, but that is another
+  fact about the recorder, not a skipped search;
+- the cat's two move recordings in TIM 1: the analysis doesn't sum up the cat's loop over the found list at `0x186af`
+  as a loop over that list (it does in Even More), so the comparison can't tie the loop to the skipped search;
+- the mouse in both builds (4 each): it skips no search. It only searches when bit 0 of its list flags at `0x06` is
+  set; the recorder clears those flags and the run never sets them, but the comparison only takes them as clear on the
+  first run.
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
