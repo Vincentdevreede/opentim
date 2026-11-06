@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Predicate } from "../src/read/behaviour.ts";
-import { WIDENING_ASSUMPTION, type AnimationDescription, type BehaviourWalk } from "../src/read/describe-behaviour.ts";
+import {
+  WIDENING_ASSUMPTION,
+  type AnimationDescription,
+  type BehaviourWalk,
+  type KnownField,
+} from "../src/read/describe-behaviour.ts";
 import { compareMeasuredWalks } from "../src/read/behaviour-walk-validation.ts";
 import { measuredClips, type MeasuredClip } from "../src/read/behaviour-validation.ts";
 
@@ -468,5 +473,97 @@ describe("comparisons that follow a walk's branches", () => {
       classification: "prefix",
       prefixFrames: 2,
     });
+  });
+});
+
+describe("recordings whose recorder writes an input again", () => {
+  const walk = (states: number[], status: BehaviourWalk["status"] = "rest"): BehaviourWalk => ({
+    ...proof,
+    status,
+    states,
+    frames: [],
+    runCalls: states.length - 1,
+    fields: [],
+    timingReason: "Run calls only.",
+    ...(status === "unresolved" ? { reason: "The next rule is unresolved." } : {}),
+  });
+  /** A start that only knows its first run: the recorder writes again right after it. */
+  const start = () => {
+    const model = animation();
+    model.walk = walk([0, 1], "unresolved");
+    return model;
+  };
+  /** Holds the control value at 1 for one run, then writes -1, like the teeter-totter's tilt. */
+  const tilt = (states = [0, 1, 0]): MeasuredClip => ({
+    ...clip(),
+    frames: states.map((state, run) => ({ state, control: run ? 0 : 1 })),
+    input: { seed: { control: 1 }, hold: { control: 1 }, holdTicks: 1, release: { control: -1 } },
+  });
+  const value = (fields: KnownField[], offset: number) => fields.find((field) => field.offset === offset)?.value;
+
+  it("follows the rest of the recording from the write, with only the fields the recording gives there", () => {
+    const seeds: KnownField[][] = [];
+    const walkFrom = (fields: KnownField[]) => (seeds.push(fields), walk([1, 0]));
+    expect(compareMeasuredWalks([start()], tilt(), undefined, walkFrom)).toMatchObject({
+      classification: "complete",
+      prefixFrames: 3,
+    });
+    expect(seeds).toHaveLength(1);
+    expect(seeds[0]!.map((field) => [field.offset, field.value])).toEqual([
+      [12, 1],
+      [18, 0xffff],
+    ]);
+  });
+  it("is different when the walk from the write disagrees, and a prefix when it stops", () => {
+    expect(compareMeasuredWalks([start()], tilt(), undefined, () => walk([1, 1]))).toMatchObject({
+      classification: "different",
+      prefixFrames: 2,
+    });
+    expect(compareMeasuredWalks([start()], tilt(), undefined, () => walk([1], "unresolved"))).toMatchObject({
+      classification: "prefix",
+      prefixFrames: 2,
+    });
+  });
+  it("needs a proved ending from the last write", () => {
+    expect(compareMeasuredWalks([start()], tilt(), undefined, () => walk([1, 0], "unresolved")).classification).toBe(
+      "prefix",
+    );
+  });
+  it("goes on through a write of the value the frame already shows", () => {
+    const measured = tilt([0, 1, 0]);
+    measured.frames[1]!.control = -1;
+    const model = animation();
+    model.walk = walk([0, 1, 0]);
+    let called = false;
+    const walkFrom = () => ((called = true), walk([1, 0]));
+    expect(compareMeasuredWalks([model], measured, undefined, walkFrom).classification).toBe("complete");
+    expect(called).toBe(false);
+  });
+  it("stays a prefix after the write without walks from it", () => {
+    expect(compareMeasuredWalks([start()], tilt())).toMatchObject({ classification: "prefix" });
+  });
+  it("follows a recorder that writes on every run through its recorded cycle", () => {
+    // The gear: the run clears the control value, and the recorder sets it to 1 again before every run.
+    const turn: MeasuredClip = {
+      ...clip(),
+      frames: [0, 1, 2, 3].map((state, run) => ({ state, control: run ? 0 : 1 })),
+      loopStart: 0,
+      input: { seed: { control: 1 }, hold: { control: 1 } },
+    };
+    const model = animation();
+    model.walk = walk([0, 1]);
+    const seen = new Set<number>();
+    const step = (fields: KnownField[]) => {
+      const state = value(fields, 12)!;
+      seen.add(state);
+      expect(value(fields, 18)).toBe(1);
+      return walk([state, (state + 1) % 4]);
+    };
+    expect(compareMeasuredWalks([model], turn, undefined, step)).toMatchObject({ classification: "complete" });
+    // Every frame of the cycle is a restart, the first frame too once the cycle comes round.
+    expect([...seen].sort()).toEqual([0, 1, 2, 3]);
+    const wrong = (fields: KnownField[]) => (value(fields, 12) === 3 ? walk([3, 3]) : step(fields));
+    expect(compareMeasuredWalks([model], turn, undefined, wrong).classification).toBe("different");
+    expect(compareMeasuredWalks([model], { ...turn, loopStart: null }, undefined, step).classification).toBe("prefix");
   });
 });

@@ -17,7 +17,7 @@ import { transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts
 import { measuredClips, validateMeasuredPart } from "../src/read/behaviour-validation.ts";
 import { describeBehaviour, type BehaviourDescription } from "../src/read/describe-behaviour.ts";
 
-import { compareMeasuredWalks, type WalkMatch } from "../src/read/behaviour-walk-validation.ts";
+import { compareMeasuredWalks, restartWalk, type WalkMatch } from "../src/read/behaviour-walk-validation.ts";
 
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -252,7 +252,8 @@ for (const phase of ["baseline", "reports"] as const) {
         ? measuredClips(measured[String(part.type)], `${match!.version}.${part.type}`)
         : [];
       const described = description.parts.find((item) => item.type === part.type)!;
-      const walks = clips.map((clip) => compareMeasuredWalks(described.animations, clip, report));
+      const walkFrom = restartWalk(report, part.type);
+      const walks = clips.map((clip) => compareMeasuredWalks(described.animations, clip, report, walkFrom));
       const run = part.routines.find((item) => item.slot === 1);
       const edgeCoverage = clips.length
         ? validateMeasuredPart(

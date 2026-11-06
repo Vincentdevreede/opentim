@@ -1396,6 +1396,41 @@ What stays a prefix, by cause (Even More 84, TIM 1 76):
   0, where the run pedals again when the control value is not 0. No rule on that way writes a known control value, and
   the recording gives it only at the start, so the walk can't tell it is still 0.
 
+### Recordings whose recorder writes again
+
+Some v25 clips write an input again while they run (`clip` in `research/v24/verify_animations.py`). Before each run the
+recorder writes its hold values, on every run when the clip names no `holdTicks`, or else before run `holdTicks`, and
+at run `holdTicks` it writes its release values (the control value 0 when it names none). The write at run 0 is part of
+the clip's starting fields. A frame the recorder saves is taken after a run and before the next write. The teeter-totter
+holds its control value at 1 and writes -1 at run 1, the bellows writes 1 twice and -1 at run 2, the teapot writes 1
+for 60 runs and 0 at run 60, and the gear writes 1 (or -1) before every run. A walk follows one trigger, so these
+recordings used to stay prefixes after their first write.
+
+The comparison now restarts at each write that changes the part:
+
+- A write of the value the saved frame already shows changes nothing, so the walk goes on through it. That holds only
+  for the fields the recorder saves in full: the frame, the control value, the counter and the heat. The bellows'
+  second write and the teapot's release are such writes.
+- At any other write the comparison starts a new walk from the fields the recording gives there: the saved frame's
+  fields with the written values over them, everything else unknown. It is a walk of the run rules from those fields,
+  like an input case in the middle of a run. The part's normal seed and the clear contact bits are not used there:
+  they only hold at the start of the recording.
+- Each part of the recording up to the next write only needs to agree with the walk up to there, by the same rules as
+  a whole recording (some way the recording allows matches, and no allowed way stops before then). The last part needs
+  a proved ending, like a whole recording.
+- A recorder that writes on every run must have recorded a cycle. Its cycle was found on the fields after the write, so
+  from the end of the recording on, each run restarts from the fields of the run the cycle repeats. The comparison
+  checks one more round of the cycle that way; after that every part is one it already checked. A recorder that
+  writes on every run and records no cycle stays a prefix.
+
+The start of a recording is still compared with every described start as before; the parts after a write are the same
+for all of them. A restart only forgets fields, so it never proves more than the recording gives.
+
+All 20 such recordings in Even More and 16 in TIM 1 now match completely: complete matches went from 576 to 596 in Even
+More and from 488 to 504 in TIM 1, none is different, and the walks themselves don't change. The teeter-totter's walk
+from its frame after the write asks along its ropes, which the recording can't rule out, so its ending is proved over
+the ways the rope answers allow, like any other branch.
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
