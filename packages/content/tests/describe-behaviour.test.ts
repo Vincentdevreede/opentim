@@ -1382,6 +1382,37 @@ describe("creation defaults and related input conditions", () => {
     expect(describeBehaviour(data).parts[0]!.rest.status).toBe("unresolved");
   });
 
+  it("starts parts the program draws itself on the frames a decided assumption gives", () => {
+    const keepSaved = (id: string) => {
+      const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+      data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+      data.parts[0]!.id = id;
+      data.parts[0]!.frameCount = 0;
+      return describeBehaviour(data).parts[0]!;
+    };
+    // A wall has one starting frame, so its reset is known and it rests there.
+    const wall = keepSaved("brick-wall");
+    expect(wall.rest).toMatchObject({ status: "known", state: 0 });
+    expect(wall.rest.assumptions.join(" ")).toContain("the grass floor and the super ball on frame 0");
+    expect(wall.stableStates.map((stable) => stable.state)).toEqual([0]);
+    // A pulley can start on any of its four rope directions.
+    const pulley = keepSaved("pulley");
+    expect(pulley.rest).toMatchObject({ status: "unresolved", frames: [0, 1, 2, 3] });
+    expect(pulley.stableStates.map((stable) => stable.state)).toEqual([0, 1, 2, 3]);
+    // A part without such an assumption keeps no frames.
+    expect(keepSaved("trampoline").rest.frames).toBeUndefined();
+  });
+
+  it("lists the frames a part with a frame list can start on when its reset keeps the saved frame", () => {
+    const data = report([rule(field(12), test(12, "==", 0))], [write(0x12, constant(0))]);
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    expect(describeBehaviour(data).parts[0]!.rest).toMatchObject({
+      status: "unresolved",
+      frames: [0, 1, 2],
+      description: "The reset keeps the frame the level saved: one of frames 0 to 2.",
+    });
+  });
+
   it("rests on each frame when the run keeps every field", () => {
     const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
     data.parts[0]!.frameCount = 3;
@@ -1394,8 +1425,9 @@ describe("creation defaults and related input conditions", () => {
 
   // A reset like the electric switch's: it keeps bit 2 of the frame and sets bit 0 and bit 1 by whether the words at
   // 0x62 and 0x64 are 0. Each path is one outcome of the reset routine.
-  function bitReset(keep: number | undefined, frameCount: number, low = 0) {
+  function bitReset(keep: number | undefined, frameCount: number, low = 0, id = "trampoline") {
     const data = report([rule(field(12), test(12, "==", 0))]);
+    data.parts[0]!.id = id;
     const base = (bits: number): Expression =>
       keep === undefined
         ? constant(bits)
@@ -1431,6 +1463,10 @@ describe("creation defaults and related input conditions", () => {
     );
     // Like the generator: it keeps the two low bits and sets bits 2 and 3.
     expect(bitReset(3, 16, 2).description).toContain("keeps bits 0 and 1 of the frame saved in the level");
+    // The generator never starts partway through a turn (decided), so bits 0 and 1 of the saved frame are 0.
+    const generator = bitReset(3, 16, 2, "generator");
+    expect(generator.frames).toEqual([0, 4, 8, 12]);
+    expect(generator.assumptions.join(" ")).toContain("never starts the generator partway through a turn");
     // Like the solar panel: no bit of the saved frame is kept.
     expect(bitReset(undefined, 4)).toMatchObject({
       frames: [0, 1, 2, 3],

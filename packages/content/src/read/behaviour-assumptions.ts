@@ -16,6 +16,8 @@ import {
   MONKEY_BIKE_ASSUMPTION,
   MOUSE_MOTOR_ASSUMPTION,
   ONE_FRAME_ASSUMPTION,
+  SELF_DRAWN_ASSUMPTION,
+  GENERATOR_ASSUMPTION,
   TEETER_TOTTER_END_ASSUMPTION,
 } from "./behaviour-saved-frames.ts";
 
@@ -36,4 +38,6 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Parts on the fixed list", assumptions: [FIXED_LIST_ASSUMPTION] },
   { title: "Screen directions", assumptions: [SCREEN_DIRECTION_ASSUMPTION] },
   { title: "Parts with one frame", assumptions: [ONE_FRAME_ASSUMPTION] },
+  { title: "Parts the game draws itself", assumptions: [SELF_DRAWN_ASSUMPTION] },
+  { title: "The generator's starting frame", assumptions: [GENERATOR_ASSUMPTION] },
 ];

@@ -1474,6 +1474,18 @@ Shipped levels show that the starting frame isn't always the saved one. In Even 
 plug in `0x62` starts on frame 1, one saved on 4 with a plug starts on 5, and a generator saved on 0 with a plug
 starts on 4.
 
+### Starting frames from decided assumptions
+
+Three decided assumptions give more parts their starting frames
+([13](behaviour-assumptions.md#13-parts-with-one-frame), [14](behaviour-assumptions.md#14-parts-the-game-draws-itself)
+and [15](behaviour-assumptions.md#15-the-generators-starting-frame)). When the reset keeps the frame the level saved,
+the reset now lists the frames it can start on (`rest.frames`): the part's own frames, or the ones the assumption gives
+a part the game draws itself (the pulley and the curved pipe wall on 0 to 3). When that is one frame, the reset is
+known: the one-frame parts, the walls, the grass floor and the super ball start on frame 0, and a part whose run keeps
+everything rests there. The generator's reset keeps bits 0 and 1 of the saved frame, which are 0, so it leaves frame 0,
+4, 8 or 12, and its walks start on those. The table of these frames is `LEVEL_FRAMES` in
+`behaviour-saved-frames.ts`; an entry with `framed` narrows a part that has a frame list.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

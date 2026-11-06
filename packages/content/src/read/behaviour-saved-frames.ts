@@ -43,14 +43,40 @@ export const ONE_FRAME_ASSUMPTION =
   "A level saves a part on one of its own frames, so a part with one frame starts on frame 0. Every part in every shipped level of the eleven builds is saved on one of its own frames.";
 
 /**
- * By part id: the frames a level can start a part on when its type has no frame list, and why. `shown` lists every
- * frame it can show in the middle of a run, when that is more, like the belt's whole blocks.
+ * More parts the program draws with its own code, so their types have no frame list either. The pulley's frame is the
+ * direction of its rope, which only `0x59d5` (Even More) sets, to `(angle >> 14) & 3`. The curved pipe wall's flip
+ * (`0x1c8a5`) turns its frame by `xor 1` or `xor 2`, and its reset picks one of four outlines by it. The walls and the
+ * grass floor draw tiles from their frame on (`0x18bd9`), right only from frame 0, and the super ball draws sprite 0 of
+ * its three; nothing changes their frame while the game runs. Decided with the user.
  */
-export const LEVEL_FRAMES: ReadonlyMap<string, { frames: number[]; shown?: number[]; assumption: string }> = new Map([
+export const SELF_DRAWN_ASSUMPTION =
+  "A level starts the pulley on one of its four rope directions 0 to 3, the curved pipe wall on one of its four turns 0 to 3, and the brick, pipe and wood walls, the grass floor and the super ball on frame 0. The game itself only ever sets these frames, and every shipped level saves them.";
+
+/**
+ * The generator's reset (`0x1aeb3`) keeps bits 0 and 1 of the saved frame, the turn its run is at, and sets bits 2 and
+ * 3 from its sockets. Only the level file sets those two bits of the saved frame. Decided with the user.
+ */
+export const GENERATOR_ASSUMPTION =
+  "A level never starts the generator partway through a turn: bits 0 and 1 of its saved frame are 0, so it starts on frame 0, 4, 8 or 12. Its reset keeps those bits, only the level file sets them, and every shipped level saves it on frame 0 or 4.";
+
+/**
+ * By part id: the frames a level can start a part on, and why: for a type without a frame list, and for one with a
+ * frame list when a decided assumption narrows it (`framed`), like the generator. `shown` lists every frame it can
+ * show in the middle of a run, when that is more, like the belt's whole blocks.
+ */
+type LevelFrames = { frames: number[]; shown?: number[]; framed?: true; assumption: string };
+export const LEVEL_FRAMES: ReadonlyMap<string, LevelFrames> = new Map<string, LevelFrames>([
   ["conveyor-belt", { frames: [0, 7, 14, 21, 28], shown: [...Array(35).keys()], assumption: CONVEYOR_BELT_ASSUMPTION }],
   ["gear", { frames: [0, 1, 2, 3], assumption: GEAR_ASSUMPTION }],
   ["mouse-motor", { frames: [0, 1], assumption: MOUSE_MOTOR_ASSUMPTION }],
   ["electric-motor", { frames: [0, 1, 2], assumption: ELECTRIC_MOTOR_ASSUMPTION }],
+  ["pulley", { frames: [0, 1, 2, 3], assumption: SELF_DRAWN_ASSUMPTION }],
+  ["curved-pipe-wall", { frames: [0, 1, 2, 3], assumption: SELF_DRAWN_ASSUMPTION }],
+  ...["brick-wall", "pipe-wall", "wood-wall", "grass-floor", "super-ball"].map((id): [string, LevelFrames] => [
+    id,
+    { frames: [0], assumption: SELF_DRAWN_ASSUMPTION },
+  ]),
+  ["generator", { frames: [0, 4, 8, 12], framed: true, assumption: GENERATOR_ASSUMPTION }],
 ]);
 
 /**

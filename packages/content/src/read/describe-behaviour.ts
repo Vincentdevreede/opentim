@@ -896,6 +896,7 @@ function resetFrames(
   part: WithFrameCount,
   stateOffset: number,
   saved: boolean,
+  savedFrames?: number[],
 ): { frames: number[]; description: string } | undefined {
   if (!part.frameCount) return undefined;
   const bits: { kept: number; set: number }[] = [];
@@ -913,9 +914,14 @@ function resetFrames(
   const kept = bits[0]?.kept;
   if (kept === undefined || bits.some((rule) => rule.kept !== kept || (rule.kept | rule.set) >= part.frameCount!))
     return undefined;
-  const frames = [...Array(part.frameCount).keys()].filter((frame) =>
-    bits.some((rule) => (frame & rule.set) === rule.set && (frame & ~(rule.kept | rule.set)) === 0),
-  );
+  // With the frames a level can save, each path leaves exactly its kept bits of them plus the bits it sets.
+  const frames = savedFrames
+    ? [...new Set(bits.flatMap((rule) => savedFrames.map((frame) => (frame & rule.kept) | rule.set)))].sort(
+        (a, b) => a - b,
+      )
+    : [...Array(part.frameCount).keys()].filter((frame) =>
+        bits.some((rule) => (frame & rule.set) === rule.set && (frame & ~(rule.kept | rule.set)) === 0),
+      );
   const always = bits.reduce((mask, rule) => mask & rule.set, 0xffff);
   const varying = bits.reduce((mask, rule) => mask | rule.set, 0) & ~always;
   type ZeroTest = Predicate & { kind: "compare"; left: Expression & { kind: "field" } };
@@ -994,29 +1000,63 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
         !outcome.fields.some((write) => write.object === "part" && write.offset === stateOffset),
     );
   // A part with one frame can only have been saved on it, so keeping the saved frame starts it on frame 0.
-  if (levelFrame && !known(state) && (part as WithFrameCount).frameCount === 1) {
-    writeField(bindings, "part", stateOffset, bits(0, 0xffff, 16));
-    const single = finding([proof], [ONE_FRAME_ASSUMPTION]);
+  // So does a part the program draws itself when a decided assumption gives it one starting frame, like a wall.
+  const onlyFrame = (part as WithFrameCount).frameCount
+    ? undefined
+    : LEVEL_FRAMES.get(part.id)?.frames.length === 1
+      ? LEVEL_FRAMES.get(part.id)
+      : undefined;
+  if (levelFrame && !known(state) && ((part as WithFrameCount).frameCount === 1 || onlyFrame)) {
+    const only = onlyFrame?.frames[0] ?? 0;
+    writeField(bindings, "part", stateOffset, bits(only, 0xffff, 16));
+    const single = finding([proof], [onlyFrame?.assumption ?? ONE_FRAME_ASSUMPTION]);
     return {
       status: "known",
-      description: "The reset keeps the frame the level saved, and the part has only frame 0.",
-      state: 0,
-      frame: 0,
+      description: onlyFrame
+        ? `The reset keeps the frame the level saved, and a level starts it on frame ${only}.`
+        : "The reset keeps the frame the level saved, and the part has only frame 0.",
+      state: only,
+      frame: frameOf(part, only),
       fields: fieldsOf(bindings, fieldDefinitions(report, part), single),
       ...single,
     };
   }
   const resolved = !outcomes.some((outcome) => outcome.confidence === "unresolved");
-  const bitFrames = !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest) : undefined;
+  const levelEntry = LEVEL_FRAMES.get(part.id);
+  const savedFrames = savedRest && levelEntry?.framed ? levelEntry.frames : undefined;
+  const bitFrames =
+    !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest, savedFrames) : undefined;
   if (bitFrames)
     return {
       status: "unresolved",
       description: bitFrames.description,
       frames: bitFrames.frames,
       fields,
-      ...proof,
+      ...(savedFrames ? finding([proof], [levelEntry!.assumption]) : proof),
       confidence: "unresolved",
       reason: "The reset paths are resolved; which of these frames they leave depends on fields the reset doesn't fix.",
+    };
+  // When the reset keeps the saved frame, the frames a level can save are the ones it can start on: its own frames,
+  // or those a decided assumption gives a part the program draws itself.
+  const frameCount = (part as WithFrameCount).frameCount ?? 0;
+  const startFrames =
+    levelFrame && resolved && !known(state)
+      ? frameCount > 1 && frameCount <= 32
+        ? { frames: [...Array(frameCount).keys()], assumption: ONE_FRAME_ASSUMPTION }
+        : !frameCount
+          ? LEVEL_FRAMES.get(part.id)
+          : undefined
+      : undefined;
+  if (startFrames)
+    return {
+      status: "unresolved",
+      description: `The reset keeps the frame the level saved: ${framesWords(startFrames.frames)}.`,
+      frames: startFrames.frames,
+      fields,
+      ...finding([proof], [startFrames.assumption]),
+      confidence: "unresolved",
+      reason:
+        "The starting frame is the one the level saved: the reset paths keep it, so TIM.EXE alone doesn't give it.",
     };
   if (!known(state) || !resolved)
     return {
@@ -1701,7 +1741,9 @@ export function walkBehaviourRules(
     const frameCount = (part as WithFrameCount).frameCount;
     if (!openBits.length || depth <= 0) return undefined;
     // A part drawn by its own code has no frame list; a decided assumption can give the frames a level starts it on.
-    const levelFrames = !partial.mask && !frameCount ? LEVEL_FRAMES.get(part.id) : undefined;
+    const entry = LEVEL_FRAMES.get(part.id);
+    const levelFrames =
+      !partial.mask && entry && (!frameCount || (entry.framed && !options.midRun)) ? entry : undefined;
     // A part with a few frames can only be on one of them: each one whose number has the known bits is followed.
     const framed = frameCount !== undefined && frameCount > 1 && frameCount <= 32;
     if (!framed && !levelFrames && (!partial.mask || openBits.length > 3)) return undefined;
@@ -2569,12 +2611,15 @@ function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableSta
         !rule.updates?.length,
     );
   const frameCount = (part as WithFrameCount).frameCount ?? 0;
+  // A part the program draws itself has no frames to count; a decided assumption can give the ones it starts on.
+  const drawn = frameCount ? undefined : LEVEL_FRAMES.get(part.id);
   if (keeps && frameCount <= 32)
-    for (const frame of Array(frameCount).keys()) {
+    for (const frame of drawn ? drawn.frames : Array(frameCount).keys()) {
       const bindings = new Map(initial);
       writeField(bindings, "part", stateOffset, bits(frame, 0xffff, 16));
       const proof = finding(runRules, [
         "These fields follow a stated run outcome; they are not claimed to be the level's reset values.",
+        ...(drawn ? [drawn.assumption] : []),
       ]);
       const fields = fieldsOf(bindings, fieldDefinitions(report, part), proof);
       const walk = walkBehaviourRules(report, part.type, fields, { maxRunCalls: 1 });

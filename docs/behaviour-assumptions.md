@@ -569,3 +569,51 @@ punch. The explosion's push doesn't need it: "away from the explosion" is proved
 
 - Run the saved frame check over the levels of every build (a level saved on a frame the part doesn't have fails it).
 - In the editor, check that no part offers a frame its sheet doesn't have.
+
+## 14. Parts the game draws itself
+
+**What the code shows** (Even More, English floppy):
+
+- These parts have no frame list in their type record, so the frames a level can start them on can't be counted.
+- The pulley's frame is the direction of its rope: only `0x59d5` writes it, as `(angle >> 14) & 3`, and every caller
+  checks for a pulley first. Its sheet has 4 sprites.
+- The curved pipe wall's flip (`0x1c8a5`) turns its frame with `xor 1` or `xor 2`, and its reset (`0x1c83e`) picks one
+  of four outlines by it: frames 0 to 3 stay within 0 to 3. A higher frame would draw a sprite the sheet doesn't have.
+- The walls and the grass floor (types 1, 46, 48 and 60) draw tiles from their frame on (`0x18bd9`): a row draws
+  sprites f to f+3 and a column f+4 to f+7, so only frame 0 draws the right pieces. Nothing changes their frame.
+- The super ball's sheet has a round, a squashed and a stretched sprite, but no routine ever sets its frame.
+- Shipped levels: the pulley on 0 to 3, the curved pipe wall on 0 to 3, the walls, the floor and the super ball on 0.
+
+**What we assume.**
+
+- A level starts the pulley on one of its four rope directions 0 to 3, the curved pipe wall on one of its four turns 0 to 3, and the brick, pipe and wood walls, the grass floor and the super ball on frame 0. The game itself only ever sets these frames, and every shipped level saves them.
+
+**What it gives.** The walls, the floor and the super ball start on frame 0, so their reset is known. The pulley's and
+the curved pipe wall's walks start on each of their four frames, and all of them rest on those frames.
+
+**How to recheck.**
+
+- Look for other writers of the frame at `0x0c` or the saved frame at `0x90` for these types.
+- Run the saved frame check over the levels of every build.
+
+## 15. The generator's starting frame
+
+**What the code shows** (Even More, English floppy):
+
+- The generator's reset (`0x1aeb3`) keeps bits 0 and 1 of its frame, the turn its run is at, and sets bit 2 and bit 3
+  from its sockets at `0x62` and `0x64`. The level reset copies the saved frame at `0x90` into the frame first.
+- Only the level loader (`0x136af`) writes those two bits of the saved frame. The plug code and the level reset save
+  what the reset leaves.
+- Every shipped level saves the generator on frame 0 or 4 (Even More 14 and 2, TIM 1 French 8 and 2).
+
+**What we assume.**
+
+- A level never starts the generator partway through a turn: bits 0 and 1 of its saved frame are 0, so it starts on frame 0, 4, 8 or 12. Its reset keeps those bits, only the level file sets them, and every shipped level saves it on frame 0 or 4.
+
+**What it gives.** The generator's reset leaves frame 0, 4, 8 or 12 instead of any of its 16 frames, and its walks
+start on those.
+
+**How to recheck.**
+
+- Look for another writer of the generator's saved frame.
+- Run the saved frame check over the levels of every build.
