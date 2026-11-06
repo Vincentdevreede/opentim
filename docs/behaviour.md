@@ -39,6 +39,32 @@ counted as conditional rather than unresolved (see [Conditional rules](#conditio
 - Related-object writes have distinct object identities and confidence. `relatedObjectEffects` retains them even
   when the destination part type is unknown. A type comparison can associate an incoming trigger with a part.
 
+## The Behaviour tab
+
+The lab shows each part's routines, changes and walks in three layouts (by routine, by state, by walk), and under
+them what comes with the walks: short lines with the analysis's own words in a tip and, where a line is cut short,
+the rest when it is opened.
+
+- **Rest.** "placed" says how the reset leaves the frame: one frame, "keeps the saved frame" (the level gives it) or
+  "from its plugs" (the sockets give it), with the frames it can be, or "unresolved". "rests on" lists the frames the
+  part comes to rest on; its tip says how many walks end on each or that a run keeps it, and opened it gives the
+  first condition on the way to each.
+- **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
+  "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
+  positionY × 512"), and a number added or a halving reads in words.
+- **Creates.** Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
+  where the new part starts and how fast it moves. The lab keeps its own name for part 43 elsewhere.
+- **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
+  goal marks, contact flags) and its own flags with a proved meaning (out of play, ran this step), one line per
+  sentence with how many ways give it.
+- **Walks.** A trigger with more than 12 rows folds them by where they start ("running from 3"), so the
+  jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
+  named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the
+  tip.
+- **Run values.** A value the run finds itself reads by what it is: "stateDelta after the query at …", "found",
+  "reached" (a part through a rope, belt or pulley), "centre angle at …", "gear jam at …", "next in the list after
+  the insertion at …", and a value a test picks as "3 if state == 2, else 5".
+
 ## Analysis limits
 
 The x86 decoder stops the routine on an unknown or invalid encoding and names the failing address. It decodes
