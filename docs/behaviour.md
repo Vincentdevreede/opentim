@@ -1346,6 +1346,14 @@ The comparison now takes the part's normal seed under the clip's seed and frames
 (only on the first run). Only the bullet's normal seed gives a field the frames don't save. Its four normal recordings
 now match completely in both builds: complete matches went from 560 to 564 in Even More and from 472 to 476 in TIM 1.
 
+The recorder also puts each part alone on an empty bench, touching nothing. Decided with the user, the comparison
+takes the contact bits of the list flags at `0x06` as clear at the start of every recording: `0x0002` and `0x0004`,
+which the contact dispatch tests before it calls a bounce callback (`0x1071`, `0x10b5`), and `0x0001`, which picks
+its response (`0x1096`, Even More English floppy). The other list flags, like the moving list `0x1000`, stay unknown,
+and so does the belt link at `0x54`, which the user chose to leave open. Like the other recorded fields this only rules
+out ways at the start. The cat's flipped move recordings and the mouse's normal recordings test those bits on their first
+run, so 4 more of each match completely per build: 564 to 572 in Even More and 476 to 484 in TIM 1, none different.
+
 What stays a prefix, by cause (Even More 84, TIM 1 76):
 
 - The recorder writes the control value again while it runs: the teeter-totter (4), the gear (8), the bellows (4) and

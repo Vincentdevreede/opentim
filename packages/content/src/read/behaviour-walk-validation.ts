@@ -62,13 +62,23 @@ function recordedFields(
     ["vy", 0x38],
     ["flags8", 8],
   ] as const;
-  return fields.flatMap(([name, offset]) => {
-    const value = values[name];
-    return typeof value === "number" && offset !== undefined
-      ? [{ object: "part", offset, width: 16, value, knownMask: name === "flags8" ? 0x3030 : 0xffff }]
-      : [];
-  });
+  return [
+    ...fields.flatMap(([name, offset]) => {
+      const value = values[name];
+      return typeof value === "number" && offset !== undefined
+        ? [{ object: "part", offset, width: 16, value, knownMask: name === "flags8" ? 0x3030 : 0xffff }]
+        : [];
+    }),
+    RECORDER_CONTACT,
+  ];
 }
+/**
+ * The recorder puts each part alone on an empty bench, touching nothing. The contact bits of the list flags at `0x06`
+ * are the ones the contact dispatch tests before it calls a bounce callback (`0x0002` at `0x1071`, `0x0004` at
+ * `0x10b5`) and to pick the response (`0x0001` at `0x1096`, Even More English floppy). Decided with the user: a
+ * recording starts with them clear. Like every recorded field, it only rules out ways at the start.
+ */
+const RECORDER_CONTACT: RecordedField = { object: "part", offset: 0x06, width: 16, value: 0, knownMask: 0x0007 };
 function stateAt(walk: BehaviourWalk, index: number, parameter: number): number | undefined {
   if (walk.parameterised?.kind === "hold") return parameter;
   if (walk.parameterised?.kind === "cycle") {

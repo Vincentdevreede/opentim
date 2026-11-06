@@ -284,6 +284,42 @@ describe("comparisons that follow a walk's branches", () => {
     expect(compareMeasuredWalks([alternatives], recording([0, 1], 1)).classification).toBe("complete");
   });
 
+  it("takes a recording's part as touching nothing at the start", () => {
+    const touching = (bit: number): Predicate => ({
+      kind: "compare",
+      operator: "!=",
+      left: {
+        kind: "binary",
+        operator: "&",
+        left: { kind: "field", object: "part", offset: 0x06, width: 16 },
+        right: { kind: "constant", value: bit, width: 16 },
+        width: 16,
+      },
+      right: { kind: "constant", value: 0, width: 16 },
+      signed: false,
+    });
+    const free = (bit: number): Predicate => ({
+      ...(touching(bit) as Extract<Predicate, { kind: "compare" }>),
+      operator: "==",
+    });
+    const model = (bit: number) =>
+      start(
+        split(
+          [0],
+          [
+            { condition: touching(bit), walk: rest(1, 1) },
+            { condition: free(bit), walk: rest(0, 0) },
+          ],
+        ),
+      );
+    const [normal] = measuredClips({ normal: { frames: [{ state: 0 }], loopStart: null } });
+    // The contact bits 0 to 2 of the list flags are clear on the recorder's bench.
+    expect(compareMeasuredWalks([model(1)], normal!).classification).toBe("complete");
+    expect(compareMeasuredWalks([model(2)], normal!).classification).toBe("complete");
+    // Other list flags, like the moving list, stay unknown.
+    expect(compareMeasuredWalks([model(0x1000)], normal!).classification).toBe("prefix");
+  });
+
   it("takes the part's normal seed as a starting field when the frames don't save it", () => {
     const model = start(
       split(
