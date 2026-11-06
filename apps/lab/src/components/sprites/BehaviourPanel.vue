@@ -24,7 +24,7 @@ import BehaviourDoing from "./BehaviourDoing.vue";
 import BehaviourEffect from "./BehaviourEffect.vue";
 import BehaviourRest from "./BehaviourRest.vue";
 import BehaviourRow from "./BehaviourRow.vue";
-import BehaviourWalk from "./BehaviourWalk.vue";
+import BehaviourWalkGroup from "./BehaviourWalkGroup.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
 /** What the program does with a part, by routine, by the state a change starts from, or by the walk from a trigger. */
@@ -85,9 +85,6 @@ const doneTo = computed(() =>
     .filter((g) => g.list.length),
 );
 const doneCount = computed(() => doneTo.value.reduce((n, g) => n + g.list.length, 0));
-const walkCount = (rows: { variants: unknown[] }[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
-/** Whether a walk starts from the frame on the stage. */
-const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
 const sides = computed(() => (part.value ? outlineSides(part.value) : undefined));
 const draws = computed(() => routines.value.flatMap((g) => g.draws));
 const gear = computed(() => part.value?.gear);
@@ -331,31 +328,16 @@ const more = computed(() => {
         </LabAlert>
         <p v-else-if="!walkList.length" class="text-muted">The analysis follows no walk for this part.</p>
         <div v-else class="-mx-3 flex flex-col">
-          <section v-for="g in walkList" :key="g.trigger" class="flex flex-col">
-            <LabListRow :expanded="!closed.has(`walk ${g.trigger}`)" @click="toggle(`walk ${g.trigger}`)">
-              <span class="font-mono font-semibold text-ink">{{ g.trigger }}</span>
-              <template #end>
-                <LabChip tone="accent"
-                  >{{ walkCount(g.rows) }} {{ walkCount(g.rows) === 1 ? "walk" : "walks" }}</LabChip
-                >
-                <LabChip v-if="g.rows.length < walkCount(g.rows)" tone="faint">{{ g.rows.length }} paths</LabChip>
-              </template>
-            </LabListRow>
-            <div
-              v-if="!closed.has(`walk ${g.trigger}`)"
-              class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
-            >
-              <BehaviourWalk
-                v-for="row in g.rows"
-                :key="row.key"
-                :row="row"
-                :frames="frames"
-                :sides="sides"
-                :highlight="startsHere(row.path.frames)"
-                @show-frame="emit('showFrame', $event)"
-              />
-            </div>
-          </section>
+          <BehaviourWalkGroup
+            v-for="g in walkList"
+            :key="g.trigger"
+            :trigger="g.trigger"
+            :rows="g.rows"
+            :frames="frames"
+            :sides="sides"
+            :current="current"
+            @show-frame="emit('showFrame', $event)"
+          />
         </div>
       </div>
 
