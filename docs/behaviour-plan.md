@@ -108,9 +108,17 @@ the level), and every one of those is listed by name.
       the contact response). Walks that end: Even More 1,325 to 1,337, TIM 1 1,146 to 1,154. Recordings: Even More
       610 complete and 38 prefix, TIM 1 516 and 36 (the mouse's 4 per build now match through the trampoline's
       touch), none different. See "Touch effects of four more parts" in `docs/behaviour.md`.
-- [ ] **C2. Check the list is complete.** Go over every part type's bounce, hit and search code and list which types
+- [x] **C2. Check the list is complete.** Go over every part type's bounce, hit and search code and list which types
       it can affect. Done when every pair the code allows appears in some part's "From other parts", or is listed as not
       possible with the reason.
+      Done: `list-other-part-pairs` recomputes the pairs from every bounce path, every per-member outcome of a run's
+      overlap list and the teeter-totter's list consumer. Even More: 1,084 pairs allowed, 221 described, 46 partly
+      described, 570 ruled out (assumptions 11, 17 and 18) and 247 missing, each with its reason, plus the teeter-totter's
+      6 through its list consumer, missing because that helper is read only as a footprint. TIM 1: 615, 129, 17, 345
+      and 124, plus the same 6. The first run found the boxing glove's punch and Mel's house without a line: a loop's
+      line now takes values the part's type settles and keeps the part's own tests when the source names its type
+      (effect lines 827 to 875 in Even More, 554 to 588 in TIM 1). Walks and recordings don't change (648 and 552
+      complete, none different). See "Which parts can affect which" in `docs/behaviour.md`.
 
 ## D. Recordings that stop early
 
