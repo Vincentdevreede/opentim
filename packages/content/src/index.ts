@@ -9,6 +9,7 @@ export {
   readProgramParts,
   readTim2Parts,
   type SpriteCount,
+  type SheetData,
   type ListId,
   type ProgramParts,
   type TypeRecord,

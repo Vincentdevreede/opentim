@@ -205,10 +205,15 @@ for (const listId of ["tim1", "evenmore"] as const) {
     try {
       const program = readFileSync(join(folder, "TIM.EXE"));
       const files = readResources(folder);
-      const parts = readProgramParts(listId, program, (sheet) => {
-        const data = files.get(`${sheet}.BMP`);
-        return data && decodeImage(data).frames.length;
-      });
+      const parts = readProgramParts(
+        listId,
+        program,
+        (sheet) => {
+          const data = files.get(`${sheet}.BMP`);
+          return data && decodeImage(data).frames.length;
+        },
+        (sheet) => files.get(`${sheet}.BMP`),
+      );
       const started = performance.now();
       const report = readBehaviour(program, parts);
       const milliseconds = performance.now() - started;

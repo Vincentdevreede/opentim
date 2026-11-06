@@ -1775,6 +1775,46 @@ stores a part's frame list at `+0x14` when it loads the part's pictures and clea
 and `0x1084c` in Even More English floppy, `0xfcda` and `0xfd38` in TIM 1 French). That word is now never read from
 the program, and the assumption says so. No line or walk used it in the recorded builds, so nothing else changes.
 
+### Frame sizes from the part's sheet
+
+A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`
+of its type record. The program shows what that list holds (Even More, English floppy; TIM 1, French in brackets):
+
+- The routine at `0x10770` (`0xfc73`) loads one part's pictures. It builds the name from `part`, the type number in
+  base 10 and `.bmp`, calls the sheet loader `0x2658:0x067c` (`0x24dc:0x067d`) with it and stores what the loader
+  returns at `+0x14` of the type record (`0x107dc`, `0xfcda`).
+- The loader opens the sheet. When it has a `BMP:SCN:` chunk, the loader's reader `0x1ee5:0x630c` (`0x1c71:0x728d`)
+  finds `BMP:INF:`, reads its frame count and makes a list of a word for each frame and a 0 after the last one, each
+  word pointing to a ten-byte record. It reads the widths and then the heights and stores frame n's width at `+6` and
+  its height at `+8` of record n, as the words they are. Only when the chunk is shorter than four bytes for each frame
+  does every frame get the first width and height.
+- The loader then marks each record's packing at `+4` (`0x2658:0x09be`), reads the pixels into a block of its own and
+  stores where each frame's pixels start at `+0` and `+2`, and counts the list (`0x2658:0x09ea`). An `RLE:` or `SCL:`
+  chunk would make it go over the list again; no part sheet has one. When anything fails, it frees the list and
+  returns 0.
+- The frame size helper reads the list word `L`, and when it isn't 0, the width at `+6` and the height at `+8` of the
+  record that `L + 2·frame` points to.
+
+So each frame of such a part is as wide and high as the same frame of its sheet, `PART` and the type number. The analysis matches the routine
+that stores the list, the loader, the reader and the two routines the loader hands the list to against their complete
+compiler forms, which are two for the store (TIM 1 in the data segment, Even More through `es`), two for the loader
+(the Even More CD picks between two allocators for the pixels) and one for the reader, in all eleven builds. Their
+strings must be `part`, `.bmp` and the chunk names. The sizes come from the `INF:` chunk the way the reader takes
+them; for every part sheet of the eleven builds they are the sizes the resource reader's `decodeImage` gives.
+
+`readProgramParts` takes the sheets' files as an optional fourth argument and keeps the sizes by type. A frame size
+read then becomes the sheet's number when the frame is a number. When the frame is a value of the part, like the
+frame after this one, it becomes the sheet's sizes selected by that value; for a frame the sheet doesn't have, where
+the game reads past the end of the list, the read stays. The test that the list isn't 0 becomes true. These values
+state the assumption that the list is the one the game built from the build's `PARTn.BMP` when it loaded the part's
+pictures, and that nothing changes its sizes while a level runs.
+
+In Even More, English floppy, 522 of the 1,296 drawing writes of transitions read the list, for 11 parts like the cat,
+balloon, teeter-totter and mouse; all of them now use the sheet, and 328 no longer read the list at all (the others
+keep the read for a frame past the sheet). In TIM 1, French, it is 640 of 1,122, for 11 parts, and 394. These reads
+were never unknown, so transitions with unknown writes stay at 365 and 324, every walk ends as before and no recorded
+animation changes; a walk now has numbers for these fields where it knows the frame.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
