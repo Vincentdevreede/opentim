@@ -1850,6 +1850,82 @@ and from 476 to 480 in TIM 1, and prefixes from 84 to 80 and from 76 to 72. None
 change (Even More 521 end through branches and 577 end directly, TIM 1 450 and 476), and the monkey bike's 65 walks
 all still end. What stays a prefix for the bike are its recordings seeded on frames 5 to 12, as before.
 
+### The monkey bike against what the user saw
+
+The user played the game and described the monkey bike. Each statement is checked here against the bike's code and
+walks. Addresses are Even More, English floppy; TIM 1, French, has the same routines (bounce `0x1a411`, run `0x1a4ce`,
+rope callback `0x1a5d9`, belt partner `0x6df5`), instruction for instruction apart from the addresses.
+
+What the code shows:
+
+- **Frames.** Frame 0 is the bike standing still, frames 1 to 4 pedalling. Frames 5 to 8 are its reaction to a hit
+  from standing still, 9 to 12 its reaction to a hit while pedalling. In the part list frames 0 and 5 to 8 draw sprite 4
+  of `PART31` at (40, 0) where frames 1 to 4 and 9 to 12 draw sprite 5 at (40, 6): the shade, up or down. Frames 5 to
+  12 draw the bike itself with its still sprite 0 and one of sprites 6 to 9 on top: the stars.
+- **The run** (`0x1bdbd`). First it asks for the part at the other end of its belt (`0x7970`: the belt record at
+  `0x54`, and its other end at `+0x04` or `+0x06`, or 0 without a belt). When there is one and that part doesn't have
+  flag `0x0800` in `+0x08`, it copies its own control value `0x12` into that part's (`0x1bddc`). Then, while the counter
+  at `0x96` runs, it counts down and steps through its reaction frames (5 to 8, or 9 to 12). When the counter runs out on
+  frames 9 to 12 it plays a sound, sets the control value to -1 when the bike is flipped (`0x10` in `+0x08`) or 1
+  otherwise, and shows frame 1; on frames 5 to 8 it shows frame 0 and leaves the control value alone. With the counter at
+  0 it pedals (frames 1 to 4, round and round) when the control value isn't 0, and otherwise keeps its frame.
+- **The bounce** (`0x1bd05`). Only with the counter at 0 (and a contact value below 3): the counter to 28, the control
+  value to 0, and frame 5 from frame 0 or frame 9 from any other frame.
+- **The rope callback** (`0x1becc`). The rope code of the part at the other end calls it: `0x7e3b` notices that part
+  move up or down (`0x7e60`), works out a kind with `0x7996` and calls the bike's rope callback through the type table
+  (`0x8462`). Kind 4, with the control value at 0, starts the bike: a sound and the control value -1 or 1 by the flip, as
+  above (`0x1bf4c`, `0x1bf53`). On frames 5 to 8 it moves the reaction on to frames 9 to 12 instead (`0x1bf2f`). It
+  answers 1 to kind 2 always and to kind 4 while the bike pedals or is on frames 9 to 12; what that answer does to the
+  rope isn't followed here.
+- **Nothing else writes the bike's control value.** The other place that writes a control value on a rope pull
+  (`0x8419`) only does it for a teeter-totter (the type test at `0x83af`), and belt writers skip parts with `0x0800`.
+  The bike's constructor gives it flags `0x1805`, the mouse motor's `0x0801`, the jack-in-the-box's `0x1001`. The level
+  reset puts back the saved frame and control value (0 in every shipped level).
+
+The statements:
+
+1. **It starts biking when the shade is pulled down.** Agrees. The bike learns of it through its rope callback, not
+   from a value another part writes, the byte relay or a search: kind 4 sets its control value to -1 or 1 and its next
+   run pedals with the shade down. Which way the rope moves for kind 4 isn't worked out here (`0x7996` compares the
+   heights of the rope's ends), so "down" is the user's word for it.
+2. **A belt on it works like the mouse motor's wheel while it bikes.** Agrees. Both runs use the same belt helper
+   `0x7970`, skip the same flag and copy their own control value into the part at the other end on every run
+   (`0x1bddc` and `0x1c010`), and both set that value the same way: -1 when flipped, 1 otherwise (the mouse motor in
+   `0x1c074`). The bike copies at the start of its run, before it changes its own value, so the belt follows one run
+   later. The mouse motor stops after its 100 runs; the bike doesn't stop.
+3. **When hit, it pauses and shows stars, then bikes on.** Agrees. A hit while pedalling shows frames 9 to 12 for 28
+   runs (stars, shade down, legs still) with the control value at 0, so a part on its belt gets 0 and stands still too;
+   then the bike pedals on. A hit
+   while standing still shows frames 5 to 8 and goes back to frame 0, still standing. Until now the walk after a hit
+   while pedalling also allowed "stands still on frame 1", because it forgot that -1 or 1 isn't 0 (see
+   [values two paths set differently](#values-two-paths-set-differently)); now it pedals on in every branch.
+4. **If the shade isn't pulled down again, it doesn't start again.** Agrees for the start: only the rope callback's
+   kind 4, or the end of a reaction that began while pedalling, makes the control value something other than 0, and a
+   hit alone never starts a bike that stands still. But the code has no way for a pedalling bike to stop during a run:
+   no routine sets its control value to 0 except the bounce, and after that reaction it pedals on. It stops only when
+   the machine is stopped and the level reset puts it back on frame 0 with control value 0. Whether the user saw it
+   stop by itself is asked below.
+5. **A belt from the bike can drive another part, like a jack-in-the-box.** Agrees. The jack's flags have no `0x0800`,
+   so the bike's copy reaches it. Its run (`0x1b888`) adds its control value to its frame on frames 0 to 7 (turned round
+   when the jack is flipped) and wraps at 8 and -1. The bike writes only -1, 0 or 1, the numbers
+   [decided assumption 9](behaviour-assumptions.md#9-control-values) allows. Each full turn counts `0x96` up, and at 6
+   the jack pops (frame 8, sound 3), so a pedalling bike should pop a jack on its belt after 6 turns (48 runs), with a
+   pause while the bike shows its stars.
+
+The bike's recordings seeded on frames 5 to 12 (32 per build) used to stay open: they start there with the counter and
+the control value at 0, a state the game never gives
+([decided assumption 4](behaviour-assumptions.md#4-the-monkey-bikes-starting-frame)), and the run's input case that
+keeps the frame there also tests the belt link at `0x54`, which a clip doesn't save. The recorder answers it: `setup` in
+`research/v24/verify_animations.py` clears the part's 0x300 bytes and then sets only the type, flags, position, size,
+pointers and the clip's seed, never `0x54`, and the bike's run never writes `0x54` (the comparison counts every write
+of the run, as in [what the recorder writes between runs](#what-the-recorder-writes-between-runs)). So in every
+recording the bike had no belt. The recorder skipped the belt helper as well (every bike clip lists `0x7970`, in TIM 1
+`0x6df5`, as skipped), which also gives 0. The comparison now also checks an input case's starting condition against
+those cleared fields, under the basis `recorder-fields`: it says the bike's run keeps the frame on the recorder's bench,
+not that the game puts the bike there. All 32 close in both builds: complete matches go from 616 to 648 of 648 in Even
+More and from 520 to 552 of 552 in TIM 1 (36 of them through the recorder's fields in each), none is a prefix and none
+is different. Walks don't change.
+
 ### Outlines
 
 Many parts build their own outline in their reset: the shape other parts bounce off. The part's outline pointer at

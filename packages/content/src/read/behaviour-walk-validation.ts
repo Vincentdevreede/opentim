@@ -1040,9 +1040,14 @@ function matchStart(
         : animation.trigger.kind === "run"
           ? "reset-or-rest"
           : "trigger";
-  const compatibility = animation.inputCondition
-    ? evaluateBehaviourCondition(animation.inputCondition, recorded)
-    : true;
+  // With the recorder's bench, a field the input case tests that the recorder cleared and nothing in the clip writes is
+  // 0, like the monkey bike's belt link at 0x54.
+  const given =
+    animation.inputCondition && mode.facts?.zero
+      ? withZero({ condition: animation.inputCondition }, recorded, mode.facts.zero)
+      : recorded;
+  if (!given) return undefined;
+  const compatibility = animation.inputCondition ? evaluateBehaviourCondition(animation.inputCondition, given) : true;
   if (compatibility === false) return undefined;
   const expected = clip.frames.map((frame) => frame.state);
   if (clip.loopStart !== null) expected.push(clip.frames[clip.loopStart]!.state);
