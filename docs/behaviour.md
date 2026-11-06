@@ -2215,6 +2215,9 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
 - Only Mel Schlemming starts on a frame that isn't one of his resting frames: he is saved on frame 0 and walks from
   there.
 
+What the code leaves open for these parts, and for effects of other parts no recording covers, is now a list of things
+to try in the game: [behaviour-game-checks.md](behaviour-game-checks.md).
+
 ### Walk notes that name the frame and the test
 
 Two notes were left vague. "The seed does not establish the state. No state zero is assumed." (34 parts in Even More)
