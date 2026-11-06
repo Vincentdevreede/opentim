@@ -78,13 +78,19 @@ the level), and every one of those is listed by name.
 
 ## D. Recordings that stop early
 
-- [ ] **D1. Mouse motor restart, cat, mouse and Mel's house** (20 in Even More). They wait for a search to find
+- [x] **D1. Mouse motor restart, cat, mouse and Mel's house** (20 in Even More). They wait for a search to find
       another part. Decided: prove the part stays alone (no part in the recording creates another part, and the recording
       shows nothing else on the bench) and close only the recordings where both hold. No new assumption.
       Stopped at the second check: a v25 clip saves only the recorded part's own fields, its input and the engine calls
       it skipped, no other part and no position, so it can't show the bench. It does show that the recorder skipped
-      the very searches these parts wait for (see "Recordings that wait for a search" in `docs/behaviour.md`). All 20
-      stay open.
+      the very searches these parts wait for (see "Recordings that wait for a search" in `docs/behaviour.md`).
+      Then decided: a clip that lists a search as skipped may be compared with the "found nothing" way, since the
+      recorder returns 0 and writes nothing for it (see "What the recorder gives for a skipped search"). Those matches
+      have their own basis and are counted apart. Even More 596 to 606 complete (10 through a skipped search: Mel's
+      house 4, mouse motor 4, cat 2), TIM 1 504 to 512 (mouse motor 8), none different. Open: the Even More mouse
+      motor's 4 run recordings (countdown), the cat's 4 still recordings per build (position fields the recorder sets),
+      the TIM 1 cat's 2 move recordings (its loop isn't summed up as a list loop) and the mouse's 4 per build (no
+      search skipped).
 - [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Still open. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;
