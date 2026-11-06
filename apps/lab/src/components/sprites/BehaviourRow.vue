@@ -29,8 +29,8 @@ function measure() {
       (t) => t.scrollWidth > t.clientWidth || t.scrollHeight > t.clientHeight,
     );
 }
-// Opening and closing and a resize of the panel change the line's size, so it is measured again then. New text can
-// keep the size (a cut line stays one line high), so it is also measured after each render.
+// Opening and closing and a resize of the panel change the line's size, so it is measured again then. New text in a
+// reused row can keep the size, so it is measured again after every update too.
 const observer = new ResizeObserver(measure);
 onMounted(() => line.value && observer.observe(line.value));
 onUpdated(measure);

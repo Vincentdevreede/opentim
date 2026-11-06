@@ -499,14 +499,20 @@ export function readBehaviourInBackground(program: Uint8Array, parts: ProgramPar
   let result = results.get(program);
   if (!result) {
     result = new Promise((resolve) => {
-      const worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
+      let worker: Worker | undefined;
       const done = (r: BehaviourResult) => {
         resolve(r);
-        worker.terminate();
+        worker?.terminate();
       };
-      worker.onmessage = ({ data }: MessageEvent<BehaviourResult>) => done(data);
-      worker.onerror = (e) => done({ status: "error", message: e.message || "The analysis stopped." });
-      worker.postMessage({ program, parts } satisfies BehaviourRequest);
+      // Starting the worker or sending it the program can throw too, which ends the read like an error in the worker.
+      try {
+        worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
+        worker.onmessage = ({ data }: MessageEvent<BehaviourResult>) => done(data);
+        worker.onerror = (e) => done({ status: "error", message: e.message || "The analysis stopped." });
+        worker.postMessage({ program, parts } satisfies BehaviourRequest);
+      } catch (e) {
+        done({ status: "error", message: e instanceof Error ? e.message : "The analysis couldn’t start." });
+      }
     });
     results.set(program, result);
     // A failed read isn't kept, so a later call tries again.
