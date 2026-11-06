@@ -1624,6 +1624,14 @@ animation changes; the monkey bike's walk from its creation rests after one run 
 position now stays known. A periodic walk leaves out the drawing fields no rule reads, since their values depend on
 the frame.
 
+### The type record word the game writes
+
+Lines about other parts read words of a type record from TIM.EXE, like the mass at `+0x02` that picks the explosion's
+speed class, under the assumption that a type record keeps its words while a level runs. One word doesn't: the game
+stores a part's frame list at `+0x14` when it loads the part's pictures and clears it when it frees them (`0x107dc`
+and `0x1084c` in Even More English floppy, `0xfcda` and `0xfd38` in TIM 1 French). That word is now never read from
+the program, and the assumption says so. No line or walk used it in the recorded builds, so nothing else changes.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains

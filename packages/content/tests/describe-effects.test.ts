@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
-import { effectsFromOthers, FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "../src/read/describe-effects.ts";
+import {
+  effectsFromOthers,
+  FIXED_LIST_ASSUMPTION,
+  predicateForType,
+  SCREEN_DIRECTION_ASSUMPTION,
+  TYPE_TABLE_ASSUMPTION,
+} from "../src/read/describe-effects.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const c = (value: number): Expression => ({ kind: "constant", value, width: 16 });
@@ -215,9 +221,7 @@ describe("effects of other parts", () => {
         "An explosion that reaches it sets its speed to 4096, in a direction the explosion works out. Only when it is on the moving list.",
     });
     expect(push.condition).toEqual(compare(and(f("part", 6), 0x1000), "!=", c(0)));
-    expect(push.assumptions).toContain(
-      "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE.",
-    );
+    expect(push.assumptions).toContain(TYPE_TABLE_ASSUMPTION);
   });
 
   it("says the push goes away from the explosion when the centre angle and the setter's tables prove it", () => {
@@ -260,5 +264,33 @@ describe("effects of other parts", () => {
 
   it("makes no line for an outcome its type alone doesn't decide", () => {
     expect(lines.get(12)!.effects.some((e) => e.sets.some((s) => s.kind === "field" && s.value === 1))).toBe(false);
+  });
+
+  it("reads type record words from the program, except the frame list the game writes while it runs", () => {
+    const table = {
+      address: 0x1000,
+      stride: 58,
+      words: [Array(29).fill(0), Array.from({ length: 29 }, (_, n) => n + 100)],
+    };
+    const word = (offset: number) => ({
+      kind: "compare" as const,
+      operator: "==",
+      left: {
+        kind: "table" as const,
+        segment: 0,
+        offset: 0x1000 + offset,
+        index: { kind: "constant" as const, value: 58, width: 16 },
+        width: 16,
+      },
+      right: { kind: "constant" as const, value: 0, width: 16 },
+      signed: false,
+    });
+    const used = { table: false };
+    // The mass at +0x02 of type 1 is the program's word.
+    expect(predicateForType(word(2), "member", 4, 1, table, used)).toMatchObject({
+      left: { kind: "constant", value: 101 },
+    });
+    // The frame list at +0x14 stays a read made while the game runs.
+    expect(predicateForType(word(0x14), "member", 4, 1, table, used)).toMatchObject({ left: { kind: "table" } });
   });
 });

@@ -51,7 +51,9 @@ const CENTRES_ASSUMPTION =
 export const SCREEN_DIRECTION_ASSUMPTION =
   "On the screen, a negative velocityX at 0x36 moves a part to the left and a negative velocityY at 0x38 moves it up. In the game, a jack-in-the-box that isn't flipped, which sets both negative, knocks a part up and to the left.";
 export const TYPE_TABLE_ASSUMPTION =
-  "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE.";
+  "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE. The frame list word at +0x14 is left out: the game sets it when it loads a part's pictures and clears it when it frees them.";
+/** The word of a type record the game writes while it runs: the frame list, set and cleared with a part's pictures. */
+export const TYPE_RECORD_WRITTEN = [0x14];
 
 /** Something another part sets on this part: its velocity to a speed, or a field to a number. */
 export type OtherPartSetting =
@@ -169,6 +171,8 @@ function forType(
     const at = e.segment * 16 + wrap(e.offset + index, 16) - table.address;
     const record = table.words[Math.floor(at / table.stride)];
     if (at < 0 || at % 2 || !record || at % table.stride >= table.stride - 1) return e;
+    // The game writes this word while it runs (0x107dc and 0x1084c in Even More), so the program's word isn't it.
+    if (TYPE_RECORD_WRITTEN.includes(at % table.stride)) return e;
     used.table = true;
     return constant(record[(at % table.stride) / 2]!);
   }
