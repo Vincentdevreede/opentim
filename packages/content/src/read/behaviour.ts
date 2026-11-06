@@ -21,6 +21,7 @@ import { discoverBehaviourLayout } from "./behaviour-layout.ts";
 import { discoverEngineSummaries, type EngineSummary, type EnginePointer } from "./behaviour-helpers.ts";
 import { frameDrawingForType, proveFrameDrawing } from "./behaviour-frame-drawing.ts";
 import { TYPE_TABLE_ASSUMPTION } from "./describe-effects.ts";
+import { frameListWord, proveSheetFrameList, sheetFrameSizeForType } from "./behaviour-sheet-frames.ts";
 import {
   discoverBehaviourLifecycle,
   discoverLifecycleFieldRoles,
@@ -4821,6 +4822,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
   // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
   const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
   const frameOffsets = Object.values(frameFields) as number[];
+  const sheetList = list.sheetFrames?.size ? proveSheetFrameList(image, list.dataSegment, list.table) : undefined;
   const frameWriteForType = (write: FieldWrite, type: number): FieldWrite => {
     if (typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset)) return write;
     const used = { table: false };
@@ -4832,11 +4834,29 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       (operator, left, right, width) => binary(operator, left, right, width, Infinity),
       used,
     );
-    if (value === write.value) return write;
+    // With the part's sheet, a frame's size from the list the game loaded from it is the sheet's.
+    const frames = sheetList && list.sheetFrames?.get(type);
+    const sheet = { sheet: false };
+    const sized = frames
+      ? sheetFrameSizeForType(
+          value,
+          frameListWord(list.table, type),
+          list.dataSegment,
+          frames,
+          (operator, left, right, width) => binary(operator, left, right, width, Infinity),
+          sheet,
+        )
+      : value;
+    if (sized === write.value) return write;
+    const assumptions = [
+      ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+      ...(sheet.sheet ? sheetList!.assumptions : []),
+    ];
     return {
       ...write,
-      value,
-      ...(used.table ? { assumptions: [...new Set([...write.assumptions, TYPE_TABLE_ASSUMPTION])] } : {}),
+      value: sized,
+      ...(assumptions.length ? { assumptions: [...new Set([...write.assumptions, ...assumptions])] } : {}),
+      ...(sheet.sheet ? { evidence: [...write.evidence, ...sheetList!.evidence] } : {}),
     };
   };
   const parts = list.list.parts.map((part): PartBehaviour => {

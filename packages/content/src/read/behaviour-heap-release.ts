@@ -80,7 +80,27 @@ function matchSequence(code: RoutineCode, pattern: string, bindings: Bindings, e
     if (prefixes.length) row = row.slice(4);
     if (i.prefixes.join() !== prefixes.join()) return;
     const [mnemonic, target] = row.split(" ");
-    if (mnemonic === "call" || mnemonic === "callf") {
+    if ((mnemonic === "call" || mnemonic === "callf") && target?.startsWith("*")) {
+      // A call through a word of the data segment, like `callf *32:ds[{hook}]`: its operand is matched, whatever the
+      // word holds while the game runs.
+      const call = code.calls.find((c) => c.instruction === i.address);
+      const memory = i.operands[0];
+      const [, name] = /^\*32:ds\[\{([A-Za-z]+)\}\]$/.exec(target) ?? [];
+      if (
+        i.flow !== "call" ||
+        i.mnemonic !== "call" ||
+        i.target ||
+        !call ||
+        call.far !== (mnemonic === "callf") ||
+        memory?.kind !== "memory" ||
+        memory.width !== 32 ||
+        memory.segment !== "ds" ||
+        memory.base.length ||
+        !name ||
+        !bind(name, memory.displacement)
+      )
+        return;
+    } else if (mnemonic === "call" || mnemonic === "callf") {
       const call = code.calls.find((c) => c.instruction === i.address);
       if (
         i.flow !== "call" ||

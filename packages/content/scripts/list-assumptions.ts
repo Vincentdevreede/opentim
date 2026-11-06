@@ -48,10 +48,15 @@ for (const [game, folders] of [
   for (const folder of folders.map((f) => resolve(f))) {
     const program = readFileSync(join(folder, "TIM.EXE"));
     const files = readResources(folder);
-    const parts = readProgramParts(game, program, (sheet) => {
-      const data = files.get(`${sheet}.BMP`);
-      return data && decodeImage(data).frames.length;
-    });
+    const parts = readProgramParts(
+      game,
+      program,
+      (sheet) => {
+        const data = files.get(`${sheet}.BMP`);
+        return data && decodeImage(data).frames.length;
+      },
+      (sheet) => files.get(`${sheet}.BMP`),
+    );
     addBuild(table, game, collectAssumptions(readBehaviour(program, parts)));
     builds[game]++;
     console.log(`${folder}: ${table.size} assumptions so far`);

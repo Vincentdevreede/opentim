@@ -78,7 +78,7 @@ export function readLoadedParts(
         const d = r && decode(r);
         return d?.status === "decoded" ? d.image.frames.length : undefined;
       };
-      const read = readProgramParts(listId, program.data, spriteCount);
+      const read = readProgramParts(listId, program.data, spriteCount, (sheet) => byName.get(sheetFile(sheet))?.data);
       return {
         list: read.list,
         source: "program",
