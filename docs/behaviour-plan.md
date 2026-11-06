@@ -199,8 +199,18 @@ the level), and every one of those is listed by name.
 
 ## F. All builds
 
-- [ ] **F1. Measure all eleven builds**, not only the two above. Done when every build's numbers are in the report
+- [x] **F1. Measure all eleven builds**, not only the two above. Done when every build's numbers are in the report
       and none has a recording that differs.
+      Done: every build has the same numbers as the two recorded ones of its game. TIM 1 (five builds): 0 of 764
+      unresolved transitions, 122 conditional, 0 with unknown writes, 214 with named run values, 0 vague effect lines,
+      0 unresolved resets, 36 resets the level gives, 4 parts without resting frames, 1,154 of 1,154 walks end. Even
+      More (six builds): 0 of 925, 128, 0, 234, 0, 0, 41, 5, and 1,338 of 1,338 walks end. Only Even More English
+      floppy (648 of 648 complete) and TIM 1 French (552 of 552) have recordings; none differs. Compared with the
+      recordings of their own game, the other builds match them too, except 16 (Even More CD and demo) and 12 (TIM 1
+      English) that need a search the recorder skipped, which the recording names by its address in the recorded
+      build: those stop as prefixes. No shipped level disagrees and all 267 assumptions are listed. The builds differ
+      only in code layout (engine routines read, global and query addresses, the order of a choice in the CD
+      plunger); the build comparison now leaves those out. See "All eleven builds" in `docs/behaviour.md`.
 - [ ] **F2. Recheck the decided assumptions** over all builds and the shipped levels after A to E.
 
 ## G. Close

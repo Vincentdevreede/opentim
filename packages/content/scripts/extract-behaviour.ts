@@ -30,6 +30,10 @@ function readResources(folder: string): Map<string, Uint8Array> {
   return files;
 }
 
+/** Hides code and data addresses in a value's name (they move between builds), keeping offsets after a `+`. */
+const withoutAddresses = (text: string) =>
+  text.replace(/\b(at|by|helper|destination|table) 0x[0-9a-f]+/gi, "$1 <address>");
+
 /** Removes evidence locations from semantic comparisons while keeping part field offsets. */
 function semantic(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -40,6 +44,14 @@ function semantic(value: unknown): unknown {
   }
   if (value === null || typeof value !== "object") return value;
   const item = value as Record<string, unknown>;
+  // These give the same value with their sides swapped. A build whose code is laid out the other way round writes a
+  // choice's two ways in the other order (the dynamite plunger in the Even More CD build).
+  if (item.kind === "binary" && ["+", "*", "&", "|", "^"].includes(item.operator as string)) {
+    const [left, right] = [semantic(item.left), semantic(item.right)].sort((a, b) =>
+      JSON.stringify(a).localeCompare(JSON.stringify(b)),
+    );
+    return { ...item, left, right };
+  }
   return Object.fromEntries(
     Object.entries(item)
       .filter(
@@ -50,8 +62,10 @@ function semantic(value: unknown): unknown {
       .map(([key, child]) => [
         key,
         ["reason", "object"].includes(key) && typeof child === "string"
-          ? child.replace(/\b(at|helper|destination) 0x[0-9a-f]+/gi, "$1 <address>")
-          : semantic(child),
+          ? withoutAddresses(child)
+          : key === "runValues" && Array.isArray(child)
+            ? semantic(child.map((name) => (typeof name === "string" ? withoutAddresses(name) : name)))
+            : semantic(child),
       ]),
   );
 }
