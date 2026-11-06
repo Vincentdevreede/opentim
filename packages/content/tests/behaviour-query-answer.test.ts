@@ -106,6 +106,7 @@ describe("query answers", () => {
       unresolved: 0,
       conditional: routine.transitions.length,
       unknownWrites: 0,
+      namedRunValues: 0,
     });
   });
 
@@ -120,9 +121,14 @@ describe("query answers", () => {
     expect(transitionCounts(lostRoutine.transitions).unresolved).toBe(lostRoutine.transitions.length);
   });
 
-  it("counts rules that write an unknown value apart, like a value the answer picks", () => {
+  it("counts rules that write a named run value apart, like a value the answer picks", () => {
     const { image, helpers } = fixture("private-buffer-query", 0x12);
     const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
-    expect(transitionCounts(routine.transitions)).toEqual({ unresolved: 0, conditional: 0, unknownWrites: 1 });
+    expect(transitionCounts(routine.transitions)).toEqual({
+      unresolved: 0,
+      conditional: 0,
+      unknownWrites: 0,
+      namedRunValues: 1,
+    });
   });
 });

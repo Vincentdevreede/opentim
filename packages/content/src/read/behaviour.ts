@@ -4279,9 +4279,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   };
 }
 
-/** Names of values a run finds itself: a query's answer, a part a loop found, or what a list scan leaves behind. */
+/**
+ * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
+ * found list, what a call writes to parts it selects, or the part's own field after such a call.
+ */
 const RUN_VALUE =
-  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection) at /;
+  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
@@ -4320,13 +4323,18 @@ function markConditional(transitions: Transition[], pathsCertain: boolean): Tran
 
 /**
  * Counts a part's rules: unresolved ones, conditional ones (they test only values found during the run) and, apart from
- * both, those that write a field whose value is still unknown.
+ * both, those that write a value nobody named (an unknown, or a value read again after one), and those whose every
+ * written value is known or named but at least one is a named run value, like a search's found list.
  */
 export function transitionCounts(transitions: Transition[]) {
+  const anonymous = (t: Transition) => t.updates?.some((update) => !runValuesIn(update.value)) ?? false;
   return {
     unresolved: transitions.filter((t) => t.confidence === "unresolved" && !t.runValues).length,
     conditional: transitions.filter((t) => t.runValues).length,
-    unknownWrites: transitions.filter((t) => t.updates?.some((update) => containsUnknown(update.value))).length,
+    unknownWrites: transitions.filter(anonymous).length,
+    namedRunValues: transitions.filter(
+      (t) => !anonymous(t) && t.updates?.some((update) => runValuesIn(update.value)?.size),
+    ).length,
   };
 }
 
