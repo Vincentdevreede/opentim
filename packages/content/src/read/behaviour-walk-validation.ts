@@ -1,6 +1,7 @@
 /** Compares independently described frame walks with saved recordings. Recordings never seed a description. */
-import type { BehaviourReport, Predicate } from "./behaviour.ts";
+import type { BehaviourReport, Expression, Predicate, RoutineAnalysis } from "./behaviour.ts";
 import type { MeasuredClip } from "./behaviour-validation.ts";
+import type { Instruction } from "./x86.ts";
 import {
   evaluateBehaviourCondition,
   type AnimationDescription,
@@ -15,7 +16,11 @@ import {
 export interface DescribedWalkMatch {
   clip: string;
   classification: "complete" | "prefix" | "different" | "unavailable";
-  basis: "reset-or-rest" | "creation" | "trigger" | "input-case" | "unavailable";
+  /**
+   * `recorder-skipped-search`: the match needed what the recorder gave in place of a search it skipped (an empty found
+   * list). It shows the walk agrees with the recorder, not that the game finds nothing.
+   */
+  basis: "reset-or-rest" | "creation" | "trigger" | "input-case" | "recorder-skipped-search" | "unavailable";
   measuredFrames: number;
   measuredTransitions: number;
   prefixFrames: number;
@@ -35,6 +40,7 @@ export interface DescribedWalkCoverage {
   completeFromTriggers: number;
   completeFromResetOrRest: number;
   completeFromInputCases: number;
+  completeFromRecorderSkippedSearches: number;
   matches: DescribedWalkMatch[];
 }
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -142,6 +148,172 @@ function recorderRestarts(report: BehaviourReport | undefined, clip: MeasuredCli
  * recording starts with them clear. Like every recorded field, it only rules out ways at the start.
  */
 const RECORDER_CONTACT: RecordedField = { object: "part", offset: 0x06, width: 16, value: 0, knownMask: 0x0007 };
+
+/**
+ * The part fields the v25 recorder writes itself (`setup`, `apply` and `step` in `research/v24/verify_animations.py`):
+ * the type, flags, frame, previous frames, control value, position, speed, size, counter, heat and the outline and
+ * drawing pointers. It clears the rest of the part's 0x300 bytes before each clip and never writes them again.
+ */
+const RECORDER_FIELDS: [number, number][] = [
+  [0x04, 2],
+  [0x08, 2],
+  [0x0c, 6],
+  [0x12, 2],
+  [0x1e, 12],
+  [0x36, 4],
+  [0x40, 8],
+  [0x80, 6],
+  [0x96, 2],
+  [0x9c, 2],
+];
+/** Rewrites a branch condition with what the recorder gave in place of searches it skipped. */
+type RecorderView = (predicate: Predicate) => Predicate;
+const NOT_WRITING = new Set(["cmp", "test", "push"]);
+/** Whether an instruction may write the part field at `offset` (2 bytes): any data write there, through any pointer. */
+function mayWrite(i: Instruction, offset: number): boolean {
+  if (/^(stos|movs|ins|rep)/.test(i.mnemonic) || i.mnemonic === "int") return true;
+  const destination = i.operands[0];
+  return (
+    i.flow === "next" &&
+    destination?.kind === "memory" &&
+    destination.segment !== "ss" &&
+    !NOT_WRITING.has(i.mnemonic) &&
+    destination.displacement < offset + 2 &&
+    offset < destination.displacement + destination.width / 8
+  );
+}
+/**
+ * What the v25 recorder gives a part in place of a search it skipped, as a rewrite of the walk's branch conditions.
+ * The recorder runs only the part's run routine. Its hook catches the first instruction of any routine outside the
+ * part types' code segment, pops the far return address, sets AX and DX to 0 and writes no memory
+ * (`hook` in `research/v24/verify_animations.py`); the clip counts each one in `skippedEngineServices`. A search that
+ * builds the list of parts it found (an overlap query) starts that list in a field of the part, like 0x78; the recorder
+ * cleared that field before the clip and nothing writes it, when the run writes no such field itself outside the loops
+ * over that list and calls nothing in its own code segment outside them. Then each loop over the list finds it empty:
+ *
+ * - a loop that stops at the first part it acts on finds no part: its member link is 0;
+ * - after a loop over every part, the part's fields hold what they held before it. That is the value at the run's
+ *   start when nothing on the way from the run's start to the loop writes the field or calls anything but the search.
+ *
+ * Only searches the clip lists as skipped count, and only for that clip. Nothing here says what the game finds.
+ */
+function recorderView(
+  report: BehaviourReport | undefined,
+  partType: number | undefined,
+  clip: MeasuredClip,
+): { view: RecorderView; searches: number[] } | undefined {
+  if (!report || partType === undefined) return undefined;
+  const skipped = new Set(
+    Object.entries(clip.skippedEngineServices)
+      .filter(([, count]) => typeof count === "number" && count > 0)
+      .map(([address]) => Number.parseInt(address, 16)),
+  );
+  const searches = new Map(
+    (report.helpers ?? [])
+      .filter((helper) => skipped.has(helper.address) && helper.kind === "overlap-list" && helper.list)
+      .map((helper) => [helper.address, helper.list!.headField]),
+  );
+  if (!searches.size) return undefined;
+  const address = report.parts.find((part) => part.type === partType)?.routines.find((r) => r.slot === 1)?.address;
+  const routine = report.routines.find((item) => item.address === address) as RoutineAnalysis | undefined;
+  if (!routine || routine.status !== "complete" || !routine.instructions?.length) return undefined;
+  const callAt = new Map(routine.calls.map((call) => [call.instruction, call]));
+  const loops = (routine.listLoops ?? []).filter((loop) => {
+    const target = loop.query === undefined ? undefined : callAt.get(loop.query)?.target?.address;
+    return (
+      loop.source === "overlap-query" &&
+      target !== undefined &&
+      searches.has(target) &&
+      searches.get(target) === loop.headField
+    );
+  });
+  const bodies = new Set(loops.flatMap((loop) => loop.body));
+  // A call leaves the part's code segment, so the recorder skips it and it writes nothing.
+  const skippedCall = (i: Instruction) => {
+    const target = callAt.get(i.address)?.target;
+    return !!target && target.segment !== routine.segment;
+  };
+  const listEmpty = (head: number) =>
+    !RECORDER_FIELDS.some(([offset, size]) => offset < head + 2 && head < offset + size) &&
+    routine.instructions.every(
+      (i) => bodies.has(i.address) || (!mayWrite(i, head) && (i.flow !== "call" || skippedCall(i))),
+    );
+  const empty = loops.filter((loop) => listEmpty(loop.headField!));
+  if (!empty.length) return undefined;
+  const next = new Map<number, number[]>(),
+    previous = new Map<number, number[]>();
+  for (const edge of routine.edges)
+    if (edge.to !== null) {
+      next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to]);
+      previous.set(edge.to, [...(previous.get(edge.to) ?? []), edge.from]);
+    }
+  const reach = (from: number, links: Map<number, number[]>, stop: (at: number) => boolean) => {
+    const seen = new Set<number>([from]),
+      pending = [from];
+    while (pending.length) {
+      const at = pending.pop()!;
+      if (at !== from && stop(at)) continue;
+      for (const to of links.get(at) ?? [])
+        if (!seen.has(to)) {
+          seen.add(to);
+          pending.push(to);
+        }
+    }
+    return seen;
+  };
+  const byAddress = new Map(routine.instructions.map((i) => [i.address, i]));
+  /** The instructions on some way from the run's start to the loop's head that doesn't go round the loop. */
+  const before = (loop: (typeof empty)[number]) => {
+    const body = new Set(loop.body);
+    const forward = reach(routine.address, next, (at) => at === loop.header);
+    const backward = reach(loop.header, previous, (at) => at === routine.address || body.has(at));
+    return [...forward].filter((at) => at !== loop.header && backward.has(at) && !body.has(at));
+  };
+  const keeps = new Map<string, boolean>();
+  const unchanged = (loop: (typeof empty)[number], offset: number) => {
+    const key = `${loop.header}:${offset}`;
+    let result = keeps.get(key);
+    if (result === undefined)
+      keeps.set(
+        key,
+        (result = before(loop).every((at) => {
+          const i = byAddress.get(at);
+          return !!i && !mayWrite(i, offset) && (i.flow !== "call" || at === loop.query);
+        })),
+      );
+    return result;
+  };
+  const named = new Map(empty.map((loop) => [`0x${loop.header.toString(16)}`, loop]));
+  const replace = (expression: Expression): Expression => {
+    if (expression.kind === "binary")
+      return { ...expression, left: replace(expression.left), right: replace(expression.right) };
+    if (expression.kind === "table") return { ...expression, index: replace(expression.index) };
+    if (expression.kind !== "field" || !expression.unresolved) return expression;
+    const link = /^member found by the loop at (0x[0-9a-f]+) link$/.exec(expression.object);
+    if (link && named.has(link[1]!) && expression.offset === 0)
+      return { kind: "constant", value: 0, width: expression.width };
+    const after = /^part after list scan at (0x[0-9a-f]+)$/.exec(expression.object);
+    const loop = after && named.get(after[1]!);
+    if (loop && unchanged(loop, expression.offset))
+      return { kind: "field", object: "part", offset: expression.offset, width: expression.width };
+    return expression;
+  };
+  const done = new WeakMap<Predicate, Predicate>();
+  const view = (predicate: Predicate): Predicate => {
+    let result = done.get(predicate);
+    if (result) return result;
+    result =
+      predicate.kind === "compare"
+        ? { ...predicate, left: replace(predicate.left), right: replace(predicate.right) }
+        : predicate.kind === "and"
+          ? { ...predicate, terms: predicate.terms.map(view) }
+          : predicate;
+    done.set(predicate, result);
+    return result;
+  };
+  const used = empty.map((loop) => callAt.get(loop.query!)!.target!.address);
+  return { view, searches: [...new Set(used)].sort((a, b) => a - b) };
+}
 function stateAt(walk: BehaviourWalk, index: number, parameter: number): number | undefined {
   if (walk.parameterised?.kind === "hold") return parameter;
   if (walk.parameterised?.kind === "cycle") {
@@ -215,6 +387,39 @@ function ruledOut(branch: { condition: Predicate; alternatives?: Predicate[] }, 
     branch.alternatives.every((alternative) => evaluateBehaviourCondition(alternative, fields) === false)
   );
 }
+/**
+ * A condition that can't hold: the known fields rule it out, or they do once each part field it tests for one number
+ * has that number. A rewritten condition can test the same field twice, like the mouse motor's "control value is 0
+ * and the control value after the scan isn't 0" once the scan leaves the control value as it was.
+ */
+function impossible(condition: Predicate, fields: RecordedField[]): boolean {
+  if (evaluateBehaviourCondition(condition, fields) === false) return true;
+  const equal: RecordedField[] = [];
+  for (const term of condition.kind === "and" ? condition.terms : [condition]) {
+    if (term.kind !== "compare" || term.operator !== "==") continue;
+    const [field, number] = term.right.kind === "constant" ? [term.left, term.right] : [term.right, term.left];
+    if (field.kind !== "field" || field.object !== "part" || field.unresolved || number.kind !== "constant") continue;
+    if (field.width !== 8 && field.width !== 16) continue;
+    const mask = field.width === 8 ? 0xff : 0xffff;
+    equal.push({
+      object: "part",
+      offset: field.offset,
+      width: field.width,
+      value: number.value & mask,
+      knownMask: mask,
+    });
+  }
+  if (!equal.length) return false;
+  const merged = mergeFields([...fields, ...equal]);
+  return !merged || evaluateBehaviourCondition(condition, merged) === false;
+}
+/** `ruledOut` for conditions rewritten with what the recorder gave in place of a search it skipped. */
+function viewedOut(branch: { condition: Predicate; alternatives?: Predicate[] }, fields: RecordedField[]): boolean {
+  return (
+    impossible(branch.condition, fields) ||
+    (!!branch.alternatives?.length && branch.alternatives.every((alternative) => impossible(alternative, fields)))
+  );
+}
 /** Strongly connected parts of a graph, without recursion: the walk trees can be deep. */
 function cyclic(count: number, edges: number[][]): boolean[] {
   const index = new Array<number>(count).fill(-1),
@@ -276,6 +481,7 @@ function followTree(
   loopStart: number | null,
   recorded: RecordedField[],
   stateOffset: number,
+  view?: RecorderView,
 ): TreeOutcome | undefined {
   const count = frames.length,
     period = loopStart === null ? 0 : count - loopStart,
@@ -390,7 +596,10 @@ function followTree(
             (!branch.states.length || branch.states[0] === condition.right.value),
         );
       for (const branch of walk.stop!.branches!) {
-        if (ruledOut(branch, fields)) continue;
+        const seen = view
+          ? { condition: view(branch.condition), alternatives: branch.alternatives?.map(view) }
+          : branch;
+        if (view ? viewedOut(seen, fields) : ruledOut(seen, fields)) continue;
         const next = branch.walk;
         if (!length) enterWalk(onStart ? sink : { ...sink, progress: true }, next, onStart ? run : run + 1);
         else if (walk.stop!.kind === "ambiguity") enterWalk({ ...sink, progress: true }, next, run + 1);
@@ -490,6 +699,7 @@ function followTree(
 interface StartMode {
   bounded: boolean;
   external: boolean;
+  view?: RecorderView;
 }
 function matchStart(
   report: BehaviourReport | undefined,
@@ -661,7 +871,7 @@ function matchTree(
     (field) => ![...Array(field.width / 8).keys()].some((byte) => written.has(field.offset + byte)),
   );
   const frames = clip.frames.map((frame) => frame.state);
-  const outcome = followTree(animation.walk, frames, clip.loopStart, start, stateOffset);
+  const outcome = followTree(animation.walk, frames, clip.loopStart, start, stateOffset, mode.view);
   if (!outcome) return undefined;
   const total = frames.length + (clip.loopStart === null ? 0 : 1);
   const hold = mode.external;
@@ -747,6 +957,7 @@ function followRestarts(
   clip: MeasuredClip,
   plan: { restarts: Restart[]; forever: boolean },
   walkFrom: RestartWalk,
+  view?: RecorderView,
 ): Segments {
   const stateOffset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
   const { frames, loopStart } = clip,
@@ -770,7 +981,7 @@ function followRestarts(
       assumptions: [],
       evidence: [],
     }));
-    const outcome = followTree(walkFrom(seed), states, cycle, fields, stateOffset);
+    const outcome = followTree(walkFrom(seed), states, cycle, fields, stateOffset, view);
     const at = (frames: number) => Math.min(total, run + frames);
     const where = `the recorder's write at run ${run}`;
     if (!outcome)
@@ -820,6 +1031,7 @@ function matchWalk(
   animation: AnimationDescription,
   clip: MeasuredClip,
   restarts: () => Segments | undefined,
+  view?: RecorderView,
 ): DescribedWalkMatch | undefined {
   const plan = recorderRestarts(report, clip);
   const later = "unsupported" in plan ? undefined : restarts();
@@ -827,6 +1039,7 @@ function matchWalk(
     return matchStart(report, animation, clip, {
       bounded: false,
       external: "unsupported" in plan || (!!plan.restarts.length && !later),
+      view,
     });
   const first = plan.restarts[0]!.run,
     count = clip.frames.length;
@@ -842,7 +1055,7 @@ function matchWalk(
       ),
       loopStart: null,
     },
-    { bounded: true, external: false },
+    { bounded: true, external: false, view },
   );
   if (!head) return undefined;
   const whole = {
@@ -857,6 +1070,7 @@ function restartsOnce(
   report: BehaviourReport | undefined,
   clip: MeasuredClip,
   walkFrom: RestartWalk | undefined,
+  view?: RecorderView,
 ): () => Segments | undefined {
   let result: Segments | undefined,
     done = false;
@@ -865,10 +1079,48 @@ function restartsOnce(
     done = true;
     const plan = recorderRestarts(report, clip);
     if (walkFrom && !("unsupported" in plan) && plan.restarts.length)
-      result = followRestarts(report, clip, plan, walkFrom);
+      result = followRestarts(report, clip, plan, walkFrom, view);
     return result;
   };
 }
+
+/**
+ * The best match from the walks as they are. When it isn't complete and the clip lists a search the recorder skipped,
+ * the match with the recorder's empty found list in its place, under its own basis, whatever it is: a recording that
+ * then disagrees is a finding too.
+ */
+function withSkippedSearches(
+  report: BehaviourReport | undefined,
+  partType: number | undefined,
+  clip: MeasuredClip,
+  best: (view?: RecorderView) => DescribedWalkMatch | undefined,
+): DescribedWalkMatch | undefined {
+  const plain = best();
+  if (plain?.classification === "complete") return plain;
+  const recorder = recorderView(report, partType, clip);
+  const seen = recorder && best(recorder.view);
+  if (!seen || (plain && seen.classification === plain.classification && seen.prefixFrames === plain.prefixFrames))
+    return plain;
+  const searches = recorder.searches.map((address) => `0x${address.toString(16)}`);
+  return {
+    ...seen,
+    basis: "recorder-skipped-search",
+    reason: `${seen.reason} The recorder skipped the search at ${searches.join(" and ")}: in the recording it returned 0 and wrote nothing, so the run found no part. That is the recorder's answer, not the game's.`,
+  };
+}
+const RANK = { complete: 3, prefix: 2, different: 1, unavailable: 0 };
+const BASIS_RANK = {
+  "reset-or-rest": 2,
+  creation: 2,
+  trigger: 1,
+  "input-case": 0,
+  "recorder-skipped-search": -1,
+  unavailable: -1,
+};
+const byRank = (left: DescribedWalkMatch, right: DescribedWalkMatch) =>
+  RANK[right.classification] - RANK[left.classification] ||
+  right.prefixFrames - left.prefixFrames ||
+  BASIS_RANK[right.basis] - BASIS_RANK[left.basis];
 
 /** Complete counts retain their basis: actual code triggers and conditional input scenarios are distinct. */
 export function validateDescribedWalks(
@@ -876,28 +1128,23 @@ export function validateDescribedWalks(
   part: PartBehaviourDescription,
   clips: MeasuredClip[],
 ): DescribedWalkCoverage {
-  const rank = { complete: 2, prefix: 1, different: 0, unavailable: -1 };
-  const basisRank = { "reset-or-rest": 2, creation: 2, trigger: 1, "input-case": 0, unavailable: -1 };
   const walkFrom = restartWalk(report, part.type);
+  const animations = part.animations.filter(
+    (animation) =>
+      animation.walk.states.length || animation.walk.parameterised || animation.walk.stop?.branches?.length,
+  );
   const matches = clips.map((clip): DescribedWalkMatch => {
-    const restarts = restartsOnce(report, clip, walkFrom);
-    const candidates = part.animations
-      .filter(
-        (animation) =>
-          animation.walk.states.length || animation.walk.parameterised || animation.walk.stop?.branches?.length,
-      )
-      .flatMap((animation) => {
-        const match = matchWalk(report, animation, clip, restarts);
-        return match ? [match] : [];
-      });
-    candidates.sort(
-      (left, right) =>
-        rank[right.classification] - rank[left.classification] ||
-        right.prefixFrames - left.prefixFrames ||
-        basisRank[right.basis] - basisRank[left.basis],
-    );
+    const best = (view?: RecorderView) => {
+      const restarts = restartsOnce(report, clip, walkFrom, view);
+      return animations
+        .flatMap((animation) => {
+          const match = matchWalk(report, animation, clip, restarts, view);
+          return match ? [match] : [];
+        })
+        .sort(byRank)[0];
+    };
     return (
-      candidates[0] ?? {
+      withSkippedSearches(report, part.type, clip, best) ?? {
         clip: clip.path,
         classification: "unavailable",
         basis: "unavailable",
@@ -927,6 +1174,9 @@ export function validateDescribedWalks(
     completeFromInputCases: matches.filter(
       (match) => match.classification === "complete" && match.basis === "input-case",
     ).length,
+    completeFromRecorderSkippedSearches: matches.filter(
+      (match) => match.classification === "complete" && match.basis === "recorder-skipped-search",
+    ).length,
     matches,
   };
 }
@@ -935,29 +1185,27 @@ export type WalkMatch = DescribedWalkMatch;
 
 /**
  * Compares one recording with independently extracted starts; a missing compatible start is unavailable. Without
- * `walkFrom`, a recording whose recorder writes an input again stays a prefix after the write.
+ * `walkFrom`, a recording whose recorder writes an input again stays a prefix after the write. With `partType`, a
+ * clip that lists a search the recorder skipped may match with the recorder's empty found list, under its own basis.
  */
 export function compareMeasuredWalks(
   animations: AnimationDescription[],
   clip: MeasuredClip,
   report?: BehaviourReport,
   walkFrom?: RestartWalk,
+  partType?: number,
 ): WalkMatch {
-  const restarts = restartsOnce(report, clip, walkFrom);
-  const rank = { complete: 3, prefix: 2, different: 1, unavailable: 0 };
-  const basisRank = { "reset-or-rest": 2, creation: 2, trigger: 1, "input-case": 0, unavailable: -1 };
-  const candidates = animations.flatMap((animation) => {
-    const match = matchWalk(report, animation, clip, restarts);
-    return match ? [match] : [];
-  });
-  candidates.sort(
-    (a, b) =>
-      rank[b.classification] - rank[a.classification] ||
-      b.prefixFrames - a.prefixFrames ||
-      basisRank[b.basis] - basisRank[a.basis],
-  );
+  const best = (view?: RecorderView) => {
+    const restarts = restartsOnce(report, clip, walkFrom, view);
+    return animations
+      .flatMap((animation) => {
+        const match = matchWalk(report, animation, clip, restarts, view);
+        return match ? [match] : [];
+      })
+      .sort(byRank)[0];
+  };
   return (
-    candidates[0] ?? {
+    withSkippedSearches(report, partType, clip, best) ?? {
       clip: clip.path,
       classification: "unavailable",
       basis: "unavailable",

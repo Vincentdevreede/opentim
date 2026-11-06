@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Predicate } from "../src/read/behaviour.ts";
+import type { BehaviourReport, Expression, Predicate } from "../src/read/behaviour.ts";
+import type { Instruction } from "../src/read/x86.ts";
 import {
   WIDENING_ASSUMPTION,
   type AnimationDescription,
@@ -565,5 +566,203 @@ describe("recordings whose recorder writes an input again", () => {
     const wrong = (fields: KnownField[]) => (value(fields, 12) === 3 ? walk([3, 3]) : step(fields));
     expect(compareMeasuredWalks([model], turn, undefined, wrong).classification).toBe("different");
     expect(compareMeasuredWalks([model], { ...turn, loopStart: null }, undefined, step).classification).toBe("prefix");
+  });
+});
+
+describe("recordings whose recorder skipped a search", () => {
+  type Branches = NonNullable<NonNullable<BehaviourWalk["stop"]>["branches"]>;
+  const walk = (
+    states: number[],
+    status: BehaviourWalk["status"],
+    more: Partial<BehaviourWalk> = {},
+  ): BehaviourWalk => ({
+    ...proof,
+    status,
+    states,
+    frames: [],
+    runCalls: Math.max(0, states.length - 1),
+    fields: [],
+    timingReason: "Run calls only.",
+    ...(status === "rest" ? { loopStart: states.length - 2 } : {}),
+    ...more,
+  });
+  const rest = (...states: number[]) => walk(states, "rest");
+  const split = (branches: Branches) =>
+    walk([0], "unresolved", { stop: { kind: "ambiguity", description: "Branches.", evidence: [], branches } });
+  const start = (root: BehaviourWalk): AnimationDescription => ({
+    ...animation(),
+    initialFields: [{ ...proof, object: "part", offset: 12, width: 16, value: 0, knownMask: 65535 }],
+    walk: root,
+  });
+  const field = (object: string, offset: number, unresolved = true) =>
+    ({ kind: "field", object, offset, width: 16, ...(unresolved ? { unresolved } : {}) }) as const;
+  const compare = (left: Expression, operator: string, value: number): Predicate => ({
+    kind: "compare",
+    operator,
+    left,
+    right: { kind: "constant", value, width: 16 },
+    signed: false,
+  });
+  const and = (...terms: Predicate[]): Predicate => ({ kind: "and", terms });
+  // The control value after a scan over the parts the search found, and the first part a find-first loop acts on.
+  const afterScan = field("part after list scan at 0x1010", 0x12);
+  const link = field("member found by the loop at 0x1010 link", 0);
+  const control = field("part", 0x12, false);
+  /** Like the mouse motor: with the control value at 0 it scans the found list and starts when a part sets it. */
+  const scanning = start(
+    split([
+      { condition: and(compare(control, "==", 0), compare(afterScan, "==", 0)), walk: rest(0, 0) },
+      { condition: and(compare(control, "==", 0), compare(afterScan, "!=", 0)), walk: rest(1, 1) },
+    ]),
+  );
+  /** Like the cat: it acts on the first part the loop finds. */
+  const finding = start(
+    split([
+      { condition: compare(link, "==", 0), walk: rest(0, 0) },
+      { condition: compare(link, "!=", 0), walk: rest(1, 1) },
+    ]),
+  );
+  const instruction = (address: number, text: string, more: Partial<Instruction>): Instruction =>
+    ({
+      address,
+      segment: 0x190f,
+      offset: address,
+      size: 4,
+      bytes: [],
+      mnemonic: text.split(" ")[0]!,
+      operands: [],
+      prefixes: [],
+      flow: "next",
+      text,
+      ...more,
+    }) as Instruction;
+  const memory = (base: string, displacement: number) =>
+    ({ kind: "memory", segment: "ds", base: [base], displacement, width: 16 }) as Instruction["operands"][number];
+  /**
+   * A run that calls the search at 0x417e, loads the found list from 0x78 and scans it at 0x1010; the scan's body sets
+   * the control value. `extra` goes in before the call.
+   */
+  const report = (
+    extra: Instruction[] = [],
+    calls: { instruction: number; segment: number; address: number }[] = [],
+  ) => {
+    const instructions = [
+      instruction(0x1000, "push si", {}),
+      ...extra,
+      instruction(0x1004, "call 0x0000:0x417e", { flow: "call" }),
+      instruction(0x1008, "mov di, word [si+0x78]", {
+        operands: [{ kind: "register", name: "di", width: 16 }, memory("si", 0x78)],
+      }),
+      instruction(0x100c, "jmp 0x1010", { flow: "jump" }),
+      instruction(0x1010, "or di, di", {}),
+      instruction(0x1012, "mov word [si+0x12], 0x0001", {
+        operands: [memory("si", 0x12), { kind: "immediate", value: 1, width: 16 }],
+      }),
+      instruction(0x1014, "retf", { flow: "return" }),
+    ];
+    const order = instructions.map((i) => i.address);
+    const edges = [
+      ...order
+        .slice(0, -1)
+        .map((from, n) => ({ from, to: order[n + 1]!, kind: "next" }))
+        .filter((edge) => edge.from !== 0x1012),
+      { from: 0x1012, to: 0x1010, kind: "jump" },
+      { from: 0x1010, to: 0x1014, kind: "taken" },
+    ];
+    return {
+      layout: { fields: [] },
+      helpers: [
+        { address: 0x417e, kind: "overlap-list", list: { headField: 0x78, nextField: 0x78, excludesArgument: true } },
+      ],
+      parts: [{ type: 6, routines: [{ slot: 1, address: 0x1000 }] }],
+      routines: [
+        {
+          address: 0x1000,
+          segment: 0x190f,
+          offset: 0x1000,
+          status: "complete",
+          instructions,
+          edges,
+          calls: [
+            { instruction: 0x1004, target: { segment: 0, offset: 0x417e, address: 0x417e }, far: true },
+            ...calls.map(({ instruction, segment, address }) => ({
+              instruction,
+              target: { segment, offset: address, address },
+              far: true,
+            })),
+          ],
+          listLoops: [
+            {
+              header: 0x1010,
+              body: [0x1012],
+              source: "overlap-query",
+              headField: 0x78,
+              query: 0x1004,
+              nextField: 0x78,
+            },
+          ],
+        },
+      ],
+    } as unknown as BehaviourReport;
+  };
+  const normal = (skipped: Record<string, number> = { "0x417e": 1 }): MeasuredClip => ({
+    path: "synthetic",
+    frames: [{ state: 0, control: 0 }],
+    loopStart: null,
+    input: {},
+    skippedEngineServices: skipped,
+  });
+
+  it("takes the skipped search's list as empty, under its own basis", () => {
+    for (const model of [scanning, finding]) {
+      expect(compareMeasuredWalks([model], normal(), report())).toMatchObject({ classification: "prefix" });
+      const match = compareMeasuredWalks([model], normal(), report(), undefined, 6);
+      expect(match).toMatchObject({ classification: "complete", basis: "recorder-skipped-search" });
+      expect(match.reason).toMatch(/recorder skipped the search at 0x417e.*not the game's/);
+    }
+  });
+  it("only for a clip that lists the search as skipped", () => {
+    expect(compareMeasuredWalks([scanning], normal({}), report(), undefined, 6).classification).toBe("prefix");
+    expect(compareMeasuredWalks([scanning], normal({ "0x7970": 1 }), report(), undefined, 6).classification).toBe(
+      "prefix",
+    );
+  });
+  it("not when the run may write the list's head outside the scan, or call into its own code", () => {
+    const head = instruction(0x1002, "mov word [bx+0x78], ax", {
+      operands: [memory("bx", 0x78), { kind: "register", name: "ax", width: 16 }],
+    });
+    expect(compareMeasuredWalks([finding], normal(), report([head]), undefined, 6).classification).toBe("prefix");
+    const own = instruction(0x1002, "call 0x1000:0x2000", { flow: "call" });
+    const ownCall = [{ instruction: 0x1002, segment: 0x190f, address: 0x2000 }];
+    expect(compareMeasuredWalks([finding], normal(), report([own], ownCall), undefined, 6).classification).toBe(
+      "prefix",
+    );
+    // A call the recorder skips writes nothing.
+    const engine = [{ instruction: 0x1002, segment: 0, address: 0x68aa }];
+    expect(compareMeasuredWalks([finding], normal(), report([own], engine), undefined, 6).classification).toBe(
+      "complete",
+    );
+  });
+  it("keeps a field through the scan only when nothing before the scan writes it", () => {
+    const write = instruction(0x1002, "mov word [si+0x12], ax", {
+      operands: [memory("si", 0x12), { kind: "register", name: "ax", width: 16 }],
+    });
+    expect(compareMeasuredWalks([scanning], normal(), report([write]), undefined, 6).classification).toBe("prefix");
+    // The cat's way still closes: the found list stays empty whatever the run writes elsewhere.
+    expect(compareMeasuredWalks([finding], normal(), report([write]), undefined, 6).classification).toBe("complete");
+  });
+  it("shows a recording that then disagrees", () => {
+    const model = start(
+      split([
+        { condition: compare(link, "==", 0), walk: rest(2, 2) },
+        { condition: compare(link, "!=", 0), walk: walk([0], "unresolved", { reason: "A part was found." }) },
+      ]),
+    );
+    const two = { ...normal(), frames: [0, 0].map((state) => ({ state, control: 0 })) };
+    expect(compareMeasuredWalks([model], two, report())).toMatchObject({ classification: "prefix" });
+    expect(compareMeasuredWalks([model], two, report(), undefined, 6)).toMatchObject({
+      classification: "different",
+      basis: "recorder-skipped-search",
+    });
   });
 });
