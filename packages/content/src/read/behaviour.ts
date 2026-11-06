@@ -3371,6 +3371,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         argument.object === s.observationObject &&
         argument.displacement === 0
       );
+      // A bounce callback's argument, the part that touched it (`collider`).
+      const passesCollider =
+        options.objectArgument === "collider" &&
+        argument?.kind === "pointer" &&
+        argument.object === "collider" &&
+        argument.displacement === 0;
       const engineBefore = i.target && options.engineSummaries?.get(i.target.address);
       const composableObject = (object: string) =>
         object === "part" ||
@@ -3809,8 +3815,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         }
       }
       // A helper that picks what it stores by tests of its part's fields, like the mouse motor's start, splits the pass
-      // on a member the loop observes by those tests, so each outcome knows the values stored on the member.
-      if (engine?.kind === "owner-field-update" && passesObservedMember && !pureReturnRelations) {
+      // on a member the loop observes by those tests, so each outcome knows the values stored on the member. A bounce
+      // splits the same way on the part that touched it, like the gear's pushes.
+      if (engine?.kind === "owner-field-update" && (passesObservedMember || passesCollider) && !pureReturnRelations) {
         const splits = new Map<string, Extract<Predicate, { kind: "compare" }>>();
         for (const effect of engine.writes) {
           if (effect.root !== "argument" || effect.path.length || effect.argumentOffset !== engine.argumentOffset)

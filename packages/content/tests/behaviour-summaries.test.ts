@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { analyseRoutine, type Finding } from "../src/read/behaviour.ts";
-import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
+import { discoverEngineSummaries, type EngineSummary } from "../src/read/behaviour-helpers.ts";
+import { readRoutineCode } from "../src/read/behaviour-code.ts";
+import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
 
 const fact: Finding = {
   confidence: "inferred",
@@ -105,6 +107,41 @@ describe("shared symbolic call summaries", () => {
       object: "part",
       value: { kind: "constant", value: 1 },
     });
+  });
+
+  it("splits a bounce on the tests of a helper's exact stores to the part that touched it, like the gear's push", () => {
+    const image = new Uint8Array(0x100).fill(0x66);
+    // push 0x1000; push si; call far 0x60; pop cx; pop cx
+    image.set([...prologue, 0x68, 0, 0x10, 0x56, 0x9a, 0x60, 0, 0, 0, 0x59, 0x59, 0x5e, 0x5d, 0xcb]);
+    // velocityX -= s; if (velocityX < s) velocityX = -s
+    const push = [0x8b, 0x56, 8, 0x29, 0x54, 0x36, 0x8b, 0x44, 0x36, 0x3b, 0xc2, 0x7d, 7, 0x33, 0xc0, 0x2b, 0xc2];
+    image.set([...prologue, ...push, 0x89, 0x44, 0x36, 0x5e, 0x5d, 0xcb], 0x60);
+    const layout: BehaviourLayout = {
+      callbacks: [],
+      objectArgument: { offset: 6, confidence: "inferred", evidence: [], assumptions: [] },
+      diagnostics: [],
+      fields: [
+        { name: "state", offset: 0x0c, confidence: "checked", evidence: [], assumptions: [] },
+        { name: "type", offset: 4, confidence: "checked", evidence: [], assumptions: [] },
+      ],
+    };
+    const code = readRoutineCode(image, { address: 0x60, segment: 0, offset: 0x60 }, 0x40);
+    const summaries = discoverEngineSummaries(image, new Map([[0x60, code]]), layout);
+    const result = analyseRoutine(image, entry, {
+      objectArgument: "collider",
+      ownerLink: 0x84,
+      engineSummaries: new Map(summaries.map((summary) => [summary.address, summary])),
+    });
+    const velocity = { kind: "field", object: "collider", offset: 0x36, width: 16 };
+    expect(
+      result.outcomes
+        ?.map((outcome) => outcome.fields.map((f) => [f.object, f.offset, f.value.kind, f.value]))
+        .sort((a, b) => String(a[0]?.[2]).localeCompare(String(b[0]?.[2]))),
+    ).toEqual([
+      [["collider", 0x36, "binary", expect.objectContaining({ left: velocity })]],
+      [["collider", 0x36, "constant", { kind: "constant", value: 0xf000, width: 16 }]],
+    ]);
+    expect(result.outcomes?.every((outcome) => outcome.effectsComplete)).toBe(true);
   });
 
   it("keeps a related pointer after displacement arithmetic", () => {

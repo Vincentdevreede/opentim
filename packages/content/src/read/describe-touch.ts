@@ -132,6 +132,47 @@ export function testsOf(terms: Predicate[]): Tests | undefined {
     const prior = tests.get(at);
     tests.set(at, { subject, width: 1, ranges: prior ? intersect(prior.ranges, ranges) : ranges, signed: t.signed });
   }
+  return simplified(tests);
+}
+
+/** The values an expression can take at all: `x & 7` only 0 to 7. */
+function domain(e: Expression): Ranges {
+  if (e.kind === "binary" && e.operator === "&" && e.right.kind === "constant")
+    return [[0, e.right.value & top(e.width)]];
+  return [[0, top(e.width)]];
+}
+
+/**
+ * The tests said more simply, meaning the same. A test of `x << n` where x is known to stay below the bits the shift
+ * keeps becomes a test of x, like the jump table index `(contactEdge << 1) == 4` with contactEdge at most 7, which is
+ * contactEdge 2. A test every value the expression can take passes drops out, like `(x & 7) <= 7`.
+ */
+function simplified(tests: Tests): Tests {
+  for (const [at, test] of [...tests]) {
+    const s = test.subject;
+    if (s.kind !== "binary" || s.operator !== "<<" || s.right.kind !== "constant" || s.left.width !== s.width) continue;
+    const n = s.right.value;
+    if (n < 1 || n >= s.width) continue;
+    const below = tests.get(key(s.left));
+    const known = below ? below.ranges : domain(s.left);
+    // Only when x << n can't lose bits: then it is x times 2^n.
+    if (!known.length || known.at(-1)![1] >= 2 ** (s.width - n)) continue;
+    const step = 2 ** n;
+    const values = normal(test.ranges.map(([a, b]): [number, number] => [Math.ceil(a / step), Math.floor(b / step)]));
+    tests.delete(at);
+    tests.set(key(s.left), {
+      subject: s.left,
+      width: s.width,
+      ranges: intersect(known, values),
+      signed: below?.signed ?? false,
+    });
+  }
+  for (const [at, test] of [...tests])
+    if (
+      test.subject.kind !== "compare" &&
+      sameRanges(intersect(test.ranges, domain(test.subject)), domain(test.subject))
+    )
+      tests.delete(at);
   return tests;
 }
 

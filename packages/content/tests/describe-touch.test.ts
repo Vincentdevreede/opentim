@@ -25,6 +25,28 @@ describe("touch tests", () => {
     ]);
   });
 
+  it("reads a jump table index as the value it picks by, like the gear's contactEdge", () => {
+    const bin = (operator: string, left: Expression, right: Expression): Expression => ({
+      kind: "binary",
+      operator,
+      left,
+      right,
+      width: 16,
+    });
+    const edge = f(0x8a);
+    // `cmp bx, 7; ja` then `jmp [bx*2 + table]`: contactEdge at most 7, and its index (contactEdge << 1) is 4.
+    expect(words([compare(edge, "<=", 7, false), compare(bin("<<", edge, c(1)), "==", 4, false)])).toEqual([
+      "collider.+0x8a is 2",
+    ]);
+    // A masked value is always at most 7, so that test drops out.
+    const masked = bin("&", bin("+", edge, c(4)), c(7));
+    expect(words([compare(masked, "<=", 7, false), compare(bin("<<", masked, c(1)), "==", 12, false)])).toEqual([
+      "(collider.+0x8a + 4) & 0x0007 is 6",
+    ]);
+    // Without a bound the shift may lose a bit, and the test stays as it is.
+    expect(words([compare(bin("<<", edge, c(1)), "==", 4, false)])).toEqual(["collider.+0x8a << 1 is 4"]);
+  });
+
   it("joins paths whose tests differ in one expression only, and drops a test every value passes", () => {
     const edge = (n: number) => compare(f(0x8a), "==", n, false);
     const below = compare(f(0x88), "<", -2048);

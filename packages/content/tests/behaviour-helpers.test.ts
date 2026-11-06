@@ -502,10 +502,54 @@ describe("structural engine summaries", () => {
       [0x12, { kind: "constant", value: 0xffff, width: 16 }, flag("!=")],
       [0x12, { kind: "constant", value: 1, width: 16 }, flag("==")],
       [0x96, { kind: "constant", value: 100, width: 16 }, { kind: "true" }],
-      // A store an `or` changes afterwards is not the last, and the `or` itself sets no value.
-      [0x22, { kind: "constant", value: 1, width: 16 }, expect.objectContaining({ kind: "unknown" })],
-      [0x22, expect.anything(), expect.objectContaining({ kind: "unknown" })],
+      // A store an `or` changes afterwards is not the last, but every path read exactly gives the field 1 | 2.
+      [0x22, { kind: "constant", value: 3, width: 16 }, { kind: "true" }],
     ]);
+  });
+
+  /** The gear's push in Even More (`0x1afdc`): `velocityX -= s; if (velocityX < s) velocityX = -s`. */
+  const push = [
+    ...[0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6],
+    // mov dx, [bp+8]; sub [si+0x36], dx; mov ax, [si+0x36]; cmp ax, dx; jge +7
+    ...[0x8b, 0x56, 8, 0x29, 0x54, 0x36, 0x8b, 0x44, 0x36, 0x3b, 0xc2, 0x7d, 0x07],
+    // xor ax, ax; sub ax, dx; mov [si+0x36], ax
+    ...[0x33, 0xc0, 0x2b, 0xc2, 0x89, 0x44, 0x36],
+    ...[0x5e, 0x5d, 0xcb],
+  ];
+
+  it("reads a helper's stores of values worked out from the part's fields exactly, like the gear's push", () => {
+    const image = new Uint8Array(0x800);
+    image.set(push, 0x100);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
+    expect(summary.kind).toBe("owner-field-update");
+    const velocity = { kind: "field", object: "part", offset: 0x36, width: 16 };
+    const amount = { kind: "field", object: "argument", offset: 8, width: 16 };
+    const after = { kind: "binary", operator: "-", left: velocity, right: amount, width: 16 };
+    const test = (operator: string) => ({ kind: "compare", operator, left: after, right: amount, signed: true });
+    expect(summary.writes.map((w) => [w.offset, w.value, w.condition])).toEqual([
+      [0x36, after, test(">=")],
+      [
+        0x36,
+        { kind: "binary", operator: "-", left: { kind: "constant", value: 0, width: 16 }, right: amount, width: 16 },
+        test("<"),
+      ],
+    ]);
+  });
+
+  it.each([
+    // An overflow branch is no comparison the reader knows.
+    ["an overflow branch", 0x7d, 0x70],
+    // A byte store of al, whose value the reader doesn't follow.
+    ["a byte store", 0x89, 0x88],
+  ])("keeps the old summary when it can't read every path exactly: %s", (_, from, to) => {
+    const image = new Uint8Array(0x800);
+    const bytes = [...push];
+    bytes[push.lastIndexOf(from)] = to;
+    image.set(bytes, 0x100);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
+    expect(summary.kind).toBe("owner-field-update");
+    expect(summary.writes.length).toBeGreaterThan(0);
+    for (const w of summary.writes) expect(w.value.kind === "unknown" || w.condition.kind === "unknown").toBe(true);
   });
 
   it("uses checked layout names in helper prose and keeps offsets in structured writes", () => {
