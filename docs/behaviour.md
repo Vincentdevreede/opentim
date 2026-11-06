@@ -899,6 +899,13 @@ These touch outcomes still give no line:
 - The teeter-totter's: its paths depend on a query's answer and stay unresolved.
 - The trampoline's paths for Mel that return 1: they read the frame tables and set `velocityY`, which Mel's rules read.
 
+What the user sees in the game (asked on 2026-11-06) fits two of these lines:
+
+- The alligator bounces a ball up off its back, but not off its head. The code only bounces the ball when its centre is
+  past the alligator's position plus 64 (or before plus 16 when mirrored), the end away from the head; the head end
+  is left to the alligator's own walks.
+- A running conveyor belt pushes a ball under it against the belt's direction, as its bounce does on the underside.
+
 ### The outline search
 
 The teeter-totter finds the parts lying on it with an outline search. It clears the owner's found list at `0x78`,
