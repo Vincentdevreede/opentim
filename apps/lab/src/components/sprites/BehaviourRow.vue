@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Confidence } from "@opentim/content";
-import { computed, onBeforeUnmount, onMounted, ref, useId, useSlots, useTemplateRef } from "vue";
+import { computed, onBeforeUnmount, onMounted, onUpdated, ref, useId, useSlots, useTemplateRef } from "vue";
 import { FINDING_TIPS } from "../../kinds.ts";
 import LabInfo from "../LabInfo.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
@@ -29,9 +29,11 @@ function measure() {
       (t) => t.scrollWidth > t.clientWidth || t.scrollHeight > t.clientHeight,
     );
 }
-// Opening and closing, a resize of the panel and new text all change the line's size, so it is measured again then.
+// Opening and closing and a resize of the panel change the line's size, so it is measured again then. New text in a
+// reused row can keep the size, so it is measured again after every update too.
 const observer = new ResizeObserver(measure);
 onMounted(() => line.value && observer.observe(line.value));
+onUpdated(measure);
 onBeforeUnmount(() => observer.disconnect());
 /** Whether opening the row shows more. An open row can always close. */
 const expandable = computed(() => open.value || cut.value || !!slots.detail);
