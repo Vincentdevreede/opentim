@@ -433,6 +433,13 @@ export const RESET_WORDS: Record<"saved" | "sockets" | "unresolved", string> = {
 export const restingWords = (frame: { walks?: number }) =>
   frame.walks ? `${frame.walks} ${frame.walks === 1 ? "walk ends" : "walks end"} here` : "a run keeps it";
 
+/**
+ * What follows the first way's condition to a resting frame: how many more ways rest there, or "and others" when the
+ * analysis keeps the conditions of only the first few, so whether one of the others needs no test isn't known.
+ */
+export const restingMore = (frame: { ways: number; capped?: true }) =>
+  frame.capped ? "and others" : frame.ways > 1 ? `${frame.ways - 1} more ${frame.ways === 2 ? "way" : "ways"}` : "";
+
 /** A trigger with more walk rows than this folds them by where they start. */
 export const FOLD_ROWS = 12;
 

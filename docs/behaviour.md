@@ -48,7 +48,9 @@ the rest when it is opened.
 - **Rest.** "placed" says how the reset leaves the frame: one frame, "keeps the saved frame" (the level gives it) or
   "from its plugs" (the sockets give it), with the frames it can be, or "unresolved". "rests on" lists the frames the
   part comes to rest on; its tip says how many walks end on each or that a run keeps it, and opened it gives the
-  first condition on the way to each. A frame the program keeps as a word reads signed, so the wood incline's
+  first condition on the way to each, with how many more walks rest there ("and others" when the analysis keeps the
+  conditions of only the first 8). A frame a walk reaches with no test reads "always", with no condition as needed,
+  like the teeter-totter's frame 0. A frame the program keeps as a word reads signed, so the wood incline's
   frame 65535 reads -1, here and in the walks.
 - **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
   "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
@@ -60,8 +62,8 @@ the rest when it is opened.
   sentence with how many ways give it.
 - **When it does it.** Under each line of "Creates" and "To itself and others" stands the condition of its first way,
   like the gun's two bullets ("drawingFlags & 0x10 == 0" and "!= 0"), with how many more ways there are and each of
-  them when the line is opened; "always" when a way has no test. The teeter-totter's out-of-play flag, the explosion's
-  (only for type 19) and the bullet's (only at state 2) so never read as if they always happen.
+  them when the line is opened; "always" when a way has no test. So the teeter-totter's out-of-play flag, the explosion's
+  (only for type 19) and the bullet's (only at state 2) no longer read as if they always happen.
 - **Walks.** A trigger with more than 12 rows folds them by where they start ("running from 3"), so the
   jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
   named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the

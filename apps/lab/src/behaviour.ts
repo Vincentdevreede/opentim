@@ -147,8 +147,14 @@ export interface RestingFrame extends Finding {
   state: number;
   /** How many walk branches come to rest on it, when the walks give it rather than a run outcome. */
   walks?: number;
-  /** The conditions on the way there, for the first few, as text. */
+  /** The conditions on the way there, for the first few, as text; empty when a way there has none. */
   conditions: string[];
+  /** Set when a way there has no test, so the part rests there whatever the conditions of the other ways. */
+  always?: true;
+  /** How many ways come to rest on it: the walks, or the run outcomes that keep it. */
+  ways: number;
+  /** Set when the analysis keeps the conditions of only the first few ways, so the others' aren't known. */
+  capped?: true;
 }
 
 /** How a part's frame is when the machine is put back, and the frames it comes to rest on. */
@@ -874,16 +880,22 @@ export function summariseRests(
         description: rest.description,
         ...(rest.reason ? { reason: rest.reason } : {}),
         resting: d.stableStates
-          .map((stable) => ({
-            confidence: stable.confidence,
-            assumptions: stable.assumptions,
-            evidence: instructions(stable.evidence),
-            state: frameOf(stable.state),
-            ...(stable.walks ? { walks: stable.walks } : {}),
-            conditions: [...new Set(stable.origins.map((o) => write.predicate(o.condition)))].filter(
-              (c) => c !== "always",
-            ),
-          }))
+          .map((stable): RestingFrame => {
+            const conditions = [...new Set(stable.origins.map((o) => write.predicate(o.condition)))];
+            const always = conditions.includes("always");
+            return {
+              confidence: stable.confidence,
+              assumptions: stable.assumptions,
+              evidence: instructions(stable.evidence),
+              state: frameOf(stable.state),
+              ...(stable.walks ? { walks: stable.walks } : {}),
+              // A way without a test rests there always, so no other way's condition is needed.
+              conditions: always ? [] : conditions,
+              ...(always ? { always: true as const } : {}),
+              ways: stable.walks ?? stable.origins.length,
+              ...((stable.walks ?? 0) > stable.origins.length ? { capped: true as const } : {}),
+            };
+          })
           // A frame word of -1 comes last in the description; signed, it comes first.
           .sort((a, b) => a.state - b.state),
       };

@@ -680,6 +680,16 @@ describe("summariseRests", () => {
           { ...finding, state: 0, fields: [], origins: [{ condition: { kind: "true" }, evidence }] },
           {
             ...finding,
+            state: 1,
+            fields: [],
+            walks: 158,
+            origins: [
+              { condition: compare("!=", field(0x12), constant(0)), evidence },
+              { condition: { kind: "true" }, evidence },
+            ],
+          },
+          {
+            ...finding,
             state: 2,
             fields: [],
             walks: 157,
@@ -723,10 +733,16 @@ describe("summariseRests", () => {
 
   it("lists the resting frames with how many walks end there and the conditions on the way", () => {
     expect(rests[3]!.resting).toMatchObject([
-      { state: 0, conditions: [] },
-      { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"] },
+      { state: 0, conditions: [], ways: 1, always: true },
+      { state: 1 },
+      { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"], ways: 157, capped: true },
     ]);
     expect(rests[3]!.resting[0]!.walks).toBeUndefined();
+  });
+
+  it("rests on a frame always when a way there has no test, keeping no other way's condition as needed", () => {
+    expect(rests[3]!.resting[1]).toMatchObject({ walks: 158, always: true, conditions: [], ways: 158 });
+    expect(rests[3]!.resting[2]!.always).toBeUndefined();
   });
 
   it("gives a frame the program keeps as a word signed, like the wood incline's -1, in order", () => {

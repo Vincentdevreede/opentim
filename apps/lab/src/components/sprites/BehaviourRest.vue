@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { RestSummary } from "../../behaviour.ts";
-import { readTerm, RESET_WORDS, restingWords, termsOf, tidyTerms, weakest } from "../../behaviour-view.ts";
+import { conditionText, RESET_WORDS, restingMore, restingWords, weakest } from "../../behaviour-view.ts";
 import { statesText } from "../../behaviour.ts";
 import BehaviourRow from "./BehaviourRow.vue";
 
@@ -37,18 +37,15 @@ const restingTip = computed(() =>
   [
     "The frames it comes to rest on: where a run keeps it, or where its walks end.",
     "",
-    ...props.rest.resting.slice(0, 12).map((r) => `${r.state}: ${restingWords(r)}`),
+    ...props.rest.resting
+      .slice(0, 12)
+      .map((r) => `${r.state}: ${restingWords(r)}${r.always ? ", one way with no test" : ""}`),
     ...(props.rest.resting.length > 12 ? [`and ${props.rest.resting.length - 12} more`] : []),
     "",
     `${restingConfidence.value}. Click for the way to each.`,
   ].join("\n"),
 );
 const states = computed(() => props.rest.resting.map((r) => r.state));
-/** A condition on the way to a resting frame, tidied and read like a walk's. */
-const tidy = (condition: string) =>
-  tidyTerms(termsOf(condition))
-    .map((t) => readTerm(t))
-    .join(" and ");
 </script>
 
 <template>
@@ -100,11 +97,10 @@ const tidy = (condition: string) =>
             <span v-else class="text-ink">{{ r.state }}</span>
             <span class="font-sans text-faint">{{ restingWords(r) }}</span>
           </span>
-          <span v-if="r.conditions.length" class="break-words"
-            >when {{ tidy(r.conditions[0]!)
-            }}<span v-if="r.conditions.length > 1" class="font-sans text-faint">
-              · {{ r.conditions.length - 1 }} more {{ r.conditions.length === 2 ? "way" : "ways" }}</span
-            ></span
+          <span v-if="r.always" class="font-sans text-soft">always</span>
+          <span v-else-if="r.conditions.length" class="break-words"
+            >when {{ conditionText(r.conditions[0]!)
+            }}<span v-if="restingMore(r)" class="font-sans text-faint"> · {{ restingMore(r) }}</span></span
           >
         </div>
       </template>
