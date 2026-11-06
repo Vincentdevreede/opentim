@@ -2124,6 +2124,17 @@ helper"). Now it also puts in a field the relation gives one exact value, worked
 are when the helper starts, before any of the helper's writes go in. The dynamite's three rules that call it now know
 its drawing flags: Even More, English floppy, goes from 10 to 7 rules with unknown writes, TIM 1, French, from 8 to 5.
 
+### A small helper's table reads
+
+The reader of a small helper's exact stores (`ownerPathStores`, the one that gives the gear's push its exact value)
+now also follows a word or byte read from the data segment at an index it knows, a shift left by a number, and the
+byte halves of the word registers (a byte write forgets the word, a word write forgets both halves). Such a read is a
+table read, as in the routine analysis. This gives the light bulb's helper `0x1bbef` (Even More, English floppy) its
+values: it sets `0x6a` and `0x6b` to the bytes at `0x2f3c` and `0x2f3e` of the data segment, four bytes per frame,
+indexed by the frame. Before, it called both "the value stored requires symbolic analysis". The two light bulb rules
+that call it now write known values: Even More goes from 7 to 5 rules with unknown writes, TIM 1, French, from 5 to 3.
+No other helper changes.
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`

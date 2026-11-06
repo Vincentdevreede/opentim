@@ -2184,7 +2184,7 @@ export function discoverEngineSummaries(
       const open = new Set(
         direct.writes.filter((w) => w.condition.kind === "unknown" || w.value.kind === "unknown").map((w) => w.offset),
       );
-      const exact = open.size ? ownerPathStores(code, owner, firstArgument(code)) : undefined;
+      const exact = open.size ? ownerPathStores(code, owner, firstArgument(code), dataSegment) : undefined;
       if (exact && [...open].every((offset) => exact.some((e) => e.offset === offset))) {
         const kept = direct.writes.filter((w) => !open.has(w.offset));
         direct.writes.length = 0;

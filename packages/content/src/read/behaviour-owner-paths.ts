@@ -204,12 +204,14 @@ export interface OwnerPathStore {
   tests: Instruction[];
 }
 
-const BINARY: Record<string, string> = { add: "+", sub: "-", and: "&", or: "|", xor: "^" };
+const BINARY: Record<string, string> = { add: "+", sub: "-", and: "&", or: "|", xor: "^", shl: "<<" };
+/** The word register a byte register is half of. */
+const HALF: Record<string, string> = { al: "ax", ah: "ax", bl: "bx", bh: "bx", cl: "cx", ch: "cx", dl: "dx", dh: "dx" };
 const fold = (operator: string, left: Expression, right: Expression, width: number): Expression => {
   if (left.kind === "constant" && right.kind === "constant") {
     const a = left.value,
       b = right.value;
-    const value = { "+": a + b, "-": a - b, "&": a & b, "|": a | b, "^": a ^ b }[operator];
+    const value = { "+": a + b, "-": a - b, "&": a & b, "|": a | b, "^": a ^ b, "<<": b < 32 ? a << b : 0 }[operator];
     if (value !== undefined) return { kind: "constant", value: value & (2 ** width - 1), width };
   }
   return { kind: "binary", operator, left, right, width };
@@ -226,7 +228,13 @@ const fold = (operator: string, left: Expression, right: Expression, width: numb
  * `ownerStoreConditions` does; else each path gives its own value with its own tests. A path that doesn't write a field
  * leaves it as it was, so the values cover every path that changes it.
  */
-export function ownerPathStores(code: RoutineCode, owner: string, firstArgument: number): OwnerPathStore[] | undefined {
+export function ownerPathStores(
+  code: RoutineCode,
+  owner: string,
+  firstArgument: number,
+  /** The data segment: a word or byte read from it at a known index is a table read, like a frame's rope point. */
+  dataSegment?: number,
+): OwnerPathStore[] | undefined {
   if (code.status !== "complete" || code.calls.length) return undefined;
   const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
   const next = new Map<number, { to: number; kind: string }[]>();
@@ -268,10 +276,13 @@ export function ownerPathStores(code: RoutineCode, owner: string, firstArgument:
       if (!o) return undefined;
       if (o.kind === "immediate") return { kind: "constant", value: o.value & (2 ** width - 1), width };
       if (o.kind === "register") {
-        const v = o.width === 16 ? registers.get(o.name) : undefined;
-        return v && typeof v !== "string" ? v : undefined;
+        const v = o.width === 16 || HALF[o.name] ? registers.get(o.name) : undefined;
+        return v && typeof v !== "string" && v.width === o.width ? v : undefined;
       }
       if (o.kind !== "memory" || o.base.length !== 1 || o.direct || o.width !== width) return undefined;
+      const index = registers.get(o.base[0]!);
+      if (o.segment === "ds" && dataSegment !== undefined && index && typeof index !== "string" && index.width === 16)
+        return { kind: "table", segment: dataSegment, offset: o.displacement, index, width: o.width };
       if (o.segment === "ss" && o.base[0] === "bp" && registers.get("bp") === "frame") {
         if (o.displacement >= firstArgument && o.width === 16)
           return { kind: "field", object: "argument", offset: o.displacement, width: 16 };
@@ -287,7 +298,10 @@ export function ownerPathStores(code: RoutineCode, owner: string, firstArgument:
     /** Puts a value where the instruction writes it; false when that place isn't a known register, local or field. */
     const put = (o: Operand | undefined, value: Expression): boolean => {
       if (o?.kind === "register") {
-        if (o.width !== 16 || ["sp", "bp"].includes(o.name)) return false;
+        if ((o.width !== 16 && !HALF[o.name]) || ["sp", "bp"].includes(o.name)) return false;
+        // A byte register changes half of its word register, and a word register both its halves.
+        if (HALF[o.name]) registers.delete(HALF[o.name]!);
+        else for (const [half, word] of Object.entries(HALF)) if (word === o.name) registers.delete(half);
         registers.set(o.name, value);
         return true;
       }
