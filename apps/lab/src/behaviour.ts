@@ -526,10 +526,17 @@ export function writer(
             : p.signed || p.operator === "==" || p.operator === "!="
               ? "signed"
               : "unsigned";
-        // The bits a mask keeps are compared with bits, also when they are a single one; ordered, they are a number.
+        // The bits a hex mask keeps are compared with bits in hex too; ordered, or under a small mask, as a number.
         const equal = p.operator === "==" || p.operator === "!=";
+        const mask = (e: Expression) => {
+          const folded = e.kind === "binary" ? foldMask(e) : e;
+          return folded.kind === "binary" && folded.operator === "&" && folded.right.kind === "constant"
+            ? folded.right.value >>> 0
+            : 0;
+        };
+        const hexMask = [p.left, p.right].some((e) => mask(e) >= 10);
         const side = (e: Expression): Numbers =>
-          style === "bits" && e.kind === "constant" ? (equal ? "masked" : "unsigned") : style;
+          style === "bits" && e.kind === "constant" ? (equal && hexMask ? "masked" : "unsigned") : style;
         return `${expression(p.left, false, side(p.left))} ${p.operator} ${expression(p.right, false, side(p.right))}`;
       }
       case "and":

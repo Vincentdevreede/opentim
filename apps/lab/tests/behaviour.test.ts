@@ -135,7 +135,8 @@ describe("writer", () => {
     expect(predicate(compare("!=", binary("+", field(0x0c), constant(0xffff)), constant(0)))).toBe("state - 1 != 0");
     // An unsigned test keeps the number it compares with as it is.
     expect(predicate(compare("<", field(0x12), constant(0xe000)))).toBe("stateDelta < 57344");
-    // A mask of a mask is one mask, and the masked value reads in hex like it.
+    // A mask of a mask is one mask, and the masked value reads in hex like it, or as a number under a small mask.
+    expect(predicate(compare("==", binary("&", field(0x12), constant(7)), constant(4)))).toBe("stateDelta & 0x7 == 4");
     const kind = binary("&", binary("&", field(0x12), constant(0x8018)), constant(0x7fff));
     expect(predicate(compare("==", kind, constant(0x10)))).toBe("stateDelta & 0x18 == 0x10");
     expect(predicate(compare("==", binary("&", field(0x08), constant(16)), constant(0)))).toBe("part+0x08 & 0x10 == 0");
