@@ -222,6 +222,10 @@ interface ComparisonResult {
     extractionMilliseconds: number | null;
     describeMilliseconds: number;
     knownResetStates: number;
+    unresolvedResets: number;
+    vagueEffects: number;
+    partsWithoutStableStates: number;
+    unmeasuredParts: number;
     measuredClips: number;
     oneFrameClips: number;
     walkMatches: { complete: number; prefix: number; different: number; unavailable: number };
@@ -230,6 +234,7 @@ interface ComparisonResult {
   parts: ComparisonPart[];
   qualification: string;
 }
+const VAGUE = /isn't established|not established/;
 const results: ComparisonResult[] = [];
 for (const phase of ["baseline", "reports"] as const) {
   const paths = [...new Set(values[phase]!.flatMap((path) => filesAt(resolve(path))))];
@@ -311,6 +316,15 @@ for (const phase of ["baseline", "reports"] as const) {
       extractionMilliseconds: extractionMilliseconds(data, path),
       describeMilliseconds,
       knownResetStates: description.parts.filter((part) => part.rest.status === "known").length,
+      unresolvedResets: description.parts.filter((part) => part.rest.status !== "known").length,
+      // Effect lines that say their meaning or value isn't known, counted once per part and wording.
+      vagueEffects: description.parts.reduce(
+        (sum, part) =>
+          sum + new Set(part.effects.map((effect) => effect.description).filter((text) => VAGUE.test(text))).size,
+        0,
+      ),
+      partsWithoutStableStates: parts.filter((part) => !part.stableStates.length).length,
+      unmeasuredParts: parts.filter((part) => !part.measuredClips).length,
       measuredClips: parts.reduce((sum, part) => sum + part.measuredClips, 0),
       oneFrameClips: parts.reduce((sum, part) => sum + part.oneFrameClips, 0),
       walkBasis: {
@@ -340,7 +354,7 @@ for (const phase of ["baseline", "reports"] as const) {
         : "No exact executable hash matched an oracle model; measured walk coverage is unavailable.",
     });
     console.log(
-      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
+      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
     );
   }
 }
@@ -360,6 +374,10 @@ const comparisons = results
       "pointerLosses",
       "unresolvedLoops",
       "knownResetStates",
+      "unresolvedResets",
+      "vagueEffects",
+      "partsWithoutStableStates",
+      "unmeasuredParts",
     ] as const;
     return {
       source: final.source,
@@ -410,13 +428,13 @@ const lines = [
   "",
   ...limitations.map((item) => `- ${item}`),
   "",
-  "| Phase and build | Unresolved transitions | Conditional transitions | Transitions with unknown writes | Unresolved call sites | Pointer losses | Loops | Oracle clips | Complete walks | Prefixes | Different | No compatible start | Extract ms | Describe ms |",
-  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| Phase and build | Unresolved transitions | Conditional transitions | Transitions with unknown writes | Vague effect lines | Unresolved resets | Parts without resting frames | Unmeasured parts | Unresolved call sites | Pointer losses | Loops | Oracle clips | Complete walks | Prefixes | Different | No compatible start | Extract ms | Describe ms |",
+  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 ];
 for (const result of results) {
   const s = result.summary;
   lines.push(
-    `| ${result.phase}: ${result.source?.folder ?? result.report} | ${s.unresolvedTransitions}/${s.transitions} | ${s.conditionalTransitions} | ${s.unknownWriteTransitions} | ${s.unresolvedCallsites} | ${s.pointerLosses} | ${s.unresolvedLoops} | ${s.measuredClips} | ${s.walkMatches.complete} | ${s.walkMatches.prefix} | ${s.walkMatches.different} | ${s.walkMatches.unavailable} | ${s.extractionMilliseconds?.toFixed(1) ?? "Unavailable"} | ${s.describeMilliseconds.toFixed(1)} |`,
+    `| ${result.phase}: ${result.source?.folder ?? result.report} | ${s.unresolvedTransitions}/${s.transitions} | ${s.conditionalTransitions} | ${s.unknownWriteTransitions} | ${s.vagueEffects} | ${s.unresolvedResets} | ${s.partsWithoutStableStates} | ${s.unmeasuredParts} | ${s.unresolvedCallsites} | ${s.pointerLosses} | ${s.unresolvedLoops} | ${s.measuredClips} | ${s.walkMatches.complete} | ${s.walkMatches.prefix} | ${s.walkMatches.different} | ${s.walkMatches.unavailable} | ${s.extractionMilliseconds?.toFixed(1) ?? "Unavailable"} | ${s.describeMilliseconds.toFixed(1)} |`,
   );
 }
 for (const result of results.filter((item) => item.phase === "final")) {

@@ -225,6 +225,11 @@ Extraction writes an analysis-time sidecar for each build; comparison measures d
 before/after metrics count graph transitions and unique callback call sites, pointer losses and loop diagnostics.
 They do not count every transitive engine diagnostic as a separate part failure.
 
+The comparison also keeps a scoreboard of what is still open in the descriptions: effect lines that say their meaning
+or value isn't established (counted once per part and wording), parts whose reset isn't known, parts without a listed
+resting frame and parts that have no recording. Each count appears in the summary line, the table and the before and
+after changes, so a step shows its effect in one run.
+
 Walk validation uses exact executable hashes and never copies oracle fields into a description. Compatible extracted
 initial fields are required before comparing a walk. It distinguishes a complete equal walk, a correct prefix that
 stops, and a different continuation. A recording with no compatible extracted starting point is listed separately as

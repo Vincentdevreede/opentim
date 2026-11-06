@@ -6,18 +6,18 @@ them together.
 
 Starting point:
 
-|                                                  |  Even More |      TIM 1 |
-| ------------------------------------------------ | ---------: | ---------: |
-| Rules that write a value the analysis can't name | 365 of 925 | 324 of 764 |
-| Effect lines that say "isn't established"        |         26 |            |
-| Parts whose reset the report calls unresolved    |   41 of 67 |            |
-| Parts without a documented resting frame         |         33 |            |
-| Recordings that stop early                       |  52 of 648 |  48 of 552 |
-| Parts without any recording                      |         28 |            |
+|                                                                       |  Even More |      TIM 1 |
+| --------------------------------------------------------------------- | ---------: | ---------: |
+| Rules that write a value the analysis can't name                      | 365 of 925 | 324 of 764 |
+| Effect lines that say "isn't established" (once per part and wording) |         23 |         14 |
+| Parts whose reset the report calls unresolved                         |   41 of 67 |         36 |
+| Parts without a documented resting frame                              |         33 |         28 |
+| Recordings that stop early                                            |  52 of 648 |  48 of 552 |
+| Parts without any recording                                           |         28 |         22 |
 
 ## A. Make the score honest
 
-- [ ] **A1. One scoreboard.** Add the counts above to the measured metrics, so each later step shows its effect in one
+- [x] **A1. One scoreboard.** Add the counts above to the measured metrics, so each later step shows its effect in one
       run. Done when the comparison prints them.
 - [ ] **A2. Resets that keep the saved frame.** 41 parts are reported as "unresolved" because their reset keeps the
       frame the level saved. That is the game's real behaviour, not a gap: report it as "keeps the saved frame" with the
@@ -51,9 +51,9 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       `0x1e`, `0x36`), mouse (`0x16`, `0x18`), gear (connected parts at `0x0c`, `0x12`), monkey bike and light bulb (`0x6a`,
       `0x6b`), dynamite (`0x08`, `0x72`, `0x73`), mouse motor (`0x12`, `0x96`), electric switch (`0x12`). Prove each one or
       name what it depends on.
-- [ ] **B6. The 26 "isn't established" effect lines.** The teeter-totter (8), vacuum cleaner (5), gear and trampoline
-      (3 each), balloon (2) and one each for the cat, alligator, boxing glove, Mel's house and explosion. Each line gets a
-      meaning or a precise reason why the code can't give one.
+- [ ] **B6. The 23 "isn't established" effect lines** (14 in TIM 1). Most are the teeter-totter's and the vacuum
+      cleaner's, then the gear, trampoline and balloon, and one each for the cat, alligator, boxing glove, Mel's house and
+      explosion. Each line gets a meaning or a precise reason why the code can't give one.
 
 Done when the first row of the scoreboard counts only rules whose value comes from outside the game (the player or
 the level), and every one of those is listed by name.
