@@ -720,6 +720,53 @@ function awayWithin(sets: OtherPartEffect["sets"]): { awayWithin?: number } {
   return degrees.length ? { awayWithin: Math.max(...degrees) } : {};
 }
 
+/** The fine position's words by field: the longs at 0x16 (across) and 0x1a (down), in 1/512 pixels. */
+const FINE = new Map([
+  [0x16, "fine X"],
+  [0x18, "fine X"],
+  [0x1a, "fine Y"],
+  [0x1c, "fine Y"],
+]);
+
+/**
+ * A value another part sets from this part's own fields, in a few words from the analysis's own: a flag bit with a
+ * proved meaning set or cleared, a word of the fine position, a number added or taken off, or the formula.
+ */
+function settingOf(
+  s: Extract<OtherPartEffect["sets"][number], { kind: "expression" }>,
+  write: ReturnType<typeof writer>,
+): { what: string; value: string } {
+  const flag = /^(sets|clears) its (.+?) (0x[0-9a-f]{4}) in /.exec(s.words);
+  if (flag) {
+    // Goal marks differ only in their bit, so it stays; the other flags are one bit each.
+    const name = flag[2] === "goal mark" ? `goal mark ${flag[3]}` : flag[2]!;
+    return { what: name, value: flag[1] === "sets" ? "set" : "cleared" };
+  }
+  const fine = FINE.get(s.offset);
+  const word = / to the (low|high) word of (.+)$/.exec(s.words);
+  if (fine && word) return { what: `${fine} ${word[1]}`, value: word[2]! };
+  const field = write.place("part", s.offset);
+  const add = /^(adds|subtracts) (\d+) (?:to|from) /.exec(s.words);
+  if (add) return { what: field, value: `${field} ${add[1] === "adds" ? "+" : "-"} ${add[2]}` };
+  if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
+  if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
+  const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
+  return { what: field, value: to ? to[1]! : write.expression(s.value) };
+}
+
+/** Both words of the fine position that one value sets, as one: "fine Y" rather than its low and high word. */
+function joinFine(sets: { what: string; value: string }[]) {
+  return sets.flatMap((s) => {
+    const half = /^(fine [XY]) (low|high)$/.exec(s.what);
+    if (!half) return [s];
+    const other = sets.find(
+      (o) => o.what === `${half[1]} ${half[2] === "low" ? "high" : "low"}` && o.value === s.value,
+    );
+    if (!other) return [{ ...s, what: `${half[1]} ${half[2]} word` }];
+    return half[2] === "low" ? [{ what: half[1]!, value: s.value }] : [];
+  });
+}
+
 /** What other parts do to each part without changing its frame, by type, from the report's description. */
 export function summariseEffects(
   report: BehaviourReport,
@@ -752,7 +799,7 @@ export function summariseEffects(
               ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
               : s.kind === "expression"
                 ? // A value of the part's own fields, like a touch that halves its velocityX.
-                  [{ what: write.place("part", s.offset), value: write.expression(s.value) }]
+                  [settingOf(s, write)]
                 : pair.length && (s.offset === 0x36 || s.offset === 0x38)
                   ? []
                   : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
@@ -766,7 +813,7 @@ export function summariseEffects(
           sourceType: e.sourceType,
           source: e.sourcePart,
           ...(e.touch ? { touch: true } : {}),
-          sets,
+          sets: joinFine(sets),
           when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
           sourceWhen: e.sourceConditionWords,
           sourceCondition: write.predicate(e.sourceCondition),

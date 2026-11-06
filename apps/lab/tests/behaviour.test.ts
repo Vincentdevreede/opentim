@@ -369,7 +369,12 @@ describe("summariseWalks", () => {
 describe("summariseEffects", () => {
   const report = {
     layout: {
-      fields: [...fields, { offset: 0x36, name: "velocityX" }, { offset: 0x38, name: "velocityY" }].map((f) => ({
+      fields: [
+        ...fields,
+        { offset: 0x36, name: "velocityX" },
+        { offset: 0x38, name: "velocityY" },
+        { offset: 0x84, name: "contactPart" },
+      ].map((f) => ({
         ...f,
         confidence: "checked",
         evidence: [],
@@ -442,11 +447,69 @@ describe("summariseEffects", () => {
               },
             ],
           }),
+          effect({
+            sourceType: 39,
+            sourcePart: "trampoline",
+            touch: { returns: 0 },
+            description: "A trampoline it touches clears its contact flag and sets its fine vertical position.",
+            sets: [
+              { kind: "field", offset: 0x84, width: 16, value: 0 },
+              {
+                kind: "expression",
+                offset: 0x06,
+                width: 16,
+                value: { kind: "binary", operator: "&", left: field(0x06), right: constant(0xfffe), width: 16 },
+                words: "clears its contact flag 0x0001 in list flags",
+              },
+              {
+                kind: "expression",
+                offset: 0x1a,
+                width: 16,
+                value: field(0x20),
+                words: "sets field 0x1a to the low word of positionY × 512",
+              },
+              {
+                kind: "expression",
+                offset: 0x1c,
+                width: 16,
+                value: field(0x20),
+                words: "sets field 0x1c to the high word of positionY × 512",
+              },
+            ],
+          }),
+          effect({
+            sourceType: 51,
+            sourcePart: "vacuum-cleaner",
+            touch: {},
+            sets: [
+              {
+                kind: "expression",
+                offset: 0x08,
+                width: 16,
+                value: { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2000), width: 16 },
+                words: "sets its out-of-play flag 0x2000 in drawing flags",
+              },
+              {
+                kind: "expression",
+                offset: 0x0a,
+                width: 16,
+                value: { kind: "binary", operator: "|", left: field(0x0a), right: constant(0x100), width: 16 },
+                words: "sets its goal mark 0x0100 in field 0x0a",
+              },
+              {
+                kind: "expression",
+                offset: 0x38,
+                width: 16,
+                value: { kind: "binary", operator: "+", left: field(0x38), right: constant(0x800), width: 16 },
+                words: "adds 2048 to velocityY",
+              },
+            ],
+          }),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [push, away, punch, touch] = summariseEffects(report, description)[12]!;
+  const [push, away, punch, touch, trampoline, vacuum] = summariseEffects(report, description)[12]!;
 
   it("writes what another part sets and the value, with what this part must be in a few words", () => {
     expect(push).toMatchObject({
@@ -474,8 +537,21 @@ describe("summariseEffects", () => {
   });
 
   it("writes a value of the part's own fields as a formula, and marks a touch", () => {
-    expect(touch).toMatchObject({ touch: true, sets: [{ what: "velocityX", value: "velocityX >> 1" }] });
+    expect(touch).toMatchObject({ touch: true, sets: [{ what: "velocityX", value: "halved, rounding down" }] });
     expect(push!.touch).toBeUndefined();
+    expect(vacuum!.sets[2]).toEqual({ what: "velocityY", value: "velocityY + 2048" });
+  });
+
+  it("says a flag bit with a proved meaning by its name, and both words of the fine position as one", () => {
+    expect(trampoline!.sets).toEqual([
+      { what: "contactPart", value: "0" },
+      { what: "contact flag", value: "cleared" },
+      { what: "fine Y", value: "positionY × 512" },
+    ]);
+    expect(vacuum!.sets.slice(0, 2)).toEqual([
+      { what: "out-of-play flag", value: "set" },
+      { what: "goal mark 0x0100", value: "set" },
+    ]);
   });
 });
 
