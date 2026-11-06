@@ -22,6 +22,7 @@ import {
   SELF_DRAWN_ASSUMPTION,
   GENERATOR_ASSUMPTION,
   TEETER_TOTTER_END_ASSUMPTION,
+  WOOD_INCLINE_ASSUMPTION,
 } from "./behaviour-saved-frames.ts";
 
 export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
@@ -48,4 +49,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The bullet and the jack-in-the-box", assumptions: [BULLET_LIST_ASSUMPTION] },
   { title: "Parts that hold a rope record", assumptions: [ROPE_HOLDER_ASSUMPTION] },
   { title: "Flipping a part with a loose belt end", assumptions: [FLIP_BELT_ASSUMPTION] },
+  { title: "The wood incline's starting frame", assumptions: [WOOD_INCLINE_ASSUMPTION] },
 ];

@@ -2263,12 +2263,15 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
 - The belt is always saved on frame 0, the rope in TIM 1 (no frame list there) on 0, the pinball bumper on 0. The rope
   end, the heart and the shamrock are in no shipped level; the jack-o-lantern and the Christmas tree are in one level
   each (two builds), on frame 0.
-- The wood incline has no frame list and no decided assumption, so nothing limits its frame. Every shipped incline has
-  the frame its resize gives, its width divided by 16 less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two
-  inclines fit the same rule but not the editor: in "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five
-  full Even More builds, an incline has width 0 and frame -1. The editor keeps the width between 16 and 64 (the type
-  record's limits), so these were made another way, and their reset reads its outline from the word before its table.
-  A decided list of 0 to 3 for the incline would be wrong for those two levels.
+- The wood incline has no frame list. Every shipped incline has the frame its resize gives, its width divided by 16
+  less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two inclines fit the same rule but not the editor: in
+  "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five full Even More builds, an incline has width 0 and
+  frame -1. The editor keeps the width between 16 and 64 (the type record's limits), so these were made another way,
+  and their reset reads its outline from the word before its table. The user decided on 2026-11-06 that an incline
+  starts on the frame its width gives
+  ([decided assumption 21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame)): `LEVEL_FRAMES` lists frames
+  -1 to 3 with the rule, the incline's rest says so, and the check now also compares each incline's frame with the one
+  its width gives (`fromWidth`). The walks can't tie the frame to the width, so they start from the five frames.
 - The decided starting frames still hold everywhere: the conveyor belt on 0, 7, 14, 21 or 28, each the frame its
   width gives; the gear and the electric motor on 0; the mouse motor on 0 or 1; the generator on 0 or 4. Every level
   saves every control value as 0.

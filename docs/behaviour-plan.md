@@ -169,8 +169,11 @@ the level), and every one of those is listed by name.
       allows, the switch and the solar panel start on a resting frame once their plugs are counted, every control value
       is 0, and the decided starting frames (assumptions 5 to 8 and 13 to 15) hold everywhere. The wood incline has no
       frame list to check; its frame always matches its width, and two Even More levels have an incline of width 0 on
-      frame -1, which the editor can't make. The rope end, heart and shamrock are in no level. `check-level-frames`
-      repeats the check (for F2). See "Starting frames in the shipped levels" in `docs/behaviour.md`.
+      frame -1, which the editor can't make. The user decided on 2026-11-06 that an incline starts on the frame its
+      width gives (decided assumption 21): `LEVEL_FRAMES` gives it frames -1 to 3, and `check-level-frames` checks
+      each incline's frame against its width too. The rope end, heart and shamrock are in no level.
+      `check-level-frames` repeats the check (for F2). See "Starting frames in the shipped levels" in
+      `docs/behaviour.md`.
 - [x] **E2. A short list for you to try in the game.** Decided: yes. For the parts where code alone leaves room, a
       few things to try, each with what the analysis expects.
       Done: 25 items in `docs/behaviour-game-checks.md`, by part, the most telling first: the electric switch gives

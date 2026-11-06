@@ -838,3 +838,42 @@ them nowhere. Walks and recordings don't change.
 
 **Rechecked on 2026-11-06** in all eleven builds: only flip callbacks among the part callbacks call the relay, and no
 shipped level has a belt with a loose end.
+
+## 21. The wood incline's starting frame
+
+Decided on 2026-11-06 with the user. In the code: `WOOD_INCLINE_ASSUMPTION` and `LEVEL_FRAMES` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[starting frames in the shipped levels](behaviour.md#starting-frames-in-the-shipped-levels).
+
+**The question.** The wood incline has no frame list, since the program draws it, so nothing limited the frame a level
+can start it on.
+
+**What the code shows** (Even More, English floppy):
+
+- The incline's resize (`0x1b82f`) copies its width from `0x50` to `0x44` and sets its frame and saved frame (`0x0c`,
+  `0x90`) to that width divided by 16, less 1. Its reset keeps the saved frame.
+- The editor keeps the width between 16 and 64, the type record's limits, so frames 0 to 3.
+- Every shipped incline has the frame its width gives. Two Even More levels, "Ambulance Driver" (L117) and "Rocket
+  Launcher" (L143) in the five full Even More builds, have an incline of width 0 on frame -1, which the editor can't
+  make.
+
+**What we assume.**
+
+- A wood incline starts on the frame its width gives: its width divided by 16, less 1. That is frame 0 to 3 for the widths 16 to 64 the editor allows, and frame -1 for an incline of width 0, which two Even More levels have ("Ambulance Driver", L117, and "Rocket Launcher", L143) though the editor can't make it.
+
+Not proved: a level file made outside the game could save another width or another frame.
+
+**What it gives.** The incline's rest says the reset keeps the frame the level saved, one of frames -1 to 3, the one
+its width gives. Its run rests on each of the five, so it now has resting frames (frame -1 is listed as 65535, the
+word the rules read) and 25 more walks in each build, a run and four callback walks from each resting frame, all of
+which end. The walks can't tie the frame to the width, so they start from all five. The saved frame check
+(`check-level-frames`) checks each incline's frame against its width.
+
+**How to recheck.**
+
+- Run `check-level-frames` over the levels of every build.
+- Look for another writer of the incline's frame or saved frame.
+
+**Rechecked on 2026-11-06** in all eleven builds (1,281 level files): every incline (353 in each TIM 1 build, 844 to 911
+in the full Even More builds, 78 in the demo) is saved on the frame its width gives, on frames 0 to 3 apart from the two
+of width 0 on frame -1.
