@@ -1996,6 +1996,43 @@ describe("countdowns", () => {
     ]);
   });
 
+  it("follows each path when only the countdown's starting value tells apart rules that flip to the same frame", () => {
+    // Like the mouse motor after a hit: while the control value at 0x12 is set it flips between frames 0 and 1 and
+    // counts 0x96 down, and the last count also clears the control value. Both paths flip to the same frame, so a
+    // walk that took one step with what they agree on forgot the control value at the end of the count.
+    const flip = (from: number, last: boolean) => ({
+      ...rule(
+        constant(1 - from),
+        both(test(0x12, "!=", 0), compare(minus(0x96, 1), last ? "==" : "!=", 0), test(12, "==", from)),
+        [write(0x96, minus(0x96, 1)), ...(last ? [write(0x12, constant(0))] : [])],
+      ),
+      from: [from],
+    });
+    const data = complete(
+      report([flip(0, false), flip(0, true), flip(1, false), flip(1, true), rule(field(12), test(0x12, "==", 0))]),
+      [anyPath],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1)]);
+    const animation: AnimationDescription = {
+      ...proof,
+      id: "running",
+      initial: "reset",
+      prerequisites: [],
+      initialFields: [known(12, 0)],
+      trigger: { ...proof, kind: "run", name: "Run", routine: 100, condition: { kind: "true" }, writes: [] },
+      walk,
+    };
+    const recording: MeasuredClip = {
+      path: "synthetic",
+      frames: [0, 1, 0, 1].map((state, run) => ({ state, control: run < 3 ? 1 : 0, timer: 3 - run })),
+      loopStart: null,
+      input: {},
+      skippedEngineServices: {},
+    };
+    // With the counter at 3 it flips three times and holds frame 1 with the control value cleared.
+    expect(compareMeasuredWalks([animation], recording, data).classification).toBe("complete");
+  });
+
   it("knows a field the run stores from its list scan when the rule tests that value, like the mouse motor's", () => {
     // With the control value at 0x12 clear, the run scans its list and may start itself, which sets the control value.
     // The control value after the scan is one value of the run: the rule that finds it 0 stores 0.

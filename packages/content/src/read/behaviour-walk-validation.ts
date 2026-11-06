@@ -2,6 +2,7 @@
 import type { BehaviourReport, Expression, Predicate, RoutineAnalysis } from "./behaviour.ts";
 import type { MeasuredClip } from "./behaviour-validation.ts";
 import type { Instruction } from "./x86.ts";
+import { discoverFindFirstLoops } from "./behaviour-find-first-loops.ts";
 import {
   evaluateBehaviourCondition,
   type AnimationDescription,
@@ -17,10 +18,18 @@ export interface DescribedWalkMatch {
   clip: string;
   classification: "complete" | "prefix" | "different" | "unavailable";
   /**
-   * `recorder-skipped-search`: the match needed what the recorder gave in place of a search it skipped (an empty found
-   * list). It shows the walk agrees with the recorder, not that the game finds nothing.
+   * `recorder-fields`: the match needed what the recorder itself writes or clears between runs (its bench).
+   * `recorder-skipped-search`: it needed that and what the recorder gave in place of a search it skipped (an empty found
+   * list). Both show the walk agrees with the recorder, not what the game does.
    */
-  basis: "reset-or-rest" | "creation" | "trigger" | "input-case" | "recorder-skipped-search" | "unavailable";
+  basis:
+    | "reset-or-rest"
+    | "creation"
+    | "trigger"
+    | "input-case"
+    | "recorder-fields"
+    | "recorder-skipped-search"
+    | "unavailable";
   measuredFrames: number;
   measuredTransitions: number;
   prefixFrames: number;
@@ -40,6 +49,7 @@ export interface DescribedWalkCoverage {
   completeFromTriggers: number;
   completeFromResetOrRest: number;
   completeFromInputCases: number;
+  completeFromRecorderFields: number;
   completeFromRecorderSkippedSearches: number;
   matches: DescribedWalkMatch[];
 }
@@ -166,8 +176,194 @@ const RECORDER_FIELDS: [number, number][] = [
   [0x96, 2],
   [0x9c, 2],
 ];
+/** The bytes of the part the recorder writes itself. */
+const RECORDER_BYTES = new Set(
+  RECORDER_FIELDS.flatMap(([offset, size]) => [...Array(size).keys()].map((n) => offset + n)),
+);
+/** The part's size in the recorder: it clears this many bytes before each clip. */
+const RECORDER_PART_SIZE = 0x300;
+/**
+ * The bytes of a part that the run routine may write, or undefined when that can't be shown. It counts every data
+ * write by its offset whatever pointer it goes through, and the routines it calls in its own code segment; a call that
+ * leaves the segment is skipped by the recorder and writes nothing. It gives up on string instructions, interrupts,
+ * calls it can't follow and a pointer the routine moves by an offset (`lea`, `add` and the like on a register it writes
+ * through), since then an offset no longer says which field is written.
+ */
+function runWrites(
+  report: BehaviourReport,
+  routine: RoutineAnalysis | undefined,
+  seen = new Set<number>(),
+  /** Instructions of the run routine that never run in the clip, like the body of a loop over an empty list. */
+  never: ReadonlySet<number> = new Set(),
+): Set<number> | undefined {
+  if (!routine || routine.status !== "complete" || !routine.instructions?.length) return undefined;
+  if (seen.has(routine.address)) return new Set();
+  seen.add(routine.address);
+  const written = new Set<number>();
+  const runs = routine.instructions.filter((i) => !never.has(i.address));
+  const bases = new Set(
+    runs.flatMap((i) => (i.operands[0]?.kind === "memory" && !NOT_WRITING.has(i.mnemonic) ? i.operands[0].base : [])),
+  );
+  const callAt = new Map(routine.calls.map((call) => [call.instruction, call]));
+  for (const i of runs) {
+    if (/^(stos|movs|ins|rep|cmps|scas|lods)/.test(i.mnemonic) || i.mnemonic === "int") return undefined;
+    const destination = i.operands[0],
+      source = i.operands[1];
+    if (i.flow === "call") {
+      const target = callAt.get(i.address)?.target;
+      if (!target) return undefined;
+      if (target.segment !== routine.segment) continue;
+      const callee = runWrites(
+        report,
+        report.routines.find((item) => item.address === target.address) as RoutineAnalysis | undefined,
+        seen,
+      );
+      if (!callee) return undefined;
+      for (const byte of callee) written.add(byte);
+      continue;
+    }
+    if (destination?.kind === "register" && bases.has(destination.name) && !NOT_WRITING.has(i.mnemonic)) {
+      // A pointer may be loaded, copied, tested, cleared or restored, never moved by an offset.
+      const plain =
+        (i.mnemonic === "mov" && (source?.kind === "memory" || source?.kind === "register")) ||
+        (i.mnemonic === "mov" && source?.kind === "immediate" && source.value === 0) ||
+        (i.mnemonic === "xor" && source?.kind === "register" && source.name === destination.name) ||
+        // A test of the pointer against itself keeps it.
+        (["or", "and"].includes(i.mnemonic) && source?.kind === "register" && source.name === destination.name) ||
+        i.mnemonic === "pop" ||
+        i.mnemonic === "les" ||
+        i.mnemonic === "lds";
+      if (!plain) return undefined;
+    }
+    if (
+      i.flow === "next" &&
+      destination?.kind === "memory" &&
+      destination.segment !== "ss" &&
+      !NOT_WRITING.has(i.mnemonic)
+    )
+      for (let byte = 0; byte < destination.width / 8; byte++) written.add(destination.displacement + byte);
+  }
+  return written;
+}
+/**
+ * What the v25 recorder itself does to the part between runs (`setup`, `clip` and `step` in
+ * `research/v24/verify_animations.py`), as fields for every run of a clip:
+ *
+ * - before each run it has set the six words at `0x1e` to `0x28` to 100;
+ * - after each run it copies the frame into `0x0e`, so before run n (n > 0) `0x0e` holds the frame the clip saved at
+ *   run n, and 0 before the first run, since it cleared the part;
+ * - in the same step it first copies `0x0e` into `0x10`. When nothing in the clip writes `0x0e`, `0x10` holds the
+ *   frame at run n - 1 from run 2 on, and 0 before;
+ * - it clears the part's 0x300 bytes before the clip and never writes the ones it doesn't name. Where nothing in the
+ *   clip can write such a byte (`runWrites`), it is 0 before every run. That is shown from the code, not assumed.
+ *
+ * The values it writes for the clip's input are the recorder's writes the comparison already follows. None of this
+ * says what the game gives the part.
+ */
+function recorderFields(report: BehaviourReport, partType: number, clip: MeasuredClip): RecorderFacts {
+  const address = report.parts.find((part) => part.type === partType)?.routines.find((r) => r.slot === 1)?.address;
+  const written = runWrites(
+    report,
+    report.routines.find((item) => item.address === address) as RoutineAnalysis | undefined,
+  );
+  const zero = new Set<number>();
+  if (written)
+    for (let byte = 0; byte < RECORDER_PART_SIZE; byte++)
+      if (!RECORDER_BYTES.has(byte) && !written.has(byte)) zero.add(byte);
+  const keepsPrevious = !!written && !written.has(0x0e) && !written.has(0x0f);
+  const { frames, loopStart } = clip,
+    count = frames.length;
+  const frameAt = (run: number) =>
+    run < count
+      ? frames[run]!.state
+      : loopStart === null
+        ? frames[count - 1]!.state
+        : frames[loopStart + ((run - loopStart) % (count - loopStart))]!.state;
+  const word = (offset: number, value: number): RecordedField => ({
+    object: "part",
+    offset,
+    width: 16,
+    value: wrap16(value),
+    knownMask: 0xffff,
+  });
+  const positions = [0x1e, 0x20, 0x22, 0x24, 0x26, 0x28].map((offset) => word(offset, 100));
+  const inputs = (run: number) => [
+    ...positions,
+    word(0x0e, run === 0 ? 0 : frameAt(run)),
+    ...(keepsPrevious ? [word(0x10, run <= 1 ? 0 : frameAt(run - 1))] : []),
+  ];
+  return { inputs, ...(zero.size ? { zero } : {}) };
+}
+const overlapsAny = (field: RecordedField, others: RecordedField[]) =>
+  field.object === "part" &&
+  others.some(
+    (other) =>
+      other.object === "part" &&
+      other.offset < field.offset + field.width / 8 &&
+      field.offset < other.offset + other.width / 8,
+  );
+/** Whether known part fields agree with the recorder's writes and with the bytes it cleared that nothing writes. */
+function recorderAgrees(
+  known: RecordedField[],
+  given: RecordedField[],
+  zero: ReadonlySet<number> | undefined,
+): boolean {
+  const part = known.filter((field) => field.object === "part");
+  if (given.length && !mergeFields([...part.filter((field) => overlapsAny(field, given)), ...given])) return false;
+  return (
+    !zero ||
+    part.every((field) =>
+      [...Array(field.width / 8).keys()].every(
+        (byte) => !zero.has(field.offset + byte) || ((field.value & field.knownMask) >>> (8 * byte)) % 0x100 === 0,
+      ),
+    )
+  );
+}
+/** The part fields a condition reads, by offset and width. */
+const readFields = new WeakMap<Predicate, { offset: number; width: number }[]>();
+function fieldsRead(predicate: Predicate): { offset: number; width: number }[] {
+  let result = readFields.get(predicate);
+  if (result) return result;
+  const found: { offset: number; width: number }[] = [];
+  const visit = (value: Expression | Predicate) => {
+    if (value.kind === "field") {
+      if (value.object === "part" && !value.unresolved) found.push({ offset: value.offset, width: value.width });
+    } else if (value.kind === "binary" || value.kind === "compare") {
+      visit(value.left);
+      visit(value.right);
+    } else if (value.kind === "table") visit(value.index);
+    else if (value.kind === "and") value.terms.forEach(visit);
+  };
+  visit(predicate);
+  readFields.set(predicate, (result = found));
+  return result;
+}
+/** The known fields with 0 for each field a branch reads that lies in the recorder's cleared, unwritten bytes. */
+function withZero(
+  branch: { condition: Predicate; alternatives?: Predicate[] },
+  fields: RecordedField[],
+  zero: ReadonlySet<number>,
+): RecordedField[] | undefined {
+  const extra = [branch.condition, ...(branch.alternatives ?? [])]
+    .flatMap(fieldsRead)
+    .filter(
+      ({ offset, width }) =>
+        (width === 8 || width === 16) && [...Array(width / 8).keys()].every((byte) => zero.has(offset + byte)),
+    )
+    .map(({ offset, width }) => ({ object: "part", offset, width, value: 0, knownMask: width === 8 ? 0xff : 0xffff }));
+  return extra.length ? mergeFields([...fields, ...extra]) : fields;
+}
 /** Rewrites a branch condition with what the recorder gave in place of searches it skipped. */
 type RecorderView = (predicate: Predicate) => Predicate;
+/** What the recorder did, beyond the clip's saved fields, for the comparison to use on every run of a clip. */
+interface RecorderFacts {
+  /** Branch conditions rewritten with the empty found list of a search the recorder skipped. */
+  view?: RecorderView;
+  /** The part fields the recorder writes before a run, by the run's number in the clip. */
+  inputs?: (run: number) => RecordedField[];
+  /** The bytes of the part the recorder clears before the clip that nothing in the clip can write: 0 on every run. */
+  zero?: ReadonlySet<number>;
+}
 const NOT_WRITING = new Set(["cmp", "test", "push"]);
 /** Whether an instruction may write the part field at `offset` (2 bytes): any data write there, through any pointer. */
 function mayWrite(i: Instruction, offset: number): boolean {
@@ -218,28 +414,7 @@ function recorderView(
   const routine = report.routines.find((item) => item.address === address) as RoutineAnalysis | undefined;
   if (!routine || routine.status !== "complete" || !routine.instructions?.length) return undefined;
   const callAt = new Map(routine.calls.map((call) => [call.instruction, call]));
-  const loops = (routine.listLoops ?? []).filter((loop) => {
-    const target = loop.query === undefined ? undefined : callAt.get(loop.query)?.target?.address;
-    return (
-      loop.source === "overlap-query" &&
-      target !== undefined &&
-      searches.has(target) &&
-      searches.get(target) === loop.headField
-    );
-  });
-  const bodies = new Set(loops.flatMap((loop) => loop.body));
-  // A call leaves the part's code segment, so the recorder skips it and it writes nothing.
-  const skippedCall = (i: Instruction) => {
-    const target = callAt.get(i.address)?.target;
-    return !!target && target.segment !== routine.segment;
-  };
-  const listEmpty = (head: number) =>
-    !RECORDER_FIELDS.some(([offset, size]) => offset < head + 2 && head < offset + size) &&
-    routine.instructions.every(
-      (i) => bodies.has(i.address) || (!mayWrite(i, head) && (i.flow !== "call" || skippedCall(i))),
-    );
-  const empty = loops.filter((loop) => listEmpty(loop.headField!));
-  if (!empty.length) return undefined;
+  const heads = new Set(searches.values());
   const next = new Map<number, number[]>(),
     previous = new Map<number, number[]>();
   for (const edge of routine.edges)
@@ -262,6 +437,119 @@ function recorderView(
     return seen;
   };
   const byAddress = new Map(routine.instructions.map((i) => [i.address, i]));
+  /** A loop over the found list: a scan over every part, or a loop that stops at the first part it acts on. */
+  interface ListLoop {
+    header: number;
+    body: number[];
+    headField: number;
+    /** For a scan: the search call whose list it walks. */
+    query?: number;
+  }
+  const scans: ListLoop[] = (routine.listLoops ?? []).flatMap((loop) => {
+    const target = loop.query === undefined ? undefined : callAt.get(loop.query)?.target?.address;
+    return loop.source === "overlap-query" &&
+      target !== undefined &&
+      searches.has(target) &&
+      searches.get(target) === loop.headField
+      ? [{ header: loop.header, body: loop.body, headField: loop.headField!, query: loop.query }]
+      : [];
+  });
+  // A loop that stops at the first part it acts on (`discoverFindFirstLoops`), whose first part is loaded from the
+  // found list's field on the part itself: the routine's own part pointer, which it only loads from its argument.
+  const argument = routine.instructions.some((i) => i.mnemonic === "retf") ? 6 : 4;
+  const ownPart = (name: string) => {
+    const writes = routine.instructions.filter(
+      (i) => i.operands[0]?.kind === "register" && i.operands[0].name === name && !NOT_WRITING.has(i.mnemonic),
+    );
+    return (
+      writes.length > 0 &&
+      writes.some((i) => i.mnemonic === "mov") &&
+      writes.every((i) => {
+        const source = i.operands[1];
+        if (i.mnemonic === "mov")
+          return (
+            source?.kind === "memory" &&
+            source.segment === "ss" &&
+            source.base.join() === "bp" &&
+            source.displacement === argument
+          );
+        // Restoring the caller's register on the way out.
+        if (i.mnemonic !== "pop") return false;
+        const rest = routine.instructions.filter((other) => other.address > i.address);
+        const end = rest.findIndex((other) => other.flow === "return");
+        return (
+          end >= 0 &&
+          rest
+            .slice(0, end)
+            .every(
+              (other) =>
+                other.mnemonic === "pop" ||
+                (other.mnemonic === "mov" && other.operands[0]?.kind === "register" && other.operands[0].name === "sp"),
+            )
+        );
+      })
+    );
+  };
+  const helpers = new Map((report.helpers ?? []).map((helper) => [helper.address, helper]));
+  const firsts: ListLoop[] = [...discoverFindFirstLoops(routine, helpers).values()].flatMap((loop) => {
+    if (!loop.excludesOwner || scans.some((scan) => scan.header === loop.header)) return [];
+    const branch = byAddress.get(loop.evidence[1]!.address);
+    const entries = (next.get(branch?.address ?? -1) ?? []).filter((at) => at !== loop.exit);
+    // The loop's body: what its entry reaches before the head or the exit, and what reaches the head back.
+    const back = new Set<number>();
+    for (const at of previous.get(loop.header) ?? [])
+      for (const from of reach(at, previous, (from) => from === loop.header)) back.add(from);
+    const body = new Set<number>();
+    for (const entry of entries)
+      for (const at of reach(entry, next, (to) => to === loop.header || to === loop.exit))
+        if (at !== loop.header && at !== loop.exit && back.has(at)) body.add(at);
+    const loads = routine.instructions.filter((i) => {
+      const source = i.operands[1];
+      return (
+        !body.has(i.address) &&
+        i.mnemonic === "mov" &&
+        i.operands[0]?.kind === "register" &&
+        i.operands[0].name === loop.node &&
+        source?.kind === "memory" &&
+        source.segment === "ds" &&
+        source.base.length === 1 &&
+        source.base[0] !== loop.node
+      );
+    });
+    const load = loads[0]?.operands[1];
+    if (loads.length !== 1 || load?.kind !== "memory" || !heads.has(load.displacement) || !ownPart(load.base[0]!))
+      return [];
+    // Every way from the run's start into the loop comes through that load, and keeps the part it loaded.
+    const at = loads[0]!.address;
+    if (reach(routine.address, next, (to) => to === at || body.has(to)).has(loop.header)) return [];
+    const onTheWay = reach(at, next, (to) => to === loop.header || body.has(to));
+    if (
+      [...onTheWay].some((to) => {
+        const i = byAddress.get(to);
+        return (
+          to !== at &&
+          to !== loop.header &&
+          (!i ||
+            i.flow === "call" ||
+            (i.operands[0]?.kind === "register" && i.operands[0].name === loop.node && !NOT_WRITING.has(i.mnemonic)))
+        );
+      })
+    )
+      return [];
+    return [{ header: loop.header, body: [...body], headField: load.displacement }];
+  });
+  const loops = [...scans, ...firsts];
+  const bodies = new Set(loops.flatMap((loop) => loop.body));
+  // What the run can write while every such list is empty: their bodies never run.
+  const written = runWrites(report, routine, new Set(), bodies);
+  const listEmpty = (head: number) =>
+    !!written &&
+    !RECORDER_BYTES.has(head) &&
+    !RECORDER_BYTES.has(head + 1) &&
+    !written.has(head) &&
+    !written.has(head + 1);
+  const empty = loops.filter((loop) => listEmpty(loop.headField));
+  if (!empty.length) return undefined;
   /** The instructions on some way from the run's start to the loop's head that doesn't go round the loop. */
   const before = (loop: (typeof empty)[number]) => {
     const body = new Set(loop.body);
@@ -278,7 +566,7 @@ function recorderView(
         key,
         (result = before(loop).every((at) => {
           const i = byAddress.get(at);
-          return !!i && !mayWrite(i, offset) && (i.flow !== "call" || at === loop.query);
+          return !!i && loop.query !== undefined && !mayWrite(i, offset) && (i.flow !== "call" || at === loop.query);
         })),
       );
     return result;
@@ -311,7 +599,7 @@ function recorderView(
     done.set(predicate, result);
     return result;
   };
-  const used = empty.map((loop) => callAt.get(loop.query!)!.target!.address);
+  const used = [...searches].filter(([, head]) => empty.some((loop) => loop.headField === head)).map(([at]) => at);
   return { view, searches: [...new Set(used)].sort((a, b) => a - b) };
 }
 function stateAt(walk: BehaviourWalk, index: number, parameter: number): number | undefined {
@@ -481,8 +769,11 @@ function followTree(
   loopStart: number | null,
   recorded: RecordedField[],
   stateOffset: number,
-  view?: RecorderView,
+  facts?: RecorderFacts,
+  /** The clip's run at the tree's first run, for the recorder's writes before each run. */
+  offset = 0,
 ): TreeOutcome | undefined {
+  const view = facts?.view;
   const count = frames.length,
     period = loopStart === null ? 0 : count - loopStart,
     total = loopStart === null ? count : count + 1;
@@ -579,7 +870,13 @@ function followTree(
       const length = walk.states.length;
       // The recording's starting fields hold as they are on the first run, and as starting values of countdowns on
       // every run. The walk's own fields there and those can't contradict each other.
-      const fields = mergeFields([...walk.fields, ...startValues(sink.adjust), ...(run === 0 ? recorded : [])]);
+      const given = facts?.inputs?.(run + offset) ?? [];
+      // The recorder's own writes before this run replace what the walk knew there. A walk that knew another value for
+      // them, or a value other than 0 for a field the recorder cleared and nothing writes, isn't on the recorder's way.
+      if (facts && !recorderAgrees(walk.fields, given, facts.zero))
+        return leaveOpen(run + 1, "The walk knows another value for a field the recorder sets before this run.");
+      const own = given.length ? walk.fields.filter((field) => !overlapsAny(field, given)) : walk.fields;
+      const fields = mergeFields([...own, ...startValues(sink.adjust), ...(run === 0 ? recorded : []), ...given]);
       if (!fields) return;
       const last = walk.states.at(-1);
       // A walk that doesn't know its starting frame splits on it, or on the rules that give the next one.
@@ -599,7 +896,8 @@ function followTree(
         const seen = view
           ? { condition: view(branch.condition), alternatives: branch.alternatives?.map(view) }
           : branch;
-        if (view ? viewedOut(seen, fields) : ruledOut(seen, fields)) continue;
+        const known = facts?.zero ? withZero(seen, fields, facts.zero) : fields;
+        if (!known || (facts ? viewedOut(seen, known) : ruledOut(seen, known))) continue;
         const next = branch.walk;
         if (!length) enterWalk(onStart ? sink : { ...sink, progress: true }, next, onStart ? run : run + 1);
         else if (walk.stop!.kind === "ambiguity") enterWalk({ ...sink, progress: true }, next, run + 1);
@@ -699,7 +997,7 @@ function followTree(
 interface StartMode {
   bounded: boolean;
   external: boolean;
-  view?: RecorderView;
+  facts?: RecorderFacts;
 }
 function matchStart(
   report: BehaviourReport | undefined,
@@ -711,6 +1009,9 @@ function matchStart(
   if (!clip.frames.length) return undefined;
   const parameter = clip.frames[0]!.state;
   const recorded = recordedFields(report, clip);
+  // A start that knows another value for a field the recorder gives itself isn't the recorder's start.
+  if (mode.facts && !recorderAgrees(animation.initialFields ?? [], mode.facts.inputs?.(0) ?? [], mode.facts.zero))
+    return undefined;
   if (
     animation.initialFields?.some((field) => {
       const other = recorded.find(
@@ -871,7 +1172,7 @@ function matchTree(
     (field) => ![...Array(field.width / 8).keys()].some((byte) => written.has(field.offset + byte)),
   );
   const frames = clip.frames.map((frame) => frame.state);
-  const outcome = followTree(animation.walk, frames, clip.loopStart, start, stateOffset, mode.view);
+  const outcome = followTree(animation.walk, frames, clip.loopStart, start, stateOffset, mode.facts);
   if (!outcome) return undefined;
   const total = frames.length + (clip.loopStart === null ? 0 : 1);
   const hold = mode.external;
@@ -957,7 +1258,7 @@ function followRestarts(
   clip: MeasuredClip,
   plan: { restarts: Restart[]; forever: boolean },
   walkFrom: RestartWalk,
-  view?: RecorderView,
+  facts?: RecorderFacts,
 ): Segments {
   const stateOffset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
   const { frames, loopStart } = clip,
@@ -981,7 +1282,7 @@ function followRestarts(
       assumptions: [],
       evidence: [],
     }));
-    const outcome = followTree(walkFrom(seed), states, cycle, fields, stateOffset, view);
+    const outcome = followTree(walkFrom(seed), states, cycle, fields, stateOffset, facts, run);
     const at = (frames: number) => Math.min(total, run + frames);
     const where = `the recorder's write at run ${run}`;
     if (!outcome)
@@ -1031,7 +1332,7 @@ function matchWalk(
   animation: AnimationDescription,
   clip: MeasuredClip,
   restarts: () => Segments | undefined,
-  view?: RecorderView,
+  facts?: RecorderFacts,
 ): DescribedWalkMatch | undefined {
   const plan = recorderRestarts(report, clip);
   const later = "unsupported" in plan ? undefined : restarts();
@@ -1039,7 +1340,7 @@ function matchWalk(
     return matchStart(report, animation, clip, {
       bounded: false,
       external: "unsupported" in plan || (!!plan.restarts.length && !later),
-      view,
+      facts,
     });
   const first = plan.restarts[0]!.run,
     count = clip.frames.length;
@@ -1055,7 +1356,7 @@ function matchWalk(
       ),
       loopStart: null,
     },
-    { bounded: true, external: false, view },
+    { bounded: true, external: false, facts },
   );
   if (!head) return undefined;
   const whole = {
@@ -1070,7 +1371,7 @@ function restartsOnce(
   report: BehaviourReport | undefined,
   clip: MeasuredClip,
   walkFrom: RestartWalk | undefined,
-  view?: RecorderView,
+  facts?: RecorderFacts,
 ): () => Segments | undefined {
   let result: Segments | undefined,
     done = false;
@@ -1079,41 +1380,60 @@ function restartsOnce(
     done = true;
     const plan = recorderRestarts(report, clip);
     if (walkFrom && !("unsupported" in plan) && plan.restarts.length)
-      result = followRestarts(report, clip, plan, walkFrom, view);
+      result = followRestarts(report, clip, plan, walkFrom, facts);
     return result;
   };
 }
 
 /**
- * The best match from the walks as they are. When it isn't complete and the clip lists a search the recorder skipped,
- * the match with the recorder's empty found list in its place, under its own basis, whatever it is: a recording that
- * then disagrees is a finding too.
+ * The best match from the walks as they are. When it isn't complete, the match with what the recorder itself did
+ * between runs (the fields it writes before every run, and the fields it cleared that nothing in the clip writes), and
+ * then also with the empty found list of a search the clip lists as skipped. Each has its own basis, and is taken when
+ * it matches, gets further, or disagrees: a recording that then disagrees is a finding too.
  */
-function withSkippedSearches(
+function withRecorder(
   report: BehaviourReport | undefined,
   partType: number | undefined,
   clip: MeasuredClip,
-  best: (view?: RecorderView) => DescribedWalkMatch | undefined,
+  best: (facts?: RecorderFacts) => DescribedWalkMatch | undefined,
 ): DescribedWalkMatch | undefined {
   const plain = best();
-  if (plain?.classification === "complete") return plain;
+  if (plain?.classification === "complete" || !report || partType === undefined) return plain;
+  const better = (match: DescribedWalkMatch | undefined, than: DescribedWalkMatch | undefined) =>
+    !!match &&
+    (match.classification === "complete" ||
+      match.classification === "different" ||
+      (match.classification === "prefix" &&
+        (!than || than.classification !== "prefix" || match.prefixFrames > than.prefixFrames)));
+  const facts = recorderFields(report, partType, clip);
+  const fields = best(facts);
+  let result = plain;
+  if (better(fields, plain))
+    result = {
+      ...fields!,
+      basis: "recorder-fields",
+      reason: `${fields!.reason} ${RECORDER_FIELDS_WORDS}`,
+    };
+  if (result?.classification === "complete" || result?.classification === "different") return result;
   const recorder = recorderView(report, partType, clip);
-  const seen = recorder && best(recorder.view);
-  if (!seen || (plain && seen.classification === plain.classification && seen.prefixFrames === plain.prefixFrames))
-    return plain;
+  const seen = recorder && best({ ...facts, view: recorder.view });
+  if (!recorder || !better(seen, result)) return result;
   const searches = recorder.searches.map((address) => `0x${address.toString(16)}`);
   return {
-    ...seen,
+    ...seen!,
     basis: "recorder-skipped-search",
-    reason: `${seen.reason} The recorder skipped the search at ${searches.join(" and ")}: in the recording it returned 0 and wrote nothing, so the run found no part. That is the recorder's answer, not the game's.`,
+    reason: `${seen!.reason} ${RECORDER_FIELDS_WORDS} The recorder skipped the search at ${searches.join(" and ")}: in the recording it returned 0 and wrote nothing, so the run found no part. That is the recorder's answer, not the game's.`,
   };
 }
+const RECORDER_FIELDS_WORDS =
+  "It takes the fields the recorder writes before every run, and the fields it clears that nothing in the clip writes, as the recorder gave them: that is the recorder's bench, not the game's.";
 const RANK = { complete: 3, prefix: 2, different: 1, unavailable: 0 };
 const BASIS_RANK = {
   "reset-or-rest": 2,
   creation: 2,
   trigger: 1,
   "input-case": 0,
+  "recorder-fields": -1,
   "recorder-skipped-search": -1,
   unavailable: -1,
 };
@@ -1134,17 +1454,17 @@ export function validateDescribedWalks(
       animation.walk.states.length || animation.walk.parameterised || animation.walk.stop?.branches?.length,
   );
   const matches = clips.map((clip): DescribedWalkMatch => {
-    const best = (view?: RecorderView) => {
-      const restarts = restartsOnce(report, clip, walkFrom, view);
+    const best = (facts?: RecorderFacts) => {
+      const restarts = restartsOnce(report, clip, walkFrom, facts);
       return animations
         .flatMap((animation) => {
-          const match = matchWalk(report, animation, clip, restarts, view);
+          const match = matchWalk(report, animation, clip, restarts, facts);
           return match ? [match] : [];
         })
         .sort(byRank)[0];
     };
     return (
-      withSkippedSearches(report, part.type, clip, best) ?? {
+      withRecorder(report, part.type, clip, best) ?? {
         clip: clip.path,
         classification: "unavailable",
         basis: "unavailable",
@@ -1174,6 +1494,9 @@ export function validateDescribedWalks(
     completeFromInputCases: matches.filter(
       (match) => match.classification === "complete" && match.basis === "input-case",
     ).length,
+    completeFromRecorderFields: matches.filter(
+      (match) => match.classification === "complete" && match.basis === "recorder-fields",
+    ).length,
     completeFromRecorderSkippedSearches: matches.filter(
       (match) => match.classification === "complete" && match.basis === "recorder-skipped-search",
     ).length,
@@ -1195,17 +1518,17 @@ export function compareMeasuredWalks(
   walkFrom?: RestartWalk,
   partType?: number,
 ): WalkMatch {
-  const best = (view?: RecorderView) => {
-    const restarts = restartsOnce(report, clip, walkFrom, view);
+  const best = (facts?: RecorderFacts) => {
+    const restarts = restartsOnce(report, clip, walkFrom, facts);
     return animations
       .flatMap((animation) => {
-        const match = matchWalk(report, animation, clip, restarts, view);
+        const match = matchWalk(report, animation, clip, restarts, facts);
         return match ? [match] : [];
       })
       .sort(byRank)[0];
   };
   return (
-    withSkippedSearches(report, partType, clip, best) ?? {
+    withRecorder(report, partType, clip, best) ?? {
       clip: clip.path,
       classification: "unavailable",
       basis: "unavailable",

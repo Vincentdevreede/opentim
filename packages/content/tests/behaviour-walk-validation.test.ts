@@ -766,3 +766,311 @@ describe("recordings whose recorder skipped a search", () => {
     });
   });
 });
+
+describe("recordings compared with what the recorder writes between runs", () => {
+  type Branches = NonNullable<NonNullable<BehaviourWalk["stop"]>["branches"]>;
+  const walk = (
+    states: number[],
+    status: BehaviourWalk["status"],
+    more: Partial<BehaviourWalk> = {},
+  ): BehaviourWalk => ({
+    ...proof,
+    status,
+    states,
+    frames: [],
+    runCalls: Math.max(0, states.length - 1),
+    fields: [],
+    timingReason: "Run calls only.",
+    ...(status === "rest" ? { loopStart: states.length - 2 } : {}),
+    ...more,
+  });
+  const rest = (...states: number[]) => walk(states, "rest");
+  /** A walk that shows frame 0 twice and then splits, so the split is decided on the second run. */
+  const later = (branches: Branches, fields: KnownField[] = []) => ({
+    ...animation(),
+    initialFields: [{ ...proof, object: "part", offset: 12, width: 16, value: 0, knownMask: 65535 }],
+    walk: walk([0, 0], "unresolved", {
+      fields,
+      stop: { kind: "ambiguity", description: "Branches.", evidence: [], branches },
+    }),
+  });
+  const test = (offset: number, operator: string, value: number, mask?: number): Predicate => ({
+    kind: "compare",
+    operator,
+    left:
+      mask === undefined
+        ? { kind: "field", object: "part", offset, width: 16 }
+        : {
+            kind: "binary",
+            operator: "&",
+            left: { kind: "field", object: "part", offset, width: 16 },
+            right: { kind: "constant", value: mask, width: 16 },
+            width: 16,
+          },
+    right: { kind: "constant", value, width: 16 },
+    signed: false,
+  });
+  const choose = (offset: number, value: number, mask?: number) =>
+    later([
+      { condition: test(offset, "==", value, mask), walk: rest(0, 0) },
+      // Unless ruled out, this way changes the frame after the recording ends.
+      { condition: test(offset, "!=", value, mask), walk: rest(0, 1, 1) },
+    ]);
+  const write = (displacement: number, more: Partial<Instruction> = {}): Instruction =>
+    ({
+      address: 0x1002,
+      segment: 0x190f,
+      offset: 0x1002,
+      size: 3,
+      bytes: [],
+      mnemonic: "mov",
+      operands: [
+        { kind: "memory", segment: "ds", base: ["si"], displacement, width: 16 },
+        { kind: "register", name: "ax", width: 16 },
+      ],
+      prefixes: [],
+      flow: "next",
+      text: `mov word [si+0x${displacement.toString(16)}], ax`,
+      ...more,
+    }) as Instruction;
+  const report = (instructions: Instruction[] = []) =>
+    ({
+      layout: { fields: [] },
+      helpers: [],
+      parts: [{ type: 6, routines: [{ slot: 1, address: 0x1000 }] }],
+      routines: [
+        {
+          address: 0x1000,
+          segment: 0x190f,
+          offset: 0x1000,
+          status: "complete",
+          instructions: [
+            {
+              address: 0x1000,
+              segment: 0x190f,
+              offset: 0x1000,
+              size: 1,
+              bytes: [],
+              mnemonic: "retf",
+              operands: [],
+              prefixes: [],
+              flow: "return",
+              text: "retf",
+            },
+            ...instructions,
+          ],
+          edges: [],
+          calls: [],
+        },
+      ],
+    }) as unknown as BehaviourReport;
+  const still: MeasuredClip = {
+    path: "synthetic",
+    frames: [0, 0, 0].map((state) => ({ state, control: 0 })),
+    loopStart: null,
+    input: {},
+    skippedEngineServices: {},
+  };
+
+  it("gives the position words the recorder sets to 100 before every run, under their own basis", () => {
+    const model = choose(0x20, 100);
+    expect(compareMeasuredWalks([model], still, report()).classification).toBe("prefix");
+    const match = compareMeasuredWalks([model], still, report(), undefined, 6);
+    expect(match).toMatchObject({ classification: "complete", basis: "recorder-fields" });
+    expect(match.reason).toMatch(/recorder's bench, not the game's/);
+  });
+  it("gives the frame it copies into 0x0e, and 0x10 only while nothing writes 0x0e", () => {
+    // Before the second run 0x0e holds the frame saved there, and 0x10 the 0 it held before the first run.
+    expect(compareMeasuredWalks([choose(0x0e, 0)], still, report(), undefined, 6).classification).toBe("complete");
+    expect(compareMeasuredWalks([choose(0x10, 0)], still, report(), undefined, 6).classification).toBe("complete");
+    expect(compareMeasuredWalks([choose(0x10, 0)], still, report([write(0x0e)]), undefined, 6).classification).toBe(
+      "prefix",
+    );
+  });
+  it("keeps a field it cleared at 0 on every run only when nothing in the run writes it", () => {
+    // The list flags at 0x06: the first run's contact bits were already clear, now every bit on every run.
+    const touching = choose(0x06, 0, 1);
+    expect(compareMeasuredWalks([touching], still, report()).classification).toBe("prefix");
+    expect(compareMeasuredWalks([touching], still, report(), undefined, 6).classification).toBe("complete");
+    expect(compareMeasuredWalks([touching], still, report([write(0x06)]), undefined, 6).classification).toBe("prefix");
+    // A pointer moved by an offset could reach any field: nothing is shown then.
+    const moved = write(0, {
+      mnemonic: "add",
+      operands: [
+        { kind: "register", name: "si", width: 16 },
+        { kind: "immediate", value: 6, width: 16 },
+      ],
+      text: "add si, 6",
+    });
+    expect(compareMeasuredWalks([touching], still, report([write(0x40), moved]), undefined, 6).classification).toBe(
+      "prefix",
+    );
+  });
+  it("leaves a walk open that knows another value for a field the recorder sets", () => {
+    const knows: KnownField = { ...proof, object: "part", offset: 0x20, width: 16, value: 5, knownMask: 0xffff };
+    const model = later(
+      [
+        { condition: test(0x20, "==", 100), walk: rest(0, 0) },
+        { condition: test(0x20, "!=", 100), walk: rest(0, 1, 1) },
+      ],
+      [knows],
+    );
+    expect(compareMeasuredWalks([model], still, report(), undefined, 6).classification).toBe("prefix");
+  });
+});
+
+describe("a loop that stops at the first part it finds in a skipped search's list", () => {
+  const at = (address: number) => ({ segment: 0x190f, offset: address, address });
+  const register = (name: string) => ({ kind: "register", name, width: 16 }) as const;
+  const memory = (segment: string, base: string, displacement: number) =>
+    ({ kind: "memory", segment, base: [base], displacement, width: 16 }) as const;
+  const op = (
+    address: number,
+    size: number,
+    mnemonic: string,
+    operands: unknown[] = [],
+    flow: Instruction["flow"] = "next",
+    target?: number,
+  ): Instruction =>
+    ({
+      address,
+      segment: 0x190f,
+      offset: address,
+      size,
+      bytes: [],
+      mnemonic,
+      operands,
+      prefixes: [],
+      flow,
+      text: mnemonic,
+      ...(target === undefined ? {} : { target: at(target) }),
+    }) as Instruction;
+  /** Like the cat in TIM 1: it loads the found list from 0x78 and stops at the first part of type 0x2a. */
+  const instructions = (load: number) => [
+    op(0x1000, 3, "mov", [register("si"), memory("ss", "bp", 6)]),
+    op(0x1003, 1, "push", [register("si")]),
+    op(0x1004, 5, "call", [], "call"),
+    op(0x1009, 3, "mov", [register("di"), memory("ds", "si", load)]),
+    op(0x100c, 2, "jmp", [], "jump", 0x101c),
+    op(0x100e, 4, "cmp", [memory("ds", "di", 4), { kind: "immediate", value: 0x2a, width: 16 }]),
+    op(0x1012, 2, "jne", [], "branch", 0x1019),
+    op(0x1014, 2, "xor", [register("di"), register("di")]),
+    op(0x1016, 3, "jmp", [], "jump", 0x101c),
+    op(0x1019, 3, "mov", [register("di"), memory("ds", "di", 0x78)]),
+    op(0x101c, 2, "or", [register("di"), register("di")]),
+    op(0x101e, 2, "je", [], "branch", 0x1023),
+    op(0x1020, 3, "jmp", [], "jump", 0x100e),
+    op(0x1023, 1, "pop", [register("si")]),
+    op(0x1024, 1, "retf", [], "return"),
+  ];
+  const edges = (list: Instruction[]) =>
+    list.flatMap((i) =>
+      i.flow === "return"
+        ? []
+        : i.flow === "jump"
+          ? [{ from: i.address, to: i.target!.address, kind: "jump" }]
+          : i.flow === "branch"
+            ? [
+                { from: i.address, to: i.target!.address, kind: "taken" },
+                { from: i.address, to: i.address + i.size, kind: "not-taken" },
+              ]
+            : [{ from: i.address, to: i.address + i.size, kind: "next" }],
+    );
+  const report = (load = 0x78) => {
+    const list = instructions(load);
+    return {
+      layout: { fields: [] },
+      helpers: [
+        {
+          address: 0x3597,
+          kind: "overlap-list",
+          list: { headField: 0x78, nextField: 0x78, excludesArgument: true },
+          footprint: {},
+          writes: [],
+          returns: [],
+        },
+      ],
+      parts: [{ type: 12, routines: [{ slot: 1, address: 0x1000 }] }],
+      routines: [
+        {
+          address: 0x1000,
+          segment: 0x190f,
+          offset: 0x1000,
+          status: "complete",
+          instructions: list,
+          edges: edges(list),
+          calls: [{ instruction: 0x1004, target: { segment: 0, offset: 0x3597, address: 0x3597 }, far: true }],
+          listLoops: [],
+        },
+      ],
+    } as unknown as BehaviourReport;
+  };
+  const link: Expression = {
+    kind: "field",
+    object: "member found by the loop at 0x101c link",
+    offset: 0,
+    width: 16,
+    unresolved: true,
+  };
+  const rest = (...states: number[]): BehaviourWalk => ({
+    ...proof,
+    status: "rest",
+    states,
+    frames: [],
+    runCalls: states.length - 1,
+    fields: [],
+    timingReason: "Run calls only.",
+    loopStart: states.length - 2,
+  });
+  const model: AnimationDescription = {
+    ...animation(),
+    initialFields: [{ ...proof, object: "part", offset: 12, width: 16, value: 0, knownMask: 65535 }],
+    walk: {
+      ...rest(0),
+      status: "unresolved",
+      stop: {
+        kind: "ambiguity",
+        description: "Branches.",
+        evidence: [],
+        branches: [
+          {
+            condition: {
+              kind: "compare",
+              operator: "==",
+              left: link,
+              right: { kind: "constant", value: 0, width: 16 },
+              signed: false,
+            },
+            walk: rest(0, 0),
+          },
+          {
+            condition: {
+              kind: "compare",
+              operator: "!=",
+              left: link,
+              right: { kind: "constant", value: 0, width: 16 },
+              signed: false,
+            },
+            walk: rest(1, 1),
+          },
+        ],
+      },
+    },
+  };
+  const clip: MeasuredClip = {
+    path: "synthetic",
+    frames: [{ state: 0, control: 0 }],
+    loopStart: null,
+    input: {},
+    skippedEngineServices: { "0x3597": 1 },
+  };
+
+  it("finds no part when the loop loads the list from the part's own found list field", () => {
+    expect(compareMeasuredWalks([model], clip, report(), undefined, 12)).toMatchObject({
+      classification: "complete",
+      basis: "recorder-skipped-search",
+    });
+    // A list loaded from another field isn't the search's list.
+    expect(compareMeasuredWalks([model], clip, report(0x7a), undefined, 12).classification).toBe("prefix");
+  });
+});

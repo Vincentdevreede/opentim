@@ -1741,6 +1741,79 @@ TIM 1 all eight mouse motor recordings close. What stays open, and why:
   set; the recorder clears those flags and the run never sets them, but the comparison only takes them as clear on the
   first run.
 
+### What the recorder writes between runs
+
+Decided with the user, on the same principle as the skipped search: a recording may be compared with exactly what the
+recorder did to the part between runs, not only with what its clip saved. Read in `research/v24/verify_animations.py`:
+
+- `setup` loads the program again, clears the part's 0x300 bytes, sets the six words at `0x1e` to `0x28` to 100 and
+  sets the type, flags, size and the pointers at `0x80` to `0x84`; `apply` writes the seed (frame, control value,
+  counter, heat, speed, flags);
+- before each run `clip` writes its hold values, which the comparison already follows;
+- after each run `step` copies `0x0e` into `0x10`, then the frame into `0x0e`, and sets the six words at `0x1e` to `0x28`
+  to 100 again.
+
+So before every run the words at `0x1e` to `0x28` are 100, and `0x0e` holds the frame the clip saved there (0 before the
+first run, since the recorder cleared it). `0x10` holds the frame of the run before, and 0 before the first two runs,
+but only when nothing in the clip writes `0x0e`, since the recorder copies whatever `0x0e` holds after the run.
+
+Every other byte the recorder clears stays 0 on every run when nothing in the clip can write it. That is shown from the
+code, not assumed: the comparison goes through every instruction of the run routine and of the routines it calls in its
+own code segment, counts each data write by its offset whatever pointer it goes through, and gives up on string
+instructions, interrupts, a call it can't follow and a pointer the routine moves by an offset. A call that leaves the
+code segment writes nothing, since the recorder skips it. The mouse's list flags at `0x06` are such a field: its run
+never writes them, so they are 0 on every run, not only the contact bits on the first.
+
+These fields replace what a walk knew for them at each run. A walk that knew another value for one (or something other
+than 0 for a cleared field nothing writes) isn't on the recorder's way there and stays open, and a start that knows
+another value isn't the recorder's start. The comparison only takes them when the walks as they are don't match; such a
+match has its own basis, `recorder-fields`, counted apart. A skipped search's empty found list comes on top of them and
+keeps the basis `recorder-skipped-search`. Neither says what the game does.
+
+Complete matches went from 606 to 612 in Even More (4 through the recorder's fields, 12 through a skipped search) and
+from 512 to 516 in TIM 1 (4 and 8), prefixes from 42 to 36 and from 40 to 36. None is different. The mouse's four run
+recordings close in both builds (its flags at `0x06`), and in Even More the cat's two still recordings that look in the
+found list (the position words at 100 rule out the frame it shows when they differ).
+
+### The TIM 1 cat's loop over the found list
+
+The comparison tied a skipped search to the loops over its list through the analysis's list scans (`listLoops`). The
+Even More cat's loop at `0x1a01a` is one only because of a test the TIM 1 cat doesn't have: inside the loop, Even More
+checks that the cat's frame is 0 (`cmp word [si+0x0c], 0` at `0x19fa6`) before it moves the cat, and the list scan
+summary follows that loop for a frame other than 0, where the body keeps the cat as it is. The TIM 1 cat
+(`0x18431`, loop at `0x186af`) moves itself whenever a mouse is close enough, on any frame, so its body changes the cat
+and no list scan summary can hold. That is right as it is, and `behaviour-list-loops.ts` stays unchanged.
+
+Both loops are loops that stop at the first part they act on (`discoverFindFirstLoops`), and the walks name their member
+"member found by the loop at 0x186af". The comparison now also takes such a loop as a loop over a skipped search's list
+when its first part is loaded once, from the found list field the search fills, through the routine's own part pointer
+(only loaded from its argument, and restored on the way out), with every way into the loop going through that load and
+nothing on the way changing the pointer. The bytes the run can write are now counted without the bodies of these loops,
+which never run while the list is empty, and a pointer tested against itself (`or di, di`) counts as kept.
+
+The TIM 1 cat's four recordings that look in the found list close: complete matches in TIM 1 went from 516 to 520 (12
+through a skipped search), prefixes from 36 to 32. Even More stays at 612. None is different.
+
+### The mouse motor's control value at the end of its count
+
+The Even More mouse motor's four run recordings (control value 1, counter 12) agreed frame for frame and stayed
+prefixes: some ways of the walk could still flip the frame after the count ran out. The cause wasn't a join. At every
+run the mouse motor (`0x1bfb5`) has two paths that flip the frame: one while the counter at `0x96` still runs, one for
+the last count, which also clears the control value at `0x12`. The walk doesn't know the counter, only its starting
+value plus how far it moved, so both paths apply, and since they lead to the same frame the walk took one step with
+what they agree on and forgot the control value. After the count it then allowed "the control value isn't 0" and
+another flip.
+
+Now, when only tests of a countdown's starting value tell such rules apart, the walk follows each path as its own branch,
+as it already does when they lead to different frames. Nothing is chosen: each branch carries its own test of the
+starting value, which a recording that gives the counter decides. The branch for the last count knows the control
+value is 0.
+
+All eight mouse motor recordings in Even More now match (the four run recordings through the skipped search, as the
+others): complete matches went from 612 to 616, prefixes from 36 to 32. TIM 1 stays at 520, and walk endings don't
+change (Even More 696 end through branches and 629 directly, TIM 1 625 and 521). None is different. What stays open in
+both builds are the monkey bike's 32 recordings (D2).
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
