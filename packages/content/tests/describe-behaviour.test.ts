@@ -207,7 +207,11 @@ describe("descriptions from extracted behaviour rules", () => {
     ];
     const part = describeBehaviour(data).parts[0]!;
     expect(part.rest.status).toBe("unresolved");
-    expect(part.stableStates.map((state) => state.state)).toEqual([0]);
+    expect(part.stableStates.filter((state) => !state.walks).map((state) => state.state)).toEqual([0]);
+    // With the control value at 0 the run keeps any frame, and the walks from the reset rest on 1 and 2 that way.
+    const rests = part.stableStates.filter((state) => state.walks);
+    expect(rests.map((state) => state.state)).toEqual([1, 2]);
+    expect(rests[0]!.fields).toContainEqual(expect.objectContaining({ offset: 0x12, value: 0 }));
     const animation = part.animations.find(
       (item) => item.initial === "documented-rest" && item.trigger.kind === "callback",
     )!;
@@ -1531,6 +1535,21 @@ describe("creation defaults and related input conditions", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]!.condition).toBeUndefined();
     expect(lines[0]!.conditions).toEqual([test(12, "==", 0), test(12, "==", 1)]);
+  });
+
+  it("lists the frames the walks rest on when no run outcome gives one", () => {
+    // From the saved frame the run goes 0, 1, 2 and stays on 2, but no single run outcome shows that.
+    const data = report(
+      [rule(add(12, 1), test(12, "<", 2)), rule(field(12), test(12, "==", 2))],
+      [write(0x12, constant(0))],
+    );
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.stableStates.map((stable) => stable.state)).toEqual([2]);
+    expect(part.stableStates[0]!.walks).toBeGreaterThan(0);
+    expect(part.stableStates[0]!.fields).toContainEqual(expect.objectContaining({ offset: 12, value: 2 }));
+    // Those frames start no walks of their own: the walks already reach them.
+    expect(part.animations.some((animation) => animation.initial === "documented-rest")).toBe(false);
   });
 
   it("rests on each frame when the run keeps every field", () => {

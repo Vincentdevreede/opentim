@@ -1750,6 +1750,21 @@ comparison counts only those as unresolved resets and counts the other two as re
 that is 0 unresolved and 41 given by the level (38 saved, 3 from sockets); in TIM 1, 0 and 36. The lab doesn't show
 the reset's status, so it needed no change.
 
+### Resting frames from the walks
+
+A part's resting frames used to come only from its run outcomes: a rule whose next frame is known and whose walk rests
+after one more run. Many parts never get one that way, because the frame they stay on is reached over several runs.
+The walks prove more: a walk rests when one more run leaves its frame and every field it knows as they were, under the
+tests on its way. A walk that holds a frame it doesn't know proves the same for each frame its rules keep.
+`stableStates` now also lists each frame a walk rests on that the run outcomes don't give, once per frame, with the
+fields every walk resting there agrees on, the number of resting walk branches (`walks`) and the conditions on the way
+of the first eight. No walk starts from these frames: the walks already reach them.
+
+In Even More, 28 of the 33 parts without a resting frame now have one (24 of 28 in TIM 1). The rest have none for a
+reason: the wood incline and the belt (and in TIM 1 the rope) rest on any frame they are on, but they have no frame
+list to name it from; the mouse motor, Mel's house and the alligator never rest in any walk, their walks only loop or
+join another branch.
+
 ### Where a part is drawn and how large its frame is
 
 After a routine changes a part's frame, it calls two shared helpers (`0x68aa` and `0x6940` in Even More, English

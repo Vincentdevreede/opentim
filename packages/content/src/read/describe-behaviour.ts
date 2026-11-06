@@ -142,6 +142,11 @@ export interface StableStateDescription extends Finding {
   frame?: number;
   fields: KnownField[];
   origins: { condition: Predicate; evidence: Evidence[] }[];
+  /**
+   * For a frame the walks rest on, rather than one a run outcome gives: how many walk branches rest there. `origins`
+   * then gives the conditions on the way of the first few. No walk starts from these, since the walks reach them.
+   */
+  walks?: number;
 }
 
 export interface AnimationDescription extends Finding {
@@ -2755,6 +2760,61 @@ export function walkBehaviourRules(
   return { ...base("limit", `The walk reached its limit of ${max} run invocations.`), confidence: "unresolved" };
 }
 
+/** At most this many walks resting on a frame keep their conditions in its `origins`; `walks` counts all of them. */
+const RESTING_ORIGINS = 8;
+/**
+ * The frames the walks come to rest on that the run's own outcomes don't give. A walk rests when one more run leaves
+ * its frame and every field it knows as they were, under the tests on its way, so the part stays there. A walk that
+ * holds an unknown frame proves the same for each frame its rules keep. Each frame is listed once, with the fields
+ * every walk resting there agrees on.
+ */
+function walkRestsOf(
+  report: BehaviourReport,
+  part: PartBehaviour,
+  animations: AnimationDescription[],
+  listed: StableStateDescription[],
+): StableStateDescription[] {
+  const stateOffset = stateOffsetOf(report);
+  if (stateOffset === undefined) return [];
+  const frameCount = (part as WithFrameCount).frameCount;
+  const rests = new Map<number, { walk: BehaviourWalk; conditions: Predicate[]; bindings: Bindings }[]>();
+  const visit = (walk: BehaviourWalk, conditions: Predicate[]) => {
+    for (const branch of walk.stop?.branches ?? []) visit(branch.walk, [...conditions, branch.condition]);
+    if (walk.status !== "rest") return;
+    const hold = walk.parameterised?.kind === "hold" ? walk.parameterised : undefined;
+    const states = walk.parameterised ? (hold?.allowedStates ?? []) : walk.states.slice(-1);
+    for (const state of states) {
+      if (listed.some((item) => item.state === state) || (frameCount && state >= frameCount)) continue;
+      const bindings = bindingsOf(walk.fields);
+      if (hold) writeField(bindings, "part", stateOffset, bits(state, 0xffff, 16));
+      rests.set(state, [...(rests.get(state) ?? []), { walk, conditions, bindings }]);
+    }
+  };
+  for (const animation of animations)
+    visit(animation.walk, animation.trigger.condition.kind === "true" ? [] : [animation.trigger.condition]);
+  return [...rests]
+    .sort(([a], [b]) => a - b)
+    .map(([state, walks]) => {
+      const proof = finding(
+        walks.map((item) => item.walk),
+        ["A walk that rests here proves it under the tests on its way; the frame isn't claimed to be the reset's."],
+      );
+      const shown = walks.slice(0, RESTING_ORIGINS);
+      return {
+        state,
+        frame: frameOf(part, state),
+        fields: fieldsOf(agreedBindings(walks.map((item) => item.bindings)), fieldDefinitions(report, part), proof),
+        origins: shown.map(({ walk, conditions }) => ({
+          condition: conditions.length > 1 ? { kind: "and", terms: conditions } : (conditions[0] ?? { kind: "true" }),
+          evidence: walk.evidence,
+        })),
+        walks: walks.length,
+        ...proof,
+        evidence: evidence(...shown.map((item) => item.walk.evidence)),
+      };
+    });
+}
+
 function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableStateDescription[] {
   const run = part.routines.find((item) => item.slot === 1);
   const stateOffset = stateOffsetOf(report);
@@ -4214,6 +4274,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         });
       });
     animations.push(...periodicAnimations(report, part));
+    stableStates.push(...walkRestsOf(report, part, animations, stableStates));
     const uncertainties = [
       ...new Set([
         ...part.uncertainties,
@@ -4232,7 +4293,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
       type: part.type,
       ...(gear ? { gear } : {}),
       ...(contact ? { contact } : {}),
-      summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : rest.status === "saved" ? "The reset keeps the frame the level saved." : rest.status === "sockets" ? "The reset sets the frame from the part's sockets." : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
+      summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : rest.status === "saved" ? "The reset keeps the frame the level saved." : rest.status === "sockets" ? "The reset sets the frame from the part's sockets." : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes and walks. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
       rest,
       ...(creation ? { creation } : {}),
       stableStates,
