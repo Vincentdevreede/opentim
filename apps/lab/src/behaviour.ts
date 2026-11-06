@@ -415,6 +415,8 @@ export function writer(
 }
 
 const signed = (n: number) => (n > 0x7fff ? n - 0x10000 : n);
+/** A frame the program keeps as a word, as the signed number it stands for: 65535 is frame -1. */
+const frameOf = (n: number) => (n > 0x7fff && n <= 0xffff ? n - 0x10000 : n);
 
 /** The 16-bit value of an expression for a state, when it depends on nothing but the state. */
 export function valueForState(e: Expression, state: number, stateOffset: number): number | undefined {
@@ -558,9 +560,9 @@ function summarisePart(
       return {
         ...finding(t),
         routine: routineName(t.routine),
-        from: t.from,
+        from: t.from && t.from.map(frameOf),
         to: write.expression(t.to),
-        toState: t.to.kind === "constant" ? t.to.value : undefined,
+        toState: t.to.kind === "constant" ? frameOf(t.to.value) : undefined,
         targets: targetsOf(t.to, t.from, stateOffset),
         keeps,
         condition: write.predicate(t.condition),
@@ -607,7 +609,7 @@ function settles(walk: BehaviourWalk): boolean {
 }
 
 function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0): WalkPath {
-  const frames = walk.frames.map((f) => f.state);
+  const frames = walk.frames.map((f) => frameOf(f.state));
   const branches =
     depth < BRANCH_DEPTH
       ? (walk.stop?.branches ?? []).map((b) => ({
@@ -708,20 +710,23 @@ export function summariseRests(
         assumptions: rest.assumptions,
         evidence: instructions(rest.evidence),
         status: rest.status,
-        ...(rest.status === "known" && rest.state !== undefined ? { state: rest.state } : {}),
-        ...(rest.frames ? { frames: rest.frames } : {}),
+        ...(rest.status === "known" && rest.state !== undefined ? { state: frameOf(rest.state) } : {}),
+        ...(rest.frames ? { frames: rest.frames.map(frameOf).sort((a, b) => a - b) } : {}),
         description: rest.description,
         ...(rest.reason ? { reason: rest.reason } : {}),
-        resting: d.stableStates.map((stable) => ({
-          confidence: stable.confidence,
-          assumptions: stable.assumptions,
-          evidence: instructions(stable.evidence),
-          state: stable.state,
-          ...(stable.walks ? { walks: stable.walks } : {}),
-          conditions: [...new Set(stable.origins.map((o) => write.predicate(o.condition)))].filter(
-            (c) => c !== "always",
-          ),
-        })),
+        resting: d.stableStates
+          .map((stable) => ({
+            confidence: stable.confidence,
+            assumptions: stable.assumptions,
+            evidence: instructions(stable.evidence),
+            state: frameOf(stable.state),
+            ...(stable.walks ? { walks: stable.walks } : {}),
+            conditions: [...new Set(stable.origins.map((o) => write.predicate(o.condition)))].filter(
+              (c) => c !== "always",
+            ),
+          }))
+          // A frame word of -1 comes last in the description; signed, it comes first.
+          .sort((a, b) => a.state - b.state),
       };
       return [d.type, summary];
     }),

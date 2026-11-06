@@ -42,3 +42,8 @@ it("tells in the tip how many walks end on each resting frame, and where a run k
   expect(page).toContain("1: 191 walks end here");
   expect(page).toContain("2: 1 walk ends here");
 });
+
+it("shows frame -1 of a part like the wood incline as -1", async () => {
+  const incline = { ...rest, frames: [-1, 0, 1, 2, 3], resting: [{ ...finding, state: -1, walks: 1, conditions: [] }] };
+  expect(await text(incline)).toBe("placed keeps the saved frame · -1–3 rests on -1");
+});

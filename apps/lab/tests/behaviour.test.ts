@@ -328,7 +328,7 @@ describe("summariseWalks", () => {
               },
             }),
           ),
-          animation("related-write", "Hit by an explosion", walk({ status: "rest", frames: [visit(0)] })),
+          animation("related-write", "Hit by an explosion", walk({ status: "rest", frames: [visit(0xffff)] })),
           animation(
             "related-write",
             "Touching an electric switch, if the frame is 0 and a part-specific value is 12288",
@@ -344,7 +344,7 @@ describe("summariseWalks", () => {
     expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
     expect(rope).toMatchObject({ trigger: "rope", condition: [] });
     expect(explosion).toMatchObject({ trigger: "by explosion", end: "hold" });
-    expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest" });
+    expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest", frames: [-1] });
   });
 
   it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {
@@ -607,6 +607,18 @@ describe("summariseRests", () => {
         }),
         stableStates: [],
       },
+      {
+        type: 60,
+        rest: rest({
+          status: "saved",
+          description: "The reset keeps the frame the level saved.",
+          frames: [0, 1, 2, 3, 0xffff],
+        }),
+        stableStates: [
+          { ...finding, state: 3, fields: [], walks: 1, origins: [] },
+          { ...finding, state: 0xffff, fields: [], walks: 1, origins: [] },
+        ],
+      },
     ],
   } as unknown as BehaviourDescription;
   const rests = summariseRests(report, description);
@@ -623,6 +635,11 @@ describe("summariseRests", () => {
       { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"] },
     ]);
     expect(rests[3]!.resting[0]!.walks).toBeUndefined();
+  });
+
+  it("gives a frame the program keeps as a word signed, like the wood incline's -1, in order", () => {
+    expect(rests[60]!.frames).toEqual([-1, 0, 1, 2, 3]);
+    expect(rests[60]!.resting.map((r) => r.state)).toEqual([-1, 3]);
   });
 });
 
