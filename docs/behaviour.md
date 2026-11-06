@@ -1051,6 +1051,16 @@ both values are known but a query's answer picks one, so they still count. Every
 comparison changes; the rocket's walks from frames 0 and 7 now know its field `0x84` after frame 7, so they repeat one
 cycle later, with the same frames.
 
+When the walk can't decide the test, it now keeps the bits both values agree on, and when it can decide the test it
+takes the value the test picks even if the other one is unknown. Exactly one of the two tests holds, so both are exact.
+The monkey bike shows why it matters: when its reaction on frames 9 to 12 runs out, its run (`0x1be07` in Even More,
+English floppy) sets the control value to -1 when the bike is flipped and to 1 otherwise. The walk doesn't know the
+flip, so it used to forget the control value and then split on "the control value is 0" at frame 1, with one way that
+stood still for good. Both -1 and 1 have bit 0 set, so the value isn't 0, and the walk after a hit while pedalling now
+pedals on (frames 1 to 4) in each branch. Only the monkey bike's walks change, in both recorded builds: walks that end
+through branches go from 696 to 695 and walks that end directly from 629 to 630 in Even More (TIM 1 625 to 624 and 521
+to 522). The recordings don't change (616 and 520 complete, none different).
+
 ### Conditional rules
 
 Many rules depend on what the part finds during that step: whether the cat sees a mouse, whether its new spot is
