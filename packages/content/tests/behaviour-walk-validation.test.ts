@@ -324,6 +324,12 @@ describe("comparisons that follow a walk's branches", () => {
     expect(compareMeasuredWalks([model(2)], normal!).classification).toBe("complete");
     // Other list flags, like the moving list, stay unknown.
     expect(compareMeasuredWalks([model(0x1000)], normal!).classification).toBe("prefix");
+    // A match that needs them says so, as decided with the user; one that doesn't, doesn't.
+    expect(compareMeasuredWalks([model(1)], normal!)).toMatchObject({
+      untouchedStart: true,
+      reason: expect.stringMatching(/touching nothing at the start/),
+    });
+    expect(compareMeasuredWalks([animation()], clip()).untouchedStart).toBeUndefined();
   });
 
   it("takes the part's normal seed as a starting field when the frames don't save it", () => {
@@ -833,11 +839,11 @@ describe("recordings compared with what the recorder writes between runs", () =>
       text: `mov word [si+0x${displacement.toString(16)}], ax`,
       ...more,
     }) as Instruction;
-  const report = (instructions: Instruction[] = []) =>
+  const report = (instructions: Instruction[] = [], transitions: unknown[] = []) =>
     ({
       layout: { fields: [] },
       helpers: [],
-      parts: [{ type: 6, routines: [{ slot: 1, address: 0x1000 }] }],
+      parts: [{ type: 6, routines: [{ slot: 1, address: 0x1000 }], transitions }],
       routines: [
         {
           address: 0x1000,
@@ -939,6 +945,51 @@ describe("recordings compared with what the recorder writes between runs", () =>
       basis: "recorder-fields",
     });
     expect(compareMeasuredWalks([model], seeded, report([write(0x54)]), undefined, 6).classification).toBe("prefix");
+  });
+  describe("a start that knows another value than the recorder had", () => {
+    /** The reset, knowing 9 at 0x58 where the recorder cleared the part. */
+    const reset = () => {
+      const model = animation();
+      model.id = "reset";
+      model.initial = "reset";
+      model.trigger.kind = "run";
+      model.initialFields = [
+        ...model.initialFields!,
+        { ...proof, object: "part", offset: 0x58, width: 16, value: 9, knownMask: 0xffff },
+      ];
+      return model;
+    };
+    /** A run rule that tests 0x58. */
+    const reads = [
+      {
+        ...proof,
+        from: null,
+        routine: 0x1000,
+        condition: test(0x58, "==", 9),
+        to: { kind: "constant", value: 1, width: 16 },
+      },
+    ];
+    it("stands when the run never reads that field", () => {
+      expect(compareMeasuredWalks([reset()], clip(), report(), undefined, 6)).toMatchObject({
+        classification: "complete",
+        basis: "reset-or-rest",
+      });
+    });
+    it("doesn't count when the run reads it, so a walk from the recorder's value must fit", () => {
+      expect(compareMeasuredWalks([reset()], clip(), report([], reads), undefined, 6).classification).toBe(
+        "unavailable",
+      );
+      const input = animation();
+      input.id = "input";
+      input.trigger.kind = "input-case";
+      input.initial = "run-guard";
+      input.inputCondition = test(18, "==", 1);
+      expect(compareMeasuredWalks([reset(), input], clip(), report([], reads), undefined, 6)).toMatchObject({
+        classification: "complete",
+        basis: "input-case",
+        animation: "input",
+      });
+    });
   });
   describe("a walk from a trigger the recorder never performs", () => {
     /** A walk from a callback that writes this field, knowing the written bits from its start. */
