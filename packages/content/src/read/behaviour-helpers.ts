@@ -2176,6 +2176,7 @@ export function discoverEngineSummaries(
         const condition = conditions.get(write.evidence[0]!.address);
         if (!condition) continue;
         write.condition = condition;
+        write.exact = true;
         write.assumptions = [
           "Every path of the helper was followed: the store happens exactly when its tests of the part's fields hold, and it is the last store to that field.",
         ];
@@ -2203,6 +2204,7 @@ export function discoverEngineSummaries(
               width: e.width,
               value: e.value,
               condition: e.condition,
+              exact: true,
             })),
         );
       }

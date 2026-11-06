@@ -2117,10 +2117,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 },
               }
             : effect.value
-          : effect.exact && effect.condition.kind === "compare" && !uncertainPredicate(effect.condition)
-            ? // A write made exactly when its test holds: the new value then, the old one otherwise.
+          : effect.exact &&
+              !uncertainPredicate(effect.condition) &&
+              (effect.condition.kind === "compare" ||
+                (effect.condition.kind === "and" && effect.condition.terms.every((term) => term.kind === "compare")))
+            ? // A write made exactly when its tests hold: the new value then, the old one otherwise.
               tracked(
-                choose(effect.condition, asExpression(effect.value.value), asExpression(before.value), effect.width),
+                (effect.condition.kind === "and" ? effect.condition.terms : [effect.condition]).reduceRight(
+                  (then, test) => choose(test as Comparison, then, asExpression(before.value), effect.width),
+                  asExpression(effect.value.value),
+                ),
                 uniqueEvidence([...effect.value.evidence, ...before.evidence]),
               )
             : foundHead(effect)

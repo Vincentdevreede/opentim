@@ -187,4 +187,30 @@ describe("The speed limit and the ordered insertion", () => {
       }),
     ]);
   });
+  it("gives a write made exactly when two tests hold the new value then, and the old one otherwise", () => {
+    const summary: EngineSummary = {
+      ...insertion(),
+      kind: "owner-field-update",
+      orderedLinks: undefined,
+      writes: [
+        {
+          ...fact,
+          root: "argument",
+          argumentOffset: 6,
+          path: [],
+          offset: 0x12,
+          width: 16,
+          value: { kind: "constant", value: 1, width: 16 },
+          condition: { kind: "and", terms: [compare(">", field(0x20), limit), compare("<", field(0x22), limit)] },
+          exact: true,
+        },
+      ],
+      footprint: { complete: true, preservesArgumentMemory: false, preservesPartState: true, unknownEffects: [] },
+    };
+    const result = analyse(call, summary);
+    const value = result.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x12)!.value;
+    expect(value.kind).toBe("binary");
+    expect(JSON.stringify(value)).toContain('"offset":32');
+    expect(JSON.stringify(value)).toContain('"offset":34');
+  });
 });

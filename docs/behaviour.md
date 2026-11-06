@@ -2135,6 +2135,19 @@ indexed by the frame. Before, it called both "the value stored requires symbolic
 that call it now write known values: Even More goes from 7 to 5 rules with unknown writes, TIM 1, French, from 5 to 3.
 No other helper changes.
 
+### Helper stores made exactly when their tests hold
+
+A small helper's store gets the tests that lead to it in two ways: `ownerStoreConditions`, when every way through the
+store passes the tests, it is the last store to its field there, and every way that passes them goes through it; and
+`ownerPathStores`, when every way is read exactly. Either way the field ends with the stored value exactly when the
+tests hold, and two stores to one field never both have their tests hold. These stores are now marked `exact`, so a
+caller gives the field the stored value when the tests hold and its old value otherwise, instead of an unknown. A
+caller used to do that only for a single test; it now also does it for several tests together (`choose` nested over
+them).
+
+This names the mouse motor's control value after its start (`0x1c074` in Even More, English floppy): 1, or -1 when the
+motor is flipped. Even More goes from 5 to 4 rules with unknown writes; TIM 1, French, from 3 to 2.
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`
