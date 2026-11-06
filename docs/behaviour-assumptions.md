@@ -750,3 +750,91 @@ for the bullet, and the bullet states the assumption in its description.
 
 - Look at levels saved by players for a bullet.
 - Check in each build that the gun's run still links the bullet in without `0x1000`, and that nothing else sets it.
+
+## 19. Parts that hold a rope record
+
+Decided on 2026-11-06 with the user. In the code: `ROPE_HOLDER_ASSUMPTION` in
+`packages/content/src/read/behaviour-connection-relay.ts`, used by `addRelayOwnerKeeps` in
+`packages/content/src/read/behaviour.ts`. Explained in
+[the owner's rope fields after the relay](behaviour.md#the-owners-rope-fields-after-the-relay).
+
+**The question.** The byte relay (`0x65c1` in Even More, English floppy) updates the geometry of the owner's ropes, and
+the rope geometry update (`0x5bf3`) writes the rope ends `0x96` and `0x9c` of the part that holds the rope record. Can
+that be the owner?
+
+**What the code shows** (Even More, English floppy; the same in all eleven builds):
+
+- A rope record's slot 0 is the part that holds it. Only four instructions store slot 0, each with the part the record
+  is made for: the level loader (`0x1386b`), the rope's and the pulley's constructors (`0x1610c` and `0x16084`, types
+  10 and 7) and the part copy (`0x6783`, only for types 10 and 7). Every build has the same four.
+- The relay gives its byte to slot 0 of the owner's rope records at `0x66` and `0x68` and passes each record to the
+  rope geometry update, which writes `0x96` and `0x9c` only on slot 0.
+- The loader takes the rope data from the file for a part of any type.
+
+**What we assume.**
+
+- Only a rope piece or a pulley ever holds a rope record (slot 0 of a record at `0x66` or `0x68`), so the rope geometry update never writes the rope ends `0x96` and `0x9c` of a part of another type. Every rope the game makes and every shipped level says so; only a level file made outside the game could break it.
+
+Not proved: a level file made outside the game could give rope data to a part of another type, since the loader
+takes it as it is.
+
+**What it gives.** After the relay, a callback whose part can't be a rope piece or a pulley keeps its own rope ends
+`0x96` and `0x9c` instead of naming them "part after field effect". The reader applies it only to a call from a
+routine the type table names directly and nothing else calls, when none of the types that name it is the rope or the
+pulley: every one of the relay's callbacks (27 types in Even More, 23 in TIM 1, none a rope or a pulley). Parts the
+relay reaches still forget the fields, and so does the owner of any other caller. Before, the description named each
+of the two fields after the call 74 times in Even More (English floppy) and 67 times in TIM 1 (French); now it names
+them nowhere. Walks and recordings don't change.
+
+**How to recheck.**
+
+- Look for another instruction that stores slot 0 of a rope record (`slot0.ts` finds four in every build).
+- Look at levels saved by players for a part with rope data that isn't a rope or a pulley.
+
+**Rechecked on 2026-11-06** in all eleven builds: four slot 0 stores in each, and in every shipped level only ropes
+(type 10) and pulleys (type 7) have rope data.
+
+## 20. Flipping a part with a loose belt end
+
+Decided on 2026-11-06 with the user. In the code: `FLIP_BELT_ASSUMPTION` in
+`packages/content/src/read/behaviour-connection-relay.ts`, used by `addRelayOwnerKeeps` in
+`packages/content/src/read/behaviour.ts`. Explained in
+[the owner's rope fields after the relay](behaviour.md#the-owners-rope-fields-after-the-relay).
+
+**The question.** The byte relay checks the owner's belt with the belt end check (`0x582a`) while `[0x4a6d]` is
+`0x1000`. That check can search the parts for the part under a belt end and turn round a rope tied to it, which writes
+rope and belt links `0x5a` to `0x60`, `0x6a` and `0x6c` of the part it finds. That part can be the owner. Can it happen
+when a part is flipped?
+
+**What the code shows** (Even More, English floppy):
+
+- The relay (`0x65c1`) calls the belt geometry update and then the belt end check on the owner's belt record at
+  `0x54`, only while `[0x4a6d]` is `0x1000` (`0x6602`). It calls nothing else that writes links.
+- The belt end check searches only for a belt end that is loose: one of the belt's two parts missing.
+- Among the part callbacks, only flip callbacks (`+0x2e`) call the relay, for 27 types in Even More and 23 in TIM 1.
+  The editor calls a flip callback when the player flips a part (`0x5314`, and the flip buttons on the selected part at
+  `0x11660` and `0x11692`). The relay has other callers (eleven routines in Even More) that the type table doesn't
+  name; the analysis doesn't walk them.
+
+**What we assume.**
+
+- In the editor a part is never flipped while one end of its belt is still loose (as while the player drags the belt's end), so the byte relay a flip callback makes never changes the rope and belt links `0x5a` to `0x60`, `0x6a` and `0x6c` through its belt end check. This is about flipping in the editor only, not about the machine running.
+
+Not proved: what mode `0x1000` means, and that the player can't flip a part while a belt end hangs loose.
+
+**What it gives.** After the relay, a flip callback keeps its own part's links `0x5a` to `0x60`, `0x6a` and `0x6c`
+instead of naming them "part after field effect". The reader applies it only to a call from a routine the type table
+names directly, only as a flip callback, and that nothing else calls. Parts the relay reaches still forget the links.
+It says nothing about the machine running: the relay's other callers keep nothing. Before, the description named each
+of the six links after the call 74 times in Even More (English floppy) and 67 times in TIM 1 (French); now it names
+them nowhere. Walks and recordings don't change.
+
+**How to recheck.**
+
+- Check in each build that only flip callbacks among the part callbacks call the relay, and that the relay calls the
+  belt end check only on the owner's belt.
+- In the game, drag a belt's end from a part and try to flip the part (or the part at the other end) before the end is
+  placed.
+
+**Rechecked on 2026-11-06** in all eleven builds: only flip callbacks among the part callbacks call the relay, and no
+shipped level has a belt with a loose end.

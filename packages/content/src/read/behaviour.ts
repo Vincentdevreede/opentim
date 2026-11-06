@@ -7,6 +7,7 @@
 import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { ropeCallbackWrites, ropeDispatchSummary } from "./behaviour-rope-dispatch.ts";
+import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
 import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
 import { discoverGearRun, type GearRunContract } from "./behaviour-gear-run.ts";
 import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-scheduling.ts";
@@ -1985,12 +1986,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           ? undefined
           : formalArgument(args, engine.argumentOffset, engine.connected.exceptArgument).value;
       const askingIsOwner = asking?.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
+      // The owner keeps the fields a decided assumption about the routine's callers gives it, when it is the argument.
+      const argument = formalArgument(args, engine.argumentOffset, engine.argumentOffset).value;
+      const ownerKeeps =
+        argument.kind === "pointer" && argument.object === "part" && argument.displacement === 0
+          ? (engine.connected.ownerKeeps ?? []).filter((field) => field.callers.includes(code.address))
+          : [];
+      if (ownerKeeps.length)
+        s.assumptions = [...new Set([...s.assumptions, ...ownerKeeps.map((field) => field.assumption)])];
       invalidateSelectedPartFields(
         engine.connected.partFields,
         s,
         i,
         engine.connected.evidence,
-        new Set(askingIsOwner ? askingKeeps(engine.connected) : []),
+        new Set([...(askingIsOwner ? askingKeeps(engine.connected) : []), ...ownerKeeps.map((field) => field.offset)]),
         `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
         undefined,
         // A field whose new value the summary fixes, like the byte the relay passes along, gets that value.
@@ -4975,8 +4984,70 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         }),
       (operator, left, right, width) => binary(operator, left, right, width, Infinity),
     );
+  addRelayOwnerKeeps();
   addRopeDispatch();
   for (const callbacks of references.values()) for (const callback of callbacks) summarise(callback.address);
+
+  /**
+   * The fields the byte relay's owner keeps, by decided assumptions about the parts that call it. A routine that calls
+   * the relay, is named directly by the type table and is called by nothing else runs on a part of the types that name
+   * it. When none of those is a rope piece or a pulley, the owner never holds a rope record, so the rope geometry update
+   * never writes its rope ends (decided assumption 19). When it is named only as a flip callback, the editor never flips
+   * the part while its belt has a loose end, so the belt end check changes no links (decided assumption 20). Other
+   * callers keep nothing.
+   */
+  function addRelayOwnerKeeps() {
+    const ids = new Map(list.list.parts.map((part) => [part.type, part.id]));
+    const ropeTypes = [...ids].filter(([, id]) => id === "rope" || id === "pulley").map(([type]) => type);
+    const flipField = layout.callbacks.find((callback) => callback.role === "flip")?.field;
+    const calledDirectly = (address: number) =>
+      [...codes.values()].some((caller) => caller.calls.some((call) => call.target?.address === address));
+    for (const relay of [...engineSummaries.values()].filter(
+      (summary) => summary.kind === "related-byte-propagation" && summary.connected,
+    )) {
+      const callers = [...codes.values()]
+        .filter((caller) => caller.calls.some((call) => call.target?.address === relay.address))
+        .filter((caller) => counts.has(caller.address) && !calledDirectly(caller.address));
+      const holderCallers: number[] = [];
+      const flipCallers: number[] = [];
+      for (const caller of callers) {
+        const naming = list.records.filter((record) =>
+          references.get(record.type)!.some((callback) => callback.address === caller.address),
+        );
+        if (
+          ropeTypes.length === 2 &&
+          naming.every((record) => ids.has(record.type) && !ropeTypes.includes(record.type))
+        )
+          holderCallers.push(caller.address);
+        if (
+          flipField !== undefined &&
+          naming.every((record) =>
+            references
+              .get(record.type)!
+              .every((callback) => callback.address !== caller.address || callback.field === flipField),
+          )
+        )
+          flipCallers.push(caller.address);
+      }
+      const keeps = [
+        ...(holderCallers.length ? (relay.connected!.ropeHolderFields ?? []) : []).map((field) => ({
+          ...field,
+          assumption: ROPE_HOLDER_ASSUMPTION,
+          callers: holderCallers,
+        })),
+        ...(flipCallers.length ? (relay.connected!.beltEndFields ?? []) : []).map((field) => ({
+          ...field,
+          assumption: FLIP_BELT_ASSUMPTION,
+          callers: flipCallers,
+        })),
+      ];
+      if (!keeps.length) continue;
+      const kept: EngineSummary = { ...relay, connected: { ...relay.connected!, ownerKeeps: keeps } };
+      engineSummaries.set(relay.address, kept);
+      const at = helpers.findIndex((helper) => helper.address === relay.address);
+      if (at >= 0) helpers[at] = kept;
+    }
+  }
 
   /**
    * Bounds the rope connection query by what the rope callbacks it can reach write, read from the type table slot it

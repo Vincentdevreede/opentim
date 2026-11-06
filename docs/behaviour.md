@@ -1249,8 +1249,22 @@ structure in all eleven builds):
   proved: it is set at seven places, three of them only around a call of the rope routine `0x6c3d` (`0x8156`,
   `0x821c`, `0x1cb2c`) and one inside the scissors' cut until `0x1cdee` puts the old mode back (`0x1cd47`).
 
-So the analysis keeps both groups named after the call. Knowing them would take a decision: that only ropes and
-pulleys hold a rope record (the loader trusts the file), and that a flip never meets a belt with a loose end.
+The user decided both on 2026-11-06:
+[decided assumption 19](behaviour-assumptions.md#19-parts-that-hold-a-rope-record), only a rope piece or a pulley ever
+holds a rope record, and [decided assumption 20](behaviour-assumptions.md#20-flipping-a-part-with-a-loose-belt-end), in
+the editor a part is never flipped while one end of its belt is still loose. The reader (`addRelayOwnerKeeps`) now
+records, for each routine that calls the relay, which of the owner's fields it keeps:
+
+- The rope ends `0x96` and `0x9c`, when the routine is named directly by the type table, nothing else calls it, and none
+  of the types that name it is the rope or the pulley. The relay summary says which part fields come only from the
+  rope geometry update (`ropeHolderFields`).
+- The links `0x5a` to `0x60`, `0x6a` and `0x6c`, when the routine is moreover named only as a flip callback. The relay
+  summary says which part fields come only from the belt end check (`beltEndFields`).
+
+Every part callback that calls the relay passes both tests in all eleven builds (27 types in Even More, 23 in TIM 1,
+all flip callbacks). The relay has other callers that the type table doesn't name (eleven in Even More, English
+floppy); they keep nothing, and the analysis doesn't walk them. Assumption 20 concerns flipping a part in the editor; it
+says nothing about the machine running. Parts the relay reaches, other than the owner, still forget these fields.
 
 ### The magnifying glass's last call
 

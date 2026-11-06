@@ -68,7 +68,11 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       with unknown writes go from 242 to 33 of 925 (Even More) and 218 to 28 of 764 (TIM 1), counted by the new rule;
       rules with named run values from 5 to 214 and 5 to 195. Walks and recordings don't change. A rope or belt never
       leads from a part back to itself (the user's answer, true in every shipped level), but that isn't what keeps the
-      owner's rope links and ends: see "The owner's rope fields after the relay". Two questions stay open there.
+      owner's rope links and ends: see "The owner's rope fields after the relay". The user settled the two questions
+      there on 2026-11-06 (decided assumptions 19 and 20): only a rope piece or a pulley holds a rope record, and the
+      editor never flips a part while its belt has a loose end. A flip callback's part now keeps its rope ends and links
+      after the relay: no rule names them after the call any more (each of the eight fields was named 74 times in
+      Even More and 67 in TIM 1). Walks and recordings don't change.
 - [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
       part type each one creates and give its starting fields. Done: they make a rope end, a cannonball, a bullet and an
       explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
