@@ -936,6 +936,18 @@ for the bullet (those that leave `velocityX`). The balloon gets none. TIM 1 (Fre
 way: 96 for 16 types and 16 for the bullet. No walk changes, and the recordings match as before: 596 and 504
 complete, none different.
 
+The gear picks its push through a jump table, so its tests first read like "its contactEdge is at most 7 (unsigned)
+and its contactEdge << 1 is 4". The touch tests now say such a test of `x << n` as a test of `x` when another test (or
+a mask like `& 7`) keeps `x` below the bits the shift keeps, since `x << n` is then `x` times `2^n`, and drop a test
+that every value the expression can take passes, like `(x & 7) <= 7`. The line then reads "its contactEdge is 2". A
+line in Even More (English floppy) for a basketball:
+
+- "A gear it touches, when the gear's state - the gear's previousState is 1, sets velocityX to -4096. Only when its
+  contactEdge is 4 and its velocityX - 4096 is at most 4095. Its bounce returns 1 then, so the game may go on to a
+  contact response, which can change these again."
+
+No other part's lines change.
+
 ### The outline search
 
 The teeter-totter finds the parts lying on it with an outline search. It clears the owner's found list at `0x78`,
