@@ -1,6 +1,7 @@
 /** Proves state preservation for wrappers forwarding the same part argument to scoped helpers. */
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
+import type { Expression, Predicate } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
 
 const register = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
@@ -162,6 +163,7 @@ export function addStatePreservingForwarders(
       const owner = ownerLoad.operands[0].name;
       const byEnd = new Map(code.instructions.map((i) => [i.address + i.size, i]));
       const callees: EngineSummary[] = [];
+      const arguments_: Map<number, number>[] = [];
       const callDeltas = new Map<number, number>();
       let invalid = false;
       for (const call of code.calls) {
@@ -204,8 +206,21 @@ export function addStatePreservingForwarders(
           invalid = true;
           break;
         }
+        // A number the wrapper passes right after the part, by `mov reg, number; push reg`, binds the callee's next
+        // argument.
+        const bound = new Map<number, number>();
+        const value = previous();
+        const load = value?.mnemonic === "push" && register(value.operands[0]) ? previous() : undefined;
+        if (
+          load?.mnemonic === "mov" &&
+          value!.operands[0]?.kind === "register" &&
+          register(load.operands[0], value!.operands[0].name) &&
+          load.operands[1]?.kind === "immediate"
+        )
+          bound.set(callee.argumentOffset + 2, load.operands[1].value & 0xffff);
         callDeltas.set(call.instruction, !call.far && returned.kind === "far" ? 2 : 0);
         callees.push(callee);
+        arguments_.push(bound);
       }
       if (invalid) continue;
       const instructions = new Map(code.instructions.map((i) => [i.address, i]));
@@ -241,14 +256,26 @@ export function addStatePreservingForwarders(
       // A callee's values and conditions refer to its own arguments, which are not the wrapper's: only where they write
       // carries over.
       const complete = callees.every(composable);
+      // A part field a callee writes exactly, as a value of the part and of numbers the wrapper passes, carries over
+      // with its value and its condition.
       const writes: EngineWrite[] = complete
-        ? callees.flatMap((callee) =>
-            callee.writes.map((write) => ({
-              ...write,
-              ...(write.root === "argument" ? { argumentOffset: first } : {}),
-              value: { kind: "unknown", reason: `A helper the wrapper calls writes this field.`, width: write.width },
-              condition: { kind: "unknown", reason: "The helper writes the field on some of its paths." },
-            })),
+        ? callees.flatMap((callee, n) =>
+            callee.writes.map((write) => {
+              const value = bind(write.value, arguments_[n]!),
+                condition = bind(write.condition, arguments_[n]!);
+              return write.root === "argument" && !write.path.length && write.exact && value && condition
+                ? { ...write, argumentOffset: first, value, condition }
+                : {
+                    ...write,
+                    ...(write.root === "argument" ? { argumentOffset: first } : {}),
+                    value: {
+                      kind: "unknown",
+                      reason: `A helper the wrapper calls writes this field.`,
+                      width: write.width,
+                    },
+                    condition: { kind: "unknown", reason: "The helper writes the field on some of its paths." },
+                  };
+            }),
           )
         : [];
       const reached = callees.flatMap((c) => (c.connected ? [c.connected] : []));
@@ -314,8 +341,12 @@ export function addStatePreservingForwarders(
       // Only a different footprint is a change, so proving the same wrappers again comes to rest.
       if (
         prior?.kind === "state-preserving-forwarder" &&
-        JSON.stringify([prior.footprint, prior.calls, prior.writes.length]) ===
-          JSON.stringify([summary.footprint, summary.calls, summary.writes.length])
+        JSON.stringify([prior.footprint, prior.calls, prior.writes.map((w) => [w.offset, w.value, w.condition])]) ===
+          JSON.stringify([
+            summary.footprint,
+            summary.calls,
+            summary.writes.map((w) => [w.offset, w.value, w.condition]),
+          ])
       )
         continue;
       summaries.set(code.address, summary);
@@ -323,4 +354,34 @@ export function addStatePreservingForwarders(
     }
     if (!changed) break;
   }
+}
+
+/** A value or test of the callee's part and its arguments, with the bound arguments put in; undefined otherwise. */
+function bind<T extends Expression | Predicate>(e: T, bound: Map<number, number>): T | undefined {
+  const go = (x: Expression | Predicate): Expression | Predicate | undefined => {
+    switch (x.kind) {
+      case "constant":
+      case "true":
+        return x;
+      case "field":
+        if (x.object === "part" && !x.unresolved) return x;
+        if (x.object !== "argument" || !bound.has(x.offset)) return undefined;
+        return { kind: "constant", value: bound.get(x.offset)! & (2 ** x.width - 1), width: x.width };
+      case "binary": {
+        const [left, right] = [go(x.left), go(x.right)];
+        return left && right ? { ...x, left: left as Expression, right: right as Expression } : undefined;
+      }
+      case "compare": {
+        const [left, right] = [go(x.left), go(x.right)];
+        return left && right ? { ...x, left: left as Expression, right: right as Expression } : undefined;
+      }
+      case "and": {
+        const terms = x.terms.map(go);
+        return terms.every(Boolean) ? { ...x, terms: terms as Predicate[] } : undefined;
+      }
+      default:
+        return undefined;
+    }
+  };
+  return go(e) as T | undefined;
 }

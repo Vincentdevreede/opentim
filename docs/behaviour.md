@@ -1172,6 +1172,13 @@ conditional ones from 126 to 128 in Even More and from 120 to 122 in TIM 1. One 
 same way (`0x8744` in the Even More English floppy). No walk changes, and no routine keeps the forgotten footprint any
 more.
 
+The wrapper also passes the byte 1 to `0x65c1` (`mov ax, 1; push ax` right before it pushes the part). A field a
+helper writes exactly, as a value of its part and of a number the wrapper passes this way, now carries over with its
+value and its test instead of becoming "Conditional state-preserving-forwarder effect". So the magnifying glass's
+`0x14` after the call is 1 unless its type is 49, which it isn't: the relay's byte, as in
+[Found lists and parts reached through ropes](#found-lists-and-parts-reached-through-ropes). That was the last rule
+with an unknown write in both measured builds: Even More, English floppy, goes from 1 to 0, TIM 1, French, from 1 to 0.
+
 ### The control value's known numbers
 
 Many parts move their frame by a control value, as in "frame + control value", that other parts and their own

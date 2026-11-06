@@ -10,6 +10,8 @@ function fixture(
     wrongReturn?: boolean;
     unbalanced?: boolean;
     bypass?: boolean;
+    /** A number the wrapper passes after the part, by `mov ax, number; push ax`. */
+    passes?: number;
   } = {},
 ) {
   const image = new Uint8Array(0x200);
@@ -24,12 +26,14 @@ function fixture(
     ...(options.changedOwner ? [0x46] : []),
     ...(options.changedFrame ? [0x45] : []),
     ...(options.unbalanced ? [0x58, 0x58, 0x58] : []),
+    ...(options.passes === undefined ? [] : [0xb8, options.passes & 255, options.passes >> 8, 0x50]),
     0x56,
     0x0e,
     0xe8,
     0,
     0,
     0x59,
+    ...(options.passes === undefined ? [] : [0x59]),
     0x5e,
     0x5d,
     0xcb,
@@ -179,6 +183,31 @@ describe("state-preserving forwarding wrappers", () => {
     expect(owner).toMatchObject({ offset: 0x14, width: 8, argumentOffset: 6, path: [] });
     expect(owner.value.kind).toBe("unknown");
     expect(owner.condition.kind).toBe("unknown");
+  });
+  it("carries a helper's exact write with the number the wrapper passes it", () => {
+    const { code, summaries, helper } = fixture({ passes: 1 });
+    complete(helper);
+    helper.writes[0] = {
+      ...helper.writes[0]!,
+      exact: true,
+      condition: {
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "field", object: "part", offset: 4, width: 16 },
+        right: { kind: "constant", value: 49, width: 16 },
+        signed: false,
+      },
+    };
+    addStatePreservingForwarders(new Map([[0, code]]), summaries);
+    const owner = summaries.get(0)!.writes.find((write) => write.root === "argument")!;
+    expect(owner).toMatchObject({ offset: 0x14, exact: true, value: { kind: "constant", value: 1, width: 8 } });
+    expect(owner.condition).toMatchObject({ kind: "compare", operator: "!=" });
+    // Without the number the value stays the helper's own argument, so it doesn't carry over.
+    const plain = fixture();
+    complete(plain.helper);
+    plain.helper.writes[0] = { ...plain.helper.writes[0]!, exact: true };
+    addStatePreservingForwarders(new Map([[0, plain.code]]), plain.summaries);
+    expect(plain.summaries.get(0)!.writes.find((write) => write.root === "argument")!.value.kind).toBe("unknown");
   });
   it("composes again once a later proof completes a helper's footprint", () => {
     const { code, summaries, helper } = fixture();
