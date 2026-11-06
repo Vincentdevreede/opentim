@@ -78,7 +78,11 @@ the level), and every one of those is listed by name.
   - when hit, it pauses and shows stars, then bikes on;
   - if the shade isn't pulled down again, it doesn't start again.
 
-  Then ask whether the recorded bikes had a belt attached.
+  - a belt from the bike can drive another part, like a jack-in-the-box: check that what the bike writes into the
+    belt is what the jack reads.
+
+  Whether the recorded bikes had a belt attached is unknown (the bike works with or without one), so the 32
+  recordings stay open.
 
 ## E. Parts without a recording
 
