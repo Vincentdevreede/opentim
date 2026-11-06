@@ -1120,6 +1120,33 @@ and 0 different (Even More) and 504, 48, 0 (TIM 1). What is left unknown is a he
 exact condition (the contact speed limit, owner field relations), the order a created object takes in a sorted list,
 and a few values the symbolic budget gives up on.
 
+### The owner's rope fields after the relay
+
+After the relay, the owner's rope links (`0x5a` to `0x60`, `0x6a`, `0x6c`) and rope ends (`0x96`, `0x9c`) stay
+"part after field effect". Whether a rope or belt can lead from a part back to itself doesn't decide them (it never
+can, by the user's answer, and no shipped level has one). What the code shows (Even More, English floppy; the same
+structure in all eleven builds):
+
+- **Rope records.** A rope record's slot 0 is the part that holds it, slots 2 and 4 are the two tied parts (the far end
+  helper `0x7b11` picks between them). Only four places store slot 0, each with the part the record is made for: the
+  level loader (`0x1386b`), the rope's and the pulley's constructors (`0x160e7` and `0x1604b`, type 10 and 7) and the
+  part copy (`0x6783`, only for types 10 and 7). The loader makes a record for any part whose rope data in the file is
+  set, whatever its type; in every shipped level of the eleven builds only ropes and pulleys have it.
+- **Rope ends.** The relay gives its byte to slot 0 of the owner's rope records, and the rope geometry update writes
+  `0x96` and `0x9c` only there, and not at all while `[0x4a6d]` is `0x2000`. So the owner's ends change only when the
+  owner holds its own rope record: a rope piece or a pulley, or a part a level file gave rope data. The relay's owners
+  are 27 part types, none a rope or a pulley.
+- **Rope links.** These come only from the belt end check (`0x582a`), which runs while `[0x4a6d]` is `0x1000` and the
+  owner's belt has a loose end. It looks for the part under a point held in `0x539b` and `0x539d` and may turn round a
+  rope tied to it (`0x4e50`, `0x4d3e`). That part can be the owner whatever the ropes look like.
+- **When the relay runs.** Every call of the relay comes from a flip callback (`+0x2e`), which the editor calls
+  (`0x5314`, and the flip buttons on the selected part at `0x11660` and `0x11692`). What mode `0x1000` means isn't
+  proved: it is set at seven places, three of them only around a call of the rope routine `0x6c3d` (`0x8156`,
+  `0x821c`, `0x1cb2c`) and one inside the scissors' cut until `0x1cdee` puts the old mode back (`0x1cd47`).
+
+So the analysis keeps both groups named after the call. Knowing them would take a decision: that only ropes and
+pulleys hold a rope record (the loader trusts the file), and that a flip never meets a belt with a loose end.
+
 ### The magnifying glass's last call
 
 At the end of its run, the magnifying glass (Even More English floppy: run at `0x1c0ac`, call at `0x1c21c`) passes

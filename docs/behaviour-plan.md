@@ -60,9 +60,9 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       `0x14` is now 2 in 37 rules of Even More and 33 of TIM 1. Rope links and ends of a reached part are "value the
       call writes to a selected part", and the owner after such a call is "part after field effect". With B1, rules
       with unknown writes go from 242 to 33 of 925 (Even More) and 218 to 28 of 764 (TIM 1), counted by the new rule;
-      rules with named run values from 5 to 214 and 5 to 195. Walks and recordings don't change. Open: whether a
-      rope or belt can lead from a part back to itself (if it never can, the owner's rope links and ends after the
-      call would stay known).
+      rules with named run values from 5 to 214 and 5 to 195. Walks and recordings don't change. A rope or belt never
+      leads from a part back to itself (the user's answer, true in every shipped level), but that isn't what keeps the
+      owner's rope links and ends: see "The owner's rope fields after the relay". Two questions stay open there.
 - [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
       part type each one creates and give its starting fields. Done: they make a rope end, a cannonball, a bullet and an
       explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
