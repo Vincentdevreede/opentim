@@ -749,21 +749,29 @@ export function summariseDoings(description: BehaviourDescription): Record<numbe
               ? "itself"
               : undefined;
         if (!on) continue;
-        const line = lines.get(e.description);
-        if (line) {
-          line.ways++;
-          if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
-            line.confidence = e.confidence;
-          continue;
+        // A way that changes several things says each in a sentence of its own, so each one is a line; of its own
+        // flags only those with a proved meaning. A created part's sentences belong together.
+        const sentences =
+          on === "created"
+            ? [e.description]
+            : e.description.split(/(?<=\.) (?=[A-Z])/).filter((t) => on === "others" || PROVED.test(t));
+        for (const sentence of sentences) {
+          const line = lines.get(sentence);
+          if (line) {
+            line.ways++;
+            if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
+              line.confidence = e.confidence;
+            continue;
+          }
+          lines.set(sentence, {
+            confidence: e.confidence,
+            assumptions: e.assumptions,
+            evidence: instructions(e.evidence),
+            on,
+            description: sentence,
+            ways: 1,
+          });
         }
-        lines.set(e.description, {
-          confidence: e.confidence,
-          assumptions: e.assumptions,
-          evidence: instructions(e.evidence),
-          on,
-          description: e.description,
-          ways: 1,
-        });
       }
       return [d.type, [...lines.values()]];
     }),

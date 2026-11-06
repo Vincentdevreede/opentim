@@ -647,7 +647,7 @@ describe("summariseDoings", () => {
           line("related-object", cannonball),
           line("drawing", ran),
           line("drawing", ran, "unresolved"),
-          line("drawing", "Sets flag 0x200 of the part's drawing flags."),
+          line("drawing", `Sets flag 0x200 of the part's drawing flags. ${ran}`),
           line("helper", "Can call a shared helper: Turns a rope around."),
           line("related-object", relay),
         ],
@@ -664,8 +664,8 @@ describe("summariseDoings", () => {
     ]);
   });
 
-  it("makes ways that say the same one line, as unsure as the least sure of them", () => {
-    expect(doings[1]).toMatchObject({ ways: 2, confidence: "unresolved" });
+  it("makes each sentence one line, and ways that say the same one line, as unsure as the least sure of them", () => {
+    expect(doings[1]).toMatchObject({ ways: 3, confidence: "unresolved" });
     expect(doings[0]).toMatchObject({ ways: 1, confidence: "inferred" });
   });
 });
