@@ -122,6 +122,18 @@ export interface OtherPartEffect extends Finding {
    * it isn't a number.
    */
   touch?: { returns?: number };
+  /**
+   * When the same part does the same on paths whose tests can't be said as one: each path's tests, the way
+   * `sourceCondition` and `condition` say them. The line holds when one of them holds; `sourceCondition`, `condition`
+   * and their words then keep only the tests every case makes.
+   */
+  cases?: {
+    sourceCondition: Predicate;
+    sourceConditionWords: string[];
+    condition: Predicate;
+    conditionWords: string[];
+    words: string;
+  }[];
   description: string;
 }
 
@@ -584,7 +596,8 @@ export function effectsFromOthers(
     }
     const lines: OtherPartEffect[] = [];
     const rank: Record<Confidence, number> = { checked: 0, inferred: 1, unresolved: 2 };
-    for (const group of groups.values())
+    for (const group of groups.values()) {
+      const start = lines.length;
       for (const { tests, value, joined } of joinPaths(group, (into, from) => {
         for (const a of from.assumptions) into.assumptions.add(a);
         into.evidence = uniqueEvidence([...into.evidence, ...from.evidence]);
@@ -661,9 +674,54 @@ export function effectsFromOthers(
             ]),
           ],
           evidence: value.evidence,
-        });
+          caseWords: [sourcePhrases.join(" and "), toucherWords.join(" and ")].filter(Boolean).join(", and "),
+        } as OtherPartEffect & { caseWords: string });
       }
+      // Lines of one group set the same and differ only in their tests: they are one line with each path as a case.
+      const made = lines.splice(start) as (OtherPartEffect & { caseWords: string })[];
+      if (made.length === 1) lines.push(withoutCaseWords(made[0]!));
+      else if (made.length > 1) lines.push(casesLine(made));
+    }
     return lines;
+  };
+  const withoutCaseWords = (line: OtherPartEffect & { caseWords?: string }): OtherPartEffect => {
+    const copy = { ...line };
+    delete copy.caseWords;
+    return copy;
+  };
+  /** One line for lines that set the same: the tests every case makes stay on the line, the rest go to `cases`. */
+  const casesLine = (made: (OtherPartEffect & { caseWords: string })[]): OtherPartEffect => {
+    const first = made[0]!;
+    const common = (list: (line: OtherPartEffect) => Predicate[]) =>
+      list(first).filter((term) =>
+        made.every((line) => list(line).some((t) => JSON.stringify(t) === JSON.stringify(term))),
+      );
+    const commonWords = (list: (line: OtherPartEffect) => string[]) =>
+      list(first).filter((word) => made.every((line) => list(line).includes(word)));
+    const name = nameOf(first.sourcePart);
+    const { said } = sayings(first.sets, name);
+    const tail = / (Its bounce returns|The game may go on).*$/.exec(first.description)?.[0] ?? "";
+    const rank: Record<Confidence, number> = { checked: 0, inferred: 1, unresolved: 2 };
+    return {
+      ...withoutCaseWords(first),
+      sourceCondition: conjunction(common((line) => terms(line.sourceCondition))),
+      sourceConditionWords: commonWords((line) => line.sourceConditionWords),
+      condition: conjunction(common((line) => terms(line.condition))),
+      conditionWords: commonWords((line) => line.conditionWords),
+      cases: made.map((item) => ({
+        sourceCondition: item.sourceCondition,
+        sourceConditionWords: item.sourceConditionWords,
+        condition: item.condition,
+        conditionWords: item.conditionWords,
+        words: item.caseWords,
+      })),
+      description: `${article(name)} ${name} it touches ${said.join(" and ")} in ${made.length} cases: ${made
+        .map((item, n) => `(${n + 1}) when ${item.caseWords}`)
+        .join("; ")}.${tail}`,
+      confidence: made.map((item) => item.confidence).reduce((a, b) => (rank[b] > rank[a] ? b : a)),
+      assumptions: [...new Set(made.flatMap((item) => item.assumptions))],
+      evidence: uniqueEvidence(made.flatMap((item) => item.evidence)),
+    };
   };
   const candidates: Candidate[] = [];
   const touches: TouchCandidate[] = [];

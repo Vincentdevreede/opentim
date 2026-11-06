@@ -903,6 +903,15 @@ What the user sees in the game (asked on 2026-11-06) fits two of these lines:
   it is mirrored. That this end is the back and not the head is what the user saw, not something the code shows.
 - A running conveyor belt pushes a ball under it against the belt's direction, as its bounce does on the underside.
 
+### Touch lines with cases
+
+The gear's push gave each moving part 96 lines: 2 turning directions, each read from two state differences, times 8
+edges, times the limit cases. Paths whose tests differ in more than one value can't be joined into one test, so they
+stayed apart. Lines from the same routine that set the same and return the same are now one line with `cases`: each
+path's tests, in words, and a line holds when one case holds. The tests every case makes stay on the line. A
+basketball now gets 24 lines from the gear, like "A gear it touches adds 4096 to velocityX in 4 cases: (1) when ...".
+The lab shows a "N cases" chip and lists them in the row's tip.
+
 ### Exact helper stores
 
 The gear's bounce (`0x1b032` in Even More, English floppy) used to give no line. It pushes the part that touches it

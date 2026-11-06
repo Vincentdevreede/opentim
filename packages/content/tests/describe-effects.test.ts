@@ -418,6 +418,32 @@ describe("effects of parts that touch", () => {
     ]);
   });
 
+  it("gives the same setting on paths whose tests can't be said as one a single line with each path as a case", () => {
+    const both = {
+      ...report,
+      routines: [
+        {
+          address: 0x1da61,
+          outcomes: [
+            outcome([mirrored(false), edge(0)], [touchWrite(0x38, c(0xfa00))]),
+            outcome([mirrored(true), edge(2)], [touchWrite(0x38, c(0xfa00))]),
+          ],
+        },
+      ],
+    } as unknown as BehaviourReport;
+    const cat = effectsFromOthers(both, evaluateBehaviourCondition)
+      .get(12)!
+      .effects.filter((e) => e.touch);
+    expect(cat).toHaveLength(1);
+    expect(cat[0]!.cases?.map((item) => item.words)).toEqual([
+      "the alligator is not mirrored, and its contactEdge is 0",
+      "the alligator is mirrored, and its contactEdge is 2",
+    ]);
+    expect(cat[0]!.description).toBe(
+      "An alligator it touches sets velocityY to -1536 in 2 cases: (1) when the alligator is not mirrored, and its contactEdge is 0; (2) when the alligator is mirrored, and its contactEdge is 2. Its bounce returns 0 then, so no contact response follows.",
+    );
+  });
+
   it("leaves out a fixed type by the decided assumption, and a part whose rules read the field", () => {
     expect(lines.get(1)).toEqual({ effects: [], assumptions: [FIXED_LIST_ASSUMPTION] });
     expect(touches(20)).toEqual([]);

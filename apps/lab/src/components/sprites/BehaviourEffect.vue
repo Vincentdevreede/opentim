@@ -18,6 +18,9 @@ const tip = computed(() =>
       : [
           `It points from the ${props.name.toLowerCase()}'s centre to this part's, within ${props.effect.awayWithin}°.`,
         ]),
+    ...(props.effect.cases
+      ? ["", `In ${props.effect.cases.length} cases:`, ...props.effect.cases.map((c, n) => `${n + 1}. ${c}`)]
+      : []),
     "",
     `When the ${props.name.toLowerCase()} has: ${props.effect.sourceCondition}`,
     "",
@@ -37,8 +40,12 @@ const tip = computed(() =>
           ><span class="text-accent">{{ s.value }}</span></span
         >
       </span>
-      <span v-if="effect.touch || effect.sourceWhen.length || effect.when.length" class="ml-auto flex flex-wrap gap-1">
+      <span
+        v-if="effect.touch || effect.cases || effect.sourceWhen.length || effect.when.length"
+        class="ml-auto flex flex-wrap gap-1"
+      >
         <LabChip v-if="effect.touch" tone="faint">touching</LabChip>
+        <LabChip v-if="effect.cases" tone="faint">{{ effect.cases.length }} cases</LabChip>
         <LabChip v-for="w in effect.sourceWhen" :key="`source ${w}`" tone="faint">{{ w }}</LabChip>
         <LabChip v-for="w in effect.when" :key="w">{{ w }}</LabChip>
       </span>

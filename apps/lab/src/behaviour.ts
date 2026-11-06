@@ -136,6 +136,8 @@ export interface OtherEffect extends Finding {
   /** What the source must be, in a few words, like `mirrored`, and its whole condition as text. */
   sourceWhen: string[];
   sourceCondition: string;
+  /** When it does this on paths whose tests can't be said as one: each path's tests in words. */
+  cases?: string[];
   /** The analysis's own sentence. */
   description: string;
 }
@@ -665,6 +667,7 @@ export function summariseEffects(
           when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
           sourceWhen: e.sourceConditionWords,
           sourceCondition: write.predicate(e.sourceCondition),
+          ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
           description: e.description,
         };
       }),
