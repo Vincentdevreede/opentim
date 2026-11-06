@@ -1420,6 +1420,46 @@ describe("creation defaults and related input conditions", () => {
     expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
       "Sets field 0x1e of the object it creates at 0x1b3a1.",
     );
+    // With the type the routine passes the factory, one line per way says which part it makes and where.
+    const bullet = "nullable allocation returned at 0x1b3a1";
+    data.layout.fields.push(
+      ...(
+        [
+          ["positionX", 0x1e],
+          ["positionY", 0x20],
+          ["velocityX", 0x36],
+        ] as const
+      ).map(([name, offset]) => ({ name, offset, ...proof })),
+    );
+    data.parts.push({ ...data.parts[0]!, id: "bullet", type: 20, routines: [] });
+    data.createdParts = [{ ...proof, routine: 300, call: 0x1b3a1, type: 20 }];
+    const flipped = test(8, "!=", 0);
+    const made = [
+      { ...write(0x1e, add(0x1e, 0xffe0)), object: bullet, routine: 300 },
+      { ...write(0x20, add(0x20, 3)), object: bullet, routine: 300 },
+      { ...write(0x36, constant(0xd000)), object: bullet, routine: 300, condition: flipped },
+      { ...write(0x22, add(0x1e, 0xfff8)), object: bullet, routine: 300 },
+      { ...write(0x06, { kind: "unknown", reason: "flags", width: 16 }), object: bullet, routine: 300 },
+    ];
+    data.routines[2]!.writes = made;
+    data.routines[2]!.outcomes = [
+      {
+        ...proof,
+        effectsComplete: true,
+        condition: flipped,
+        fields: [
+          ...made.slice(0, 2),
+          { ...made[2]!, value: { kind: "unknown", reason: "Conditional contact-velocity-limit effect", width: 16 } },
+          ...made.slice(3),
+        ],
+        returnValue: constant(0),
+      },
+    ];
+    const creates = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(creates).toContain(
+      "Creates a bullet (type 20) at positionX = its positionX - 32 and positionY = its positionY + 3, moving at velocityX = -12288 (kept within the bullet's speed limit). It also sets 0x22 to its positionX - 8 and changes its 0x06.",
+    );
+    expect(creates.join(" ")).not.toContain("object it creates");
     // A counter says which field it counts with.
     data.parts[0]!.counters = [{ ...proof, offset: 0x96, comparisons: [{ ...proof }] }] as never;
     expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(

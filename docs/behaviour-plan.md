@@ -49,8 +49,10 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       part's own fields.
 - [ ] **B3. Parts reached through ropes and belts (`0x14`, `0x5a`, `0x5c`).** Short in many parts (one or two rules
       each). Name them through the relay that is already proved.
-- [ ] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
-      part type each one creates and give its starting fields.
+- [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
+      part type each one creates and give its starting fields. Done: they make a rope end, a pinball, a bullet and an
+      explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
+      Its speed limit and list links stay unnamed, and the merged rules wait for B0.
 - [ ] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,
       `0x1e`, `0x36`), mouse (`0x16`, `0x18`), gear (connected parts at `0x0c`, `0x12`), monkey bike and light bulb (`0x6a`,
       `0x6b`), dynamite (`0x08`, `0x72`, `0x73`), mouse motor (`0x12`, `0x96`), electric switch (`0x12`). Prove each one or

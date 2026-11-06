@@ -1675,8 +1675,8 @@ of the record of its rope at 0x66" when asked with mode 1. A bounce callback's w
 that touched its owner (see [walks from parts that touch](#walks-from-parts-that-touch)): "Selects state 9 on the
 touching part" instead of "on another part". And an overlap query's writes to the parts it finds say "Links a part its
 search finds into its found list (field 0x78)" and "May change field 0x7a of a part its search finds". Writes to an
-object the routine allocates itself, like the cannon's ball, say "Sets field 0x1e of the object it creates at
-0x19ba8", without claiming the object is a part.
+object the routine allocates itself said "Sets field 0x1e of the object it creates at 0x19ba8", without claiming the
+object is a part; see [parts a part makes](#parts-a-part-makes) for what they say now.
 
 A flip that turns a drawing flag round with an exclusive or (`xor word [si+0x08], 0x0010`) now says so: "Turns the
 part's horizontal reflection round", or the vertical one for `0x20`, as the eye hook's flip does. It used to say the
@@ -1794,6 +1794,44 @@ values on the same path, like the cat's position after its search loop. Every wa
 animation changes; the monkey bike's walk from its creation rests after one run instead of two, since its drawing
 position now stays known. A periodic walk leaves out the drawing fields no rule reads, since their values depend on
 the frame.
+
+### Parts a part makes
+
+The balloon, cannon, gun and dynamite plunger make a part with the part factory (`0x15d9b` in Even More, English
+floppy; `0x145d7` in TIM 1, French). The factory takes the type as its one argument, stores it as the new part's type
+word (`mov [si+0x04], di`) and calls that type's constructor. Each of the four pushes a number right before its call,
+so the type is that number:
+
+| Part             | Call (Even More) | Pushes | Makes     |
+| ---------------- | ---------------- | -----: | --------- |
+| balloon          | `0x192d3`        | `0x31` | rope end  |
+| cannon           | `0x19ba8`        | `0x2b` | pinball   |
+| gun              | `0x1b3a1`        | `0x14` | bullet    |
+| dynamite plunger | `0x1c3c1`        | `0x29` | explosion |
+
+Helpers make parts the same way: an explosion at `0x1a432`, and in the other builds the scissors' rope cut makes two rope ends and a rope (types `0x31` and `0x0a`). The reader takes the type only from `mov` of a number into a
+register and `push` of that register, or a `push` of a number, right before the far call, with nothing jumping to the
+push or the call, and only for a factory whose own store of its argument as the type word it has proved
+(`createdParts` in the report). The other factory calls in both builds pass a type they read, and get no type.
+
+The effect lines used to give one line per field ("Sets field 0x1e of the object it creates at 0x1b3a1"). Now each
+way through the routine that leaves fields on the new part gives one line, with the fields that way leaves on it, the
+frame the type's constructor starts it on when the creation defaults know it, and the other fields it sets by name.
+The gun, when not flipped: "Creates a bullet (type 20) at positionX = its positionX + 36 and positionY = its positionY
+
+- 3, moving at velocityX = 12288 and the bullet's starting velocityY (each kept within the bullet's speed limit). It
+  also sets previousX to its positionX + 12, previousY to its positionY + 3, ...". Flipped, the bullet starts at
+  positionX - 32 and moves at -12288. The cannon's pinball starts at positionX + 97 (flipped - 48) and positionY - 7,
+  moving at 12288 (or -12288) and -4096. The plunger's explosion starts at its positionX - 16 (flipped + 80) and its
+  positionY. The balloon's rope end starts at the end point its rope record keeps for the balloon's end of the rope, and
+  takes over the balloon's rope links at `0x5a` and `0x66`.
+
+Two values stay unnamed and the lines say so in words. The speeds go through the speed limit at `0x37bc`, which
+limits each speed to the value in the new part's type record; the routine's speed is given as the value it stored
+before that limit. And the list insertion at `0x629d` links the new part between neighbours it picks while the game
+runs ("links it into a list of parts"). Neither is fixed by the code, so the rules' writes of `0x00`, `0x02`, `0x36`
+and `0x38` on the new part stay unknown, and the rules that make a part still count as rules with an unknown write.
+Their other unknown writes come from merging paths that set a field differently (step B0 of the plan).
 
 ### The type record word the game writes
 
