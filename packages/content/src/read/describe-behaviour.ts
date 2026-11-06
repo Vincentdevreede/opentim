@@ -4325,11 +4325,16 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         // A case a decided assumption rules out, like the monkey bike pedalling with its counter at 0, isn't walked.
         const offset = stateOffsetOf(report);
         if (offset !== undefined && impossibleState(part, offset, bindingsOf(input.fields))) return;
-        // Nor is a case that needs a frame the part doesn't have, like a frame above the fish bowl's last.
+        // Nor is a case that needs a frame the part doesn't have, like a frame above the fish bowl's last. A part the
+        // program draws itself has the frames a decided assumption gives it in the middle of a run, as in the walks:
+        // the gear's run tests its frame for -1, but its frame is always 0 to 3 when a run starts.
         const frameCount = (part as WithFrameCount).frameCount;
-        if (offset !== undefined && frameCount && frameCount <= 32) {
+        const drawn = frameCount ? undefined : LEVEL_FRAMES.get(part.id);
+        const frames =
+          frameCount && frameCount <= 32 ? [...Array(frameCount).keys()] : drawn && (drawn.shown ?? drawn.frames);
+        if (offset !== undefined && frames) {
           const seeded = bindingsOf(input.fields);
-          const anyFrame = [...Array(frameCount).keys()].some((frame) => {
+          const anyFrame = frames.some((frame) => {
             const fields = new Map(seeded);
             const before = readField(fields, "part", offset, 16);
             if (known(before) && before.value !== frame) return false;

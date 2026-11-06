@@ -1792,6 +1792,21 @@ most 64 times. So every case is now kept, with a safety bound of 1024 that no pa
 keep the note that more cases remain. The descriptions grow by about a tenth and take about a tenth longer, and the
 recordings compare the same.
 
+### The gear's frame -1
+
+One gear note read "At frame 65535, the next state depends on...". A gear never reaches that frame. Its run adds the
+control value at `0x12` to its frame and wraps -1 to 3 and 4 to 0, and the advancement of connected gears does the
+same (see [connected gear traversals](#connected-gear-traversals)); the reset keeps the saved frame, which a level
+gives as 0 to 3 ([the decided assumption](behaviour-assumptions.md#6-the-gears-starting-frame)), and creation sets 0. So a run always starts on 0 to 3. The run's rules still test for -1 and 4, because the code tests the frame after
+it adds the control value. The input cases turned the test "the frame is -1" into a case that starts on frame -1,
+and that case gave the note.
+
+The rules were read right; the case was not one the game can be in. An input case now has to allow a frame the part
+can be on in the middle of a run: one of its own frames, or for a part the program draws itself, the frames its decided
+assumption gives (as the walks already use). The gear loses its cases on frames -1 and 4, and no walk stands on frame
+65535 any more. The cases that test the frame after adding the control value against 65535 stay: that test is real.
+The recordings compare the same.
+
 ### Where a part is drawn and how large its frame is
 
 After a routine changes a part's frame, it calls two shared helpers (`0x68aa` and `0x6940` in Even More, English

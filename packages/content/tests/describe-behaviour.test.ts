@@ -1574,6 +1574,20 @@ describe("creation defaults and related input conditions", () => {
     expect(part.uncertainties.join(" ")).not.toContain("conditional input cases");
   });
 
+  it("starts no input case on a frame a part the program draws never has, like the gear's -1", () => {
+    const data = report([
+      rule(constant(3), both(test(12, "==", 0xffff), test(0x30, "==", 0))),
+      rule(constant(0), both(test(12, "==", 2), test(0x30, "==", 0))),
+      rule(field(12), test(0x30, "!=", 0)),
+    ]);
+    data.parts[0]!.id = "gear";
+    data.parts[0]!.frameCount = 0;
+    const cases = describeBehaviour(data).parts[0]!.animations.filter((animation) => animation.initial === "run-guard");
+    const starts = cases.flatMap((animation) => animation.initialFields!.filter((f) => f.offset === 12));
+    expect(starts.map((f) => f.value)).toContain(2);
+    expect(starts.map((f) => f.value)).not.toContain(0xffff);
+  });
+
   it("lists the frames the walks rest on when no run outcome gives one", () => {
     // From the saved frame the run goes 0, 1, 2 and stays on 2, but no single run outcome shows that.
     const data = report(

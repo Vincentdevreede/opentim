@@ -29,7 +29,7 @@ Starting point:
       in plain words. Done when neither note is left without a named reason.
 - [x] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
       Show all of them or prove the rest repeat the first 64.
-- [ ] **A6. The gear's frame 65535.** One gear note talks about frame 65535 (that is -1). Find out whether a gear can
+- [x] **A6. The gear's frame 65535.** One gear note talks about frame 65535 (that is -1). Find out whether a gear can
       really reach it or whether it is a reading error.
 
 ## B. Name the values that are only known while the game runs
