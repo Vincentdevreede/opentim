@@ -178,11 +178,13 @@ const { values } = parseArgs({
     oracle: { type: "string" },
     models: { type: "string" },
     out: { type: "string" },
+    // Leaves out the description files (about 300 MB a build), for measuring many builds in one run.
+    "no-descriptions": { type: "boolean" },
   },
 });
-if (!values.baseline?.length || !values.reports?.length || !values.oracle || !values.out)
+if (!values.reports?.length || !values.oracle || !values.out)
   throw new Error(
-    "Give --baseline <saved file or folder>, --reports <new file or folder>, --oracle <animations.json> and --out <folder>. Repeat report options as needed.",
+    "Give --reports <new file or folder>, --oracle <animations.json> and --out <folder>, and --baseline <saved file or folder> to compare with. Repeat report options as needed.",
   );
 const out = resolve(values.out);
 mkdirSync(out, { recursive: true });
@@ -246,7 +248,7 @@ interface ComparisonResult {
 const VAGUE = /isn't established|not established/;
 const results: ComparisonResult[] = [];
 for (const phase of ["baseline", "reports"] as const) {
-  const paths = [...new Set(values[phase]!.flatMap((path) => filesAt(resolve(path))))];
+  const paths = [...new Set((values[phase] ?? []).flatMap((path) => filesAt(resolve(path))))];
   for (const path of paths) {
     const data = readJson(path);
     if (!object(data) || !Array.isArray(data.parts) || !Array.isArray(data.routines) || typeof data.listId !== "string")
@@ -258,8 +260,10 @@ for (const phase of ["baseline", "reports"] as const) {
     const description = describeBehaviour(report);
     const describeMilliseconds = performance.now() - started;
     const descriptionName: string = `${phase}-${results.length + 1}-${basename(path, ".json")}.description.json`;
-    writeDescription(join(out, descriptionName), description);
-    writeDescriptionMarkdown(join(out, descriptionName.replace(/\.json$/, ".md")), description);
+    if (!values["no-descriptions"]) {
+      writeDescription(join(out, descriptionName), description);
+      writeDescriptionMarkdown(join(out, descriptionName.replace(/\.json$/, ".md")), description);
+    }
     const measured = match ? oracle[match.version] : undefined;
     const parts = report.parts.map((part) => {
       const clips = object(measured)
@@ -377,7 +381,7 @@ for (const phase of ["baseline", "reports"] as const) {
         : "No exact executable hash matched an oracle model; measured walk coverage is unavailable.",
     });
     console.log(
-      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.namedRunValueTransitions} with named run values, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete (${summary.walkBasis.completeFromSeededStates} of them from a seeded state, ${summary.walkBasis.completeFromRecorderFields} through the recorder's fields, ${summary.walkBasis.completeFromRecorderSkippedSearches} through a recorder-skipped search), ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
+      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.namedRunValueTransitions} with named run values, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${match ? `recordings of ${match.version}` : "no recordings of this executable"}, ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete (${summary.walkBasis.completeFromResetOrRest} from the reset or a resting frame, ${summary.walkBasis.completeFromCreation} from creation, ${summary.walkBasis.completeFromInputCases} from an input case, ${summary.walkBasis.completeFromSeededStates} from a seeded state, ${summary.walkBasis.completeFromRecorderFields} through the recorder's fields, ${summary.walkBasis.completeFromRecorderSkippedSearches} through a recorder-skipped search), ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
     );
   }
 }
@@ -470,7 +474,9 @@ for (const result of results.filter((item) => item.phase === "final")) {
     "",
     `## ${result.source?.folder ?? result.report}`,
     "",
-    `Description: [${result.description}](${result.description}).`,
+    values["no-descriptions"]
+      ? "Description files were left out."
+      : `Description: [${result.description}](${result.description}).`,
     "",
     "| Part | Reset | Documented stable states | Measured clips | Complete | Prefix | Different | No compatible start | Main uncertainty |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
@@ -481,5 +487,8 @@ for (const result of results.filter((item) => item.phase === "final")) {
     );
 }
 writeFileSync(join(out, "report.md"), lines.join("\n") + "\n");
-if (!results.some((result) => result.phase === "baseline") || !results.some((result) => result.phase === "final"))
+if (
+  (values.baseline?.length && !results.some((result) => result.phase === "baseline")) ||
+  !results.some((result) => result.phase === "final")
+)
   throw new Error("No valid baseline or final behaviour reports were found");
