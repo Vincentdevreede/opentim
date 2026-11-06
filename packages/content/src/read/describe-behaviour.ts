@@ -10,6 +10,7 @@ import {
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, partFields, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
+import { createdPartLines, createdPartOf } from "./describe-created.ts";
 import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
 import { choiceOf } from "./behaviour.ts";
 import type {
@@ -3539,7 +3540,9 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   };
   const related = report.relatedObjectEffects.filter((effect) => effect.sourceType === part.type);
   outlines(related.map((effect) => effect.write));
-  for (const effect of related.filter((effect) => outlineOwner(report, effect.write.object) === undefined))
+  for (const effect of related.filter(
+    (effect) => outlineOwner(report, effect.write.object) === undefined && !createdPartOf(report, effect.write.object),
+  ))
     effects.push({
       kind: "related-object",
       description: fieldEffectWords(effect.write, report, true),
@@ -3586,7 +3589,12 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
       });
     outlines(routine?.writes ?? []);
     for (const write of routine?.writes ?? [])
-      if (write.object !== "part" && write.object !== "data" && outlineOwner(report, write.object) === undefined)
+      if (
+        write.object !== "part" &&
+        write.object !== "data" &&
+        outlineOwner(report, write.object) === undefined &&
+        !createdPartOf(report, write.object)
+      )
         effects.push({
           kind: "related-object",
           description: fieldEffectWords(write, report, true),
@@ -3594,6 +3602,16 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
           field: write.offset,
           routine: write.routine,
           ...finding([write]),
+        });
+    // A part the routine makes gets one line per way, with the fields that way leaves on it.
+    if (routine)
+      for (const line of createdPartLines(report, routine))
+        effects.push({
+          kind: "related-object",
+          description: line.description,
+          condition: line.condition,
+          routine: line.routine,
+          ...finding(line.items),
         });
   }
   // The same effect of one routine on several paths is one line; when the paths' conditions differ, it keeps them all.

@@ -17,7 +17,7 @@ Program addresses are written as `<address>`, since they differ between builds. 
 findings stating the assumption in one build, then in how many of the builds read it appears. Parts are those whose
 own findings or routines state it; `none, shared` means only shared helpers and report-wide findings do.
 
-Read from 5 TIM 1 and 6 Even More builds: 264 assumptions, most used first.
+Read from 5 TIM 1 and 6 Even More builds: 266 assumptions, most used first.
 
 | Assumption | TIM 1 | Even More | Parts |
 | --- | --- | --- | --- |
@@ -208,6 +208,7 @@ Read from 5 TIM 1 and 6 Even More builds: 264 assumptions, most used first.
 | Only the argument's velocity and fixed-point position words are written. The partner can equal the argument: earlier captures retain the values read before those writes. The generic caller uses only the complete non-state footprint; it does not evaluate the numerical relation. | 10 · 5/5 | 10 · 6/6 | none, shared |
 | The first argument is a near part pointer at frame offset 4, conditional on the caller passing that pointer. | 10 · 5/5 | 10 · 6/6 | none, shared |
 | A fixed amount changes this field and the routine compares it. This identifies a counter candidate, not a duration or a physical quantity. | 9 · 5/5 | 10 · 6/6 | birdcage, cannon, cat, fish-bowl, jack-in-the-box, monkey-bike and 4 more |
+| The part factory's type argument is the word pushed last before its far call. The factory stores it as the new part's type and calls that type's constructor. | 8 · 5/5 | 8 · 6/6 | none, shared |
 | A restoration identifies the stored role, not a numeric default or every initialization path. | 6 · 5/5 | 6 · 6/6 | gear |
 | The exact contact geometry and which side owns the boundary remain inferred from this producer and callback uses. | 6 · 5/5 | 6 · 6/6 | none, shared |
 | The factory's type table keeps the words it has in the program, and the factory gives each new part the word for its type. | 6 · 5/5 | 6 · 6/6 | none, shared |

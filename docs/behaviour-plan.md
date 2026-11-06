@@ -53,8 +53,10 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       part's own fields.
 - [ ] **B3. Parts reached through ropes and belts (`0x14`, `0x5a`, `0x5c`).** Short in many parts (one or two rules
       each). Name them through the relay that is already proved.
-- [ ] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
-      part type each one creates and give its starting fields.
+- [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
+      part type each one creates and give its starting fields. Done: they make a rope end, a pinball, a bullet and an
+      explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
+      Its speed limit and list links stay unnamed, and the merged rules wait for B0.
 - [ ] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,
       `0x1e`, `0x36`), mouse (`0x16`, `0x18`), gear (connected parts at `0x0c`, `0x12`), monkey bike and light bulb (`0x6a`,
       `0x6b`), dynamite (`0x08`, `0x72`, `0x73`), mouse motor (`0x12`, `0x96`), electric switch (`0x12`). Prove each one or
@@ -79,6 +81,10 @@ the level), and every one of those is listed by name.
 - [ ] **D1. Mouse motor restart, cat, mouse and Mel's house** (20 in Even More). They wait for a search to find
       another part. Decided: prove the part stays alone (no part in the recording creates another part, and the recording
       shows nothing else on the bench) and close only the recordings where both hold. No new assumption.
+      Stopped at the second check: a v25 clip saves only the recorded part's own fields, its input and the engine calls
+      it skipped, no other part and no position, so it can't show the bench. It does show that the recorder skipped
+      the very searches these parts wait for (see "Recordings that wait for a search" in `docs/behaviour.md`). All 20
+      stay open.
 - [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Still open. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

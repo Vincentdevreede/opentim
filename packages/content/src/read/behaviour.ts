@@ -32,6 +32,7 @@ import { discoverListConsumerCalls, type ListConsumerCall } from "./behaviour-li
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
 import { discoverFindFirstLoops, FIND_FIRST_ASSUMPTION } from "./behaviour-find-first-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
+import { findCreatedParts, type CreatedPart } from "./behaviour-created-parts.ts";
 import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour-scalars.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
@@ -196,6 +197,8 @@ export interface BehaviourReport {
   helpers?: EngineSummary[];
   lifecycle?: BehaviourLifecycle;
   creation?: CreationDefault[];
+  /** The parts a routine makes with the part factory, where the type it passes is a number. */
+  createdParts?: CreatedPart[];
   parts: PartBehaviour[];
   relatedObjectEffects: (Finding & {
     sourceType: number;
@@ -5152,6 +5155,11 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),
+    createdParts: findCreatedParts(
+      [...summaries.values()],
+      helpers,
+      layout.fields.find((field) => field.name === "type")?.offset ?? 4,
+    ),
     typeTable,
     assumptions: [
       "All addresses are relative to the unpacked load image, with the DOS relocation load base removed.",
