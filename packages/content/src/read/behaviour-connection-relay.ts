@@ -34,6 +34,21 @@ const PATTERNS: ConnectionPatterns = {
   relay: relayPatterns,
 };
 
+/**
+ * Decided assumption 19. A rope record's slot 0 is the part that holds it; only the level loader, the rope's and the
+ * pulley's constructors and the part copy store it, and the copy only for those two types. The loader takes it from
+ * the file for any type, but every shipped level gives a rope record only to ropes and pulleys.
+ */
+export const ROPE_HOLDER_ASSUMPTION =
+  "Only a rope piece or a pulley ever holds a rope record (slot 0 of a record at 0x66 or 0x68), so the rope geometry update never writes the rope ends 0x96 and 0x9c of a part of another type. Every rope the game makes and every shipped level says so; only a level file made outside the game could break it.";
+/**
+ * Decided assumption 20. The byte relay checks its owner's belt with the belt end check while `[0x4a6d]` is `0x1000`,
+ * and that check searches for a part, and may turn a rope round, only when one end of the belt is loose. The relay is
+ * called only from flip callbacks, which the editor calls when the player flips a part.
+ */
+export const FLIP_BELT_ASSUMPTION =
+  "In the editor a part is never flipped while one end of its belt is still loose (as while the player drags the belt's end), so the byte relay a flip callback makes never changes the rope and belt links 0x5a to 0x60, 0x6a and 0x6c through its belt end check. This is about flipping in the editor only, not about the machine running.";
+
 /** Part fields that point to rope, belt and pulley records: a belt at 0x54, ropes at 0x66 and 0x68. */
 const RECORD_LINKS = [0x54, 0x66, 0x68];
 const words = (...offsets: number[]): Field[] => offsets.map((offset) => ({ offset, width: 16 }));
@@ -136,6 +151,8 @@ function unknownWrites(code: RoutineCode, fields: Field[]): EngineWrite[] {
     condition: { kind: "unknown", reason: "The field is written on some paths through the routine." },
   }));
 }
+
+const overlaps = (a: Field, b: Field) => a.offset < b.offset + b.width / 8 && b.offset < a.offset + a.width / 8;
 
 /** The distinct fields of several lists. */
 const union = (...lists: Field[][]): Field[] => [
@@ -355,6 +372,18 @@ export function addConnectionSummaries(
       fields.some((field) => field.offset <= 0x14 && 0x14 < field.offset + field.width / 8);
     if (![ends, belt, geometry].some((callee) => touches(callee.connected?.partFields)))
       summary.connected!.values = [{ offset: 0x14, width: 8, value: byte }];
+    // Which callee alone writes a part field: the rope geometry update writes only the part that holds a rope record,
+    // and the belt end check only acts on a belt with a loose end. The callers' decided assumptions use these.
+    const only = (fields: Field[] = [], others: Field[]) =>
+      fields.filter((field) => !others.some((other) => overlaps(field, other)));
+    summary.connected!.ropeHolderFields = only(geometry.connected?.partFields, [
+      { offset: 0x14, width: 8 },
+      ...(ends.connected?.partFields ?? []),
+    ]);
+    summary.connected!.beltEndFields = only(ends.connected?.partFields, [
+      { offset: 0x14, width: 8 },
+      ...(geometry.connected?.partFields ?? []),
+    ]);
     summaries.set(code.address, summary);
   }
 }

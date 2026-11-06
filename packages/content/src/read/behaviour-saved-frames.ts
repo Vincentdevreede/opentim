@@ -60,11 +60,31 @@ export const GENERATOR_ASSUMPTION =
   "A level never starts the generator partway through a turn: bits 0 and 1 of its saved frame are 0, so it starts on frame 0, 4, 8 or 12. Its reset keeps those bits, only the level file sets them, and every shipped level saves it on frame 0 or 4.";
 
 /**
+ * The wood incline has no frame list: the program draws it. Its resize (`0x1b82f` in Even More, English floppy) sets
+ * its frame and saved frame (`0x0c`, `0x90`) to its width at `0x44` (copied from `0x50`) divided by 16, less 1, and its
+ * reset keeps the saved frame. The editor keeps the width between 16 and 64, the type record's limits. Decided with
+ * the user.
+ */
+export const WOOD_INCLINE_ASSUMPTION =
+  'A wood incline starts on the frame its width gives: its width divided by 16, less 1. That is frame 0 to 3 for the widths 16 to 64 the editor allows, and frame -1 for an incline of width 0, which two Even More levels have ("Ambulance Driver", L117, and "Rocket Launcher", L143) though the editor can\'t make it.';
+
+/** The frame the wood incline's resize gives a width: the width as a signed word divided by 16, rounded to 0, less 1. */
+export const inclineFrame = (width: number) => Math.trunc((((width & 0xffff) ^ 0x8000) - 0x8000) / 16) - 1;
+
+/**
  * By part id: the frames a level can start a part on, and why: for a type without a frame list, and for one with a
  * frame list when a decided assumption narrows it (`framed`), like the generator. `shown` lists every frame it can
- * show in the middle of a run, when that is more, like the belt's whole blocks.
+ * show in the middle of a run, when that is more, like the belt's whole blocks. `fromWidth` gives the one frame a part
+ * of a width starts on, with `rule` in words, when the assumption ties the frame to the width.
  */
-type LevelFrames = { frames: number[]; shown?: number[]; framed?: true; assumption: string };
+type LevelFrames = {
+  frames: number[];
+  shown?: number[];
+  framed?: true;
+  assumption: string;
+  fromWidth?: (width: number) => number;
+  rule?: string;
+};
 export const LEVEL_FRAMES: ReadonlyMap<string, LevelFrames> = new Map<string, LevelFrames>([
   ["conveyor-belt", { frames: [0, 7, 14, 21, 28], shown: [...Array(35).keys()], assumption: CONVEYOR_BELT_ASSUMPTION }],
   ["gear", { frames: [0, 1, 2, 3], assumption: GEAR_ASSUMPTION }],
@@ -77,6 +97,15 @@ export const LEVEL_FRAMES: ReadonlyMap<string, LevelFrames> = new Map<string, Le
     { frames: [0], assumption: SELF_DRAWN_ASSUMPTION },
   ]),
   ["generator", { frames: [0, 4, 8, 12], framed: true, assumption: GENERATOR_ASSUMPTION }],
+  [
+    "wood-incline",
+    {
+      frames: [-1, 0, 1, 2, 3],
+      assumption: WOOD_INCLINE_ASSUMPTION,
+      fromWidth: inclineFrame,
+      rule: "the one its width gives: its width divided by 16, less 1",
+    },
+  ],
 ]);
 
 /**

@@ -110,6 +110,18 @@ export interface EngineSummary extends Finding {
      * either keeps its field or gets this value.
      */
     values?: { offset: number; width: number; value: Expression }[];
+    /**
+     * Part fields the routine writes only on the part that holds a rope record it reaches (slot 0 of the record), by
+     * the rope geometry update. A part that never holds a rope record keeps them.
+     */
+    ropeHolderFields?: { offset: number; width: number }[];
+    /** Part fields the routine writes only through the belt end check, which acts when a belt has a loose end. */
+    beltEndFields?: { offset: number; width: number }[];
+    /**
+     * Fields the owner keeps when it is the argument of a call from one of `callers`, each by a decided assumption
+     * about the parts those routines run on.
+     */
+    ownerKeeps?: { offset: number; width: number; assumption: string; callers: number[] }[];
   };
   contactRotation?: ContactRotation;
   /** Sets a part's velocity to a speed in the direction of an angle; a caller keeps the speed it passed. */

@@ -1,219 +1,104 @@
 # Part behaviour: the last 10%
 
 Each step has a number that shows it is done. The numbers come from the recording comparison on Even More (English
-floppy) and TIM 1 (French), measured on 2cda1a2. A step that needs a decision from you says so; I collect those and ask
-them together.
+floppy) and TIM 1 (French). The starting point was measured on 2cda1a2; "now" comes from the done notes below and,
+for resets and resting frames, from the description on 41e8ba5. A step that needs a decision from you says so; I
+collect those and ask them together. Each done note is short: the details are in `docs/behaviour.md` under the
+section it names.
 
-Starting point:
+|                                                                       | Even More, start | now | TIM 1, start | now |
+| --------------------------------------------------------------------- | ---------------: | --: | -----------: | --: |
+| Rules that write a value the analysis can't name                      |       365 of 925 |   0 |   324 of 764 |   0 |
+| Effect lines that say "isn't established" (once per part and wording) |               23 |   0 |           14 |   0 |
+| Parts whose reset the report calls unresolved                         |         41 of 67 |   0 |           36 |   0 |
+| Parts without a documented resting frame                              |               33 |   4 |           28 |   3 |
+| Recordings that stop early                                            |        52 of 648 |   0 |    48 of 552 |   0 |
+| Parts without any recording                                           |               28 |  28 |           22 |  22 |
 
-|                                                                       |  Even More |      TIM 1 |
-| --------------------------------------------------------------------- | ---------: | ---------: |
-| Rules that write a value the analysis can't name                      | 365 of 925 | 324 of 764 |
-| Effect lines that say "isn't established" (once per part and wording) |         23 |         14 |
-| Parts whose reset the report calls unresolved                         |   41 of 67 |         36 |
-| Parts without a documented resting frame                              |         33 |         28 |
-| Recordings that stop early                                            |  52 of 648 |  48 of 552 |
-| Parts without any recording                                           |         28 |         22 |
+The parts without a recording are checked against the shipped levels instead (E1). The parts left without a resting frame (Even More 6, 8, 58 and 61, TIM 1 6, 8 and 10) have walks that all end, but
+in a loop or by keeping the frame they are given, so no walk rests on one frame. Since decided assumption 21 the wood
+incline rests on frames -1 to 3.
 
 ## A. Make the score honest
 
-- [x] **A1. One scoreboard.** Add the counts above to the measured metrics, so each later step shows its effect in one
-      run. Done when the comparison prints them.
-- [x] **A2. Resets that keep the saved frame.** 41 parts are reported as "unresolved" because their reset keeps the
-      frame the level saved. That is the game's real behaviour, not a gap: report it as "keeps the saved frame" with the
-      frames it can be. Done when "unresolved" only remains where the reset itself can't be read.
-- [x] **A3. Resting frames.** 33 parts show "Unknown" resting frames while their walks end. Take them from where the
-      walks come to rest. Done when every part whose walks all end lists its resting frames.
-- [x] **A4. The two vague start notes.** "The seed does not establish the state" (34 parts) and "the unknown
-      condition selects different next fields" (15). Check each one and either resolve it or replace it with the condition
-      in plain words. Done when neither note is left without a named reason.
-- [x] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
-      Show all of them or prove the rest repeat the first 64.
-- [x] **A6. The gear's frame 65535.** One gear note talks about frame 65535 (that is -1). Find out whether a gear can
-      really reach it or whether it is a reading error.
+- [x] **A1. One scoreboard.** The comparison prints the counts above.
+- [x] **A2. Resets that keep the saved frame.** Reported as "keeps the saved frame" with the frames it can be, or as
+      set from the plugs for the parts with sockets. No reset stays unresolved.
+- [x] **A3. Resting frames.** Taken from where the walks come to rest, with how many walks end on each.
+- [x] **A4. The two vague start notes.** Each one is resolved or says its condition in plain words.
+- [x] **A5. Input cases past 64.** The jack-in-the-box (156) and the monkey bike (154) keep all their input cases.
+- [x] **A6. The gear's frame 65535.** A gear never reaches frame -1: its run and the gears it moves wrap -1 to 3. See
+      "The gear's frame -1".
 
 ## B. Name the values that are only known while the game runs
 
-These can never become a number, but each one can become a plain value like "the part its search found" or "the
-touching part's speed, reversed". A rule then counts as named, not unknown.
+These can never become a number, but each one can become a plain value like "the part its search found". A rule then
+counts as named, not unknown.
 
-- [x] **B0. Values that differ by path.** When two rules lead to the same frame and differ only in one test, they are
-      merged into one rule. A field the two set differently then becomes unknown ("Field 0x12 differs on complementary
-      paths"), although both values are known. This is the largest group: about 40 fields in most parts. Keep both values
-      with the test that picks them. Done when no write is unknown only because of this merge.
-      Done: the field keeps both values, `(test) * a + (opposite) * b`, for every comparison. Rules that write a value
-      the analysis can't name went from 365 to 247 of 925 in Even More and from 324 to 223 of 764 in TIM 1. Every walk
-      still ends, and the recordings stay at 596 complete, 52 prefix, 0 different (Even More) and 504, 48, 0 (TIM 1).
-      In 4 teeter-totter rules per build both values are known but a query's answer picks one: that belongs to B1.
-- [x] **B1. Search results (found list `0x78`, `0x7a`, `0x7c`).** About 160 rules, most of them the cat (108), then the
-      teeter-totter, jack-in-the-box, mouse, teapot, candle, rocket, fan, bellows, vacuum cleaner, magnifying glass, Mel's
-      house, solar panel and explosion. Name the list links and the found part's fields.
-      Done: the head after a search is "found list after the query", a found part's link "next in the found list", its
-      `0x7a` and `0x7c` "value the query writes to a found part", another part's field after a list scan "value after
-      the list scan". The scoreboard counts rules with named run values apart from rules with unknown writes.
-- [x] **B2. The touching part's speed.** The gear (48), alligator, trampoline, conveyor belt, pinball bumper, bullet,
-      thumb tack and electric switch write the touching part's speed and position. Write each as a formula of the touching
-      part's own fields.
-      Done: the speed limit keeps a speed within minus and plus the limit, as one exact value, with the limit read
-      from the part's type record at `+0x0a`. That word isn't in the program: the game works
-      it out from the level's air pressure (12288 for the bullet and the cannonball), so it is never read from TIM.EXE
-      now, nor the acceleration at `+0x08`. The speed setter's velocity is its formula, and the pinball bumper's angle is
-      the named centre angle answer. The gear, conveyor belt, bullet, thumb tack and electric switch already wrote
-      named values ("value the call writes to a selected part"); they keep them.
-- [x] **B3. Parts reached through ropes and belts (`0x14`, `0x5a`, `0x5c`).** Short in many parts (one or two rules
-      each). Name them through the relay that is already proved.
-      Done: the relay's byte is exact on the owner (unless its type is 49) and on every part it reaches; the owner's
-      `0x14` is now 2 in 37 rules of Even More and 33 of TIM 1. Rope links and ends of a reached part are "value the
-      call writes to a selected part", and the owner after such a call is "part after field effect". With B1, rules
-      with unknown writes go from 242 to 33 of 925 (Even More) and 218 to 28 of 764 (TIM 1), counted by the new rule;
-      rules with named run values from 5 to 214 and 5 to 195. Walks and recordings don't change. A rope or belt never
-      leads from a part back to itself (the user's answer, true in every shipped level), but that isn't what keeps the
-      owner's rope links and ends: see "The owner's rope fields after the relay". Two questions stay open there.
-- [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
-      part type each one creates and give its starting fields. Done: they make a rope end, a cannonball, a bullet and an
-      explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
-      Its speed limit and list links stay unnamed, and the merged rules wait for B0.
-- [x] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,
-      `0x1e`, `0x36`), mouse (`0x16`, `0x18`), gear (connected parts at `0x0c`, `0x12`), monkey bike and light bulb (`0x6a`,
-      `0x6b`), dynamite (`0x08`, `0x72`, `0x73`), mouse motor (`0x12`, `0x96`), electric switch (`0x12`). Prove each one or
-      name what it depends on.
-      Done with B2: the list links of created parts are named after the ordered insertion; a helper's field that every
-      way sets, a store proved under tests, a helper's table byte and a store past a call that leaves the part alone are
-      exact; a wrapper carries a helper's exact write with the number it passes. Every field above is now known or a
-      named run value (the teeter-totter's `0x08`, the mouse's `0x16` and `0x18`, the mouse motor's `0x12` and `0x96`
-      after a list scan or query). Rules with unknown writes go from 33 to 0 of 925 in Even More and from 28 to 0 of 764
-      in TIM 1; rules with named run values from 214 to 234 and from 195 to 214. Every walk still ends and the
-      recordings stay at 606 complete, 42 prefix, 0 different and 512, 40, 0.
-- [x] **B6. The 23 "isn't established" effect lines** (14 in TIM 1). Most are the teeter-totter's and the vacuum
-      cleaner's, then the gear, trampoline and balloon, and one each for the cat, alligator, boxing glove, Mel's house and
-      explosion. Each line gets a meaning or a precise reason why the code can't give one.
-      Done: 0 in both builds. The out-of-play flag `0x2000`, the ran-this-step mark `0x0040`, the goal marks in field
-      `0x0a` (only the puzzle goal checks read them), the contact flag `0x0001` at `0x06`, the fine position at `0x16`
-      and `0x1a`, the previous position, the rope links a popping balloon sets and the rope record the teeter-totter's
-      rope callback counts on each say what the code does with them. What the teeter-totter's contact sweeps write
-      says why it can't be known: it depends on what the contact search finds. See "Effect lines with a proved
-      meaning" in `docs/behaviour.md`.
-
-Done when the first row of the scoreboard counts only rules whose value comes from outside the game (the player or
-the level), and every one of those is listed by name.
+- [x] **B0. Values that differ by path.** Merged rules keep both values with the test that picks them. Unknown
+      writes 365 to 247 of 925 (Even More), 324 to 223 of 764 (TIM 1).
+- [x] **B1. Search results (`0x78`, `0x7a`, `0x7c`).** The found list, the next found part and the values a query
+      writes to a found part are named, and counted apart as named run values.
+- [x] **B2. The touching part's speed.** The speed limit keeps a speed within the limit from the type record; the
+      speed setter's velocity is a formula, and the pinball bumper's angle is the named centre angle answer.
+- [x] **B3. Parts reached through ropes and belts.** Named through the relay: its byte is exact on the owner and on
+      every part it reaches. Unknown writes 242 to 33 (Even More), 218 to 28 (TIM 1). You settled the two questions
+      left (decided assumptions 19 and 20), so a flip callback's part keeps its rope ends and links after the relay.
+      See "The owner's rope fields after the relay".
+- [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger make a rope end, a cannonball, a
+      bullet and an explosion, each with its place, speed and other fields.
+- [x] **B5. A part's own fields.** Every field is known or a named run value. Unknown writes 0 of 925 and 0 of 764;
+      named run values 234 and 214.
+- [x] **B6. The "isn't established" effect lines.** 0 in both builds: the out-of-play flag, the ran-this-step mark,
+      the goal marks, the contact flag and the fine position say what the code does with them. See "Effect lines with a
+      proved meaning".
 
 ## C. What other parts do to a part
 
 - [x] **C1. Touch effects that aren't walked yet.** The vacuum cleaner, the teeter-totter, the electric switch on a
-      bullet and the trampoline's effects on Mel. Done when each one is a line or a walk in "From other parts".
-      Done: the vacuum cleaner pops a balloon (walk) and takes other parts out of play with a goal mark (a line, or a
-      walk for the cat); the teeter-totter clears the toucher's contact part when its bounce pool says the landing is
-      new (a line on 24 types); the electric switch takes 1 from a bullet's velocityX (a walk, and from a flying
-      bullet frame 0, 1, 2); the trampoline sends Mel from frame 6 to 8 to frame 9 (a walk, velocityY unknown after
-      the contact response). Walks that end: Even More 1,325 to 1,337, TIM 1 1,146 to 1,154. Recordings: Even More
-      610 complete and 38 prefix, TIM 1 516 and 36 (the mouse's 4 per build now match through the trampoline's
-      touch), none different. See "Touch effects of four more parts" in `docs/behaviour.md`.
-- [x] **C2. Check the list is complete.** Go over every part type's bounce, hit and search code and list which types
-      it can affect. Done when every pair the code allows appears in some part's "From other parts", or is listed as not
-      possible with the reason.
-      Done: `list-other-part-pairs` recomputes the pairs from every bounce path, every per-member outcome of a run's
-      overlap list and the teeter-totter's list consumer. Even More: 1,084 pairs allowed, 221 described, 46 partly
-      described, 570 ruled out (assumptions 11, 17 and 18) and 247 missing, each with its reason, plus the teeter-totter's
-      6 through its list consumer, missing because that helper is read only as a footprint. TIM 1: 615, 129, 17, 345
-      and 124, plus the same 6. The first run found the boxing glove's punch and Mel's house without a line: a loop's
-      line now takes values the part's type settles and keeps the part's own tests when the source names its type
-      (effect lines 827 to 875 in Even More, 554 to 588 in TIM 1). Walks and recordings don't change (648 and 552
-      complete, none different). See "Which parts can affect which" in `docs/behaviour.md`.
-
-- [x] **C3. What a teeter-totter's end does to the part lying there.** When it tips, its end hands a list to a helper
-      that can start a mouse motor, break a fish bowl, or set off a bellows, scissors, dynamite plunger or flashlight, by
-      type and distance from the end (6 pairs per build). None of the six parts' descriptions say this yet: the analysis
-      needs to follow a list handed in from another part.
-      Done: the helper is read path by path for one member, and each call puts in the numbers it passes (which end, and
-      the flag the plunger and flashlight need). The bellows, scissors, dynamite plunger and flashlight get 4 walks each,
-      named with where the part must lie in words ("when its positionX is 0 to 8 pixels left of the teeter totter's
-      positionX + 74"); the mouse motor and fish bowl join their existing walks. Pairs: Even More 1,090 allowed and 227
-      described (was 1,084 and 221, the six now counted and described), TIM 1 621 and 135; missing stays 247 and 124.
-      Walks that end: Even More 1,338 to 1,366, TIM 1 1,154 to 1,182, none open. Recordings unchanged (648 and 552
-      complete, none different). See "What a teeter-totter's end does to the part lying there" in `docs/behaviour.md`.
-- [ ] **C4. The missing pairs that depend on where parts are.** The C2 check lists 247 pairs in Even More and 124 in
-      TIM 1 whose effect depends on positions (sweeps of the fan, vacuum cleaner, bellows and teapot, explosion splits,
-      thrown directions). These belong with several parts working together, so this plan only lists them with reasons.
+      bullet and the trampoline on Mel are lines or walks in "From other parts". See "Touch effects of four more parts".
+- [x] **C2. Check the list is complete.** `list-other-part-pairs` gives every pair the code allows as described,
+      partly described, ruled out or missing, each with its reason. Even More: 1,084 pairs, 221 described, 46 partly,
+      570 ruled out, 247 missing; TIM 1: 615, 129, 17, 345, 124. See "Which parts can affect which".
+- [x] **C3. What a teeter-totter's end does to the part lying there.** The helper its ends hand their lists to is read
+      path by path, with each call's numbers put in. The bellows, scissors, dynamite plunger and flashlight get 4 walks
+      each, named with where the part must lie ("when its positionX is 0 to 8 pixels left of the teeter totter's
+      positionX + 74"); the mouse motor and fish bowl join their walks. Pairs: Even More 1,090 and 227 described, TIM 1
+      621 and 135, the six all described. See "What a teeter-totter's end does to the part lying there".
+- [ ] **C4. The missing pairs that depend on where parts are.** 247 pairs in Even More and 124 in TIM 1 (sweeps,
+      explosion splits, thrown directions) belong with several parts working together; this plan only lists them.
 
 ## D. Recordings that stop early
 
-- [x] **D1. Mouse motor restart, cat, mouse and Mel's house** (20 in Even More). They wait for a search to find
-      another part. Decided: prove the part stays alone (no part in the recording creates another part, and the recording
-      shows nothing else on the bench) and close only the recordings where both hold. No new assumption.
-      Stopped at the second check: a v25 clip saves only the recorded part's own fields, its input and the engine calls
-      it skipped, no other part and no position, so it can't show the bench. It does show that the recorder skipped
-      the very searches these parts wait for (see "Recordings that wait for a search" in `docs/behaviour.md`).
-      Then decided: a clip that lists a search as skipped may be compared with the "found nothing" way, since the
-      recorder returns 0 and writes nothing for it (see "What the recorder gives for a skipped search"). Those matches
-      have their own basis and are counted apart. Even More 596 to 606 complete (10 through a skipped search: Mel's
-      house 4, mouse motor 4, cat 2), TIM 1 504 to 512 (mouse motor 8), none different. Open: the Even More mouse
-      motor's 4 run recordings (countdown), the cat's 4 still recordings per build (position fields the recorder sets),
-      the TIM 1 cat's 2 move recordings (its loop isn't summed up as a list loop) and the mouse's 4 per build (no
-      search skipped).
-      Then also compared with what the recorder writes between runs and the fields it clears that nothing in the clip
-      writes (see "What the recorder writes between runs"), with their own basis: Even More 606 to 612 (the mouse 4,
-      the cat's still recordings 2), TIM 1 512 to 516 (the mouse 4), none different.
-      The TIM 1 cat's loop over the found list is now recognised as a loop that stops at the first part it finds (see
-      "The TIM 1 cat's loop over the found list"): TIM 1 516 to 520.
-      The Even More mouse motor's control value is now kept at the end of its count (see "The mouse motor's control
-      value at the end of its count"): Even More 612 to 616. Only the monkey bike stays open in both builds.
-      After the touch effects the mouse's clips matched "touching a trampoline", a touch the recorder never gives. A
-      walk from a trigger now counts only when its start is what the recorder seeded, under its own basis `seeded-state`
-      (see "Walks from a trigger the recorder never performs"). No clip lost its match (648 and 552 complete): per build
-      11 trigger matches became 2 seeded state (the bike's rope), 6 recorder fields (the mouse's 4 run clips again, the
-      flipped bike's 2) and 3 input case (the mouse's still clips).
-      A start that knows another value than the recorder had for a field the run reads no longer counts (see "Starts
-      that know another value than the recorder had"); 140 per build differ only in fields the run never reads and
-      stand. Still 648 and 552 complete: per build 31 moved (the bike's 30, the mouse's creation clip), 26 to recorder
-      fields, 4 to seeded state and 1 to input case. Matches that need the part untouched at the start (decided)
-      now say so: 8 per build.
-      A seeded state now also needs the trigger's start to set or test every seeded field the run reads (see "A seeded
-      state needs the trigger's own start"). Nothing moves on the current base: 648 and 552 complete, 0 seeded state, 68
-      recorder fields per build.
-- [x] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
-      save. Check what you saw in the game against the code:
-  - it starts biking when the shade is pulled down;
-  - a belt on it works like the mouse motor's wheel while it bikes;
-  - when hit, it pauses and shows stars, then bikes on;
-  - if the shade isn't pulled down again, it doesn't start again.
+- [x] **D1. Mouse motor restart, cat, mouse and Mel's house.** Closed under decided bases of their own: a skipped
+      search compared with "found nothing", what the recorder writes between runs, and walks only from a start the
+      recorder seeded. See "Recordings that wait for a search" and the sections after it.
+- [x] **D2. Monkey bike.** All five things you saw agree with the code; the 32 recordings per build close under the
+      recorder's own basis, and you confirmed it stops only when the machine stops. See "The monkey bike against what
+      the user saw".
 
-  - a belt from the bike can drive another part, like a jack-in-the-box: check that what the bike writes into the
-    belt is what the jack reads.
-
-  Done (see "The monkey bike against what the user saw" in `docs/behaviour.md`): all five agree with the code. The
-  shade is the bike's own rope: its rope callback starts it. The code has no way for a pedalling bike to stop during a
-  run (a hit only pauses it), so it stops only when the machine is stopped; one question about that stays open. The
-  walk after a hit while pedalling now pedals on in every branch (it knew -1 or 1 isn't 0). The recorder clears the
-  belt link and the bike's run never writes it, so the recorded bikes had no belt: the 32 recordings close under the
-  recorder's own basis. Even More 616 to 648 of 648 complete, TIM 1 520 to 552 of 552, none different.
+Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
 
 ## E. Parts without a recording
 
-- [x] **E1. Check them against the shipped levels.** 28 parts have no recording (walls, balls, ropes, pulley, belt,
-      electric switch, solar panel, magnifying glass, rope end and the holiday parts). Compare their starting frames and
-      resting frames with every shipped level. Done when no level disagrees.
-      Done: no level disagrees, in all eleven builds (1,281 level files). Every saved frame is one the description
-      allows, the switch and the solar panel start on a resting frame once their plugs are counted, every control value
-      is 0, and the decided starting frames (assumptions 5 to 8 and 13 to 15) hold everywhere. The wood incline has no
-      frame list to check; its frame always matches its width, and two Even More levels have an incline of width 0 on
-      frame -1, which the editor can't make. The rope end, heart and shamrock are in no level. `check-level-frames`
-      repeats the check (for F2). See "Starting frames in the shipped levels" in `docs/behaviour.md`.
-- [x] **E2. A short list for you to try in the game.** Decided: yes. For the parts where code alone leaves room, a
-      few things to try, each with what the analysis expects.
-      Done: 25 items in `docs/behaviour-game-checks.md`, by part, the most telling first: the electric switch gives
-      power only while its lever is away from where the level started it, what lights through the magnifying glass and
-      what powers the solar panel, and a flashlight or lamp that stays on once it is on.
+- [x] **E1. Check them against the shipped levels.** No level disagrees, in all eleven builds (1,281 level files).
+      The wood incline starts on the frame its width gives, -1 to 3 (decided assumption 21). See "Starting frames in
+      the shipped levels".
+- [x] **E2. A short list for you to try in the game.** 25 items in `docs/behaviour-game-checks.md`.
 
 ## F. All builds
 
-- [ ] **F1. Measure all eleven builds**, not only the two above. Done when every build's numbers are in the report
-      and none has a recording that differs.
+- [x] **F1. Measure all eleven builds.** Every build has the numbers of the recorded build of its game, and every
+      walk ends (Even More 1,338, TIM 1 1,154). No recording differs; 16 (Even More CD and demo) and 12 (TIM 1 English)
+      stop as prefixes because they need a search the recorder skipped. See "All eleven builds".
 - [ ] **F2. Recheck the decided assumptions** over all builds and the shipped levels after A to E.
 
 ## G. Close
 
-- [ ] **G1. Docs and lab.** Every new proof has a section in `docs/behaviour.md`; the Behaviour tab shows the named
-      values from B in plain words.
+- [x] **G1. Docs and lab.** Every new proof has a section in `docs/behaviour.md`; the Behaviour tab shows the named
+      values from B in plain words. Done: the tab shows the rest and the resting frames, the parts a part creates,
+      what it does to other parts and to its own flags, other parts' settings by their proved meaning and run values
+      by name, and folds a trigger's many walks by where they start. See "The Behaviour tab".
 - [ ] **G2. PR text and final numbers**, shown to you before it is posted.
 
 ## Not in this plan

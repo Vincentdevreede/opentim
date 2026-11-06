@@ -58,3 +58,23 @@ it("shows both velocities as a direction on the line and their numbers in the ti
   );
   expect(html).toContain("(velocityX -4096, velocityY -4096)");
 });
+
+it("reads a flag another part sets and the fine position it puts the part on in a few words", async () => {
+  const vacuum = {
+    ...effect,
+    source: "vacuum-cleaner",
+    sourceType: 51,
+    touch: true as const,
+    sets: [
+      { what: "out-of-play flag", value: "set" },
+      { what: "goal mark 0x0100", value: "set" },
+    ],
+    when: [],
+    sourceWhen: ["stateDelta is not 0"],
+  };
+  expect(await text(vacuum, "Vacuum cleaner")).toBe(
+    "Vacuum cleaner out-of-play flag set goal mark 0x0100 set touching stateDelta is not 0",
+  );
+  const trampoline = { ...vacuum, sets: [{ what: "fine Y", value: "positionY × 512" }], sourceWhen: [] };
+  expect(await text(trampoline, "Trampoline")).toBe("Trampoline fine Y positionY × 512 touching");
+});

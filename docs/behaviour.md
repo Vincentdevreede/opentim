@@ -39,6 +39,33 @@ counted as conditional rather than unresolved (see [Conditional rules](#conditio
 - Related-object writes have distinct object identities and confidence. `relatedObjectEffects` retains them even
   when the destination part type is unknown. A type comparison can associate an incoming trigger with a part.
 
+## The Behaviour tab
+
+The lab shows each part's routines, changes and walks in three layouts (by routine, by state, by walk), and under
+them what comes with the walks: short lines with the analysis's own words in a tip and, where a line is cut short,
+the rest when it is opened.
+
+- **Rest.** "placed" says how the reset leaves the frame: one frame, "keeps the saved frame" (the level gives it) or
+  "from its plugs" (the sockets give it), with the frames it can be, or "unresolved". "rests on" lists the frames the
+  part comes to rest on; its tip says how many walks end on each or that a run keeps it, and opened it gives the
+  first condition on the way to each. A frame the program keeps as a word reads signed, so the wood incline's
+  frame 65535 reads -1, here and in the walks.
+- **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
+  "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
+  positionY × 512"), and a number added or a halving reads in words.
+- **Creates.** Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
+  where the new part starts and how fast it moves. The lab keeps its own name for part 43 elsewhere.
+- **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
+  goal marks, contact flags) and its own flags with a proved meaning (out of play, ran this step), one line per
+  sentence with how many ways give it.
+- **Walks.** A trigger with more than 12 rows folds them by where they start ("running from 3"), so the
+  jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
+  named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the
+  tip.
+- **Run values.** A value the run finds itself reads by what it is: "stateDelta after the query at …", "found",
+  "reached" (a part through a rope, belt or pulley), "centre angle at …", "gear jam at …", "next in the list after
+  the insertion at …", and a value a test picks as "3 if state == 2, else 5".
+
 ## Analysis limits
 
 The x86 decoder stops the routine on an unknown or invalid encoding and names the failing address. It decodes
@@ -162,6 +189,65 @@ and six loop gaps. TIM 1 French has 206 out of 797, 13 calls, zero pointer losse
 builds extracted successfully; `readBehaviour` took 2.94–4.23 seconds in the final capture. Description generation
 was measured separately at 1.19–1.44 seconds. These times are observations for this machine, not browser guarantees.
 
+### All eleven builds
+
+Step F1 of the plan measures every supplied build the way the two recorded ones are measured: `extract-behaviour` and
+`compare-behaviour --no-descriptions` over all eleven in one run each, `leaves.ts` (every walk must end),
+`check-level-frames` and `list-assumptions --check`. Nine different executables: the TIM 1 English floppy and disk
+image builds have the same `TIM.EXE`, and so do the two French Even More builds.
+
+| Build                          | Executable | Parts | Unresolved transitions | Conditional | Unknown writes | Named run values | Vague effect lines | Unresolved resets | Resets the level gives | Without resting frames | Walks that end | Levels | Recordings               |
+| ------------------------------ | ---------- | ----: | ---------------------: | ----------: | -------------: | ---------------: | -----------------: | ----------------: | ---------------------: | ---------------------: | -------------: | -----: | ------------------------ |
+| TIM 1 English                  | `1d8702c4` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 English floppy           | `34c844ba` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 English disk image       | `34c844ba` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 French                   | `4a54cc37` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | 552 of 552 complete      |
+| TIM 1 German                   | `8aec613a` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| Even More English floppy       | `b11cf18e` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | 648 of 648 complete      |
+| Even More English CD           | `2557edb3` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    172 | none for this executable |
+| Even More English demo         | `605e9c0a` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |     12 | none for this executable |
+| Even More French               | `9b15a150` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+| Even More French (with German) | `9b15a150` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+| Even More German               | `9cad1156` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+
+The two recorded builds: in Even More 456 recordings match from the reset or a resting frame, 1 from creation, 135
+from an input case, 2 from a seeded state, 38 through the recorder's fields and 16 through a search the recorder
+skipped; in TIM 1 it is 364, 1, 135, 2, 38 and 12. None is a prefix and none differs. Every build has 0 unresolved
+call sites, 0 pointer losses and 0 loop gaps, and the same callbacks (158 routines in Even More, 135 in TIM 1). Every
+shipped level (1,281 files) agrees with the description, and all 267 assumptions are listed.
+
+Only two executables have recordings, so the others were also compared with the recordings of their own game, as a
+check of the description and not as proof about that executable. The French and German builds of both games match
+every recording, like the recorded ones. The Even More CD and demo builds and the English TIM 1 builds match all but
+the recordings that need a search the recorder skipped (16 and 12): the recording names that search by its address in
+the recorded executable, and in these builds the search sits elsewhere, so those walks stop where the search is and
+count as prefixes. None differs.
+
+What differs between the builds, and why it doesn't change a part:
+
+- The code is laid out differently. The CD build keeps far calls as far calls and spreads its code over 81 segments
+  where the floppy has 36 (see [the release wrapper](#the-release-wrapper-in-the-even-more-cd-build)); the demo's
+  engine is smaller (44 fewer routines read, 5 fewer that call an interrupt). So the analysis reads more or fewer
+  engine routines: Even More 889 (floppy), 940 (CD), 845 (demo), 886 (French and German); TIM 1 830 (English) and 832
+  (French and German). The part callbacks and every count in the table are the same.
+- Globals and data tables sit at other addresses. A rule that reads a global (a brick wall's test of a value in the
+  data segment, for example) reads it at another offset in another build. The build comparison counts these as
+  unresolved differences, as it says it would: they can't show a difference in behaviour. The same goes for some
+  rules of the cat and other parts that test a run value: their choices come out nested in another order where the
+  code is laid out differently.
+- The names of run values carry the address of the query or search that gives them (for example "answer of the query
+  at 0x1d2af"). The build comparison now leaves those addresses out, like the addresses in other names.
+- In the CD build the dynamite plunger's rules write a choice with its two ways in the other order (what the new part
+  gets when the allocation fails or succeeds, and the plunger's control value). The build comparison now puts the two
+  sides of `+`, `*`, `&`, `|` and `^` in a fixed order.
+- The demo has the same 63 part types as the full game but only 12 levels; the CD build has 172 levels, 9 more than
+  the floppy.
+
+After the last two changes, the comparison of builds within each game finds no difference in what the analysis
+resolves (before them, the teeter-totter and the balloon differed in every other executable, and the dynamite
+plunger in the CD build). Every part has the same counts of rules of each kind, the same resting frames, the same
+reset kind and the same number of walks in every build of its game.
+
 ## Descriptions and conditional frame walks
 
 `describeBehaviour(report)` returns plain data for every part. `rest.description` explains a known reset frame or
@@ -220,6 +306,9 @@ pnpm --filter @opentim/content compare-behaviour \
   --baseline /path/to/baseline-reports --reports /path/to/new-reports \
   --oracle /path/to/v25/animations.json --out /tmp/behaviour-comparison
 ```
+
+`--baseline` can be left out to measure reports on their own. `--no-descriptions` leaves out the description files
+(about 300 MB a build), so all eleven builds fit in one run; the summary lines, `comparison.json` and `report.md` stay.
 
 Extraction writes an analysis-time sidecar for each build; comparison measures description time separately. The
 before/after metrics count graph transitions and unique callback call sites, pointer losses and loop diagnostics.
@@ -1092,7 +1181,8 @@ ropes) are its own business and are left out, as for any run's list.
 Each of the six parts now has walks from the teeter-totter: the bellows, the scissors, the dynamite plunger and the
 flashlight 4 each (two ends, mirrored or not), and the mouse motor and fish bowl through their shared walks.
 `list-other-part-pairs` counts the six as their own way, "list consumer", described, and no longer lists the helper
-as read only as a footprint. Walks that end: Even More 1,338 to 1,366, TIM 1 1,154 to 1,182, and none stays open.
+as read only as a footprint. Walks that end: 28 more in each build (Even More 1,363 to 1,391, TIM 1 1,179 to
+1,207), and none stays open.
 The recordings stay at 648 complete in Even More and 552 in TIM 1 with none different, no rule writes an unknown
 value and no effect line is vague.
 
@@ -1391,8 +1481,22 @@ structure in all eleven builds):
   proved: it is set at seven places, three of them only around a call of the rope routine `0x6c3d` (`0x8156`,
   `0x821c`, `0x1cb2c`) and one inside the scissors' cut until `0x1cdee` puts the old mode back (`0x1cd47`).
 
-So the analysis keeps both groups named after the call. Knowing them would take a decision: that only ropes and
-pulleys hold a rope record (the loader trusts the file), and that a flip never meets a belt with a loose end.
+The user decided both on 2026-11-06:
+[decided assumption 19](behaviour-assumptions.md#19-parts-that-hold-a-rope-record), only a rope piece or a pulley ever
+holds a rope record, and [decided assumption 20](behaviour-assumptions.md#20-flipping-a-part-with-a-loose-belt-end), in
+the editor a part is never flipped while one end of its belt is still loose. The reader (`addRelayOwnerKeeps`) now
+records, for each routine that calls the relay, which of the owner's fields it keeps:
+
+- The rope ends `0x96` and `0x9c`, when the routine is named directly by the type table, nothing else calls it, and none
+  of the types that name it is the rope or the pulley. The relay summary says which part fields come only from the
+  rope geometry update (`ropeHolderFields`).
+- The links `0x5a` to `0x60`, `0x6a` and `0x6c`, when the routine is moreover named only as a flip callback. The relay
+  summary says which part fields come only from the belt end check (`beltEndFields`).
+
+Every part callback that calls the relay passes both tests in all eleven builds (27 types in Even More, 23 in TIM 1,
+all flip callbacks). The relay has other callers that the type table doesn't name (eleven in Even More, English
+floppy); they keep nothing, and the analysis doesn't walk them. Assumption 20 concerns flipping a part in the editor; it
+says nothing about the machine running. Parts the relay reaches, other than the owner, still forget these fields.
 
 ### The magnifying glass's last call
 
@@ -2147,8 +2251,8 @@ The statements:
    kind 4, or the end of a reaction that began while pedalling, makes the control value something other than 0, and a
    hit alone never starts a bike that stands still. But the code has no way for a pedalling bike to stop during a run:
    no routine sets its control value to 0 except the bounce, and after that reaction it pedals on. It stops only when
-   the machine is stopped and the level reset puts it back on frame 0 with control value 0. Whether the user saw it
-   stop by itself is asked below.
+   the machine is stopped and the level reset puts it back on frame 0 with control value 0. The user confirmed on
+   2026-11-06 that this is what the game does: a pedalling bike stops only when the machine is stopped.
 5. **A belt from the bike can drive another part, like a jack-in-the-box.** Agrees. The jack's flags have no `0x0800`,
    so the bike's copy reaches it. Its run (`0x1b888`) adds its control value to its frame on frames 0 to 7 (turned round
    when the jack is flipped) and wraps at 8 and -1. The bike writes only -1, 0 or 1, the numbers
@@ -2434,12 +2538,15 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
 - The belt is always saved on frame 0, the rope in TIM 1 (no frame list there) on 0, the pinball bumper on 0. The rope
   end, the heart and the shamrock are in no shipped level; the jack-o-lantern and the Christmas tree are in one level
   each (two builds), on frame 0.
-- The wood incline has no frame list and no decided assumption, so nothing limits its frame. Every shipped incline has
-  the frame its resize gives, its width divided by 16 less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two
-  inclines fit the same rule but not the editor: in "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five
-  full Even More builds, an incline has width 0 and frame -1. The editor keeps the width between 16 and 64 (the type
-  record's limits), so these were made another way, and their reset reads its outline from the word before its table.
-  A decided list of 0 to 3 for the incline would be wrong for those two levels.
+- The wood incline has no frame list. Every shipped incline has the frame its resize gives, its width divided by 16
+  less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two inclines fit the same rule but not the editor: in
+  "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five full Even More builds, an incline has width 0 and
+  frame -1. The editor keeps the width between 16 and 64 (the type record's limits), so these were made another way,
+  and their reset reads its outline from the word before its table. The user decided on 2026-11-06 that an incline
+  starts on the frame its width gives
+  ([decided assumption 21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame)): `LEVEL_FRAMES` lists frames
+  -1 to 3 with the rule, the incline's rest says so, and the check now also compares each incline's frame with the one
+  its width gives (`fromWidth`). The walks can't tie the frame to the width, so they start from the five frames.
 - The decided starting frames still hold everywhere: the conveyor belt on 0, 7, 14, 21 or 28, each the frame its
   width gives; the gear and the electric motor on 0; the mouse motor on 0 or 1; the generator on 0 or 4. Every level
   saves every control value as 0.
@@ -2547,7 +2654,8 @@ so the type is that number:
 | dynamite plunger | `0x1c3c1`        | `0x29` | explosion  |
 
 Part 43 keeps its id `pinball`, since ids never change once published, but in TIM 1 and Even More it is the cannonball
-the cannon fires, so the descriptions call it that.
+the cannon fires, so the descriptions call it that. Only the behaviour descriptions do: the user decided on 2026-11-06
+that the Lab keeps showing "Pinball" as the part's name.
 
 Helpers make parts the same way: an explosion at `0x1a432`, and in the other builds the scissors' rope cut makes two rope ends and a rope (types `0x31` and `0x0a`). The reader takes the type only from `mov` of a number into a
 register and `push` of that register, or a `push` of a number, right before the far call, with nothing jumping to the

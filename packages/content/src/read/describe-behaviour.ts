@@ -1142,7 +1142,7 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   if (startFrames)
     return {
       status: "saved",
-      description: `The reset keeps the frame the level saved: ${framesWords(startFrames.frames)}.`,
+      description: `The reset keeps the frame the level saved: ${framesWords(startFrames.frames)}${"rule" in startFrames && startFrames.rule ? `, ${startFrames.rule}` : ""}.`,
       frames: startFrames.frames,
       fields,
       ...finding([proof], [startFrames.assumption]),
@@ -2980,9 +2980,10 @@ function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableSta
       const fields = fieldsOf(bindings, fieldDefinitions(report, part), proof);
       const walk = walkBehaviourRules(report, part.type, fields, { maxRunCalls: 1 });
       if (walk.status !== "rest") continue;
+      // A frame is a word, as the rules read it: the wood incline's frame -1 rests as 65535.
       candidates.set(signature(bindings), {
-        state: frame,
-        frame: frameOf(part, frame),
+        state: frame & 0xffff,
+        frame: frameOf(part, frame & 0xffff),
         fields,
         origins: runRules.map((rule) => ({ condition: rule.condition, evidence: rule.evidence })),
         ...finding([...runRules, walk], proof.assumptions),
@@ -4522,7 +4523,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           const anyFrame = frames.some((frame) => {
             const fields = new Map(seeded);
             const before = readField(fields, "part", offset, 16);
-            if (known(before) && before.value !== frame) return false;
+            if (known(before) && before.value !== (frame & 0xffff)) return false;
             writeField(fields, "part", offset, bits(frame, 0xffff, 16));
             return predicateOf(input.condition, fields) !== false;
           });

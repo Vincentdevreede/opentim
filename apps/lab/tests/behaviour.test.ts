@@ -8,7 +8,15 @@ import type {
   Predicate,
 } from "@opentim/content";
 import { describe, expect, it } from "vitest";
-import { statesText, summariseBehaviour, summariseEffects, summariseWalks, writer } from "../src/behaviour.ts";
+import {
+  statesText,
+  summariseBehaviour,
+  summariseDoings,
+  summariseEffects,
+  summariseRests,
+  summariseWalks,
+  writer,
+} from "../src/behaviour.ts";
 
 const fields = [
   { offset: 0x0c, name: "state" },
@@ -69,6 +77,25 @@ describe("writer", () => {
     expect(expression(field(0x0c, "value after the list scan at 0x1d451 in member found by the loop at 0x1a01a"))).toBe(
       "found.state after the scan at 0x1d451",
     );
+  });
+
+  it("names the other values a run finds itself, in place of the analysis's own words", () => {
+    expect(expression(field(0x12, "part after the query at 0x1d2d1"))).toBe("stateDelta after the query at 0x1d2d1");
+    expect(expression(field(0x12, "part after list scan at 0x1bff5"))).toBe("stateDelta after the scan at 0x1bff5");
+    expect(expression(field(-2, "local after list scan at 0x1c1f8"))).toBe("local -0x02 after the scan at 0x1c1f8");
+    expect(expression(field(-4, "local after find-first loop at 0x1c1f8"))).toBe(
+      "local -0x04 after the loop at 0x1c1f8",
+    );
+    expect(expression(field(0x12, "part at the walk's start"))).toBe("stateDelta at the walk's start");
+    expect(expression(field(0x00, "centre angle answer at 0x1a5c4"))).toBe("centre angle at 0x1a5c4");
+    expect(expression(field(0x00, "nullable allocation result at 0x192d3"))).toBe("new part from the call at 0x192d3");
+    expect(expression(field(0x00, "gear connection conflict at 0x1b1b0"))).toBe("gear jam at 0x1b1b0");
+    expect(expression(field(0x00, "next in the ordered list after the insertion at 0x1a2b4"))).toBe(
+      "next in the list after the insertion at 0x1a2b4",
+    );
+    expect(expression(field(0x0c, "a part reached through a rope, belt or pulley at 0x65c1"))).toBe("reached.state");
+    expect(expression(field(0x0c, "a candidate selected by the overlap query at 0x4a70"))).toBe("found.state");
+    expect(expression(field(0x0c, "referenced-by(part after the query at 0x1d2af+0x84)"))).toBe("[part+0x84].state");
   });
 
   it("gives this part's own fields the names that only hold for it", () => {
@@ -301,18 +328,28 @@ describe("summariseWalks", () => {
               },
             }),
           ),
-          animation("related-write", "Hit by an explosion", walk({ status: "rest", frames: [visit(0)] })),
+          animation("related-write", "Hit by an explosion", walk({ status: "rest", frames: [visit(0xffff)] })),
+          animation(
+            "related-write",
+            "Touching an electric switch, if the frame is 0 and a part-specific value is 12288",
+            walk({ status: "rest", frames: [visit(0)] }),
+          ),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [run, rope, explosion, bounce, hit] = summariseWalks(report, description)[3]!;
+  const [run, rope, explosion, bounce, hit, touch] = summariseWalks(report, description)[3]!;
 
   it("names each walk by its trigger and writes its condition as terms", () => {
     expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
     expect(rope).toMatchObject({ trigger: "rope", condition: [] });
     expect(explosion).toMatchObject({ trigger: "by explosion", end: "hold" });
-    expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest" });
+    expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest", frames: [-1] });
+  });
+
+  it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {
+    expect(touch).toMatchObject({ trigger: "touching an electric switch" });
+    expect(touch!.about).toBe("Touching an electric switch, if the frame is 0 and a part-specific value is 12288");
   });
 
   it("keeps the frames, where a loop goes back to, and the path under each condition where it splits", () => {
@@ -343,7 +380,12 @@ describe("summariseWalks", () => {
 describe("summariseEffects", () => {
   const report = {
     layout: {
-      fields: [...fields, { offset: 0x36, name: "velocityX" }, { offset: 0x38, name: "velocityY" }].map((f) => ({
+      fields: [
+        ...fields,
+        { offset: 0x36, name: "velocityX" },
+        { offset: 0x38, name: "velocityY" },
+        { offset: 0x84, name: "contactPart" },
+      ].map((f) => ({
         ...f,
         confidence: "checked",
         evidence: [],
@@ -416,11 +458,69 @@ describe("summariseEffects", () => {
               },
             ],
           }),
+          effect({
+            sourceType: 39,
+            sourcePart: "trampoline",
+            touch: { returns: 0 },
+            description: "A trampoline it touches clears its contact flag and sets its fine vertical position.",
+            sets: [
+              { kind: "field", offset: 0x84, width: 16, value: 0 },
+              {
+                kind: "expression",
+                offset: 0x06,
+                width: 16,
+                value: { kind: "binary", operator: "&", left: field(0x06), right: constant(0xfffe), width: 16 },
+                words: "clears its contact flag 0x0001 in list flags",
+              },
+              {
+                kind: "expression",
+                offset: 0x1a,
+                width: 16,
+                value: field(0x20),
+                words: "sets field 0x1a to the low word of positionY × 512",
+              },
+              {
+                kind: "expression",
+                offset: 0x1c,
+                width: 16,
+                value: field(0x20),
+                words: "sets field 0x1c to the high word of positionY × 512",
+              },
+            ],
+          }),
+          effect({
+            sourceType: 51,
+            sourcePart: "vacuum-cleaner",
+            touch: {},
+            sets: [
+              {
+                kind: "expression",
+                offset: 0x08,
+                width: 16,
+                value: { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2000), width: 16 },
+                words: "sets its out-of-play flag 0x2000 in drawing flags",
+              },
+              {
+                kind: "expression",
+                offset: 0x0a,
+                width: 16,
+                value: { kind: "binary", operator: "|", left: field(0x0a), right: constant(0x100), width: 16 },
+                words: "sets its goal mark 0x0100 in field 0x0a",
+              },
+              {
+                kind: "expression",
+                offset: 0x38,
+                width: 16,
+                value: { kind: "binary", operator: "+", left: field(0x38), right: constant(0x800), width: 16 },
+                words: "adds 2048 to velocityY",
+              },
+            ],
+          }),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [push, away, punch, touch] = summariseEffects(report, description)[12]!;
+  const [push, away, punch, touch, trampoline, vacuum] = summariseEffects(report, description)[12]!;
 
   it("writes what another part sets and the value, with what this part must be in a few words", () => {
     expect(push).toMatchObject({
@@ -448,7 +548,141 @@ describe("summariseEffects", () => {
   });
 
   it("writes a value of the part's own fields as a formula, and marks a touch", () => {
-    expect(touch).toMatchObject({ touch: true, sets: [{ what: "velocityX", value: "velocityX >> 1" }] });
+    expect(touch).toMatchObject({ touch: true, sets: [{ what: "velocityX", value: "halved, rounding down" }] });
     expect(push!.touch).toBeUndefined();
+    expect(vacuum!.sets[2]).toEqual({ what: "velocityY", value: "velocityY + 2048" });
+  });
+
+  it("says a flag bit with a proved meaning by its name, and both words of the fine position as one", () => {
+    expect(trampoline!.sets).toEqual([
+      { what: "contactPart", value: "0" },
+      { what: "contact flag", value: "cleared" },
+      { what: "fine Y", value: "positionY × 512" },
+    ]);
+    expect(vacuum!.sets.slice(0, 2)).toEqual([
+      { what: "out-of-play flag", value: "set" },
+      { what: "goal mark 0x0100", value: "set" },
+    ]);
+  });
+});
+
+describe("summariseRests", () => {
+  const report = {
+    layout: { fields: fields.map((f) => ({ ...f, confidence: "checked", evidence: [], assumptions: [] })) },
+    parts: [
+      { type: 3, routines: [] },
+      { type: 21, routines: [] },
+    ],
+  } as unknown as BehaviourReport;
+  const rest = (more: object) => ({ ...finding, fields: [], ...more });
+  const description = {
+    parts: [
+      {
+        type: 3,
+        rest: rest({
+          status: "saved",
+          description: "The reset keeps the frame the level saved: 0, 1 or 2.",
+          frames: [0, 1, 2],
+        }),
+        stableStates: [
+          { ...finding, state: 0, fields: [], origins: [{ condition: { kind: "true" }, evidence }] },
+          {
+            ...finding,
+            state: 2,
+            fields: [],
+            walks: 157,
+            origins: [
+              { condition: compare("!=", field(0x12), constant(0)), evidence },
+              { condition: compare("==", field(0x12), constant(0)), evidence },
+            ],
+          },
+        ],
+      },
+      {
+        type: 21,
+        rest: rest({
+          status: "sockets",
+          description: "The reset sets the frame from the part's sockets.",
+          frames: [0, 4],
+        }),
+        stableStates: [],
+      },
+      {
+        type: 60,
+        rest: rest({
+          status: "saved",
+          description: "The reset keeps the frame the level saved.",
+          frames: [0, 1, 2, 3, 0xffff],
+        }),
+        stableStates: [
+          { ...finding, state: 3, fields: [], walks: 1, origins: [] },
+          { ...finding, state: 0xffff, fields: [], walks: 1, origins: [] },
+        ],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const rests = summariseRests(report, description);
+
+  it("keeps how the reset leaves the frame, with the frames it can be", () => {
+    expect(rests[3]).toMatchObject({ status: "saved", frames: [0, 1, 2], confidence: "inferred" });
+    expect(rests[21]).toMatchObject({ status: "sockets", frames: [0, 4], resting: [] });
+    expect(rests[3]!.state).toBeUndefined();
+  });
+
+  it("lists the resting frames with how many walks end there and the conditions on the way", () => {
+    expect(rests[3]!.resting).toMatchObject([
+      { state: 0, conditions: [] },
+      { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"] },
+    ]);
+    expect(rests[3]!.resting[0]!.walks).toBeUndefined();
+  });
+
+  it("gives a frame the program keeps as a word signed, like the wood incline's -1, in order", () => {
+    expect(rests[60]!.frames).toEqual([-1, 0, 1, 2, 3]);
+    expect(rests[60]!.resting.map((r) => r.state)).toEqual([-1, 3]);
+  });
+});
+
+describe("summariseDoings", () => {
+  const line = (kind: string, description: string, confidence = "inferred") => ({
+    ...finding,
+    confidence,
+    kind,
+    description,
+  });
+  const cannonball =
+    "Creates a cannonball (type 43, which starts on frame 0) at positionX = its positionX + 97 and positionY = its positionY - 7, moving at velocityX = 12288 and velocityY = -4096 (each kept within the cannonball's speed limit).";
+  const ran =
+    "Sets the part's ran-this-step mark 0x0040 in drawing flags (the step's run loop clears it first and then calls no run callback of a part that has it).";
+  const relay =
+    "May change field 0x14 of a part its ropes, belt or pulleys reach (this part too): the value the relay passes along.";
+  const description = {
+    parts: [
+      {
+        type: 18,
+        effects: [
+          line("related-object", cannonball),
+          line("drawing", ran),
+          line("drawing", ran, "unresolved"),
+          line("drawing", `Sets flag 0x200 of the part's drawing flags. ${ran}`),
+          line("helper", "Can call a shared helper: Turns a rope around."),
+          line("related-object", relay),
+        ],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const doings = summariseDoings(description)[18]!;
+
+  it("keeps the parts it creates, what it does to other parts and its own flags with a proved meaning", () => {
+    expect(doings.map((d) => [d.on, d.description])).toEqual([
+      ["created", cannonball],
+      ["itself", ran],
+      ["others", relay],
+    ]);
+  });
+
+  it("makes each sentence one line, and ways that say the same one line, as unsure as the least sure of them", () => {
+    expect(doings[1]).toMatchObject({ ways: 3, confidence: "unresolved" });
+    expect(doings[0]).toMatchObject({ ways: 1, confidence: "inferred" });
   });
 });

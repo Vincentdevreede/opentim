@@ -142,6 +142,42 @@ export interface OtherEffect extends Finding {
   description: string;
 }
 
+/** One frame a part comes to rest on: from a run outcome, or where its walks end. */
+export interface RestingFrame extends Finding {
+  state: number;
+  /** How many walk branches come to rest on it, when the walks give it rather than a run outcome. */
+  walks?: number;
+  /** The conditions on the way there, for the first few, as text. */
+  conditions: string[];
+}
+
+/** How a part's frame is when the machine is put back, and the frames it comes to rest on. */
+export interface RestSummary extends Finding {
+  /**
+   * `known`: the reset gives one frame. `saved`: it keeps the frame the level saved. `sockets`: it sets the frame from
+   * whether plugs are in the part's sockets. `unresolved`: the analysis can't tell.
+   */
+  status: "known" | "saved" | "sockets" | "unresolved";
+  /** The frame the reset gives, when it gives one. */
+  state?: number;
+  /** The frames the reset can leave, when they are known. */
+  frames?: number[];
+  /** The analysis's own sentence, and why it can't say more. */
+  description: string;
+  reason?: string;
+  resting: RestingFrame[];
+}
+
+/** A line of what the part does, from the analysis: a part it creates, or what it does to itself or to other parts. */
+export interface Doing extends Finding {
+  /** `created`: a part it makes. `itself`: a flag of its own with a proved meaning. `others`: another part's fields. */
+  on: "created" | "itself" | "others";
+  /** The analysis's own sentence. */
+  description: string;
+  /** How many ways through its routines give the same sentence. */
+  ways: number;
+}
+
 export interface PartSummary {
   routines: Routine[];
   changes: Change[];
@@ -261,7 +297,8 @@ export function writer(
     // The same object read after a call that may have changed it.
     const after = / after (unresolved write|unresolved effect|field effect) at 0x[0-9a-f]+$/.exec(text);
     if (after) return object(text.slice(0, after.index));
-    if (text === "part") return { name: "", kind: "part" };
+    if (text === "part" || /^part after (the query|list scan) at 0x[0-9a-f]+$/.test(text))
+      return { name: "", kind: "part" };
     // The part's found list right after a search filled it: its head is the part found last.
     if (/^found list after the query at 0x[0-9a-f]+$/.test(text)) return { name: "", kind: "part" };
     if (text === "collider") return { name: "collider", kind: "part" };
@@ -269,6 +306,10 @@ export function writer(
     if (/^overlap candidate at /.test(text)) return { name: "found", kind: "part" };
     // The part a find-first loop stopped at, like the mouse the cat looks at.
     if (/^member found by the loop at 0x[0-9a-f]+$/.test(text)) return { name: "found", kind: "part" };
+    // The part an overlap query picked, and a part a rope, belt or pulley reaches from this one.
+    if (/^a candidate selected by the overlap query at 0x[0-9a-f]+$/.test(text)) return { name: "found", kind: "part" };
+    if (/^a part reached through a rope, belt or pulley at 0x[0-9a-f]+$/.test(text))
+      return { name: "reached", kind: "part" };
     const linked = /^referenced-by\((.+)\+0x([0-9a-f]+)\)$/.exec(text);
     if (linked) {
       const inner = object(linked[1]!);
@@ -305,6 +346,27 @@ export function writer(
     if (offset === 0 && /^member found by the loop at 0x[0-9a-f]+ link$/.test(target)) return "found";
     const answer = /^answer of the query at (0x[0-9a-f]+)$/.exec(target);
     if (answer && offset === 0) return `answer at ${answer[1]}`;
+    // The angle from one part's centre to another's, which a call works out while the game runs.
+    const angle = /^centre angle answer at (0x[0-9a-f]+)$/.exec(target);
+    if (angle && offset === 0) return `centre angle at ${angle[1]}`;
+    // Whether a call that makes a part made one, and whether the gear's turn jams.
+    const made = /^nullable allocation result at (0x[0-9a-f]+)$/.exec(target);
+    if (made && offset === 0) return `new part from the call at ${made[1]}`;
+    const jam = /^gear connection conflict at (0x[0-9a-f]+)$/.exec(target);
+    if (jam && offset === 0) return `gear jam at ${jam[1]}`;
+    // The part's own fields after a call that may change them, and at the start of a walk.
+    const later = /^part after (the query|list scan) at (0x[0-9a-f]+)$/.exec(target);
+    if (later)
+      return `${field({ name: "", kind: "part" }, offset)} after the ${later[1] === "list scan" ? "scan" : "query"} at ${later[2]}`;
+    if (target === "part at the walk's start")
+      return `${field({ name: "", kind: "part" }, offset)} at the walk's start`;
+    // A value a scan or a loop leaves in the routine's own stack.
+    const local = /^local after (list scan|find-first loop) at (0x[0-9a-f]+)$/.exec(target);
+    if (local)
+      return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)} after the ${local[1] === "list scan" ? "scan" : "loop"} at ${local[2]}`;
+    // The neighbours an ordered insertion links a part between, which only the run knows.
+    const linked = /^(next|previous) in the ordered list after the insertion at (0x[0-9a-f]+)$/.exec(target);
+    if (linked) return `${linked[1]} in the list after the insertion at ${linked[2]}`;
     // What a search writes in the parts it finds: the next part in its found list, and the values it works out.
     if (/^next in the found list of the query at 0x[0-9a-f]+$/.test(target)) return "next found";
     const written = /^value the (query|call) at (0x[0-9a-f]+) writes to a (found|selected) part$/.exec(target);
@@ -353,6 +415,8 @@ export function writer(
 }
 
 const signed = (n: number) => (n > 0x7fff ? n - 0x10000 : n);
+/** A frame the program keeps as a word, as the signed number it stands for: 65535 is frame -1. */
+const frameOf = (n: number) => (n > 0x7fff && n <= 0xffff ? n - 0x10000 : n);
 
 /** The 16-bit value of an expression for a state, when it depends on nothing but the state. */
 export function valueForState(e: Expression, state: number, stateOffset: number): number | undefined {
@@ -496,9 +560,9 @@ function summarisePart(
       return {
         ...finding(t),
         routine: routineName(t.routine),
-        from: t.from,
+        from: t.from && t.from.map(frameOf),
         to: write.expression(t.to),
-        toState: t.to.kind === "constant" ? t.to.value : undefined,
+        toState: t.to.kind === "constant" ? frameOf(t.to.value) : undefined,
         targets: targetsOf(t.to, t.from, stateOffset),
         keeps,
         condition: write.predicate(t.condition),
@@ -545,7 +609,7 @@ function settles(walk: BehaviourWalk): boolean {
 }
 
 function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0): WalkPath {
-  const frames = walk.frames.map((f) => f.state);
+  const frames = walk.frames.map((f) => frameOf(f.state));
   const branches =
     depth < BRANCH_DEPTH
       ? (walk.stop?.branches ?? []).map((b) => ({
@@ -600,8 +664,12 @@ function walksOf(animations: readonly AnimationDescription[], write: ReturnType<
       a.trigger.kind === "run" || a.trigger.kind === "input-case"
         ? "run"
         : a.trigger.kind === "related-write"
-          ? // Another part's routine writes this one, like "A recorded effect of explosion" or "Hit by an explosion".
-            a.trigger.name.replace(/^A recorded effect of /, "by ").replace(/^Hit by /, "hit by ")
+          ? // Another part's routine writes this one, like "A recorded effect of explosion" or "Hit by an explosion", or
+            // its touch does, like "Touching a trampoline". What the touch needs of the part is in its condition.
+            a.trigger.name
+              .replace(/^A recorded effect of /, "by ")
+              .replace(/^Hit by /, "hit by ")
+              .replace(/^Touching (.+?)(, if .*)?$/, "touching $1")
           : roleOf(a.trigger.name),
     start: a.initial,
     condition: termsOf(a.inputCondition ?? a.trigger.condition, write),
@@ -625,10 +693,147 @@ export function summariseWalks(report: BehaviourReport, description: BehaviourDe
   );
 }
 
+/** How each part's reset leaves its frame and where it comes to rest, by type, from the report's description. */
+export function summariseRests(
+  report: BehaviourReport,
+  description: BehaviourDescription,
+): Record<number, RestSummary> {
+  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const parts = new Map(report.parts.map((p) => [p.type, p]));
+  return Object.fromEntries(
+    description.parts.map((d) => {
+      const part = parts.get(d.type);
+      const write = part ? partWriter(part, fields) : writer(fields);
+      const { rest } = d;
+      const summary: RestSummary = {
+        confidence: rest.confidence,
+        assumptions: rest.assumptions,
+        evidence: instructions(rest.evidence),
+        status: rest.status,
+        ...(rest.status === "known" && rest.state !== undefined ? { state: frameOf(rest.state) } : {}),
+        ...(rest.frames ? { frames: rest.frames.map(frameOf).sort((a, b) => a - b) } : {}),
+        description: rest.description,
+        ...(rest.reason ? { reason: rest.reason } : {}),
+        resting: d.stableStates
+          .map((stable) => ({
+            confidence: stable.confidence,
+            assumptions: stable.assumptions,
+            evidence: instructions(stable.evidence),
+            state: frameOf(stable.state),
+            ...(stable.walks ? { walks: stable.walks } : {}),
+            conditions: [...new Set(stable.origins.map((o) => write.predicate(o.condition)))].filter(
+              (c) => c !== "always",
+            ),
+          }))
+          // A frame word of -1 comes last in the description; signed, it comes first.
+          .sort((a, b) => a.state - b.state),
+      };
+      return [d.type, summary];
+    }),
+  );
+}
+
+/** Flags and fields of a part whose meaning the code proves, as the analysis names them in its lines. */
+const PROVED = /ran-this-step mark|out-of-play flag|goal mark|contact flag|fine (horizontal|vertical) position/;
+
+/**
+ * What each part does, by type, from the report's description: the parts it creates, what it does to other parts, and
+ * the flags of its own whose meaning the code proves. Ways that say the same are one line.
+ */
+export function summariseDoings(description: BehaviourDescription): Record<number, Doing[]> {
+  return Object.fromEntries(
+    description.parts.map((d) => {
+      const lines = new Map<string, Doing>();
+      for (const e of d.effects) {
+        const on =
+          e.kind === "related-object"
+            ? /^Creates /.test(e.description)
+              ? "created"
+              : "others"
+            : e.kind === "drawing" && PROVED.test(e.description)
+              ? "itself"
+              : undefined;
+        if (!on) continue;
+        // A way that changes several things says each in a sentence of its own, so each one is a line; of its own
+        // flags only those with a proved meaning. A created part's sentences belong together.
+        const sentences =
+          on === "created"
+            ? [e.description]
+            : e.description.split(/(?<=\.) (?=[A-Z])/).filter((t) => on === "others" || PROVED.test(t));
+        for (const sentence of sentences) {
+          const line = lines.get(sentence);
+          if (line) {
+            line.ways++;
+            if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
+              line.confidence = e.confidence;
+            continue;
+          }
+          lines.set(sentence, {
+            confidence: e.confidence,
+            assumptions: e.assumptions,
+            evidence: instructions(e.evidence),
+            on,
+            description: sentence,
+            ways: 1,
+          });
+        }
+      }
+      return [d.type, [...lines.values()]];
+    }),
+  );
+}
+
 /** The largest error of a speed that points away from the other part, when one does. */
 function awayWithin(sets: OtherPartEffect["sets"]): { awayWithin?: number } {
   const degrees = sets.flatMap((s) => (s.kind === "speed" && s.away ? [s.away.degrees] : []));
   return degrees.length ? { awayWithin: Math.max(...degrees) } : {};
+}
+
+/** The fine position's words by field: the longs at 0x16 (across) and 0x1a (down), in 1/512 pixels. */
+const FINE = new Map([
+  [0x16, "fine X"],
+  [0x18, "fine X"],
+  [0x1a, "fine Y"],
+  [0x1c, "fine Y"],
+]);
+
+/**
+ * A value another part sets from this part's own fields, in a few words from the analysis's own: a flag bit with a
+ * proved meaning set or cleared, a word of the fine position, a number added or taken off, or the formula.
+ */
+function settingOf(
+  s: Extract<OtherPartEffect["sets"][number], { kind: "expression" }>,
+  write: ReturnType<typeof writer>,
+): { what: string; value: string } {
+  const flag = /^(sets|clears) its (.+?) (0x[0-9a-f]{4}) in /.exec(s.words);
+  if (flag) {
+    // Goal marks differ only in their bit, so it stays; the other flags are one bit each.
+    const name = flag[2] === "goal mark" ? `goal mark ${flag[3]}` : flag[2]!;
+    return { what: name, value: flag[1] === "sets" ? "set" : "cleared" };
+  }
+  const fine = FINE.get(s.offset);
+  const word = / to the (low|high) word of (.+)$/.exec(s.words);
+  if (fine && word) return { what: `${fine} ${word[1]}`, value: word[2]! };
+  const field = write.place("part", s.offset);
+  const add = /^(adds|subtracts) (\d+) (?:to|from) /.exec(s.words);
+  if (add) return { what: field, value: `${field} ${add[1] === "adds" ? "+" : "-"} ${add[2]}` };
+  if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
+  if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
+  const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
+  return { what: field, value: to ? to[1]! : write.expression(s.value) };
+}
+
+/** Both words of the fine position that one value sets, as one: "fine Y" rather than its low and high word. */
+function joinFine(sets: { what: string; value: string }[]) {
+  return sets.flatMap((s) => {
+    const half = /^(fine [XY]) (low|high)$/.exec(s.what);
+    if (!half) return [s];
+    const other = sets.find(
+      (o) => o.what === `${half[1]} ${half[2] === "low" ? "high" : "low"}` && o.value === s.value,
+    );
+    if (!other) return [{ ...s, what: `${half[1]} ${half[2]} word` }];
+    return half[2] === "low" ? [{ what: half[1]!, value: s.value }] : [];
+  });
 }
 
 /** What other parts do to each part without changing its frame, by type, from the report's description. */
@@ -663,7 +868,7 @@ export function summariseEffects(
               ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
               : s.kind === "expression"
                 ? // A value of the part's own fields, like a touch that halves its velocityX.
-                  [{ what: write.place("part", s.offset), value: write.expression(s.value) }]
+                  [settingOf(s, write)]
                 : pair.length && (s.offset === 0x36 || s.offset === 0x38)
                   ? []
                   : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
@@ -677,7 +882,7 @@ export function summariseEffects(
           sourceType: e.sourceType,
           source: e.sourcePart,
           ...(e.touch ? { touch: true } : {}),
-          sets,
+          sets: joinFine(sets),
           when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
           sourceWhen: e.sourceConditionWords,
           sourceCondition: write.predicate(e.sourceCondition),
@@ -732,7 +937,14 @@ export type BehaviourResult =
 
 /** The walks of every part, by type, which take a few more seconds to read after the rest, and the effects of others. */
 export type WalksResult =
-  | { status: "done"; walks: Record<number, Walk[]>; effects: Record<number, OtherEffect[]>; seconds: number }
+  | {
+      status: "done";
+      walks: Record<number, Walk[]>;
+      effects: Record<number, OtherEffect[]>;
+      rests: Record<number, RestSummary>;
+      doings: Record<number, Doing[]>;
+      seconds: number;
+    }
   | { status: "error"; message: string };
 
 /** What the worker is asked: the program as it ships, and what was read from it before. */

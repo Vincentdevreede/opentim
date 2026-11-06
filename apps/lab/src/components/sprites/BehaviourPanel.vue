@@ -20,9 +20,11 @@ import LabSection from "../LabSection.vue";
 import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
+import BehaviourDoing from "./BehaviourDoing.vue";
 import BehaviourEffect from "./BehaviourEffect.vue";
+import BehaviourRest from "./BehaviourRest.vue";
 import BehaviourRow from "./BehaviourRow.vue";
-import BehaviourWalk from "./BehaviourWalk.vue";
+import BehaviourWalkGroup from "./BehaviourWalkGroup.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
 /** What the program does with a part, by routine, by the state a change starts from, or by the walk from a trigger. */
@@ -68,9 +70,21 @@ const walkList = computed(() => {
 });
 /** What other parts do to this one without changing its frame, which comes with the walks. */
 const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
-const walkCount = (rows: { variants: unknown[] }[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
-/** Whether a walk starts from the frame on the stage. */
-const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
+/** How the reset leaves its frame and where it comes to rest, which also comes with the walks. */
+const rest = computed(() => (props.walks?.status === "done" ? props.walks.rests[props.type] : undefined));
+/** What the part does: the parts it creates, then what it does to itself and to other parts. */
+const doings = computed(() => (props.walks?.status === "done" ? (props.walks.doings[props.type] ?? []) : []));
+const created = computed(() => doings.value.filter((d) => d.on === "created"));
+const doneTo = computed(() =>
+  (["itself", "others"] as const)
+    .map((on) => ({
+      on,
+      title: on === "itself" ? "On itself" : "On other parts",
+      list: doings.value.filter((d) => d.on === on),
+    }))
+    .filter((g) => g.list.length),
+);
+const doneCount = computed(() => doneTo.value.reduce((n, g) => n + g.list.length, 0));
 const sides = computed(() => (part.value ? outlineSides(part.value) : undefined));
 const draws = computed(() => routines.value.flatMap((g) => g.draws));
 const gear = computed(() => part.value?.gear);
@@ -314,31 +328,16 @@ const more = computed(() => {
         </LabAlert>
         <p v-else-if="!walkList.length" class="text-muted">The analysis follows no walk for this part.</p>
         <div v-else class="-mx-3 flex flex-col">
-          <section v-for="g in walkList" :key="g.trigger" class="flex flex-col">
-            <LabListRow :expanded="!closed.has(`walk ${g.trigger}`)" @click="toggle(`walk ${g.trigger}`)">
-              <span class="font-mono font-semibold text-ink">{{ g.trigger }}</span>
-              <template #end>
-                <LabChip tone="accent"
-                  >{{ walkCount(g.rows) }} {{ walkCount(g.rows) === 1 ? "walk" : "walks" }}</LabChip
-                >
-                <LabChip v-if="g.rows.length < walkCount(g.rows)" tone="faint">{{ g.rows.length }} paths</LabChip>
-              </template>
-            </LabListRow>
-            <div
-              v-if="!closed.has(`walk ${g.trigger}`)"
-              class="flex flex-col border-b border-line-soft pb-1.5 [&>*:first-child]:border-t-0"
-            >
-              <BehaviourWalk
-                v-for="row in g.rows"
-                :key="row.key"
-                :row="row"
-                :frames="frames"
-                :sides="sides"
-                :highlight="startsHere(row.path.frames)"
-                @show-frame="emit('showFrame', $event)"
-              />
-            </div>
-          </section>
+          <BehaviourWalkGroup
+            v-for="g in walkList"
+            :key="g.trigger"
+            :trigger="g.trigger"
+            :rows="g.rows"
+            :frames="frames"
+            :sides="sides"
+            :current="current"
+            @show-frame="emit('showFrame', $event)"
+          />
         </div>
       </div>
 
@@ -396,9 +395,19 @@ const more = computed(() => {
         </LabSection>
       </div>
 
+      <LabSection v-if="rest" title="Rest">
+        <BehaviourRest :rest="rest" :frames="frames" @show-frame="emit('showFrame', $event)" />
+      </LabSection>
+
       <LabSection v-if="effects.length" title="From other parts">
         <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
           <BehaviourEffect v-for="(e, i) in effects" :key="i" :effect="e" :name="nameOf(e.sourceType)" />
+        </div>
+      </LabSection>
+
+      <LabSection v-if="created.length" title="Creates">
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+          <BehaviourDoing v-for="d in created" :key="d.description" :doing="d" />
         </div>
       </LabSection>
 
@@ -436,6 +445,18 @@ const more = computed(() => {
           </div>
         </template>
       </LabSection>
+
+      <LabDisclosure
+        v-if="doneCount"
+        :title="`To itself and others · ${doneCount} ${doneCount === 1 ? 'line' : 'lines'}`"
+      >
+        <template v-for="g in doneTo" :key="g.on">
+          <PanelTitle class="block px-3 pt-2 pb-1">{{ g.title }}</PanelTitle>
+          <div class="flex flex-col [&>*:first-child]:border-t-0">
+            <BehaviourDoing v-for="d in g.list" :key="d.description" :doing="d" />
+          </div>
+        </template>
+      </LabDisclosure>
 
       <LabDisclosure :title="`More · ${more} findings`">
         <ul class="flex flex-col gap-1 p-3 font-mono text-meta break-words text-muted">

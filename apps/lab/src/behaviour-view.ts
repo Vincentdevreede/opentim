@@ -401,3 +401,43 @@ export const START_WORDS: Record<WalkStart, string> = {
   "documented-rest": "at rest",
   "run-guard": "running",
 };
+
+/** How the reset leaves a part's frame, in a few words, when it isn't one frame. */
+export const RESET_WORDS: Record<"saved" | "sockets" | "unresolved", string> = {
+  saved: "keeps the saved frame",
+  sockets: "from its plugs",
+  unresolved: "unresolved",
+};
+
+/** Why a part rests on a frame, in a few words: how many walks end there, or a run that keeps it. */
+export const restingWords = (frame: { walks?: number }) =>
+  frame.walks ? `${frame.walks} ${frame.walks === 1 ? "walk ends" : "walks end"} here` : "a run keeps it";
+
+/** A trigger with more walk rows than this folds them by where they start. */
+export const FOLD_ROWS = 12;
+
+/**
+ * The rows of a trigger by where they start: how the part was, then the frame it starts on, like "running from 3".
+ * Placed and created first, then rows without a first frame, then by frame.
+ */
+export function startGroups(
+  rows: readonly WalkRow[],
+): { key: string; label: string; first?: number; rows: WalkRow[] }[] {
+  const groups = new Map<string, { key: string; label: string; first?: number; start: WalkStart; rows: WalkRow[] }>();
+  for (const row of rows) {
+    const first = row.path.frames[0];
+    const key = `${row.start} ${first ?? ""}`;
+    const group = groups.get(key) ?? {
+      key,
+      label: `${START_WORDS[row.start]}${first === undefined ? "" : ` from ${first}`}`,
+      first,
+      start: row.start,
+      rows: [],
+    };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .sort((a, b) => STARTS.indexOf(a.start) - STARTS.indexOf(b.start) || (a.first ?? -1) - (b.first ?? -1))
+    .map(({ key, label, first, rows: list }) => ({ key, label, first, rows: list }));
+}
