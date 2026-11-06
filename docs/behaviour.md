@@ -901,9 +901,9 @@ These touch outcomes still give no line:
 
 What the user sees in the game (asked on 2026-11-06) fits two of these lines:
 
-- The alligator bounces a ball up off its back, but not off its head. The code only bounces the ball when its centre is
-  past the alligator's position plus 64 (or before plus 16 when mirrored), the end away from the head; the head end
-  is left to the alligator's own walks.
+- The alligator bounces a ball up off its back, but not off its head. The code only bounces the ball near one end of
+  the alligator: when the ball's centre is past the alligator's position plus 64, or before its position plus 16 when
+  it is mirrored. That this end is the back and not the head is what the user saw, not something the code shows.
 - A running conveyor belt pushes a ball under it against the belt's direction, as its bounce does on the underside.
 
 ### The outline search
