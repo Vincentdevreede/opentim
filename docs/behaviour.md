@@ -1579,6 +1579,29 @@ More and from 488 to 504 in TIM 1, none is different, and the walks themselves d
 from its frame after the write asks along its ropes, which the recording can't rule out, so its ending is proved over
 the ways the rope answers allow, like any other branch.
 
+### Recordings that wait for a search
+
+Twenty recordings in Even More and sixteen in TIM 1 agree with the walks frame for frame but stay prefixes, because
+the part next waits for a search to find another part: the mouse motor's restart (8 per build), the cat looking for a
+mouse (4), the mouse starting again (4) and Mel's house in Even More (4). Decided with the user, such a recording may
+only close when the part stays alone for the whole recording: no part in it makes another part, and the recording
+shows nothing else on the bench.
+
+The second check can't be made from the recordings. Each v25 clip in `animations.json` holds the recorded part's own
+saved fields per frame (the frame, control value, counter, heat, the masked drawing flags and whether it is hidden),
+the input it got, the callback it ran, how the clip ended, a source note `isolated-original-callback` and a count of
+the engine calls it skipped (`skippedEngineServices`). It lists no other part and no position, not even the recorded
+part's own. What else lay on the bench is not in the data, so none of these recordings closes, and nothing is assumed
+in its place.
+
+The data does show something else: the searches these parts wait for are among the calls the recorder skipped. In
+Even More the cat's move clips skip the overlap search at `0x417e` four times, the mouse motor's clips skip it once,
+and Mel's house skips the overlap search at `0x42da` on every run (in TIM 1 the cat and the mouse motor skip the
+overlap search at `0x3597`). So the recorder did not run the search over an empty bench, it left the search out, and
+what the part got in place of its answer comes from the recorder, not from the game. Taking it as "found nothing"
+would be a new assumption. The mouse's clips skip no search: what its run tests there, bit 0 of the list flags at
+`0x06`, is a field the clips don't save.
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
