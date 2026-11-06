@@ -2158,14 +2158,15 @@ export function discoverEngineSummaries(
         continue;
       // A store reached under tests of the part's own fields keeps those tests, like the mouse motor's start.
       const calleeAt = new Map(code.calls.map((call, n) => [call.instruction, callees[n]]));
-      const conditions = ownerStoreConditions(code, owner, stores, (call) => {
+      const callKeepsOwner = (call: Instruction) => {
         const callee = calleeAt.get(call.address);
         return (
           !!callee &&
           (callee.footprint.complete || callee.footprint.partMemoryComplete === true) &&
           callee.writes.every((w) => w.root === "global")
         );
-      });
+      };
+      const conditions = ownerStoreConditions(code, owner, stores, callKeepsOwner);
       for (const write of direct.writes) {
         const condition = conditions.get(write.evidence[0]!.address);
         if (!condition) continue;
@@ -2178,7 +2179,7 @@ export function discoverEngineSummaries(
       const open = new Set(
         direct.writes.filter((w) => w.condition.kind === "unknown" || w.value.kind === "unknown").map((w) => w.offset),
       );
-      const exact = open.size ? ownerPathStores(code, owner, firstArgument(code)) : undefined;
+      const exact = open.size ? ownerPathStores(code, owner, firstArgument(code), callKeepsOwner) : undefined;
       if (exact && [...open].every((offset) => exact.some((e) => e.offset === offset))) {
         const kept = direct.writes.filter((w) => !open.has(w.offset));
         direct.writes.length = 0;

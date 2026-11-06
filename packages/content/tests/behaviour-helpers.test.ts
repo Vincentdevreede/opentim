@@ -536,6 +536,52 @@ describe("structural engine summaries", () => {
     ]);
   });
 
+  it("follows a call that leaves the part alone when it reads every path exactly, like the vacuum cleaner's pull", () => {
+    const image = new Uint8Array(0x800);
+    // The callee changes no part, like a redraw request: here it only reads its argument.
+    image.set([0x55, 0x8b, 0xec, 0x8b, 0x46, 0x06, 0x5d, 0xcb], 0x100);
+    const b = build(0x180);
+    // mov ax, [si+4]; cmp ax, 4; je pop
+    b.emit(0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0x8b, 0x44, 0x04, 0x3d, 0x04, 0x00);
+    b.branch(0x74, "pop");
+    // push si; push cs; call; pop cx; or word [si+8], 0x2000; jmp done
+    b.emit(0x56, 0x0e);
+    b.call(0x100);
+    b.emit(0x59, 0x81, 0x4c, 0x08, 0x00, 0x20);
+    b.branch(0xeb, "done");
+    // mov word [si+0x12], 1
+    b.label("pop");
+    b.emit(0xc7, 0x44, 0x12, 0x01, 0x00);
+    b.label("done");
+    b.emit(0x5e, 0x5d, 0xcb);
+    b.install(image);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100, 0x180), layout()).find(
+      (s) => s.address === 0x180,
+    )!;
+    expect(summary.kind).toBe("owner-field-update");
+    const type = (operator: string) => ({
+      kind: "compare",
+      operator,
+      left: { kind: "field", object: "part", offset: 4, width: 16 },
+      right: { kind: "constant", value: 4, width: 16 },
+      signed: false,
+    });
+    expect(summary.writes.filter((w) => w.root === "argument").map((w) => [w.offset, w.value, w.condition])).toEqual([
+      [
+        8,
+        {
+          kind: "binary",
+          operator: "|",
+          left: { kind: "field", object: "part", offset: 8, width: 16 },
+          right: { kind: "constant", value: 0x2000, width: 16 },
+          width: 16,
+        },
+        type("!="),
+      ],
+      [0x12, { kind: "constant", value: 1, width: 16 }, type("==")],
+    ]);
+  });
+
   it.each([
     // An overflow branch is no comparison the reader knows.
     ["an overflow branch", 0x7d, 0x70],
