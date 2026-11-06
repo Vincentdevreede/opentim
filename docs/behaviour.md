@@ -615,7 +615,7 @@ A line is made from a proved per-member outcome of another part's routine when, 
 The source's own tests stay as the line's source condition (for the explosion: going from frame 1 to frame 2), and a
 named drawing flag among them is said in words, like "mirrored". Lines that say the same are kept once.
 
-In Even More (English floppy) these parts get the push, with their speed: the pinball 2048; the rocket, the rope end
+In Even More (English floppy) these parts get the push, with their speed: the cannonball 2048; the rocket, the rope end
 and the shamrock 2560; the bowling ball 3072; the birdcage 3584; the cat, the bucket, the jack-o-lantern, the cheese,
 the teapot and the pool ball 4096; the basketball, the candle and the super ball 4608; the baseball 5120; the heart and
 the tennis ball 5632; the mouse and the explosion 6144. TIM 1 gives the same speeds to the parts it has. The same rule
@@ -878,7 +878,7 @@ In Even More (English floppy) this gives 441 lines on 24 part types:
 
 - 20 types that can move get 19 each: 12 from the conveyor belt, 4 from the alligator, 2 from the trampoline and 1
   from the pinball bumper (the bowling ball, balloon, basketball, birdcage, bucket, dynamite, baseball,
-  jack-o-lantern, heart, rocket, explosion, pinball, tennis ball, candle, rope end, cheese, super ball, teapot, pool
+  jack-o-lantern, heart, rocket, explosion, cannonball, tennis ball, candle, rope end, cheese, super ball, teapot, pool
   ball and shamrock);
 - the cat gets no trampoline lines, and the mouse none either but 8 from the alligator: their rules read the list flags
   at `0x06`, where the trampoline clears `0x0001`. The alligator's other 4 lines for the mouse set `0x2000` in its
@@ -1706,7 +1706,7 @@ only some. A size field in a corner reads as that size, and adding 255 to it in 
 Even More:
 
 - the bowling ball, basketball and gear: an octagon from (8, 0) to (0, 8) in a 32 by 32 box;
-- the pinball, super ball and pool ball: an octagon in a 23 by 23 box; the baseball and tennis ball: in a 15 by 15 box;
+- the cannonball, super ball and pool ball: an octagon in a 23 by 23 box; the baseball and tennis ball: in a 15 by 15 box;
 - the walls and the grass floor: a rectangle from (0, 0) to their frame width and height minus 1, which their resize
   moves when the size changes;
 - the conveyor belt and mouse motor: a rectangle as large as their frame;
@@ -1768,7 +1768,7 @@ assumed about which frame a level saves. A run that keeps the frame only under a
 gets its resting frames from its rules as before.
 
 In Even More this gives frame 0 as the resting frame of 16 parts with one frame: the bowling ball, basketball, rope,
-birdcage, bucket, eye hook, baseball, jack-o-lantern, heart, Christmas tree, pinball, tennis ball, cheese, thumb tack,
+birdcage, bucket, eye hook, baseball, jack-o-lantern, heart, Christmas tree, cannonball, tennis ball, cheese, thumb tack,
 pool ball and shamrock (11 of them in TIM 1). Their reset keeps the frame the level saved, and with
 [the decided assumption on parts with one frame](behaviour-assumptions.md#13-parts-with-one-frame) that is frame 0, so
 their reset is now known too. The walls, floors, pulley, belt, rope end, super ball and curved pipe wall
@@ -1943,12 +1943,15 @@ floppy; `0x145d7` in TIM 1, French). The factory takes the type as its one argum
 word (`mov [si+0x04], di`) and calls that type's constructor. Each of the four pushes a number right before its call,
 so the type is that number:
 
-| Part             | Call (Even More) | Pushes | Makes     |
-| ---------------- | ---------------- | -----: | --------- |
-| balloon          | `0x192d3`        | `0x31` | rope end  |
-| cannon           | `0x19ba8`        | `0x2b` | pinball   |
-| gun              | `0x1b3a1`        | `0x14` | bullet    |
-| dynamite plunger | `0x1c3c1`        | `0x29` | explosion |
+| Part             | Call (Even More) | Pushes | Makes      |
+| ---------------- | ---------------- | -----: | ---------- |
+| balloon          | `0x192d3`        | `0x31` | rope end   |
+| cannon           | `0x19ba8`        | `0x2b` | cannonball |
+| gun              | `0x1b3a1`        | `0x14` | bullet     |
+| dynamite plunger | `0x1c3c1`        | `0x29` | explosion  |
+
+Part 43 keeps its id `pinball`, since ids never change once published, but in TIM 1 and Even More it is the cannonball
+the cannon fires, so the descriptions call it that.
 
 Helpers make parts the same way: an explosion at `0x1a432`, and in the other builds the scissors' rope cut makes two rope ends and a rope (types `0x31` and `0x0a`). The reader takes the type only from `mov` of a number into a
 register and `push` of that register, or a `push` of a number, right before the far call, with nothing jumping to the
@@ -1962,7 +1965,7 @@ The gun, when not flipped: "Creates a bullet (type 20) at positionX = its positi
 
 - 3, moving at velocityX = 12288 and the bullet's starting velocityY (each kept within the bullet's speed limit). It
   also sets previousX to its positionX + 12, previousY to its positionY + 3, ...". Flipped, the bullet starts at
-  positionX - 32 and moves at -12288. The cannon's pinball starts at positionX + 97 (flipped - 48) and positionY - 7,
+  positionX - 32 and moves at -12288. The cannon's cannonball starts at positionX + 97 (flipped - 48) and positionY - 7,
   moving at 12288 (or -12288) and -4096. The plunger's explosion starts at its positionX - 16 (flipped + 80) and its
   positionY. The balloon's rope end starts at the end point its rope record keeps for the balloon's end of the rope, and
   takes over the balloon's rope links at `0x5a` and `0x66`.

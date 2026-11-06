@@ -8,6 +8,7 @@ import {
   SCREEN_DIRECTION_ASSUMPTION,
   TOUCH_ASSUMPTION,
   TYPE_TABLE_ASSUMPTION,
+  nameOf,
 } from "../src/read/describe-effects.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
@@ -447,5 +448,12 @@ describe("effects of parts that touch", () => {
   it("leaves out a fixed type by the decided assumption, and a part whose rules read the field", () => {
     expect(lines.get(1)).toEqual({ effects: [], assumptions: [FIXED_LIST_ASSUMPTION] });
     expect(touches(20)).toEqual([]);
+  });
+});
+
+describe("part names in the descriptions", () => {
+  it("calls part 43 the cannonball, though its id stays pinball", () => {
+    expect(nameOf("pinball")).toBe("cannonball");
+    expect(nameOf("pinball-bumper")).toBe("pinball bumper");
   });
 });

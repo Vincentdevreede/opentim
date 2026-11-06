@@ -64,7 +64,7 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       rope or belt can lead from a part back to itself (if it never can, the owner's rope links and ends after the
       call would stay known).
 - [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
-      part type each one creates and give its starting fields. Done: they make a rope end, a pinball, a bullet and an
+      part type each one creates and give its starting fields. Done: they make a rope end, a cannonball, a bullet and an
       explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
       Its speed limit and list links stay unnamed, and the merged rules wait for B0.
 - [ ] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,

@@ -5,6 +5,7 @@
  */
 import type { BehaviourReport, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import type { CreatedPart } from "./behaviour-created-parts.ts";
+import { nameOf } from "./describe-effects.ts";
 import { formula, type Names } from "./describe-touch.ts";
 
 const CREATED = /^(?:nullable allocation|fresh object) returned at (0x[0-9a-f]+)$/;
@@ -74,7 +75,7 @@ export function createdPartLines(
     for (const [object, writes] of objects) {
       const created = createdPartOf(report, object)!;
       const id = report.parts.find((part) => part.type === created.type)?.id;
-      const what = id ? id.replace(/-/g, " ") : `new part`;
+      const what = id ? nameOf(id) : `new part`;
       const article = /^[aeiou]/.test(what) ? "an" : "a";
       const wordsOf: Names = {
         field: fieldName,

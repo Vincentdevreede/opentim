@@ -282,7 +282,13 @@ export function partFields(value: Expression | Predicate, found: Set<number>) {
 }
 
 const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.address, e])).values()];
-export const nameOf = (id: string) => id.replace(/-/g, " ");
+/**
+ * Ids are never renamed once published, so a part whose id doesn't say what it is in TIM 1 and Even More gets its
+ * words here: part 43 has the id "pinball", but in these games it is the cannonball the cannon fires.
+ */
+const WORDS: Record<string, string> = { pinball: "cannonball" };
+/** A part id in words, for the behaviour descriptions of TIM 1 and Even More. */
+export const nameOf = (id: string) => WORDS[id] ?? id.replace(/-/g, " ");
 const article = (name: string) => (/^[aeiou]/.test(name) ? "An" : "A");
 
 interface Candidate {
