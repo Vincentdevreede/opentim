@@ -2021,6 +2021,45 @@ not that the game puts the bike there. All 32 close in both builds: complete mat
 More and from 520 to 552 of 552 in TIM 1 (36 of them through the recorder's fields in each), none is a prefix and none
 is different. Walks don't change.
 
+### Walks from a trigger the recorder never performs
+
+A clip used to count for any walk that fits it, also a walk from a trigger: another callback of the part, like the
+monkey bike's rope, or another part's write, like a trampoline clearing the mouse's contact bit at `0x06`. But the v25
+recorder performs no trigger. `setup` and `clip` in `research/v24/verify_animations.py` put each part alone on a cleared
+bench and write the fields the action names (frame, control value, counter, heat, speed and the flags at `0x08`), and
+`step` then only calls the part's run routine (`callbacks['update']`), returning 0 from every call that leaves the
+parts' code segment. No action calls another callback, and no other part is on the bench. So the mouse's run clips
+counted as "touching a trampoline", a touch the recording never had.
+
+A walk from a trigger now counts for a clip only when its start is the recorder's: every bit the trigger writes that
+the walk knows is one the action seeds, with that value, and every test of the trigger's on the part's other fields holds
+for the seeded fields. A test of the event itself, like the argument the rope passes, says nothing about the part and is
+left out. Such a match has its own basis, `seeded-state`, in place of `trigger`: the walk is the run from the recorder's
+seed, not proof that the trigger happens. With the recorder's bench (the fields it writes and the ones it clears that
+nothing writes) the same check counts under `recorder-fields`. The contact bits a recording starts with clear are bench
+here: a walk whose trigger is a touch can't stand for a clip on the grounds that nothing touches the part. When several
+walks fit as well, the comparison takes the one that needs the fewest facts beyond the recording: the reset, a resting
+frame or creation, then an input case of the run, then a seeded state, then the recorder's bench.
+
+The 11 matches per build through a trigger all move, and every clip still matches: complete stays 648 in Even More and
+552 in TIM 1, none is a prefix or different.
+
+- The monkey bike's run clips: the action seeds the control value 1, which the rope callback writes from rest. The rope
+  writes 1 only when the flag `0x10` at `0x08` is clear, so for orientations 0 and 32 that is the rope's start and they
+  count as `seeded-state` (2 per build). Orientations 16 and 48 set that flag, so the rope doesn't start them like
+  this; they now match the run's input case with the belt link the recorder cleared (`recorder-fields`).
+- The mouse's four run clips: back to the reset walk with its flags at `0x06` cleared by the recorder
+  (`recorder-fields`), as before the touch effects.
+- The mouse's three still clips in orientations 16, 32 and 48: the run's input case, which needs fewer facts than the
+  trampoline.
+
+Per build the bases go from 1 creation, 11 trigger, 456 reset or rest (364 in TIM 1), 132 input case, 32 recorder fields
+and 16 skipped search (12 in TIM 1) to 1 creation, 456 (364) reset or rest, 135 input case, 2 seeded state, 38 recorder
+fields and 16 (12) skipped search.
+
+Still open: an input case may test the contact bits too, and the comparison takes them as clear from the start as
+decided. Seven input case matches per build rely on that (the cat's 4 and the mouse's 3 still clips just named).
+
 ### Outlines
 
 Many parts build their own outline in their reset: the shape other parts bounce off. The part's outline pointer at

@@ -18,6 +18,8 @@ export interface DescribedWalkMatch {
   clip: string;
   classification: "complete" | "prefix" | "different" | "unavailable";
   /**
+   * `seeded-state`: a walk from a trigger the recorder never performs, whose start is what the recorder seeded: the
+   * trigger's writes are the values the recorder's action gives, so the walk is the run from the recorder's start.
    * `recorder-fields`: the match needed what the recorder itself writes or clears between runs (its bench).
    * `recorder-skipped-search`: it needed that and what the recorder gave in place of a search it skipped (an empty found
    * list). Both show the walk agrees with the recorder, not what the game does.
@@ -25,8 +27,8 @@ export interface DescribedWalkMatch {
   basis:
     | "reset-or-rest"
     | "creation"
-    | "trigger"
     | "input-case"
+    | "seeded-state"
     | "recorder-fields"
     | "recorder-skipped-search"
     | "unavailable";
@@ -34,7 +36,7 @@ export interface DescribedWalkMatch {
   measuredTransitions: number;
   prefixFrames: number;
   animation?: string;
-  conditionCompatibility: "established" | "unresolved" | "conditional-event";
+  conditionCompatibility: "established" | "unresolved";
   reason: string;
   evidenceAddresses: number[];
 }
@@ -46,7 +48,7 @@ export interface DescribedWalkCoverage {
   different: number;
   unavailable: number;
   completeFromCreation: number;
-  completeFromTriggers: number;
+  completeFromSeededStates: number;
   completeFromResetOrRest: number;
   completeFromInputCases: number;
   completeFromRecorderFields: number;
@@ -999,6 +1001,80 @@ interface StartMode {
   external: boolean;
   facts?: RecorderFacts;
 }
+/** The objects of the fields an expression or condition reads. */
+function objectsRead(value: Expression | Predicate, found: string[] = []): string[] {
+  if (value.kind === "field") found.push(value.object);
+  else if (value.kind === "binary" || value.kind === "compare") {
+    objectsRead(value.left, found);
+    objectsRead(value.right, found);
+  } else if (value.kind === "table") objectsRead(value.index, found);
+  else if (value.kind === "and") value.terms.forEach((term) => objectsRead(term, found));
+  return found;
+}
+/** Whether a walk keeps a test of this object at its start: the part, its start values and what its pointers reach. */
+const partObject = (object: string): boolean =>
+  object === "part" || object === START || object.startsWith("address of ") || object.startsWith("referenced-by(");
+/**
+ * Whether a walk from a trigger starts where the recording does. The v25 recorder (`clip` and `step` in
+ * `research/v24/verify_animations.py`) puts each part alone on a cleared bench, writes the fields its action names
+ * (`state`, `control`, `timer`, `heat`, `vx`, `vy` and the flags at `0x08`) and then only calls the part's run routine,
+ * returning 0 from every call that leaves the parts' code segment. It calls no other callback of the part, and no other
+ * part is there to write to it. So no trigger of a walk, a callback of the part or another part's write, happens in a
+ * recording. Such a walk only stands for a clip when its start is one the recorder gave: every bit the trigger writes
+ * that the walk knows, the recorder gives with that value, and every test of the trigger's the walk keeps (on part
+ * fields the trigger leaves alone) holds for the recorder's fields. Without the bench (`zero`), the recorder gives only
+ * the fields its action and the clip's first frame name.
+ */
+function recorderStart(animation: AnimationDescription, given: RecordedField[], zero?: ReadonlySet<number>): boolean {
+  const written = new Set(
+    animation.trigger.writes
+      .filter((write) => write.object === "part")
+      .flatMap((write) => [...Array(Math.max(1, write.width / 8)).keys()].map((byte) => write.offset + byte)),
+  );
+  const byteOf = (field: RecordedField, offset: number) => ({
+    value: (field.value >>> (8 * (offset - field.offset))) & 0xff,
+    mask: (field.knownMask >>> (8 * (offset - field.offset))) & 0xff,
+  });
+  const givenByte = (offset: number) => {
+    if (zero?.has(offset)) return { value: 0, mask: 0xff };
+    let value = 0,
+      mask = 0;
+    for (const field of given)
+      if (field.object === "part" && field.offset <= offset && offset < field.offset + field.width / 8) {
+        const known = byteOf(field, offset);
+        value |= known.value & known.mask & ~mask;
+        mask |= known.mask;
+      }
+    return { value, mask };
+  };
+  const writesGiven = (animation.initialFields ?? []).every(
+    (field) =>
+      field.object !== "part" ||
+      [...Array(field.width / 8).keys()].every((byte) => {
+        const offset = field.offset + byte;
+        if (!written.has(offset)) return true;
+        const known = byteOf(field, offset),
+          recorder = givenByte(offset);
+        return (known.mask & ~recorder.mask) === 0 && ((known.value ^ recorder.value) & known.mask) === 0;
+      }),
+  );
+  if (!writesGiven) return false;
+  const terms = (predicate: Predicate): Predicate[] =>
+    predicate.kind === "and" ? predicate.terms.flatMap(terms) : predicate.kind === "compare" ? [predicate] : [];
+  return terms(animation.trigger.condition).every((term) => {
+    // A test of the event itself, like the argument a rope passes, says nothing about the part's start.
+    if (!objectsRead(term).every(partObject)) return true;
+    // Nor does a test of a field the trigger writes: the walk starts from the written value.
+    if (
+      fieldsRead(term).some(({ offset, width }) =>
+        [...Array(Math.max(1, width / 8)).keys()].some((byte) => written.has(offset + byte)),
+      )
+    )
+      return true;
+    const fields = zero ? withZero({ condition: term }, given, zero) : given;
+    return !!fields && evaluateBehaviourCondition(term, fields) === true;
+  });
+}
 function matchStart(
   report: BehaviourReport | undefined,
   animation: AnimationDescription,
@@ -1039,7 +1115,19 @@ function matchStart(
         ? "input-case"
         : animation.trigger.kind === "run"
           ? "reset-or-rest"
-          : "trigger";
+          : "seeded-state";
+  // The recorder performs no trigger, so a walk from one counts only when its start is what the recorder seeded.
+  if (
+    basis === "seeded-state" &&
+    !recorderStart(
+      animation,
+      mode.facts
+        ? [...recorded, ...(mode.facts.inputs?.(0) ?? [])]
+        : recorded.filter((field) => field !== RECORDER_CONTACT),
+      mode.facts?.zero,
+    )
+  )
+    return undefined;
   // With the recorder's bench, a field the input case tests that the recorder cleared and nothing in the clip writes is
   // 0, like the monkey bike's belt link at 0x54.
   const given =
@@ -1057,8 +1145,7 @@ function matchStart(
     measuredTransitions: expected.length - 1,
     animation: animation.id,
     basis,
-    conditionCompatibility:
-      compatibility === undefined ? "unresolved" : basis === "trigger" ? "conditional-event" : "established",
+    conditionCompatibility: compatibility === undefined ? "unresolved" : "established",
     evidenceAddresses: [...new Set(walk.evidence.map((item) => item.address))] as number[],
   } as const;
   if (!walk.parameterised) return matchTree(report, animation, clip, recorded, compatibility, base, mode);
@@ -1433,11 +1520,12 @@ function withRecorder(
 const RECORDER_FIELDS_WORDS =
   "It takes the fields the recorder writes before every run, and the fields it clears that nothing in the clip writes, as the recorder gave them: that is the recorder's bench, not the game's.";
 const RANK = { complete: 3, prefix: 2, different: 1, unavailable: 0 };
+/** Where several walks fit equally, the one that needs the fewest facts beyond the recording. */
 const BASIS_RANK = {
   "reset-or-rest": 2,
   creation: 2,
-  trigger: 1,
-  "input-case": 0,
+  "input-case": 1,
+  "seeded-state": 0,
   "recorder-fields": -1,
   "recorder-skipped-search": -1,
   unavailable: -1,
@@ -1447,7 +1535,7 @@ const byRank = (left: DescribedWalkMatch, right: DescribedWalkMatch) =>
   right.prefixFrames - left.prefixFrames ||
   BASIS_RANK[right.basis] - BASIS_RANK[left.basis];
 
-/** Complete counts retain their basis: actual code triggers and conditional input scenarios are distinct. */
+/** Complete counts retain their basis: reset or rest, creation, input cases and seeded states are distinct. */
 export function validateDescribedWalks(
   report: BehaviourReport,
   part: PartBehaviourDescription,
@@ -1491,8 +1579,9 @@ export function validateDescribedWalks(
     unavailable: matches.filter((match) => match.classification === "unavailable").length,
     completeFromCreation: matches.filter((match) => match.classification === "complete" && match.basis === "creation")
       .length,
-    completeFromTriggers: matches.filter((match) => match.classification === "complete" && match.basis === "trigger")
-      .length,
+    completeFromSeededStates: matches.filter(
+      (match) => match.classification === "complete" && match.basis === "seeded-state",
+    ).length,
     completeFromResetOrRest: matches.filter(
       (match) => match.classification === "complete" && match.basis === "reset-or-rest",
     ).length,

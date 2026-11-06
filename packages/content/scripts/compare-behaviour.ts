@@ -207,7 +207,7 @@ interface ComparisonPart {
   walkMatches: { complete: number; prefix: number; different: number; unavailable: number };
   walkBasis: {
     completeFromCreation: number;
-    completeFromTriggers: number;
+    completeFromSeededStates: number;
     completeFromResetOrRest: number;
     completeFromInputCases: number;
     /** Complete only with what the recorder writes or clears between runs: not a proof about the game. */
@@ -292,8 +292,9 @@ for (const phase of ["baseline", "reports"] as const) {
         walkBasis: {
           completeFromCreation: walks.filter((walk) => walk.classification === "complete" && walk.basis === "creation")
             .length,
-          completeFromTriggers: walks.filter((walk) => walk.classification === "complete" && walk.basis === "trigger")
-            .length,
+          completeFromSeededStates: walks.filter(
+            (walk) => walk.classification === "complete" && walk.basis === "seeded-state",
+          ).length,
           completeFromResetOrRest: walks.filter(
             (walk) => walk.classification === "complete" && walk.basis === "reset-or-rest",
           ).length,
@@ -346,7 +347,7 @@ for (const phase of ["baseline", "reports"] as const) {
       oneFrameClips: parts.reduce((sum, part) => sum + part.oneFrameClips, 0),
       walkBasis: {
         completeFromCreation: parts.reduce((sum, part) => sum + part.walkBasis.completeFromCreation, 0),
-        completeFromTriggers: parts.reduce((sum, part) => sum + part.walkBasis.completeFromTriggers, 0),
+        completeFromSeededStates: parts.reduce((sum, part) => sum + part.walkBasis.completeFromSeededStates, 0),
         completeFromResetOrRest: parts.reduce((sum, part) => sum + part.walkBasis.completeFromResetOrRest, 0),
         completeFromInputCases: parts.reduce((sum, part) => sum + part.walkBasis.completeFromInputCases, 0),
         completeFromRecorderFields: parts.reduce((sum, part) => sum + part.walkBasis.completeFromRecorderFields, 0),
@@ -376,7 +377,7 @@ for (const phase of ["baseline", "reports"] as const) {
         : "No exact executable hash matched an oracle model; measured walk coverage is unavailable.",
     });
     console.log(
-      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.namedRunValueTransitions} with named run values, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete (${summary.walkBasis.completeFromRecorderFields} of them through the recorder's fields, ${summary.walkBasis.completeFromRecorderSkippedSearches} through a recorder-skipped search), ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
+      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.namedRunValueTransitions} with named run values, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete (${summary.walkBasis.completeFromSeededStates} of them from a seeded state, ${summary.walkBasis.completeFromRecorderFields} through the recorder's fields, ${summary.walkBasis.completeFromRecorderSkippedSearches} through a recorder-skipped search), ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
     );
   }
 }
@@ -429,7 +430,8 @@ const limitations = [
   "A complete match requires a proved stable ending or matching repeating visible cycles; unknown endings are prefixes.",
   "One-frame clips have no measured transition; a complete match for one requires a statically proved stable walk.",
   "Descriptions use reset fields, actual extracted trigger assignments and explicitly labelled input cases taken from run predicates and producer constants. No oracle seed or invented collision supplies inputs.",
-  "Complete matches retain their basis: reset/rest, actual code trigger or conditional input case. A conditional input case does not prove that the level or another part supplies those values.",
+  "Complete matches retain their basis: reset/rest, creation, conditional input case or seeded state. A conditional input case does not prove that the level or another part supplies those values.",
+  "The recorder performs no trigger: it puts each part alone on a cleared bench, writes the fields its action names and only calls the run routine. A walk from a trigger (another callback of the part, or another part's write) therefore counts only when its start is the recorder's: the trigger's writes are values the action gives and the trigger's other tests on the part hold for them. Those matches have their own basis, seeded state, and say nothing about the trigger happening.",
   "A clip that lists a search the recorder skipped may match with what the recorder gave in its place (0 and no memory written, so an empty found list). Those matches have their own basis, recorder-skipped search, and are counted apart: they show the walk agrees with the recorder, not what the game finds.",
   "Where the walks don't match as they are, a clip may also match with what the recorder itself writes before every run (the position words at 0x1e to 0x28, the previous frames at 0x0e and 0x10) and the bytes it clears that nothing in the clip can write. Those matches have their own basis, recorder fields, and are counted apart too: they describe the recorder's bench, not the game.",
   "Repeated externally supplied inputs remain outside a single-trigger description and cannot establish complete coverage.",

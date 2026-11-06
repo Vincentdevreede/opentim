@@ -121,6 +121,11 @@ the level), and every one of those is listed by name.
       "The TIM 1 cat's loop over the found list"): TIM 1 516 to 520.
       The Even More mouse motor's control value is now kept at the end of its count (see "The mouse motor's control
       value at the end of its count"): Even More 612 to 616. Only the monkey bike stays open in both builds.
+      After the touch effects the mouse's clips matched "touching a trampoline", a touch the recorder never gives. A
+      walk from a trigger now counts only when its start is what the recorder seeded, under its own basis `seeded-state`
+      (see "Walks from a trigger the recorder never performs"). No clip lost its match (648 and 552 complete): per build
+      11 trigger matches became 2 seeded state (the bike's rope), 6 recorder fields (the mouse's 4 run clips again, the
+      flipped bike's 2) and 3 input case (the mouse's still clips).
 - [x] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

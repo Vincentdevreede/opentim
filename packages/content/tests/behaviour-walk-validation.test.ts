@@ -940,6 +940,78 @@ describe("recordings compared with what the recorder writes between runs", () =>
     });
     expect(compareMeasuredWalks([model], seeded, report([write(0x54)]), undefined, 6).classification).toBe("prefix");
   });
+  describe("a walk from a trigger the recorder never performs", () => {
+    /** A walk from a callback that writes this field, knowing the written bits from its start. */
+    const triggered = (offset: number, value: number, knownMask = 0xffff, condition: Predicate = { kind: "true" }) => {
+      const model = animation();
+      model.initialFields = [
+        ...model.initialFields!,
+        { ...proof, object: "part", offset, width: 16, value, knownMask },
+      ];
+      model.trigger.writes = [
+        {
+          ...proof,
+          object: "part",
+          offset,
+          width: 16,
+          value: { kind: "constant", value, width: 16 },
+          condition: { kind: "true" },
+          routine: 0,
+        },
+      ];
+      model.trigger.condition = condition;
+      return model;
+    };
+    it("counts as a seeded state when the recorder's action gives what the trigger writes", () => {
+      // Like the monkey bike's rope callback setting its control value to 1, which the recorder's run action seeds.
+      expect(compareMeasuredWalks([triggered(18, 1)], clip())).toMatchObject({
+        classification: "complete",
+        basis: "seeded-state",
+        conditionCompatibility: "established",
+      });
+    });
+    it("needs the recorder's bench for a field its action doesn't name", () => {
+      // Like a trampoline clearing the mouse's contact bit at 0x06: the recorder cleared it, but never seeds it.
+      const touched = triggered(0x06, 0, 1);
+      expect(compareMeasuredWalks([touched], clip()).classification).toBe("unavailable");
+      expect(compareMeasuredWalks([touched], clip(), report(), undefined, 6)).toMatchObject({
+        classification: "complete",
+        basis: "recorder-fields",
+      });
+      expect(compareMeasuredWalks([triggered(0x50, 3)], clip(), report(), undefined, 6).classification).toBe(
+        "unavailable",
+      );
+    });
+    it("needs the trigger's tests of the part's other fields to hold for the recorder's fields", () => {
+      expect(compareMeasuredWalks([triggered(18, 1, 0xffff, test(0x60, "==", 3))], clip()).classification).toBe(
+        "unavailable",
+      );
+      const cleared = triggered(18, 1, 0xffff, test(0x60, "==", 0));
+      expect(compareMeasuredWalks([cleared], clip()).classification).toBe("unavailable");
+      expect(compareMeasuredWalks([cleared], clip(), report(), undefined, 6).basis).toBe("recorder-fields");
+      // A test of what the event passes, like the rope's argument, isn't a test of the part.
+      const argument: Predicate = {
+        kind: "compare",
+        operator: "==",
+        left: { kind: "field", object: "argument", offset: 12, width: 16 },
+        right: { kind: "constant", value: 1, width: 16 },
+        signed: false,
+      };
+      expect(compareMeasuredWalks([triggered(18, 1, 0xffff, argument)], clip()).basis).toBe("seeded-state");
+    });
+    it("gives way to an input case that fits as well, since that needs fewer facts", () => {
+      const input = animation();
+      input.id = "input";
+      input.trigger.kind = "input-case";
+      input.initial = "run-guard";
+      input.inputCondition = test(18, "==", 1);
+      expect(compareMeasuredWalks([triggered(18, 1), input], clip())).toMatchObject({
+        classification: "complete",
+        basis: "input-case",
+        animation: "input",
+      });
+    });
+  });
 });
 
 describe("a loop that stops at the first part it finds in a skipped search's list", () => {
