@@ -262,6 +262,8 @@ export function writer(
     const after = / after (unresolved write|unresolved effect|field effect) at 0x[0-9a-f]+$/.exec(text);
     if (after) return object(text.slice(0, after.index));
     if (text === "part") return { name: "", kind: "part" };
+    // The part's found list right after a search filled it: its head is the part found last.
+    if (/^found list after the query at 0x[0-9a-f]+$/.test(text)) return { name: "", kind: "part" };
     if (text === "collider") return { name: "collider", kind: "part" };
     if (text === "address of part") return { name: "this", kind: "other" };
     if (/^overlap candidate at /.test(text)) return { name: "found", kind: "part" };
@@ -303,6 +305,12 @@ export function writer(
     if (offset === 0 && /^member found by the loop at 0x[0-9a-f]+ link$/.test(target)) return "found";
     const answer = /^answer of the query at (0x[0-9a-f]+)$/.exec(target);
     if (answer && offset === 0) return `answer at ${answer[1]}`;
+    // What a search writes in the parts it finds: the next part in its found list, and the values it works out.
+    if (/^next in the found list of the query at 0x[0-9a-f]+$/.test(target)) return "next found";
+    const written = /^value the (query|call) at (0x[0-9a-f]+) writes to a (found|selected) part$/.exec(target);
+    if (written) return `${field({ name: "", kind: "part" }, offset)} from the call at ${written[2]}`;
+    const scanned = /^value after the list scan at (0x[0-9a-f]+) in (.+)$/.exec(target);
+    if (scanned) return `${field(object(scanned[2]!), offset)} after the scan at ${scanned[1]}`;
     if (target === "stack") return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)}`;
     if (target === "argument") return `argument+${hex(offset, 2)}`;
     return field(object(target), offset);
