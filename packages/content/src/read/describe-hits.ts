@@ -24,6 +24,18 @@ import {
 } from "./describe-effects.ts";
 
 const MOVING_LIST = 0x1000;
+/**
+ * The flag the candle's and the rocket's first searches need: `0x0004` in field `0x0a`, which marks a part the candle
+ * can light. Only the constructors of the cannon (`0x162c9` in Even More, English floppy), the dynamite (`0x16306`), the
+ * rocket (`0x1664f`) and the candle (`0x167ea`) set it. Decided with the user on 2026-11-06: these four always have it
+ * and no other part does, though a level stores the word.
+ */
+const LIGHTABLE = { offset: 0x0a, mask: 0x0004 };
+const LIGHTABLE_PARTS = new Set(["cannon", "dynamite", "rocket", "candle"]);
+export const LIGHTABLE_ASSUMPTION =
+  "Only the cannon, dynamite, rocket and candle are ever marked as lightable (0x0004 in field 0x0a), and they always are. Only their constructors set it, and in the shipped levels every one of these four has it and no other part does.";
+const isLightableTest = (t: { offset: number; mask: number }) =>
+  t.offset === LIGHTABLE.offset && t.mask === LIGHTABLE.mask;
 
 /** One way other parts change this part's fields that its rules read. */
 export interface PartHit extends Finding {
@@ -194,9 +206,20 @@ export function hitsFromOthers(
   for (const part of report.parts) {
     const hits = new Map<string, { hit: PartHit; tests: Predicate[]; touch: boolean; others: FieldWrite[][] }>();
     const assumptions = new Set<string>();
-    const fixed = startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
+    // A part of a fixed type is never on the moving list: a decided assumption says so.
+    const offList =
+      startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0 ? FIXED_LIST_ASSUMPTION : undefined;
     const known = (member: string) =>
-      fixed ? [{ object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST }] : [];
+      offList ? [{ object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST }] : [];
+    // Whether the part is marked as lightable is decided by its type too, with the decided assumption.
+    const lightable = LIGHTABLE_PARTS.has(part.id);
+    const marked = (member: string) => ({
+      object: member,
+      ...LIGHTABLE,
+      width: 16,
+      value: lightable ? LIGHTABLE.mask : 0,
+      knownMask: LIGHTABLE.mask,
+    });
     // The fields the part's own rules read: setting one of them can change its frame.
     const read = new Set<number>([stateOffset]);
     for (const rule of part.transitions) {
@@ -208,23 +231,32 @@ export function hitsFromOthers(
       const used = { table: false };
       const kept: Predicate[] = [];
       let possible = true,
-        byFixedList = false;
+        usesLightable = false;
+      /** The decided assumptions that rule this out, when no other test does. */
+      const ruledBy = new Set<string>();
       // The source's code must name this part's type: a search may hold parts the source never acts on. Or, when it
       // names none, the program must give this type every flag the search needs: from the factory's table for the
-      // type, or from its constructor. The walk still keeps the search's tests, since a part may lose a flag.
-      if (c.types.size ? !c.types.has(part.type) : c.search!.some((t) => t.set && !gives(part.type, t))) continue;
+      // type, or from its constructor. The walk still keeps the search's tests, since a part may lose a flag, except
+      // the lightable flag, which the decided assumption settles for every type.
+      const needs = (t: SearchTest) => t.set && (lightable || !isLightableTest(t));
+      if (c.types.size ? !c.types.has(part.type) : c.search!.some((t) => needs(t) && !gives(part.type, t))) continue;
       const searchTerms = (c.search ?? []).map((t) => flagTest(c.member, t));
       for (const term of [...c.memberTerms, ...searchTerms]) {
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
-        const value = evaluate(typed, known(c.member));
+        let value = evaluate(typed, known(c.member));
+        let by = listFlagWords(typed, c.member) && offList;
+        if (value === undefined) {
+          value = evaluate(typed, [...known(c.member), marked(c.member)]);
+          if (value === true) usesLightable = true;
+          by = LIGHTABLE_ASSUMPTION;
+        }
         if (value === true) continue;
-        const flag = listFlagWords(typed, c.member);
         if (value === false) {
-          // Ruled out by the decided assumption only when no other test rules it out too.
-          if (flag && fixed && possible) byFixedList = true;
+          // Ruled out by a decided assumption only when no other test rules it out too.
+          if (by && possible) ruledBy.add(by);
           else {
             possible = false;
-            byFixedList = false;
+            ruledBy.clear();
           }
           continue;
         }
@@ -235,8 +267,8 @@ export function hitsFromOthers(
       const changes = c.writes.filter(readsField);
       // Only a number in a field the rules read gives the walk something to follow.
       if (!changes.length || changes.some((w) => w.value.kind !== "constant" || w.directedSpeed)) continue;
-      if (byFixedList) {
-        assumptions.add(FIXED_LIST_ASSUMPTION);
+      if (ruledBy.size) {
+        for (const assumption of ruledBy) assumptions.add(assumption);
         continue;
       }
       const asPart = (w: FieldWrite): FieldWrite => ({
@@ -263,6 +295,7 @@ export function hitsFromOthers(
         ...c.outcome.assumptions,
         ...c.writes.flatMap((w) => w.assumptions),
         ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+        ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
       ];
       const others = c.writes.filter((w) => !readsField(w)).map(asPart);
       const prior = hits.get(key);

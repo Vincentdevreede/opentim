@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { describeBehaviour, evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
-import { hitsFromOthers } from "../src/read/describe-hits.ts";
+import { hitsFromOthers, LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const proof = {
@@ -265,14 +265,24 @@ describe("walks from other parts that change a part's frame", () => {
     expect(rocket[0]).toMatchObject({
       name: "Hit by a candle",
       writes: [{ object: "part", offset: 0x12, value: c(1) }],
-      condition: and(
-        compare(f("part", 0x12), "==", c(0)),
-        compare(masked("part", 0x0a, 4), "!=", c(0)),
-        compare(masked("part", 8, 0x2000), "==", c(0)),
-      ),
+      // The decided assumption marks the rocket as lightable, so the walk doesn't keep that test.
+      condition: and(compare(f("part", 0x12), "==", c(0)), compare(masked("part", 8, 0x2000), "==", c(0))),
     });
-    // The balloon reads the control value too, but no code gives it the flag the candle's search needs.
+    expect(rocket[0]!.assumptions).toContain(LIGHTABLE_ASSUMPTION);
+    // The balloon reads the control value too, but the decided assumption says it is never lightable.
     expect(hits.get(4)!.hits.map((h) => h.name)).toEqual(["Hit by an explosion"]);
+    expect(hits.get(4)!.assumptions).toEqual([LIGHTABLE_ASSUMPTION]);
+  });
+
+  it("keeps a lightable part's walk to the flags its constructor gives", () => {
+    // Without the constructor's flag the candle's search gives the rocket no walk, though the assumption names it.
+    const data = report();
+    const factory = data.helpers!.find((h) => h.kind === "part-factory")!;
+    (factory as { factory: { constructorFlags: unknown[] } }).factory.constructorFlags = [];
+    expect(hitsFromOthers(data, evaluateBehaviourCondition).get(36)).toBeUndefined();
+  });
+
+  it("walks a part on the moving list that a search with no flag it needs finds", () => {
     expect(hits.get(20)!.hits).toMatchObject([
       {
         name: "Hit by a jack in the box",

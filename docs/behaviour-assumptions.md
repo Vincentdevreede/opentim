@@ -547,3 +547,46 @@ punch. The explosion's push doesn't need it: "away from the explosion" is proved
 
 - Follow the drawing code from `drawY` at `0x2c` to the screen and check that a smaller value is drawn higher.
 - In the game, flip a jack-in-the-box and check that it knocks a part up and to the right.
+
+## 17. Parts the candle can light
+
+Decided on 2026-11-06 with the user. In the code: `LIGHTABLE_ASSUMPTION` in
+`packages/content/src/read/describe-hits.ts`. Explained in
+[hits found by a search's flags](behaviour.md#hits-found-by-a-searchs-flags).
+
+**The question.** The candle's first search and the rocket's keep only parts with `0x0004` in field `0x0a`, and their
+loops set the control value at `0x12` of each such part to 1 when it is 0: they light it. A level stores that word, so
+can a part of another type have the flag, or one of these four lack it?
+
+**What the code shows** (Even More, English floppy):
+
+- The constructors of the cannon (`0x162c9`), the dynamite (`0x16306`), the rocket (`0x1664f`) and the candle
+  (`0x167ea`) set `0x0004` in `0x0a`. The factory's own table gives it to no type, and a scan of the program finds no
+  other instruction that sets it. The instructions that clear bits there (`0x00fba`, `0x08971`, `0x1857f` and the part
+  reader at `0x136a9`) all keep it, and the part copy (`0x66ec`) takes the word of the part it copies.
+- The candle's first search (call at `0x19ab2`, search `0x448e`) keeps only parts with `0x0004` in `0x0a` (`0x44c7`),
+  and its loop at `0x19abf` sets `0x12` to 1 on each one where it is 0. The rocket's run makes the same search (call at
+  `0x1c76a`).
+- The part reader (`0x13653`) reads the third flags word of a level of version `0x101` or later into `0x0a` and clears
+  only `0x0010` there.
+- In the shipped levels of the eleven builds, every cannon, candle, dynamite and rocket is saved with `0x0004` in its
+  third flags word and no other part is. Every build's constructors set it for the same four types and no others (TIM
+  1 French: `0x14b33`, `0x14b72`, `0x14edd`, `0x15088`).
+
+**What we assume.**
+
+- Only the cannon, dynamite, rocket and candle are ever marked as lightable (`0x0004` in field `0x0a`), and they always
+  are. Only their constructors set it, and in the shipped levels every one of these four has it and no other part does.
+
+Not proved: a level file made outside the game could set or clear the flag, since loading keeps the stored word.
+
+**What it gives.** The "Hit by a candle or a rocket" walks of the cannon, the dynamite, the rocket and the candle no
+longer keep "only when it has `0x0004` in field `0x0a`" as a condition. A walk still needs the type's constructor to
+set the flag. Other types still get no such walk, and the 21 types in Even More (English floppy) that would otherwise
+get one, because their rules read the control value, state the assumption in their description.
+
+**How to recheck.**
+
+- Search each build again for instructions that set or clear `0x0004` in a part's word at `0x0a`.
+- Look at levels saved by players for a part with `0x0004` in its third flags word that isn't one of these four, or one
+  of these four without it.

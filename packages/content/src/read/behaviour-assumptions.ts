@@ -4,6 +4,7 @@
  */
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
 import { FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "./describe-effects.ts";
+import { LIGHTABLE_ASSUMPTION } from "./describe-hits.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
 import { PART_COPY_ASSUMPTIONS } from "./behaviour-part-copy.ts";
 import { ROPE_CUT_ASSUMPTIONS } from "./behaviour-rope-cut.ts";
@@ -34,4 +35,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The teeter-totter's ends", assumptions: [TEETER_TOTTER_END_ASSUMPTION] },
   { title: "Parts on the fixed list", assumptions: [FIXED_LIST_ASSUMPTION] },
   { title: "Screen directions", assumptions: [SCREEN_DIRECTION_ASSUMPTION] },
+  { title: "Parts the candle can light", assumptions: [LIGHTABLE_ASSUMPTION] },
 ];
