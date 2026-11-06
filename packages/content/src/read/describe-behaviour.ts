@@ -8,7 +8,7 @@ import {
   REACTION_FIELDS,
 } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
-import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
+import { effectsFromOthers, partFields, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
 import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
 import type {
@@ -3611,6 +3611,21 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
         const period = periodOf(term.left) ?? periodOf(term.right);
         if (period) periods.add(period);
       }
+  // Where the part is drawn and how large its frame is depend on the frame, but a drawing field no rule reads can't
+  // change which frames follow.
+  const drawing = new Set(
+    report.layout.fields
+      .filter((f) => ["drawX", "drawY", "frameWidth", "frameHeight"].includes(f.name))
+      .map((f) => f.offset),
+  );
+  const read = new Set<number>();
+  for (const rule of rules) {
+    partFields(rule.condition, read);
+    partFields(rule.to, read);
+    for (const write of (rule as WithUpdates).updates ?? [])
+      if (!(write.object === "part" && drawing.has(write.offset))) partFields(write.value, read);
+  }
+  const unread = (write: FieldWrite) => write.object === "part" && drawing.has(write.offset) && !read.has(write.offset);
   const results: AnimationDescription[] = [];
   for (const period of periods) {
     const invariant = (e: Expression): boolean => !contains(e) || periodOf(e) === period;
@@ -3624,6 +3639,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
           (rule as WithUpdates).updates?.some(
             (write) =>
               contains(write.value) &&
+              !unread(write) &&
               !(write.object === "part" && write.offset === stateOffset && affine(write.value) !== undefined),
           ),
       )
@@ -3637,9 +3653,18 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
       const condition: Predicate = { kind: "and", terms };
       contexts.set(JSON.stringify(terms), { condition, proof: finding([rule]) });
     }
+    // The phase walk counts frames from 0, so a drawing value of the frame itself is left unknown there.
+    const phaseWrite = (write: FieldWrite): FieldWrite =>
+      unread(write) && contains(write.value)
+        ? { ...write, value: { kind: "unknown", reason: "A drawing value of the frame", width: write.width } }
+        : write;
     const phasePart = {
       ...part,
-      transitions: part.transitions.map((rule) => (rule.routine === run.address ? { ...rule, from: null } : rule)),
+      transitions: part.transitions.map((rule) =>
+        rule.routine === run.address
+          ? { ...rule, from: null, ...(rule.updates ? { updates: rule.updates.map(phaseWrite) } : {}) }
+          : rule,
+      ),
     };
     const phaseReport = { ...report, parts: [phasePart] };
     let tried = 0;

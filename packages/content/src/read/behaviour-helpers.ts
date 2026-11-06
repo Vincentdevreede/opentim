@@ -43,6 +43,7 @@ import { proveOverlapProducer, type OverlapProducer } from "./behaviour-overlap-
 import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-connection-bypass.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 import { ownerStoreConditions } from "./behaviour-owner-paths.ts";
+import type { FrameDrawing } from "./behaviour-frame-drawing.ts";
 
 export type EnginePointer =
   | { kind: "argument"; argument: number; path: number[]; displacement?: number }
@@ -76,6 +77,8 @@ export interface EngineReturn extends Finding {
 }
 
 export interface EngineSummary extends Finding {
+  /** The frame size or drawing position helper, proved: its writes are exact values of the part and tables. */
+  frameDrawing?: FrameDrawing;
   contactBounds?: ContactBounds;
   contactSearch?: ContactSearch;
   globalObjectWrites?: ContactObjectWrite[];
