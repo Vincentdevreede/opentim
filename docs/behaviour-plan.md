@@ -2,7 +2,7 @@
 
 Each step has a number that shows it is done. The numbers come from the recording comparison on Even More (English
 floppy) and TIM 1 (French). The starting point was measured on 2cda1a2; "now" comes from the done notes below and,
-for resets and resting frames, from the description on 6f25406. A step that needs a decision from you says so; I
+for resets and resting frames, from the description on 41e8ba5. A step that needs a decision from you says so; I
 collect those and ask them together. Each done note is short: the details are in `docs/behaviour.md` under the
 section it names.
 
@@ -11,13 +11,13 @@ section it names.
 | Rules that write a value the analysis can't name                      |       365 of 925 |   0 |   324 of 764 |   0 |
 | Effect lines that say "isn't established" (once per part and wording) |               23 |   0 |           14 |   0 |
 | Parts whose reset the report calls unresolved                         |         41 of 67 |   0 |           36 |   0 |
-| Parts without a documented resting frame                              |               33 |   5 |           28 |   4 |
+| Parts without a documented resting frame                              |               33 |   4 |           28 |   3 |
 | Recordings that stop early                                            |        52 of 648 |   0 |    48 of 552 |   0 |
 | Parts without any recording                                           |               28 |  28 |           22 |  22 |
 
-The parts without a recording are checked against the shipped levels instead (E1). The parts left without a
-resting frame (Even More 2, 6, 8, 58 and 61, TIM 1 2, 6, 8 and 10) have walks that all end, but in a loop or by
-keeping the frame they are given, so no walk rests on one frame.
+The parts without a recording are checked against the shipped levels instead (E1). The parts left without a resting frame (Even More 6, 8, 58 and 61, TIM 1 6, 8 and 10) have walks that all end, but
+in a loop or by keeping the frame they are given, so no walk rests on one frame. Since decided assumption 21 the wood
+incline rests on frames -1 to 3.
 
 ## A. Make the score honest
 

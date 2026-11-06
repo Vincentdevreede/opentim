@@ -48,7 +48,8 @@ the rest when it is opened.
 - **Rest.** "placed" says how the reset leaves the frame: one frame, "keeps the saved frame" (the level gives it) or
   "from its plugs" (the sockets give it), with the frames it can be, or "unresolved". "rests on" lists the frames the
   part comes to rest on; its tip says how many walks end on each or that a run keeps it, and opened it gives the
-  first condition on the way to each.
+  first condition on the way to each. A frame the program keeps as a word reads signed, so the wood incline's
+  frame 65535 reads -1, here and in the walks.
 - **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
   "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
   positionY × 512"), and a number added or a halving reads in words.
