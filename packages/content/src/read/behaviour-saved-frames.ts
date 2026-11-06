@@ -36,6 +36,13 @@ export const ELECTRIC_MOTOR_ASSUMPTION =
   "A level starts the electric motor on one of its three frames, 0 to 2. Its run counts down within them, and every shipped level saves it on frame 0.";
 
 /**
+ * The level reset keeps the frame a level saved for most parts. A part with one frame can only have been saved on it:
+ * every part in every shipped level of the eleven builds is saved on one of its own frames.
+ */
+export const ONE_FRAME_ASSUMPTION =
+  "A level saves a part on one of its own frames, so a part with one frame starts on frame 0. Every part in every shipped level of the eleven builds is saved on one of its own frames.";
+
+/**
  * By part id: the frames a level can start a part on when its type has no frame list, and why. `shown` lists every
  * frame it can show in the middle of a run, when that is more, like the belt's whole blocks.
  */

@@ -15,6 +15,7 @@ import {
   GEAR_ASSUMPTION,
   MONKEY_BIKE_ASSUMPTION,
   MOUSE_MOTOR_ASSUMPTION,
+  ONE_FRAME_ASSUMPTION,
   TEETER_TOTTER_END_ASSUMPTION,
 } from "./behaviour-saved-frames.ts";
 
@@ -34,4 +35,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "The teeter-totter's ends", assumptions: [TEETER_TOTTER_END_ASSUMPTION] },
   { title: "Parts on the fixed list", assumptions: [FIXED_LIST_ASSUMPTION] },
   { title: "Screen directions", assumptions: [SCREEN_DIRECTION_ASSUMPTION] },
+  { title: "Parts with one frame", assumptions: [ONE_FRAME_ASSUMPTION] },
 ];

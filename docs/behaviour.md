@@ -1436,7 +1436,9 @@ gets its resting frames from its rules as before.
 
 In Even More this gives frame 0 as the resting frame of 16 parts with one frame: the bowling ball, basketball, rope,
 birdcage, bucket, eye hook, baseball, jack-o-lantern, heart, Christmas tree, pinball, tennis ball, cheese, thumb tack,
-pool ball and shamrock (11 of them in TIM 1). The walls, floors, pulley, belt, rope end, super ball and curved pipe wall
+pool ball and shamrock (11 of them in TIM 1). Their reset keeps the frame the level saved, and with
+[the decided assumption on parts with one frame](behaviour-assumptions.md#13-parts-with-one-frame) that is frame 0, so
+their reset is now known too. The walls, floors, pulley, belt, rope end, super ball and curved pipe wall
 share the empty run too, but the program draws them its own way, so they have no frame list to count and stay without
 one.
 

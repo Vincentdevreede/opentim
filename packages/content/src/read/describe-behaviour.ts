@@ -1,6 +1,6 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
-import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
+import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES, ONE_FRAME_ASSUMPTION } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
@@ -993,6 +993,19 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
         outcome.confidence !== "unresolved" &&
         !outcome.fields.some((write) => write.object === "part" && write.offset === stateOffset),
     );
+  // A part with one frame can only have been saved on it, so keeping the saved frame starts it on frame 0.
+  if (levelFrame && !known(state) && (part as WithFrameCount).frameCount === 1) {
+    writeField(bindings, "part", stateOffset, bits(0, 0xffff, 16));
+    const single = finding([proof], [ONE_FRAME_ASSUMPTION]);
+    return {
+      status: "known",
+      description: "The reset keeps the frame the level saved, and the part has only frame 0.",
+      state: 0,
+      frame: 0,
+      fields: fieldsOf(bindings, fieldDefinitions(report, part), single),
+      ...single,
+    };
+  }
   const resolved = !outcomes.some((outcome) => outcome.confidence === "unresolved");
   const bitFrames = !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest) : undefined;
   if (bitFrames)

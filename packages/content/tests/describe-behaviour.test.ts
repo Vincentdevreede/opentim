@@ -1371,6 +1371,17 @@ describe("creation defaults and related input conditions", () => {
     );
   });
 
+  it("starts a part with one frame on frame 0 when its reset keeps the saved frame", () => {
+    const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    data.parts[0]!.frameCount = 1;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.rest).toMatchObject({ status: "known", state: 0, frame: 0 });
+    expect(part.rest.assumptions.join(" ")).toContain("a part with one frame starts on frame 0");
+    data.parts[0]!.frameCount = 3;
+    expect(describeBehaviour(data).parts[0]!.rest.status).toBe("unresolved");
+  });
+
   it("rests on each frame when the run keeps every field", () => {
     const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
     data.parts[0]!.frameCount = 3;
