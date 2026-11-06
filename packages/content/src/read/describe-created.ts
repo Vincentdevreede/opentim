@@ -3,7 +3,14 @@
  * and which other fields of the new part the routine sets. Each line comes from one way through the routine, with the
  * fields that way leaves on the new part.
  */
-import type { BehaviourReport, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
+import {
+  speedLimitOf,
+  type BehaviourReport,
+  type Expression,
+  type FieldWrite,
+  type Finding,
+  type Predicate,
+} from "./behaviour.ts";
 import type { CreatedPart } from "./behaviour-created-parts.ts";
 import { nameOf } from "./describe-effects.ts";
 import { formula, type Names } from "./describe-touch.ts";
@@ -98,7 +105,10 @@ export function createdPartLines(
       for (const write of [...writes].sort((a, b) => a.offset - b.offset)) {
         const name = fieldName(write.offset);
         const into = name === "positionX" || name === "positionY" ? place : name.startsWith("velocity") ? speed : given;
-        if (write.value.kind === "unknown" && /ordered-list/.test(write.value.reason)) {
+        if (
+          (write.value.kind === "unknown" && /ordered-list/.test(write.value.reason)) ||
+          (write.value.kind === "field" && / in the ordered list after the insertion at /.test(write.value.object))
+        ) {
           links = true;
           continue;
         }
@@ -121,6 +131,16 @@ export function createdPartLines(
                 ? `${name}${into === given ? " to" : " ="} ${formula(tidy(JSON.parse([...before][0]!) as Expression), wordsOf)}`
                 : `the ${what}'s starting ${name}`,
             );
+          continue;
+        }
+        const kept = speedLimitOf(write.value);
+        if (kept) {
+          // The speed the routine gave before the limit, or the new part's own speed when it gave none.
+          limited = true;
+          const own = kept.speed.kind === "field" && kept.speed.object === object && kept.speed.offset === write.offset;
+          if (own) into.push(`the ${what}'s starting ${name}`);
+          else if (unknownIn(kept.speed)) other.push(name);
+          else into.push(`${name}${into === given ? " to" : " ="} ${formula(tidy(kept.speed), wordsOf)}`);
           continue;
         }
         const value = tidy(write.value);

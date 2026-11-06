@@ -1277,6 +1277,13 @@ conditional ones from 126 to 128 in Even More and from 120 to 122 in TIM 1. One 
 same way (`0x8744` in the Even More English floppy). No walk changes, and no routine keeps the forgotten footprint any
 more.
 
+The wrapper also passes the byte 1 to `0x65c1` (`mov ax, 1; push ax` right before it pushes the part). A field a
+helper writes exactly, as a value of its part and of a number the wrapper passes this way, now carries over with its
+value and its test instead of becoming "Conditional state-preserving-forwarder effect". So the magnifying glass's
+`0x14` after the call is 1 unless its type is 49, which it isn't: the relay's byte, as in
+[Found lists and parts reached through ropes](#found-lists-and-parts-reached-through-ropes). That was the last rule
+with an unknown write in both measured builds: Even More, English floppy, goes from 1 to 0, TIM 1, French, from 1 to 0.
+
 ### The control value's known numbers
 
 Many parts move their frame by a control value, as in "frame + control value", that other parts and their own
@@ -2337,20 +2344,145 @@ The gun, when not flipped: "Creates a bullet (type 20) at positionX = its positi
   positionY. The balloon's rope end starts at the end point its rope record keeps for the balloon's end of the rope, and
   takes over the balloon's rope links at `0x5a` and `0x66`.
 
-Two values stay unnamed and the lines say so in words. The speeds go through the speed limit at `0x37bc`, which
-limits each speed to the value in the new part's type record; the routine's speed is given as the value it stored
-before that limit. And the list insertion at `0x629d` links the new part between neighbours it picks while the game
-runs ("links it into a list of parts"). Neither is fixed by the code, so the rules' writes of `0x00`, `0x02`, `0x36`
-and `0x38` on the new part stay unknown, and the rules that make a part still count as rules with an unknown write.
-Their other unknown writes come from merging paths that set a field differently (step B0 of the plan).
+The speeds go through the speed limit at `0x37bc`, which keeps each speed within the limit in the new part's type
+record (see [The speed limit](#the-speed-limit)); the line gives the speed the routine stored before that limit. The
+list insertion at `0x629d` links the new part between neighbours it picks while the game runs ("links it into a list
+of parts")); the rules name those neighbours (see [Parts linked into an ordered list](#parts-linked-into-an-ordered-list)).
 
-### The type record word the game writes
+### The type record words the game writes
 
 Lines about other parts read words of a type record from TIM.EXE, like the mass at `+0x02` that picks the explosion's
-speed class, under the assumption that a type record keeps its words while a level runs. One word doesn't: the game
-stores a part's frame list at `+0x14` when it loads the part's pictures and clears it when it frees them (`0x107dc`
-and `0x1084c` in Even More English floppy, `0xfcda` and `0xfd38` in TIM 1 French). That word is now never read from
-the program, and the assumption says so. No line or walk used it in the recorded builds, so nothing else changes.
+speed class, under the assumption that a type record keeps its words while a level runs. Three words don't, so they
+are never read from the program, and the assumption says so:
+
+- **The frame list at `+0x14`.** The game stores a part's frame list there when it loads the part's pictures and
+  clears it when it frees them (`0x107dc` and `0x1084c` in Even More English floppy, `0xfcda` and `0xfd38` in TIM 1
+  French).
+- **The acceleration at `+0x08` and the speed limit at `+0x0a`.** Both are 0 in the program for every type. The
+  routine at `0x369c` (Even More, English floppy; `0x2af1` in TIM 1, French, where the table sits in the data
+  segment) works them out for every type: the acceleration from the type's density, the air pressure (`[0x4cb7]`) and
+  the gravity (`[0x4cb9]`), and the speed limit as `0x3000` (12288) for the bullet (type 20) and the cannonball (type 43) and as `0x2600` minus a value of the air pressure for every other type: `9728 - (air >> 1)` when the air
+  pressure is below 70, else `9728 - (air << 4)`. The level loader calls it right after it reads the air pressure and
+  the gravity (`0x13b46`), and so do `0x12593`, right after it stores a new air pressure, and `0x15d90`. In the Even More
+  builds no other store reaches those words (the other `es:` stores to `+0x08` and `+0x0a`, at `0x7193` to `0x71f2`,
+  go to a block the game allocates); in TIM 1 the table sits in the data segment, where a store to it doesn't show by
+  its form. Leaving the words out holds either way.
+
+No line or walk read `+0x08` or `+0x0a` in the recorded builds before the speed limit below, so nothing else changes.
+
+### The speed limit
+
+The routine at `0x37bc` (Even More, English floppy) keeps a part's speeds within its type's speed limit, vertical
+first: a speed above the limit becomes the limit, else a speed below minus the limit becomes minus the limit, else it
+stays. Its matcher gives two writes per speed, each with its test, and a caller used to call the field unknown
+("Conditional contact-velocity-limit effect"). The two tests for a speed never both hold, so the new speed is now one
+exact value: `limit if speed > limit, else -limit if speed < -limit, else speed`, signed, built with `choose` from the
+speed the caller holds and the limit word `+0x0a` of the part's type record. `speedLimitOf` gives the speed and the
+limit back.
+
+This names the speeds of the touching part that the trampoline and the alligator write, the rocket's own speeds and
+the speeds of the bullet and the cannonball the gun and the cannon make. The limit is a word the game works out from the
+level's air pressure (see above), so for a part whose type the rule knows it is that type's limit; for the bullet and
+the cannonball it is 12288, no less than any speed the gun and the cannon set, so those speeds stay as set. Rules with
+unknown writes go from 33 to 25 of 925 in Even More, English floppy, and from 28 to 23 of 764 in TIM 1, French; every
+walk still ends and the recordings stay at 606 complete, 42 prefix, 0 different and 512, 40, 0.
+
+### Parts linked into an ordered list
+
+The insertion at `0x629d` (Even More, English floppy) links a part into a list of parts kept in order. It walks along
+the list from the head slot it is given and stops where comparisons of the type records' words (`+0x20` for the list
+at `0x4cdb`, `+0x02` for the others) and of the parts' fields `0x8e` and `0x8c` say the new part goes. It then sets
+the new part's link `0x00` to the part it now stands before (0 at the end of the list) and its link `0x02` to the
+part before it, or to the head slot when the new part goes first. Which parts those are depends on the parts the level
+has, so the rules name them after the call: `next in the ordered list after the insertion at` and `previous in the
+ordered list after the insertion at` the call's address, in the field form marked `unresolved`, like the other values
+only the run gives (`RUN_VALUE`). The summary keeps which link is which (`orderedLinks`).
+
+This names the links of the rope end, cannonball, bullet and explosion that the balloon, cannon, gun and dynamite
+plunger make. Rules with unknown writes go from 25 to 16 of 925 in Even More, English floppy, and from 23 to 14 of 764
+in TIM 1, French.
+
+### Fields a helper sets on every way
+
+A helper whose every way through was followed becomes a relation (`engineFromObjectRelation`): its stores to the
+part, each with the tests of its way. A caller used to call such a field unknown ("Conditional owner-field-relation
+effect") unless one store covered every case, although the helper sets it on each way. Now, when every way ends with
+a value in the field and the ways split like a tree on their tests (one test is on every way, as itself or its
+opposite, and so on), the field gets one exact value, `chooseByTests`: the value of the way whose tests hold, built with
+`choose`. A field one way leaves alone, or whose ways don't split like that, keeps its stores with their tests.
+
+Most of these helpers are the flip helpers that move a rope or belt point with the part's flip flag (`0x08 & 0x10`):
+the cannon's and the dynamite's `0x72` and `0x73`, the dynamite plunger's `0x6a` and `0x6b`, and the belt point
+`0x56` to `0x58` of the monkey bike and the electric motor. Rules with unknown writes go from 16 to 10 of 925 in Even
+More, English floppy, and from 14 to 8 of 764 in TIM 1, French.
+
+A caller takes such a helper's ways one by one when it can. It can't when the helper also makes a part, like the
+dynamite's explosion helper (`0x1a432`), which sets the dynamite's frame to 5, makes an explosion and sets flag
+`0x2000` of its drawing flags on both ways (whether the explosion was made or not). The caller used to put in only a
+field the helper sets to one number on every way and call every other field unknown ("Conditional effects of
+helper"). Now it also puts in a field the relation gives one exact value, worked out from the part's fields as they
+are when the helper starts, before any of the helper's writes go in. The dynamite's three rules that call it now know
+its drawing flags: Even More, English floppy, goes from 10 to 7 rules with unknown writes, TIM 1, French, from 8 to 5.
+
+### A small helper's table reads
+
+The reader of a small helper's exact stores (`ownerPathStores`, the one that gives the gear's push its exact value)
+now also follows a word or byte read from the data segment at an index it knows, a shift left by a number, and the
+byte halves of the word registers (a byte write forgets the word, a word write forgets both halves). Such a read is a
+table read, as in the routine analysis. This gives the light bulb's helper `0x1bbef` (Even More, English floppy) its
+values: it sets `0x6a` and `0x6b` to the bytes at `0x2f3c` and `0x2f3e` of the data segment, four bytes per frame,
+indexed by the frame. Before, it called both "the value stored requires symbolic analysis". The two light bulb rules
+that call it now write known values: Even More goes from 7 to 5 rules with unknown writes, TIM 1, French, from 5 to 3.
+No other helper changes.
+
+### Helper stores made exactly when their tests hold
+
+A small helper's store gets the tests that lead to it in two ways: `ownerStoreConditions`, when every way through the
+store passes the tests, it is the last store to its field there, and every way that passes them goes through it; and
+`ownerPathStores`, when every way is read exactly. Either way the field ends with the stored value exactly when the
+tests hold, and two stores to one field never both have their tests hold. These stores are now marked `exact`, so a
+caller gives the field the stored value when the tests hold and its old value otherwise, instead of an unknown. A
+caller used to do that only for a single test; it now also does it for several tests together (`choose` nested over
+them).
+
+This names the mouse motor's control value after its start (`0x1c074` in Even More, English floppy): 1, or -1 when the
+motor is flipped. Even More goes from 5 to 4 rules with unknown writes; TIM 1, French, from 3 to 2.
+
+### Large values a caller takes from a helper
+
+When a caller takes a helper's ways one by one, it puts the part's fields as it holds them into each value the helper
+leaves. Those values used to be cut off at the usual expression budget (96 nodes), which a drawing position the frame
+drawing helper set is larger than, so the field became "Unresolved operand in +". They now get the budget the frame
+drawing helper's own values get. This gives the fish bowl's run (`0x1ad0e` in Even More, English floppy) the drawing
+position `0x2a` and `0x2c` its helper `0x1ad71` sets when it moves the bowl to frame 11. Even More goes from 4 to 3
+rules with unknown writes; no other rule changes. TIM 1, French, goes from 2 to 1 (its fish bowl).
+
+### The speed setter's velocity
+
+The speed setter (`0x7d97` in Even More, English floppy; `discoverDirectedVelocity`) gives a part a velocity
+of a given speed in the direction of a given angle. Its summary used to call both velocity words unknown ("The speed
+times a coefficient of the angle, shifted right by 14") and keep only the speed beside them. They are now the formula
+its proof already checks: the signed long product of the speed and the angle's coefficient (the coefficient routine's
+table read, `rotationScalarExpression`, a quarter turn on for velocityX), shifted right by 14, low word. A test works
+it out for many speeds and angles against the code's own steps. The speed stays beside the field (`directedSpeed`), as
+the effect lines use it.
+
+The angle the pinball bumper gives it is the centre angle's answer from the bumper's centre to the ball's. Where the
+centre angle's summary has no formula for that answer, the answer is now named after the call, `centre angle answer
+at` the call's address, like the other values one run gives (`RUN_VALUE`); the call keeps which two parts it is of
+(`centreAngle`). So the bumper's bounce writes the ball's velocity as a named value of that angle: Even More, English
+floppy, goes from 3 to 2 rules with unknown writes. TIM 1, French, has no pinball bumper and stays at 1.
+
+### Calls in a small helper read exactly
+
+The exact reader of a small helper (`ownerPathStores`) used to give up on any helper with a call. It now reads past a
+call that leaves the part alone (the same test `ownerStoreConditions` uses: the callee's footprint is complete for part
+memory and it writes only globals), and forgets the registers a C call may change (`ax`, `bx`, `cx`, `dx`, `es` and
+their halves). This gives the vacuum cleaner's helper `0x1e8bb` (Even More, English floppy) its stores on the part it
+pulls in: a balloon (type 4) gets control value 1, any other part flag `0x2000` of its drawing flags and flag `0x100`
+of field `0x0a`, whatever the screen queue and sound calls in between do. Before, its writes had no condition ("This
+footprint retains writes without selecting a control-flow path"). Even More goes from 2 to 1 rules with unknown writes.
+No other helper changes.
 
 ### Frame sizes from the part's sheet
 

@@ -419,6 +419,45 @@ export function choiceOf(e: Expression): { test: Comparison; then: Expression; o
     : { kind: "compare", operator: x.operator, left: x.left, right: x.right, signed: false };
   return { test, then: a.right, otherwise: b.right };
 }
+/**
+ * One value from the ways through a routine, each with its tests and its value, when the ways split like a tree: some
+ * test is on every way, as itself or as its opposite, and so on down to one way. Undefined when they don't, when a
+ * side is empty, or when a test isn't a comparison: then a way the tests allow may be missing.
+ */
+export function chooseByTests(
+  ways: { tests: Predicate[]; value: Expression }[],
+  width: number,
+): Expression | undefined {
+  if (!ways.length || ways.some((way) => way.tests.some((test) => test.kind !== "compare"))) return undefined;
+  if (ways.length === 1) return ways[0]!.tests.length ? undefined : ways[0]!.value;
+  const test = ways[0]!.tests[0] as Comparison | undefined;
+  if (!test) return undefined;
+  const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
+  const holds = ways.filter((way) => way.tests.some((t) => same(t, test)));
+  const fails = ways.filter((way) => way.tests.some((t) => same(t, opposite)));
+  if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) return undefined;
+  const without = (list: typeof ways, drop: Predicate) =>
+    list.map((way) => ({ ...way, tests: way.tests.filter((t) => !same(t, drop)) }));
+  const then = chooseByTests(without(holds, test), width);
+  const otherwise = then && chooseByTests(without(fails, opposite), width);
+  return otherwise && choose(test, then, otherwise, width);
+}
+/**
+ * The speed and the limit of a value the speed limit made: `limit if speed > limit, else -limit if speed < -limit,
+ * else speed`, signed. Undefined for any other value.
+ */
+export function speedLimitOf(e: Expression): { speed: Expression; limit: Expression } | undefined {
+  const upper = choiceOf(e);
+  if (!upper || upper.test.operator !== ">" || !upper.test.signed || !same(upper.test.right, upper.then)) return;
+  const lower = choiceOf(upper.otherwise);
+  const [speed, limit] = [upper.test.left, upper.then];
+  if (!lower || lower.test.operator !== "<" || !lower.test.signed || !same(lower.test.left, speed)) return;
+  if (!same(lower.test.right, lower.then) || !same(lower.otherwise, speed)) return;
+  const negative = lower.then;
+  if (negative.kind !== "binary" || negative.operator !== "-" || !same(negative.right, limit)) return;
+  if (negative.left.kind !== "constant" || negative.left.value !== 0) return;
+  return { speed, limit };
+}
 
 /**
  * A value with the owner's type put in for its type field, folded where a test or a product becomes a number. A part's
@@ -1565,6 +1604,52 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       return conjunction(predicate.terms.map((p) => formalPredicate(p, args, base, s, ownerOffset)));
     return predicate;
   };
+  /**
+   * The speed limit's writes as one exact value per speed. Its two cases for a speed never both hold: above the limit
+   * the speed becomes the limit, else below minus the limit it becomes minus the limit, else it stays. Undefined for
+   * any other helper, or when a test can't be put as a comparison.
+   */
+  const speedLimitWrites = (engine: EngineSummary, args: Tracked[], s: AbstractState) => {
+    const limiter = engine.contactResponse;
+    if (limiter?.kind !== "velocity-limit") return undefined;
+    const pointer = formalArgument(args, engine.argumentOffset, limiter.ownerArgument);
+    const pick = (test: Predicate, then: Expression, otherwise: Expression) =>
+      entails(test, s)
+        ? then
+        : !possible(conjunction([...s.conditions, test]))
+          ? otherwise
+          : test.kind === "compare"
+            ? choose(test, then, otherwise, 16)
+            : undefined;
+    const out = [];
+    for (const offset of limiter.fields) {
+      const [upper, lower] = limiter.cases.filter((item) => item.field === offset);
+      const below = lower?.condition.kind === "and" ? lower.condition.terms[1] : undefined;
+      if (!upper || !lower || !below) return undefined;
+      const before = memoryAt(pointer, offset, 16, s);
+      const high = formalValue(upper.value, args, engine.argumentOffset, s),
+        low = formalValue(lower.value, args, engine.argumentOffset, s);
+      const kept = pick(
+        formalPredicate(below, args, engine.argumentOffset, s),
+        asExpression(low.value),
+        asExpression(before.value),
+      );
+      const value =
+        kept && pick(formalPredicate(upper.condition, args, engine.argumentOffset, s), asExpression(high.value), kept);
+      if (!value) return undefined;
+      const evidence = uniqueEvidence([...before.evidence, ...high.evidence, ...low.evidence, ...engine.evidence]);
+      out.push({
+        pointer,
+        offset,
+        width: 16,
+        value: tracked(value, evidence),
+        evidence: engine.evidence,
+        condition: { kind: "true" } as Predicate,
+        certain: true,
+      });
+    }
+    return out;
+  };
   const pointerResult = (
     pointer: EnginePointer,
     args: Tracked[],
@@ -1823,7 +1908,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (!possible(conjunction([...s.conditions, condition]))) continue;
       // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound.
       const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : undefined;
-      const value = formalValue(effect.value, args, engine.argumentOffset, s, engine.argumentOffset, budget);
+      const links = engine.orderedLinks;
+      const link =
+        links && !effect.path.length && effect.width === 16
+          ? effect.offset === links.next
+            ? "next"
+            : effect.offset === links.previous
+              ? "previous"
+              : undefined
+          : undefined;
+      // The ordered insertion links its part between neighbours its comparisons pick: only the run knows which.
+      const value = link
+        ? tracked(
+            {
+              ...field(`${link} in the ordered list after the insertion at ${hex(i.address)}`, effect.offset, 16),
+              unresolved: true,
+            } as Expression,
+            effect.evidence,
+          )
+        : formalValue(effect.value, args, engine.argumentOffset, s, engine.argumentOffset, budget);
       pending.push({
         pointer,
         offset: effect.offset,
@@ -1835,6 +1938,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         ...(effect.exact ? { exact: true } : {}),
       });
     }
+    const limited = speedLimitWrites(engine, args, s);
+    if (limited) pending.splice(0, pending.length, ...limited);
     if ((engine.contactResponseFirst || engine.contactResponsePair) && engine.footprint.partMemoryComplete) {
       // Either participant can alias an already tracked part. Invalidate the complete possible footprint first.
       const fields = new Map(
@@ -2012,10 +2117,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 },
               }
             : effect.value
-          : effect.exact && effect.condition.kind === "compare" && !uncertainPredicate(effect.condition)
-            ? // A write made exactly when its test holds: the new value then, the old one otherwise.
+          : effect.exact &&
+              !uncertainPredicate(effect.condition) &&
+              (effect.condition.kind === "compare" ||
+                (effect.condition.kind === "and" && effect.condition.terms.every((term) => term.kind === "compare")))
+            ? // A write made exactly when its tests hold: the new value then, the old one otherwise.
               tracked(
-                choose(effect.condition, asExpression(effect.value.value), asExpression(before.value), effect.width),
+                (effect.condition.kind === "and" ? effect.condition.terms : [effect.condition]).reduceRight(
+                  (then, test) => choose(test as Comparison, then, asExpression(before.value), effect.width),
+                  asExpression(effect.value.value),
+                ),
                 uniqueEvidence([...effect.value.evidence, ...before.evidence]),
               )
             : foundHead(effect)
@@ -4030,12 +4141,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               s,
               summary.objectPointer.argumentOffset,
             ),
+            // A drawing field the helper set through the frame drawing helper is as large as that helper's value.
             value: formalValue(
               effect.value,
               args,
               summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset,
               s,
               summary.objectPointer.argumentOffset,
+              FRAME_DRAWING_BUDGET,
             ),
           }));
           const returned = outcomeReturn(outcome);
@@ -4074,15 +4187,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           const centre = engine?.centreAngle;
           const from = centre && formalArgument(args, 6, centre.arguments.from).value,
             to = centre && formalArgument(args, 6, centre.arguments.to).value;
-          if (from?.kind === "pointer" && to?.kind === "pointer" && !from.displacement && !to.displacement)
+          if (from?.kind === "pointer" && to?.kind === "pointer" && !from.displacement && !to.displacement) {
+            // An angle the summary can't give as a formula is named after the call: one value of the run, which the
+            // centre angle works out from the two parts' centres.
+            const answer = registerRead("ax", branch);
             registerWrite(
               "ax",
               {
-                ...registerRead("ax", branch),
+                ...answer,
+                ...(containsUnknown(asExpression(answer.value))
+                  ? {
+                      value: {
+                        ...field(`centre angle answer at ${hex(i.address)}`, 0, 16),
+                        unresolved: true,
+                      } as Expression,
+                    }
+                  : {}),
                 centreAngle: { routine: centre!.routine, call: i.address, from: from.object, to: to.object },
               },
               branch,
             );
+          }
           branch.flags = undefined;
           branch.carry = undefined;
           returnedStack(branch);
@@ -4120,9 +4245,43 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       if (summary && passesPart) {
         const possibleWrites = summary.writes.filter((w) => w.object === "part");
+        // The helper's relation may give a field the one value every way through the helper leaves in it, as a value of
+        // the part's fields when the helper starts: worked out before any of the helper's writes go in.
+        const relation =
+          engine && /relation$/.test(engine.kind) && engine.argumentOffset === summary.objectPointer.argumentOffset
+            ? engine
+            : undefined;
+        const finals = new Map<number, { value: Tracked; width: number }>();
+        for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
+          const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
+          if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
+          const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
+          if (!containsUnknown(asExpression(value.value))) finals.set(offset, { value, width: exact[0]!.width });
+        }
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
           const effects = possibleWrites.filter((w) => w.offset === offset);
-          if (effects.length === 1 && effects[0]!.condition.kind === "true" && effects[0]!.value.kind === "constant") {
+          const final = finals.get(offset);
+          if (final) {
+            s.registers.set("__summary_part", tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }));
+            write(
+              {
+                kind: "memory",
+                segment: "ds",
+                base: ["__summary_part"],
+                displacement: offset,
+                direct: false,
+                width: final.width === 8 ? 8 : 16,
+              },
+              tracked(final.value.value, uniqueEvidence([...final.value.evidence, evidenceOf(i)])),
+              s,
+              i,
+            );
+            s.registers.delete("__summary_part");
+          } else if (
+            effects.length === 1 &&
+            effects[0]!.condition.kind === "true" &&
+            effects[0]!.value.kind === "constant"
+          ) {
             const w = effects[0]!;
             const op: Operand = {
               kind: "memory",
@@ -4357,10 +4516,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
 
 /**
  * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
- * found list, what a call writes to parts it selects, or the part's own field after such a call.
+ * found list, what a call writes to parts it selects, the part's own field after such a call, the neighbours an
+ * ordered insertion links a part between, or the angle between two parts' centres.
  */
 const RUN_VALUE =
-  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect) at /;
+  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {

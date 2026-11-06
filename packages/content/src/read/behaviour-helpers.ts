@@ -123,6 +123,11 @@ export interface EngineSummary extends Finding {
   contactMotionAngle?: ContactMotionAngle;
   shortCircuit?: ConnectionBypass;
   /**
+   * The owner's links an `ordered-part-insertion` sets: `next` gets the part it now stands before (0 at the end of the
+   * list), `previous` the part it now follows, or the list head's slot when it goes first.
+   */
+  orderedLinks?: { next: number; previous: number };
+  /**
    * The size in bytes of a node of the separately allocated pool an `owned-node-pool-update` changes. It writes nothing
    * else but the pool's head globals and its own stack.
    */
@@ -1645,6 +1650,7 @@ export function discoverEngineSummaries(
     ) {
       summary.kind = "ordered-part-insertion";
       summary.argumentKind = "object";
+      summary.orderedLinks = { next: splice.link, previous: splice.back };
       summary.purpose =
         "Inserts the owner into a doubly linked list using comparisons of object fields and type-record data to choose its position.";
       summary.writes = splice.stores.map((i) => ({
@@ -2171,6 +2177,7 @@ export function discoverEngineSummaries(
         const condition = conditions.get(write.evidence[0]!.address);
         if (!condition) continue;
         write.condition = condition;
+        write.exact = true;
         write.assumptions = [
           "Every path of the helper was followed: the store happens exactly when its tests of the part's fields hold, and it is the last store to that field.",
         ];
@@ -2179,7 +2186,9 @@ export function discoverEngineSummaries(
       const open = new Set(
         direct.writes.filter((w) => w.condition.kind === "unknown" || w.value.kind === "unknown").map((w) => w.offset),
       );
-      const exact = open.size ? ownerPathStores(code, owner, firstArgument(code), callKeepsOwner) : undefined;
+      const exact = open.size
+        ? ownerPathStores(code, owner, firstArgument(code), dataSegment, callKeepsOwner)
+        : undefined;
       if (exact && [...open].every((offset) => exact.some((e) => e.offset === offset))) {
         const kept = direct.writes.filter((w) => !open.has(w.offset));
         direct.writes.length = 0;
@@ -2198,6 +2207,7 @@ export function discoverEngineSummaries(
               width: e.width,
               value: e.value,
               condition: e.condition,
+              exact: true,
             })),
         );
       }

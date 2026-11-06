@@ -51,9 +51,15 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       Done: the head after a search is "found list after the query", a found part's link "next in the found list", its
       `0x7a` and `0x7c` "value the query writes to a found part", another part's field after a list scan "value after
       the list scan". The scoreboard counts rules with named run values apart from rules with unknown writes.
-- [ ] **B2. The touching part's speed.** The gear (48), alligator, trampoline, conveyor belt, pinball bumper, bullet,
+- [x] **B2. The touching part's speed.** The gear (48), alligator, trampoline, conveyor belt, pinball bumper, bullet,
       thumb tack and electric switch write the touching part's speed and position. Write each as a formula of the touching
       part's own fields.
+      Done: the speed limit keeps a speed within minus and plus the limit, as one exact value, with the limit read
+      from the part's type record at `+0x0a`. That word isn't in the program: the game works
+      it out from the level's air pressure (12288 for the bullet and the cannonball), so it is never read from TIM.EXE
+      now, nor the acceleration at `+0x08`. The speed setter's velocity is its formula, and the pinball bumper's angle is
+      the named centre angle answer. The gear, conveyor belt, bullet, thumb tack and electric switch already wrote
+      named values ("value the call writes to a selected part"); they keep them.
 - [x] **B3. Parts reached through ropes and belts (`0x14`, `0x5a`, `0x5c`).** Short in many parts (one or two rules
       each). Name them through the relay that is already proved.
       Done: the relay's byte is exact on the owner (unless its type is 49) and on every part it reaches; the owner's
@@ -67,10 +73,17 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       part type each one creates and give its starting fields. Done: they make a rope end, a cannonball, a bullet and an
       explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
       Its speed limit and list links stay unnamed, and the merged rules wait for B0.
-- [ ] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,
+- [x] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,
       `0x1e`, `0x36`), mouse (`0x16`, `0x18`), gear (connected parts at `0x0c`, `0x12`), monkey bike and light bulb (`0x6a`,
       `0x6b`), dynamite (`0x08`, `0x72`, `0x73`), mouse motor (`0x12`, `0x96`), electric switch (`0x12`). Prove each one or
       name what it depends on.
+      Done with B2: the list links of created parts are named after the ordered insertion; a helper's field that every
+      way sets, a store proved under tests, a helper's table byte and a store past a call that leaves the part alone are
+      exact; a wrapper carries a helper's exact write with the number it passes. Every field above is now known or a
+      named run value (the teeter-totter's `0x08`, the mouse's `0x16` and `0x18`, the mouse motor's `0x12` and `0x96`
+      after a list scan or query). Rules with unknown writes go from 33 to 0 of 925 in Even More and from 28 to 0 of 764
+      in TIM 1; rules with named run values from 214 to 234 and from 195 to 214. Every walk still ends and the
+      recordings stay at 606 complete, 42 prefix, 0 different and 512, 40, 0.
 - [x] **B6. The 23 "isn't established" effect lines** (14 in TIM 1). Most are the teeter-totter's and the vacuum
       cleaner's, then the gear, trampoline and balloon, and one each for the cat, alligator, boxing glove, Mel's house and
       explosion. Each line gets a meaning or a precise reason why the code can't give one.

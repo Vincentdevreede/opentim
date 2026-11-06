@@ -227,28 +227,36 @@ export function discoverRotationLeftShift(code: RoutineCode): EngineSummary | un
 }
 
 /** Pure algebra over named snapshots keeps a caller's expression sizes bounded without hiding arithmetic widths. */
+/**
+ * The signed long product of two signed words, as unsigned patterns. Each product fits exactly in a JavaScript number
+ * before word/long wrapping. Multiplying two unsigned sign-extended long patterns could exceed 2^53 and lose low bits in
+ * ordinary expression consumers.
+ */
+export const signedProduct = (left: Expression, right: Expression): Expression =>
+  binary(
+    "-",
+    binary(
+      "-",
+      binary("*", left, right, 32),
+      binary("*", binary(">>>", left, constant(15)), binary("<<", right, constant(16), 32), 32),
+      32,
+    ),
+    binary("*", binary(">>>", right, constant(15)), binary("<<", left, constant(16), 32), 32),
+    32,
+  );
+/** The low word of a signed long shifted right by 14. */
+export const shiftedLowWord = (value: Expression): Expression =>
+  binary("&", binary(">>", value, constant(14), 32), constant(65535));
+
 export function rotationFormulae(
   x: Expression,
   y: Expression,
   unshifted: Expression,
   quarterShifted: Expression,
 ): { x: Expression; y: Expression } {
-  // Each product fits exactly in a JavaScript number before word/long wrapping. Multiplying two unsigned
-  // sign-extended long patterns could exceed 2^53 and lose low bits in ordinary expression consumers.
-  const product = (left: Expression, right: Expression) =>
-    binary(
-      "-",
-      binary(
-        "-",
-        binary("*", left, right, 32),
-        binary("*", binary(">>>", left, constant(15)), binary("<<", right, constant(16), 32), 32),
-        32,
-      ),
-      binary("*", binary(">>>", right, constant(15)), binary("<<", left, constant(16), 32), 32),
-      32,
-    );
+  const product = signedProduct;
   const output = (operator: string, first: Expression, second: Expression) =>
-    binary("&", binary(">>", binary(operator, first, second, 32), constant(14), 32), constant(65535));
+    shiftedLowWord(binary(operator, first, second, 32));
   return {
     x: output("-", product(x, unshifted), product(y, quarterShifted)),
     y: output("+", product(x, quarterShifted), product(y, unshifted)),

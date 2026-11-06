@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyseRoutine } from "../src/read/behaviour.ts";
+import { analyseRoutine, type Expression } from "../src/read/behaviour.ts";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import { discoverDirectedVelocity } from "../src/read/behaviour-directed-velocity.ts";
 
@@ -101,8 +101,8 @@ describe("the speed setter", () => {
     const fields = run([]).outcomes!.flatMap((o) => o.fields);
     const velocity = fields.filter((w) => w.object === "part" && (w.offset === 0x36 || w.offset === 0x38));
     expect(velocity.map((w) => [w.offset, w.value.kind, w.directedSpeed?.axis, w.directedSpeed?.speed])).toEqual([
-      [0x36, "unknown", "horizontal", { kind: "constant", value: 4096, width: 16 }],
-      [0x38, "unknown", "vertical", { kind: "constant", value: 4096, width: 16 }],
+      [0x36, "binary", "horizontal", { kind: "constant", value: 4096, width: 16 }],
+      [0x38, "binary", "vertical", { kind: "constant", value: 4096, width: 16 }],
     ]);
     expect(velocity[0]!.directedSpeed).toMatchObject({ routine: SETTER, call: 0x1000 + 14 });
     // mov word [si+0x36], 7 replaces the horizontal one.
@@ -114,5 +114,53 @@ describe("the speed setter", () => {
     expect(later.find((w) => w.object === "part" && w.offset === 0x38)?.directedSpeed?.speed).toMatchObject({
       value: 4096,
     });
+  });
+  it("gives each velocity as the speed times the angle's coefficient, shifted right by 14", () => {
+    const f = fixture();
+    const summary = discoverDirectedVelocity(f.code, f.codes, f.image)!;
+    /** A value for the given speed and angle, with tables read from the image. */
+    const evaluate = (e: Expression, speed: number, angle: number): number => {
+      const mask = (n: number, width: number) => Number(BigInt.asUintN(width, BigInt(n)));
+      switch (e.kind) {
+        case "constant":
+          return mask(e.value, e.width);
+        case "field":
+          return e.offset === 10 ? speed : angle;
+        case "table": {
+          const at = e.segment * 16 + e.offset + evaluate(e.index, speed, angle);
+          return f.image[at]! | (f.image[at + 1]! << 8);
+        }
+        case "binary": {
+          const [a, b] = [evaluate(e.left, speed, angle), evaluate(e.right, speed, angle)];
+          const signed = (n: number, width: number) => Number(BigInt.asIntN(width, BigInt(n)));
+          const result: Record<string, () => number> = {
+            "+": () => a + b,
+            "-": () => a - b,
+            "*": () => Number(BigInt(a) * BigInt(b)),
+            "&": () => a & b,
+            "<<": () => Number(BigInt(a) << BigInt(b)),
+            ">>": () => signed(a, e.left.width) >> b,
+            ">>>": () => a >>> b,
+          };
+          return mask(result[e.operator]!(), e.width);
+        }
+        default:
+          throw Error(`Unexpected ${e.kind}`);
+      }
+    };
+    // What the code does: the coefficient from the table, folded at the half turn, then the signed product.
+    const coefficient = (angle: number) => {
+      const index = angle >>> 4;
+      const at = 0x2000 + 2 * (index & 0x800 ? 4096 - index : index);
+      return Number(BigInt.asIntN(16, BigInt(f.image[at]! | (f.image[at + 1]! << 8))));
+    };
+    for (const speed of [0, 4096, 7168, -12288 & 65535])
+      for (const angle of [0, 1000, 0x4000, 0x8000, 0xc123, 0xffff]) {
+        const product = (s: number, c: number) => Number(BigInt.asIntN(16, BigInt(s))) * c;
+        const expected = (c: number) => Number(BigInt.asUintN(16, BigInt(product(speed, c) >> 14)));
+        const [x, y] = summary.writes.map((w) => evaluate(w.value, speed, angle));
+        expect(x).toBe(expected(coefficient((angle + 0xc000) & 65535)));
+        expect(y).toBe(expected(coefficient(angle)));
+      }
   });
 });

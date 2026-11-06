@@ -1,5 +1,5 @@
 /** Reuses complete symbolic return relations to bound owner fields and separate outline-buffer effects. */
-import type { RoutineAnalysis } from "./behaviour.ts";
+import { chooseByTests, type Predicate, type RoutineAnalysis } from "./behaviour.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 
@@ -59,13 +59,18 @@ export function engineFromObjectRelation(
   const unknownGlobals = [...new Set(nested.flatMap((helper) => helper!.footprint.unknownGlobalEffects ?? []))];
   // Putting a fresh part on a parts list rewrites the list links of its new neighbours, which may be any part.
   const neighbours = freshWrites.length ? freshNeighbourWrites(routine, helpers, base) : [];
-  const effects: EngineWrite[] = writes.map((write) => ({
-    ...write,
-    root: write.object === "data" ? "global" : "argument",
-    argumentOffset: base,
-    path: write.object === "part" || write.object === "data" ? [] : pathOf(write.object)!,
-    ...(pathOf(write.object) ? { separateStorage: "outline" as const } : {}),
-  }));
+  const final = finalOwnerFields(routine, writes);
+  const effects: EngineWrite[] = writes
+    .filter((write) => !(write.object === "part" && final?.has(`${write.offset}:${write.width}`)))
+    .map((write) => ({
+      ...write,
+      root: write.object === "data" ? "global" : "argument",
+      argumentOffset: base,
+      path: write.object === "part" || write.object === "data" ? [] : pathOf(write.object)!,
+      ...(pathOf(write.object) ? { separateStorage: "outline" as const } : {}),
+    }));
+  for (const write of final?.values() ?? [])
+    effects.push({ ...write, root: "argument", argumentOffset: base, path: [] });
   effects.push(...neighbours);
   const returns = routine.instructions.filter((i) => i.flow === "return");
   if (!returns.length || returns.some((i) => !["ret", "retf"].includes(i.mnemonic))) return;
@@ -123,6 +128,51 @@ export function engineFromObjectRelation(
       unknownGlobalEffects: unknownGlobals,
     },
   };
+}
+
+/**
+ * The value each owner field the routine writes ends with, one per field: every way through the routine leaves it with
+ * a value and the ways split like a tree on their tests, so the value is exact. A field for which that doesn't hold is
+ * left out; undefined when two of the fields overlap.
+ */
+function finalOwnerFields(routine: RoutineAnalysis, writes: RoutineAnalysis["writes"]) {
+  const keys = [...new Set(writes.filter((w) => w.object === "part").map((w) => `${w.offset}:${w.width}`))];
+  const spans = keys.map((key) => key.split(":").map(Number) as [number, number]);
+  if (spans.some(([a, aw], n) => spans.some(([b, bw], m) => n !== m && a < b + bw / 8 && b < a + aw / 8))) return;
+  const outcomes = routine.outcomes ?? [];
+  const terms = (p: Predicate): Predicate[] => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]);
+  const out = new Map<string, RoutineAnalysis["writes"][number]>();
+  for (const [key, [offset, width]] of keys.map((key, n) => [key, spans[n]!] as const)) {
+    const ways = outcomes.map((outcome) => ({
+      tests: terms(outcome.condition),
+      value: outcome.fields.find((f) => f.object === "part" && f.offset === offset && f.width === width)?.value,
+    }));
+    if (ways.some((way) => !way.value)) continue;
+    const value = chooseByTests(
+      ways as { tests: Predicate[]; value: NonNullable<(typeof ways)[number]["value"]> }[],
+      width,
+    );
+    if (!value || value.kind === "unknown") continue;
+    const example = writes.find((w) => w.object === "part" && w.offset === offset && w.width === width)!;
+    out.set(key, {
+      ...example,
+      value,
+      condition: { kind: "true" },
+      assumptions: [
+        ...example.assumptions,
+        "Every way through the routine was followed and leaves this field with a value; the ways split on their tests, so the field ends with the value of the way whose tests hold.",
+      ],
+      evidence: [
+        ...new Map(
+          writes
+            .filter((w) => w.object === "part" && w.offset === offset)
+            .flatMap((w) => w.evidence)
+            .map((e) => [e.address, e]),
+        ).values(),
+      ],
+    });
+  }
+  return out;
 }
 
 /** The kinds of helper whose nonzero return is a part in fresh memory. */

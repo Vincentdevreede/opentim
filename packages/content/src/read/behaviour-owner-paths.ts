@@ -204,12 +204,14 @@ export interface OwnerPathStore {
   tests: Instruction[];
 }
 
-const BINARY: Record<string, string> = { add: "+", sub: "-", and: "&", or: "|", xor: "^" };
+const BINARY: Record<string, string> = { add: "+", sub: "-", and: "&", or: "|", xor: "^", shl: "<<" };
+/** The word register a byte register is half of. */
+const HALF: Record<string, string> = { al: "ax", ah: "ax", bl: "bx", bh: "bx", cl: "cx", ch: "cx", dl: "dx", dh: "dx" };
 const fold = (operator: string, left: Expression, right: Expression, width: number): Expression => {
   if (left.kind === "constant" && right.kind === "constant") {
     const a = left.value,
       b = right.value;
-    const value = { "+": a + b, "-": a - b, "&": a & b, "|": a | b, "^": a ^ b }[operator];
+    const value = { "+": a + b, "-": a - b, "&": a & b, "|": a | b, "^": a ^ b, "<<": b < 32 ? a << b : 0 }[operator];
     if (value !== undefined) return { kind: "constant", value: value & (2 ** width - 1), width };
   }
   return { kind: "binary", operator, left, right, width };
@@ -227,6 +229,8 @@ const fold = (operator: string, left: Expression, right: Expression, width: numb
  * owner register and the frame (the C calling convention keeps SI, DI and BP) and the helper's locals, which the callee
  * can't reach; it forgets AX, BX, CX, DX and ES, which it may change.
  *
+ * A byte or word read from the data segment at a known index is a table read, like a frame's rope point.
+ *
  * For each field, paths that leave the same value are joined when the tests they share rule out every other path, as
  * `ownerStoreConditions` does; else each path gives its own value with its own tests. A path that doesn't write a field
  * leaves it as it was, so the values cover every path that changes it.
@@ -235,6 +239,9 @@ export function ownerPathStores(
   code: RoutineCode,
   owner: string,
   firstArgument: number,
+  /** The data segment: a word or byte read from it at a known index is a table read, like a frame's rope point. */
+  dataSegment?: number,
+  /** Whether a call leaves the part alone; a call it doesn't vouch for ends the reading. */
   callKeepsOwner?: (call: Instruction) => boolean,
 ): OwnerPathStore[] | undefined {
   if (code.status !== "complete" || (code.calls.length && !callKeepsOwner)) return undefined;
@@ -280,10 +287,13 @@ export function ownerPathStores(
       if (!o) return undefined;
       if (o.kind === "immediate") return { kind: "constant", value: o.value & (2 ** width - 1), width };
       if (o.kind === "register") {
-        const v = o.width === 16 ? registers.get(o.name) : undefined;
-        return v && typeof v !== "string" ? v : undefined;
+        const v = o.width === 16 || HALF[o.name] ? registers.get(o.name) : undefined;
+        return v && typeof v !== "string" && v.width === o.width ? v : undefined;
       }
       if (o.kind !== "memory" || o.base.length !== 1 || o.direct || o.width !== width) return undefined;
+      const index = registers.get(o.base[0]!);
+      if (o.segment === "ds" && dataSegment !== undefined && index && typeof index !== "string" && index.width === 16)
+        return { kind: "table", segment: dataSegment, offset: o.displacement, index, width: o.width };
       if (o.segment === "ss" && o.base[0] === "bp" && registers.get("bp") === "frame") {
         if (o.displacement >= firstArgument && o.width === 16)
           return { kind: "field", object: "argument", offset: o.displacement, width: 16 };
@@ -299,7 +309,10 @@ export function ownerPathStores(
     /** Puts a value where the instruction writes it; false when that place isn't a known register, local or field. */
     const put = (o: Operand | undefined, value: Expression): boolean => {
       if (o?.kind === "register") {
-        if (o.width !== 16 || ["sp", "bp"].includes(o.name)) return false;
+        if ((o.width !== 16 && !HALF[o.name]) || ["sp", "bp"].includes(o.name)) return false;
+        // A byte register changes half of its word register, and a word register both its halves.
+        if (HALF[o.name]) registers.delete(HALF[o.name]!);
+        else for (const [half, word] of Object.entries(HALF)) if (word === o.name) registers.delete(half);
         registers.set(o.name, value);
         return true;
       }
@@ -381,9 +394,10 @@ export function ownerPathStores(
           : fold(i.mnemonic === "inc" ? "+" : "-", value, one, width));
       if (!result || !put(dest, result)) return fail();
     } else if (i.flow === "call") {
+      // A call that writes only globals keeps the part's fields; it may change the registers a C call may change.
       if (!callKeepsOwner?.(i)) return fail();
-      // The callee may change the scratch registers, but not the part, the frame or the owner register.
-      for (const name of ["ax", "bx", "cx", "dx", "es"]) registers.delete(name);
+      for (const name of ["ax", "bx", "cx", "dx", "es", "al", "ah", "bl", "bh", "cl", "ch", "dl", "dh"])
+        registers.delete(name);
     } else if (i.flow !== "branch" && i.flow !== "jump" && i.flow !== "return") return fail();
     if (i.flow === "return") {
       if (i.operands.length) return fail();
