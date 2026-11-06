@@ -37,6 +37,10 @@ Starting point:
 These can never become a number, but each one can become a plain value like "the part its search found" or "the
 touching part's speed, reversed". A rule then counts as named, not unknown.
 
+- [ ] **B0. Values that differ by path.** When two rules lead to the same frame and differ only in one test, they are
+      merged into one rule. A field the two set differently then becomes unknown ("Field 0x12 differs on complementary
+      paths"), although both values are known. This is the largest group: about 40 fields in most parts. Keep both values
+      with the test that picks them. Done when no write is unknown only because of this merge.
 - [ ] **B1. Search results (found list `0x78`, `0x7a`, `0x7c`).** About 160 rules, most of them the cat (108), then the
       teeter-totter, jack-in-the-box, mouse, teapot, candle, rocket, fan, bellows, vacuum cleaner, magnifying glass, Mel's
       house, solar panel and explosion. Name the list links and the found part's fields.
