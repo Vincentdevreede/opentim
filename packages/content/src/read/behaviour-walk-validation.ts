@@ -2,6 +2,7 @@
 import type { BehaviourReport, Expression, Predicate, RoutineAnalysis } from "./behaviour.ts";
 import type { MeasuredClip } from "./behaviour-validation.ts";
 import type { Instruction } from "./x86.ts";
+import { discoverFindFirstLoops } from "./behaviour-find-first-loops.ts";
 import {
   evaluateBehaviourCondition,
   type AnimationDescription,
@@ -192,18 +193,19 @@ function runWrites(
   report: BehaviourReport,
   routine: RoutineAnalysis | undefined,
   seen = new Set<number>(),
+  /** Instructions of the run routine that never run in the clip, like the body of a loop over an empty list. */
+  never: ReadonlySet<number> = new Set(),
 ): Set<number> | undefined {
   if (!routine || routine.status !== "complete" || !routine.instructions?.length) return undefined;
   if (seen.has(routine.address)) return new Set();
   seen.add(routine.address);
   const written = new Set<number>();
+  const runs = routine.instructions.filter((i) => !never.has(i.address));
   const bases = new Set(
-    routine.instructions.flatMap((i) =>
-      i.operands[0]?.kind === "memory" && !NOT_WRITING.has(i.mnemonic) ? i.operands[0].base : [],
-    ),
+    runs.flatMap((i) => (i.operands[0]?.kind === "memory" && !NOT_WRITING.has(i.mnemonic) ? i.operands[0].base : [])),
   );
   const callAt = new Map(routine.calls.map((call) => [call.instruction, call]));
-  for (const i of routine.instructions) {
+  for (const i of runs) {
     if (/^(stos|movs|ins|rep|cmps|scas|lods)/.test(i.mnemonic) || i.mnemonic === "int") return undefined;
     const destination = i.operands[0],
       source = i.operands[1];
@@ -221,11 +223,13 @@ function runWrites(
       continue;
     }
     if (destination?.kind === "register" && bases.has(destination.name) && !NOT_WRITING.has(i.mnemonic)) {
-      // A pointer may be loaded, copied, cleared or restored, never moved by an offset.
+      // A pointer may be loaded, copied, tested, cleared or restored, never moved by an offset.
       const plain =
         (i.mnemonic === "mov" && (source?.kind === "memory" || source?.kind === "register")) ||
         (i.mnemonic === "mov" && source?.kind === "immediate" && source.value === 0) ||
         (i.mnemonic === "xor" && source?.kind === "register" && source.name === destination.name) ||
+        // A test of the pointer against itself keeps it.
+        (["or", "and"].includes(i.mnemonic) && source?.kind === "register" && source.name === destination.name) ||
         i.mnemonic === "pop" ||
         i.mnemonic === "les" ||
         i.mnemonic === "lds";
@@ -410,28 +414,7 @@ function recorderView(
   const routine = report.routines.find((item) => item.address === address) as RoutineAnalysis | undefined;
   if (!routine || routine.status !== "complete" || !routine.instructions?.length) return undefined;
   const callAt = new Map(routine.calls.map((call) => [call.instruction, call]));
-  const loops = (routine.listLoops ?? []).filter((loop) => {
-    const target = loop.query === undefined ? undefined : callAt.get(loop.query)?.target?.address;
-    return (
-      loop.source === "overlap-query" &&
-      target !== undefined &&
-      searches.has(target) &&
-      searches.get(target) === loop.headField
-    );
-  });
-  const bodies = new Set(loops.flatMap((loop) => loop.body));
-  // A call leaves the part's code segment, so the recorder skips it and it writes nothing.
-  const skippedCall = (i: Instruction) => {
-    const target = callAt.get(i.address)?.target;
-    return !!target && target.segment !== routine.segment;
-  };
-  const listEmpty = (head: number) =>
-    !RECORDER_FIELDS.some(([offset, size]) => offset < head + 2 && head < offset + size) &&
-    routine.instructions.every(
-      (i) => bodies.has(i.address) || (!mayWrite(i, head) && (i.flow !== "call" || skippedCall(i))),
-    );
-  const empty = loops.filter((loop) => listEmpty(loop.headField!));
-  if (!empty.length) return undefined;
+  const heads = new Set(searches.values());
   const next = new Map<number, number[]>(),
     previous = new Map<number, number[]>();
   for (const edge of routine.edges)
@@ -454,6 +437,119 @@ function recorderView(
     return seen;
   };
   const byAddress = new Map(routine.instructions.map((i) => [i.address, i]));
+  /** A loop over the found list: a scan over every part, or a loop that stops at the first part it acts on. */
+  interface ListLoop {
+    header: number;
+    body: number[];
+    headField: number;
+    /** For a scan: the search call whose list it walks. */
+    query?: number;
+  }
+  const scans: ListLoop[] = (routine.listLoops ?? []).flatMap((loop) => {
+    const target = loop.query === undefined ? undefined : callAt.get(loop.query)?.target?.address;
+    return loop.source === "overlap-query" &&
+      target !== undefined &&
+      searches.has(target) &&
+      searches.get(target) === loop.headField
+      ? [{ header: loop.header, body: loop.body, headField: loop.headField!, query: loop.query }]
+      : [];
+  });
+  // A loop that stops at the first part it acts on (`discoverFindFirstLoops`), whose first part is loaded from the
+  // found list's field on the part itself: the routine's own part pointer, which it only loads from its argument.
+  const argument = routine.instructions.some((i) => i.mnemonic === "retf") ? 6 : 4;
+  const ownPart = (name: string) => {
+    const writes = routine.instructions.filter(
+      (i) => i.operands[0]?.kind === "register" && i.operands[0].name === name && !NOT_WRITING.has(i.mnemonic),
+    );
+    return (
+      writes.length > 0 &&
+      writes.some((i) => i.mnemonic === "mov") &&
+      writes.every((i) => {
+        const source = i.operands[1];
+        if (i.mnemonic === "mov")
+          return (
+            source?.kind === "memory" &&
+            source.segment === "ss" &&
+            source.base.join() === "bp" &&
+            source.displacement === argument
+          );
+        // Restoring the caller's register on the way out.
+        if (i.mnemonic !== "pop") return false;
+        const rest = routine.instructions.filter((other) => other.address > i.address);
+        const end = rest.findIndex((other) => other.flow === "return");
+        return (
+          end >= 0 &&
+          rest
+            .slice(0, end)
+            .every(
+              (other) =>
+                other.mnemonic === "pop" ||
+                (other.mnemonic === "mov" && other.operands[0]?.kind === "register" && other.operands[0].name === "sp"),
+            )
+        );
+      })
+    );
+  };
+  const helpers = new Map((report.helpers ?? []).map((helper) => [helper.address, helper]));
+  const firsts: ListLoop[] = [...discoverFindFirstLoops(routine, helpers).values()].flatMap((loop) => {
+    if (!loop.excludesOwner || scans.some((scan) => scan.header === loop.header)) return [];
+    const branch = byAddress.get(loop.evidence[1]!.address);
+    const entries = (next.get(branch?.address ?? -1) ?? []).filter((at) => at !== loop.exit);
+    // The loop's body: what its entry reaches before the head or the exit, and what reaches the head back.
+    const back = new Set<number>();
+    for (const at of previous.get(loop.header) ?? [])
+      for (const from of reach(at, previous, (from) => from === loop.header)) back.add(from);
+    const body = new Set<number>();
+    for (const entry of entries)
+      for (const at of reach(entry, next, (to) => to === loop.header || to === loop.exit))
+        if (at !== loop.header && at !== loop.exit && back.has(at)) body.add(at);
+    const loads = routine.instructions.filter((i) => {
+      const source = i.operands[1];
+      return (
+        !body.has(i.address) &&
+        i.mnemonic === "mov" &&
+        i.operands[0]?.kind === "register" &&
+        i.operands[0].name === loop.node &&
+        source?.kind === "memory" &&
+        source.segment === "ds" &&
+        source.base.length === 1 &&
+        source.base[0] !== loop.node
+      );
+    });
+    const load = loads[0]?.operands[1];
+    if (loads.length !== 1 || load?.kind !== "memory" || !heads.has(load.displacement) || !ownPart(load.base[0]!))
+      return [];
+    // Every way from the run's start into the loop comes through that load, and keeps the part it loaded.
+    const at = loads[0]!.address;
+    if (reach(routine.address, next, (to) => to === at || body.has(to)).has(loop.header)) return [];
+    const onTheWay = reach(at, next, (to) => to === loop.header || body.has(to));
+    if (
+      [...onTheWay].some((to) => {
+        const i = byAddress.get(to);
+        return (
+          to !== at &&
+          to !== loop.header &&
+          (!i ||
+            i.flow === "call" ||
+            (i.operands[0]?.kind === "register" && i.operands[0].name === loop.node && !NOT_WRITING.has(i.mnemonic)))
+        );
+      })
+    )
+      return [];
+    return [{ header: loop.header, body: [...body], headField: load.displacement }];
+  });
+  const loops = [...scans, ...firsts];
+  const bodies = new Set(loops.flatMap((loop) => loop.body));
+  // What the run can write while every such list is empty: their bodies never run.
+  const written = runWrites(report, routine, new Set(), bodies);
+  const listEmpty = (head: number) =>
+    !!written &&
+    !RECORDER_BYTES.has(head) &&
+    !RECORDER_BYTES.has(head + 1) &&
+    !written.has(head) &&
+    !written.has(head + 1);
+  const empty = loops.filter((loop) => listEmpty(loop.headField));
+  if (!empty.length) return undefined;
   /** The instructions on some way from the run's start to the loop's head that doesn't go round the loop. */
   const before = (loop: (typeof empty)[number]) => {
     const body = new Set(loop.body);
@@ -470,7 +566,7 @@ function recorderView(
         key,
         (result = before(loop).every((at) => {
           const i = byAddress.get(at);
-          return !!i && !mayWrite(i, offset) && (i.flow !== "call" || at === loop.query);
+          return !!i && loop.query !== undefined && !mayWrite(i, offset) && (i.flow !== "call" || at === loop.query);
         })),
       );
     return result;
@@ -503,7 +599,7 @@ function recorderView(
     done.set(predicate, result);
     return result;
   };
-  const used = empty.map((loop) => callAt.get(loop.query!)!.target!.address);
+  const used = [...searches].filter(([, head]) => empty.some((loop) => loop.headField === head)).map(([at]) => at);
   return { view, searches: [...new Set(used)].sort((a, b) => a - b) };
 }
 function stateAt(walk: BehaviourWalk, index: number, parameter: number): number | undefined {

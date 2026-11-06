@@ -104,6 +104,8 @@ the level), and every one of those is listed by name.
       Then also compared with what the recorder writes between runs and the fields it clears that nothing in the clip
       writes (see "What the recorder writes between runs"), with their own basis: Even More 606 to 612 (the mouse 4,
       the cat's still recordings 2), TIM 1 512 to 516 (the mouse 4), none different.
+      The TIM 1 cat's loop over the found list is now recognised as a loop that stops at the first part it finds (see
+      "The TIM 1 cat's loop over the found list"): TIM 1 516 to 520.
 - [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Still open. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

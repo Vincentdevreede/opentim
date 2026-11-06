@@ -1748,6 +1748,25 @@ from 512 to 516 in TIM 1 (4 and 8), prefixes from 42 to 36 and from 40 to 36. No
 recordings close in both builds (its flags at `0x06`), and in Even More the cat's two still recordings that look in the
 found list (the position words at 100 rule out the frame it shows when they differ).
 
+### The TIM 1 cat's loop over the found list
+
+The comparison tied a skipped search to the loops over its list through the analysis's list scans (`listLoops`). The
+Even More cat's loop at `0x1a01a` is one only because of a test the TIM 1 cat doesn't have: inside the loop, Even More
+checks that the cat's frame is 0 (`cmp word [si+0x0c], 0` at `0x19fa6`) before it moves the cat, and the list scan
+summary follows that loop for a frame other than 0, where the body keeps the cat as it is. The TIM 1 cat
+(`0x18431`, loop at `0x186af`) moves itself whenever a mouse is close enough, on any frame, so its body changes the cat
+and no list scan summary can hold. That is right as it is, and `behaviour-list-loops.ts` stays unchanged.
+
+Both loops are loops that stop at the first part they act on (`discoverFindFirstLoops`), and the walks name their member
+"member found by the loop at 0x186af". The comparison now also takes such a loop as a loop over a skipped search's list
+when its first part is loaded once, from the found list field the search fills, through the routine's own part pointer
+(only loaded from its argument, and restored on the way out), with every way into the loop going through that load and
+nothing on the way changing the pointer. The bytes the run can write are now counted without the bodies of these loops,
+which never run while the list is empty, and a pointer tested against itself (`or di, di`) counts as kept.
+
+The TIM 1 cat's four recordings that look in the found list close: complete matches in TIM 1 went from 516 to 520 (12
+through a skipped search), prefixes from 36 to 32. Even More stays at 612. None is different.
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
