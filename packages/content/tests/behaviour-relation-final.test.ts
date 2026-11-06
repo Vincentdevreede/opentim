@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyseRoutine, chooseByTests, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import { engineFromObjectRelation } from "../src/read/behaviour-geometry-relations.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
+import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 
 const proof = { confidence: "inferred" as const, evidence: [], assumptions: [] };
 const layout: BehaviourLayout = {
@@ -67,5 +68,53 @@ describe("the value a routine leaves in a field", () => {
     const writes = engine?.writes.filter((write) => write.offset === 0x72) ?? [];
     expect(writes).toHaveLength(1);
     expect(writes[0]!.condition.kind).not.toBe("true");
+  });
+  it("gives a caller the field exactly when the helper also makes a part and changes the state", () => {
+    const copy: EngineSummary = {
+      ...proof,
+      address: 0x200,
+      kind: "part-copy",
+      purpose: "Synthetic part copy.",
+      argumentOffset: 6,
+      argumentKind: "object",
+      writes: [],
+      returns: [],
+      returnPointerClass: "nullable-fresh",
+      calls: [],
+      returnConvention: { kind: "far", stackBytes: 0 },
+      footprint: {
+        complete: false,
+        partMemoryComplete: true,
+        preservesArgumentMemory: true,
+        preservesPartState: true,
+        unknownEffects: [],
+      },
+    };
+    // The helper at 0x100 copies the part and sets the copy's x, so a caller can't take its ways one by one; then it
+    // sets the state to 5 and 0x72 by the flip flag. The caller at 0 calls it with its part.
+    const image = new Uint8Array(0x300);
+    image.set(
+      [
+        ...[0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6, 0x56, 0x9a, 0, 2, 0, 0, 0x59],
+        ...[0x8b, 0xf8, 0x0b, 0xc0, 0x74, 5, 0xc7, 0x45, 0x1e, 5, 0, 0xc7, 0x44, 12, 5, 0],
+        ...[0xf6, 0x44, 8, 0x10, 0x74, 6, 0xc6, 0x44, 0x72, 62, 0xeb, 4, 0xc6, 0x44, 0x72, 1, 0x5f, 0x5e, 0x5d, 0xcb],
+      ],
+      0x100,
+    );
+    image[0x200] = 0xcb;
+    image.set([0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0x56, 0x9a, 0, 1, 0, 0, 0x59, 0x5e, 0x5d, 0xcb]);
+    const helpers = new Map([[0x200, copy]]);
+    const helper = analyseRoutine(image, { address: 0x100, segment: 0, offset: 0x100 }, { engineSummaries: helpers });
+    const engine = engineFromObjectRelation(helper, layout, helpers)!;
+    expect(engine.footprint.preservesPartState).toBe(false);
+    const caller = analyseRoutine(
+      image,
+      { address: 0, segment: 0, offset: 0 },
+      { summaries: new Map([[0x100, helper]]), engineSummaries: new Map([...helpers, [0x100, engine]]) },
+    );
+    expect(caller.outcomes).toHaveLength(1);
+    const field = caller.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x72)!;
+    expect(field.value.kind).toBe("binary");
+    expect(caller.transitions[0]!.to).toMatchObject({ kind: "constant", value: 5 });
   });
 });

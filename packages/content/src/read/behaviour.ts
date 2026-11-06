@@ -4225,9 +4225,43 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       if (summary && passesPart) {
         const possibleWrites = summary.writes.filter((w) => w.object === "part");
+        // The helper's relation may give a field the one value every way through the helper leaves in it, as a value of
+        // the part's fields when the helper starts: worked out before any of the helper's writes go in.
+        const relation =
+          engine && /relation$/.test(engine.kind) && engine.argumentOffset === summary.objectPointer.argumentOffset
+            ? engine
+            : undefined;
+        const finals = new Map<number, { value: Tracked; width: number }>();
+        for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
+          const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
+          if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
+          const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
+          if (!containsUnknown(asExpression(value.value))) finals.set(offset, { value, width: exact[0]!.width });
+        }
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
           const effects = possibleWrites.filter((w) => w.offset === offset);
-          if (effects.length === 1 && effects[0]!.condition.kind === "true" && effects[0]!.value.kind === "constant") {
+          const final = finals.get(offset);
+          if (final) {
+            s.registers.set("__summary_part", tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }));
+            write(
+              {
+                kind: "memory",
+                segment: "ds",
+                base: ["__summary_part"],
+                displacement: offset,
+                direct: false,
+                width: final.width === 8 ? 8 : 16,
+              },
+              tracked(final.value.value, uniqueEvidence([...final.value.evidence, evidenceOf(i)])),
+              s,
+              i,
+            );
+            s.registers.delete("__summary_part");
+          } else if (
+            effects.length === 1 &&
+            effects[0]!.condition.kind === "true" &&
+            effects[0]!.value.kind === "constant"
+          ) {
             const w = effects[0]!;
             const op: Operand = {
               kind: "memory",

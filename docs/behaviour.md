@@ -2116,6 +2116,14 @@ the cannon's and the dynamite's `0x72` and `0x73`, the dynamite plunger's `0x6a`
 `0x56` to `0x58` of the monkey bike and the electric motor. Rules with unknown writes go from 16 to 10 of 925 in Even
 More, English floppy, and from 14 to 8 of 764 in TIM 1, French.
 
+A caller takes such a helper's ways one by one when it can. It can't when the helper also makes a part, like the
+dynamite's explosion helper (`0x1a432`), which sets the dynamite's frame to 5, makes an explosion and sets flag
+`0x2000` of its drawing flags on both ways (whether the explosion was made or not). The caller used to put in only a
+field the helper sets to one number on every way and call every other field unknown ("Conditional effects of
+helper"). Now it also puts in a field the relation gives one exact value, worked out from the part's fields as they
+are when the helper starts, before any of the helper's writes go in. The dynamite's three rules that call it now know
+its drawing flags: Even More, English floppy, goes from 10 to 7 rules with unknown writes, TIM 1, French, from 8 to 5.
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`
