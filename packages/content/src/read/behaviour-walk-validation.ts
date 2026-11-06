@@ -8,6 +8,7 @@ import {
   type KnownField,
   type PartBehaviourDescription,
   START,
+  walkBehaviourRules,
   WIDENING_ASSUMPTION,
 } from "./describe-behaviour.ts";
 
@@ -44,13 +45,13 @@ const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
  * The v25 recording adapter names the fields it actually saved. Flags are masked in the recording. No other
  * fields, including zeros from its old artificial objects, are supplied to this compatibility check.
  */
-function recordedFields(
-  report: BehaviourReport | undefined,
-  clip: MeasuredClip,
-): Pick<KnownField, "object" | "offset" | "width" | "value" | "knownMask">[] {
+function recordedFields(report: BehaviourReport | undefined, clip: MeasuredClip): RecordedField[] {
   const seed = object(clip.input.seed) ? clip.input.seed : {};
-  const hold = object(clip.input.hold) ? clip.input.hold : {};
-  const values = { ...clip.partSeed, ...seed, ...clip.frames[0], ...hold };
+  const write = recorderWrite(clip, 0);
+  return [...namedFields(report, { ...clip.partSeed, ...seed, ...clip.frames[0], ...write }), RECORDER_CONTACT];
+}
+/** The part fields the recorder names, with the values given for them. Its flags are masked as it saves them. */
+function namedFields(report: BehaviourReport | undefined, values: Record<string, unknown>): RecordedField[] {
   const state = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
   const delta = report?.layout.fields.find((field) => field.name === "stateDelta")?.offset ?? 18;
   const fields = [
@@ -62,15 +63,77 @@ function recordedFields(
     ["vy", 0x38],
     ["flags8", 8],
   ] as const;
-  return [
-    ...fields.flatMap(([name, offset]) => {
-      const value = values[name];
-      return typeof value === "number" && offset !== undefined
-        ? [{ object: "part", offset, width: 16, value, knownMask: name === "flags8" ? 0x3030 : 0xffff }]
-        : [];
-    }),
-    RECORDER_CONTACT,
-  ];
+  return fields.flatMap(([name, offset]) => {
+    const value = values[name];
+    return typeof value === "number" && offset !== undefined
+      ? [{ object: "part", offset, width: 16, value, knownMask: name === "flags8" ? 0x3030 : 0xffff }]
+      : [];
+  });
+}
+/** The fields a recorder frame saves in full, so a write of the same value there changes nothing. */
+const SAVED_IN_FULL = new Set(["state", "control", "timer", "heat"]);
+/**
+ * What the v25 recorder writes before the run at `tick` (`clip` in `research/v24/verify_animations.py`): its hold
+ * values before `holdTicks`, or on every run without it, and its release values at `holdTicks` (the control value 0
+ * when it names none). The write at tick 0 is part of the clip's starting fields.
+ */
+function recorderWrite(clip: MeasuredClip, tick: number): Record<string, number> | undefined {
+  const { hold, holdTicks, release } = clip.input;
+  if (!object(hold)) return undefined;
+  const values =
+    typeof holdTicks !== "number" || tick < holdTicks
+      ? hold
+      : tick === holdTicks
+        ? object(release)
+          ? release
+          : { control: 0 }
+        : undefined;
+  return (
+    values &&
+    Object.fromEntries(
+      Object.entries(values).filter((entry): entry is [string, number] => typeof entry[1] === "number"),
+    )
+  );
+}
+/** A run where the recorder writes an input again: the walk restarts there from these fields. */
+interface Restart {
+  run: number;
+  fields: RecordedField[];
+}
+type Restarts = { restarts: Restart[]; forever: boolean } | { unsupported: string };
+/**
+ * The runs after the first where the recorder's write changes the part, with the fields the recording gives there:
+ * the frame it saved before the write, with the written values over it. A write of the value the saved frame already
+ * shows changes nothing, so the walk goes on through it. A recorder that writes on every run must have recorded a
+ * cycle: it found the same fields after the write there, so from the end of the recording on, every run is a restart
+ * from the fields of the run its cycle repeats.
+ */
+function recorderRestarts(report: BehaviourReport | undefined, clip: MeasuredClip): Restarts {
+  if (!object(clip.input.hold)) return { restarts: [], forever: false };
+  const { frames, loopStart } = clip,
+    count = frames.length,
+    forever = typeof clip.input.holdTicks !== "number";
+  if (forever && loopStart === null)
+    return { unsupported: "The recorder writes on every run, and the recording ends without a repeating cycle." };
+  const period = loopStart === null ? 1 : count - loopStart;
+  const last = forever ? count + period - 1 : (clip.input.holdTicks as number);
+  const restarts: Restart[] = [];
+  for (let run = 1; run <= last; run++) {
+    const write = recorderWrite(clip, run);
+    if (!write || !Object.keys(write).length) continue;
+    if (run >= count && !forever) return { unsupported: "The recorder writes again after the recording's last frame." };
+    const saved = run < count ? frames[run]! : frames[loopStart! + ((run - loopStart!) % period)]!;
+    const unchanged =
+      run < count &&
+      Object.entries(write).every(
+        ([name, value]) =>
+          SAVED_IN_FULL.has(name) && typeof saved[name] === "number" && wrap16(saved[name]) === wrap16(value),
+      );
+    if (!unchanged) restarts.push({ run, fields: namedFields(report, { ...saved, ...write }) });
+  }
+  if (!forever && restarts.length && loopStart !== null && loopStart < restarts.at(-1)!.run)
+    return { unsupported: "The recorded cycle starts before the recorder's last write." };
+  return { restarts, forever };
 }
 /**
  * The recorder puts each part alone on an empty bench, touching nothing. The contact bits of the list flags at `0x06`
@@ -420,10 +483,19 @@ function followTree(
   };
   return search(undefined);
 }
-function matchWalk(
+/**
+ * How a start is compared: `bounded` when the recorder writes again right after the given frames, so the walk only
+ * needs to agree with them; `external` when the recorder writes again in a way the comparison can't follow.
+ */
+interface StartMode {
+  bounded: boolean;
+  external: boolean;
+}
+function matchStart(
   report: BehaviourReport | undefined,
   animation: AnimationDescription,
   clip: MeasuredClip,
+  mode: StartMode,
 ): DescribedWalkMatch | undefined {
   const walk = animation.walk;
   if (!clip.frames.length) return undefined;
@@ -473,7 +545,7 @@ function matchWalk(
       compatibility === undefined ? "unresolved" : basis === "trigger" ? "conditional-event" : "established",
     evidenceAddresses: [...new Set(walk.evidence.map((item) => item.address))] as number[],
   } as const;
-  if (!walk.parameterised) return matchTree(report, animation, clip, recorded, compatibility, base);
+  if (!walk.parameterised) return matchTree(report, animation, clip, recorded, compatibility, base, mode);
   let matched = 0;
   for (const [index, state] of expected.entries()) {
     const prediction = stateAt(walk, index, parameter);
@@ -487,12 +559,12 @@ function matchWalk(
     if (prediction !== state)
       return {
         ...base,
-        classification: compatibility === undefined || (object(clip.input.hold) && matched) ? "prefix" : "different",
+        classification: compatibility === undefined || (mode.external && matched) ? "prefix" : "different",
         prefixFrames: matched,
         reason:
           compatibility === undefined
             ? "The recording does not establish this input case's starting condition."
-            : object(clip.input.hold) && matched
+            : mode.external && matched
               ? "The oracle supplies further external writes; the description contains one trigger only."
               : `The described walk predicts state ${prediction} at frame ${index}; the oracle records ${state}.`,
       };
@@ -505,6 +577,8 @@ function matchWalk(
       prefixFrames: matched,
       reason: "The saved frames agree but do not establish every starting condition of this input case.",
     };
+  if (mode.bounded)
+    return { ...base, classification: "complete", prefixFrames: matched, reason: "The frames agree up to the write." };
   if (walk.status !== "rest" && walk.status !== "loop")
     return {
       ...base,
@@ -512,7 +586,7 @@ function matchWalk(
       prefixFrames: matched,
       reason: walk.reason ?? "The known frames agree but the ending remains unresolved.",
     };
-  if (object(clip.input.hold))
+  if (mode.external)
     return {
       ...base,
       classification: "prefix",
@@ -572,6 +646,7 @@ function matchTree(
   recorded: RecordedField[],
   compatibility: boolean | undefined,
   base: Omit<DescribedWalkMatch, "classification" | "prefixFrames" | "reason">,
+  mode: StartMode,
 ): DescribedWalkMatch | undefined {
   const stateOffset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
   // A field the trigger writes may hold the trigger's value at the first run rather than the recording's.
@@ -589,15 +664,16 @@ function matchTree(
   const outcome = followTree(animation.walk, frames, clip.loopStart, start, stateOffset);
   if (!outcome) return undefined;
   const total = frames.length + (clip.loopStart === null ? 0 : 1);
-  const hold = object(clip.input.hold);
+  const hold = mode.external;
   const result = (classification: DescribedWalkMatch["classification"], prefixFrames: number, reason: string) => ({
     ...base,
     classification,
     prefixFrames,
     reason,
   });
-  if (outcome.open) return result("prefix", outcome.open.frames, outcome.open.reason);
-  if (outcome.repeats) {
+  if (outcome.open && !(mode.bounded && outcome.open.frames >= total))
+    return result("prefix", outcome.open.frames, outcome.open.reason);
+  if (outcome.repeats || outcome.open) {
     if (compatibility === undefined)
       return result(
         "prefix",
@@ -610,6 +686,7 @@ function matchTree(
         total,
         "The saved frames agree, but repeated external input is outside this single-trigger walk.",
       );
+    if (mode.bounded) return result("complete", total, "The frames agree up to the write.");
     return result(
       "complete",
       total,
@@ -642,6 +719,157 @@ function matchTree(
   );
 }
 
+/** Walks the part's run rules from the fields a recording gives where its recorder writes again. */
+export type RestartWalk = (fields: KnownField[]) => BehaviourWalk;
+/**
+ * A walk from the given fields only, like an input case in the middle of a run: everything else is unknown. The walks
+ * are kept by their fields, since a recording that writes on every run restarts from the same fields again and again.
+ */
+export function restartWalk(report: BehaviourReport, partType: number): RestartWalk {
+  const walks = new Map<string, BehaviourWalk>();
+  return (fields) => {
+    const key = JSON.stringify(
+      fields.map(({ object, offset, width, value, knownMask }) => [object, offset, width, value, knownMask]),
+    );
+    let walk = walks.get(key);
+    if (!walk) walks.set(key, (walk = walkBehaviourRules(report, partType, fields, { midRun: true })));
+    return walk;
+  };
+}
+type Segments = Pick<DescribedWalkMatch, "classification" | "prefixFrames" | "reason">;
+/**
+ * Follows a recording from each run where its recorder writes again, with a walk from the fields the recording gives
+ * there. A part of the recording that ends at the next write only needs the walk to agree up to there; the last part
+ * needs a proved ending like a whole recording.
+ */
+function followRestarts(
+  report: BehaviourReport | undefined,
+  clip: MeasuredClip,
+  plan: { restarts: Restart[]; forever: boolean },
+  walkFrom: RestartWalk,
+): Segments {
+  const stateOffset = report?.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
+  const { frames, loopStart } = clip,
+    count = frames.length,
+    period = loopStart === null ? 1 : count - loopStart,
+    total = count + (loopStart === null ? 0 : 1);
+  const stateAtRun = (run: number) =>
+    run < count ? frames[run]!.state : frames[loopStart! + ((run - loopStart!) % period)]!.state;
+  for (const [index, { run, fields }] of plan.restarts.entries()) {
+    const end = plan.restarts[index + 1]?.run ?? (plan.forever ? count + period : undefined);
+    const states =
+      end === undefined
+        ? frames.slice(run).map((frame) => frame.state)
+        : [...Array(end - run + 1).keys()].map((n) => stateAtRun(run + n));
+    const cycle = end === undefined && loopStart !== null ? loopStart - run : null;
+    const length = states.length + (cycle === null ? 0 : 1);
+    const seed = fields.map((field) => ({
+      ...field,
+      value: wrap16(field.value),
+      confidence: "checked" as const,
+      assumptions: [],
+      evidence: [],
+    }));
+    const outcome = followTree(walkFrom(seed), states, cycle, fields, stateOffset);
+    const at = (frames: number) => Math.min(total, run + frames);
+    const where = `the recorder's write at run ${run}`;
+    if (!outcome)
+      return { classification: "prefix", prefixFrames: at(0), reason: `The walk from ${where} has no way.` };
+    if (outcome.open && (end === undefined || outcome.open.frames < length))
+      return {
+        classification: "prefix",
+        prefixFrames: at(outcome.open.frames),
+        reason: `From ${where}: ${outcome.open.reason}`,
+      };
+    if (outcome.repeats || outcome.open) continue;
+    const differs = outcome.differs!;
+    return {
+      classification: "different",
+      prefixFrames: at(differs.frames),
+      reason:
+        run + differs.index >= count
+          ? `From ${where}, the proved and recorded visible cycles differ.`
+          : `From ${where}, the walk predicts state ${differs.predicted} at frame ${run + differs.index}; the oracle records ${differs.recorded}.`,
+    };
+  }
+  return {
+    classification: "complete",
+    prefixFrames: total,
+    reason: plan.forever
+      ? "The recorder writes on every run. The walks from the start and from each write agree with the recording up to the next write, through its cycle."
+      : `The recorder writes again at ${runWords(plan.restarts.map((restart) => restart.run))}. The walks from the start and from each write agree with the recording, and the last one proves its ending.`,
+  };
+}
+/** Runs in words, with a stretch of consecutive runs as one range. */
+function runWords(runs: number[]): string {
+  const ranges: string[] = [];
+  for (let n = 0; n < runs.length;) {
+    let end = n;
+    while (end + 1 < runs.length && runs[end + 1] === runs[end]! + 1) end++;
+    ranges.push(end > n ? `${runs[n]} to ${runs[end]}` : String(runs[n]));
+    n = end + 1;
+  }
+  return `${ranges.length > 1 || runs.length > 1 ? "runs" : "run"} ${ranges.length > 1 ? `${ranges.slice(0, -1).join(", ")} and ${ranges.at(-1)}` : ranges[0]}`;
+}
+/**
+ * Compares one start with a recording. Where the recorder writes an input again, the start only needs to agree up to
+ * that write, and the rest of the recording is followed from the write (the same for every start).
+ */
+function matchWalk(
+  report: BehaviourReport | undefined,
+  animation: AnimationDescription,
+  clip: MeasuredClip,
+  restarts: () => Segments | undefined,
+): DescribedWalkMatch | undefined {
+  const plan = recorderRestarts(report, clip);
+  const later = "unsupported" in plan ? undefined : restarts();
+  if (!later || "unsupported" in plan || !plan.restarts.length)
+    return matchStart(report, animation, clip, {
+      bounded: false,
+      external: "unsupported" in plan || (!!plan.restarts.length && !later),
+    });
+  const first = plan.restarts[0]!.run,
+    count = clip.frames.length;
+  const head = matchStart(
+    report,
+    animation,
+    {
+      ...clip,
+      frames: [...Array(first + 1).keys()].map((run) =>
+        run < count
+          ? clip.frames[run]!
+          : clip.frames[clip.loopStart! + ((run - clip.loopStart!) % (count - clip.loopStart!))]!,
+      ),
+      loopStart: null,
+    },
+    { bounded: true, external: false },
+  );
+  if (!head) return undefined;
+  const whole = {
+    ...head,
+    measuredFrames: count,
+    measuredTransitions: count - 1 + (clip.loopStart === null ? 0 : 1),
+  };
+  return head.classification === "complete" ? { ...whole, ...later } : whole;
+}
+/** The comparison of a recording's later parts, once for all of its starts. */
+function restartsOnce(
+  report: BehaviourReport | undefined,
+  clip: MeasuredClip,
+  walkFrom: RestartWalk | undefined,
+): () => Segments | undefined {
+  let result: Segments | undefined,
+    done = false;
+  return () => {
+    if (done) return result;
+    done = true;
+    const plan = recorderRestarts(report, clip);
+    if (walkFrom && !("unsupported" in plan) && plan.restarts.length)
+      result = followRestarts(report, clip, plan, walkFrom);
+    return result;
+  };
+}
+
 /** Complete counts retain their basis: actual code triggers and conditional input scenarios are distinct. */
 export function validateDescribedWalks(
   report: BehaviourReport,
@@ -650,14 +878,16 @@ export function validateDescribedWalks(
 ): DescribedWalkCoverage {
   const rank = { complete: 2, prefix: 1, different: 0, unavailable: -1 };
   const basisRank = { "reset-or-rest": 2, creation: 2, trigger: 1, "input-case": 0, unavailable: -1 };
+  const walkFrom = restartWalk(report, part.type);
   const matches = clips.map((clip): DescribedWalkMatch => {
+    const restarts = restartsOnce(report, clip, walkFrom);
     const candidates = part.animations
       .filter(
         (animation) =>
           animation.walk.states.length || animation.walk.parameterised || animation.walk.stop?.branches?.length,
       )
       .flatMap((animation) => {
-        const match = matchWalk(report, animation, clip);
+        const match = matchWalk(report, animation, clip, restarts);
         return match ? [match] : [];
       });
     candidates.sort(
@@ -703,16 +933,21 @@ export function validateDescribedWalks(
 
 export type WalkMatch = DescribedWalkMatch;
 
-/** Compares one recording with independently extracted starts; a missing compatible start is unavailable. */
+/**
+ * Compares one recording with independently extracted starts; a missing compatible start is unavailable. Without
+ * `walkFrom`, a recording whose recorder writes an input again stays a prefix after the write.
+ */
 export function compareMeasuredWalks(
   animations: AnimationDescription[],
   clip: MeasuredClip,
   report?: BehaviourReport,
+  walkFrom?: RestartWalk,
 ): WalkMatch {
+  const restarts = restartsOnce(report, clip, walkFrom);
   const rank = { complete: 3, prefix: 2, different: 1, unavailable: 0 };
   const basisRank = { "reset-or-rest": 2, creation: 2, trigger: 1, "input-case": 0, unavailable: -1 };
   const candidates = animations.flatMap((animation) => {
-    const match = matchWalk(report, animation, clip);
+    const match = matchWalk(report, animation, clip, restarts);
     return match ? [match] : [];
   });
   candidates.sort(
