@@ -4,11 +4,18 @@
  * complete instruction graph and the contracts of the four routines it calls.
  */
 import { discoverContactArithmetic, type ContactArithmetic } from "./behaviour-contact-arithmetic.ts";
-import { discoverRotationScalar, discoverRotationShift, type RotationScalar } from "./behaviour-contact-rotation.ts";
+import {
+  discoverRotationScalar,
+  discoverRotationShift,
+  rotationScalarExpression,
+  shiftedLowWord,
+  signedProduct,
+  type RotationScalar,
+} from "./behaviour-contact-rotation.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Finding } from "./behaviour.ts";
+import type { Expression, Finding } from "./behaviour.ts";
 
 /** What the speed setter does with its three arguments, the part, the angle and the speed. */
 export interface DirectedVelocity extends Finding {
@@ -67,6 +74,7 @@ retf`;
 /** The compiler forms of the speed setter in the supplied builds: the English CD calls the shift far. */
 export const directedVelocityPatterns = [nearShift, nearShift.replaceAll("call $shift", "callf $shift")];
 
+const argument = (offset: number): Expression => ({ kind: "field", object: "argument", offset, width: 16 });
 const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
 /** The speed setter's summary, where the routine's graph and its four callees match. */
@@ -145,12 +153,16 @@ export function discoverDirectedVelocity(
         offset: field,
         width: 16,
         condition: { kind: "true" as const },
-        value: {
-          kind: "unknown" as const,
-          reason:
-            "The speed times a coefficient of the angle, shifted right by 14; the caller keeps the speed with the written field.",
-          width: 16,
-        },
+        // The speed times the coefficient of the angle, as a signed long shifted right by 14: its low word.
+        value: shiftedLowWord(
+          signedProduct(
+            argument(directedVelocity.arguments.speed),
+            rotationScalarExpression(
+              field === 0x36 ? horizontal : vertical,
+              argument(directedVelocity.arguments.angle),
+            ),
+          ),
+        ),
       })),
       returns: [],
       returnConvention: { kind: "far", stackBytes: 0 },

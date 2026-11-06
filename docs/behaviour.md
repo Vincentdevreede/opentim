@@ -2157,6 +2157,22 @@ drawing helper's own values get. This gives the fish bowl's run (`0x1ad0e` in Ev
 position `0x2a` and `0x2c` its helper `0x1ad71` sets when it moves the bowl to frame 11. Even More goes from 4 to 3
 rules with unknown writes; no other rule changes. TIM 1, French, goes from 2 to 1 (its fish bowl).
 
+### The speed setter's velocity
+
+The speed setter (`0x7d97` in Even More, English floppy; `discoverDirectedVelocity`) gives a part a velocity
+of a given speed in the direction of a given angle. Its summary used to call both velocity words unknown ("The speed
+times a coefficient of the angle, shifted right by 14") and keep only the speed beside them. They are now the formula
+its proof already checks: the signed long product of the speed and the angle's coefficient (the coefficient routine's
+table read, `rotationScalarExpression`, a quarter turn on for velocityX), shifted right by 14, low word. A test works
+it out for many speeds and angles against the code's own steps. The speed stays beside the field (`directedSpeed`), as
+the effect lines use it.
+
+The angle the pinball bumper gives it is the centre angle's answer from the bumper's centre to the ball's. Where the
+centre angle's summary has no formula for that answer, the answer is now named after the call, `centre angle answer
+at` the call's address, like the other values one run gives (`RUN_VALUE`); the call keeps which two parts it is of
+(`centreAngle`). So the bumper's bounce writes the ball's velocity as a named value of that angle: Even More, English
+floppy, goes from 3 to 2 rules with unknown writes. TIM 1, French, has no pinball bumper and stays at 1.
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`

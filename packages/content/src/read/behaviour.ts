@@ -4187,15 +4187,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           const centre = engine?.centreAngle;
           const from = centre && formalArgument(args, 6, centre.arguments.from).value,
             to = centre && formalArgument(args, 6, centre.arguments.to).value;
-          if (from?.kind === "pointer" && to?.kind === "pointer" && !from.displacement && !to.displacement)
+          if (from?.kind === "pointer" && to?.kind === "pointer" && !from.displacement && !to.displacement) {
+            // An angle the summary can't give as a formula is named after the call: one value of the run, which the
+            // centre angle works out from the two parts' centres.
+            const answer = registerRead("ax", branch);
             registerWrite(
               "ax",
               {
-                ...registerRead("ax", branch),
+                ...answer,
+                ...(containsUnknown(asExpression(answer.value))
+                  ? {
+                      value: {
+                        ...field(`centre angle answer at ${hex(i.address)}`, 0, 16),
+                        unresolved: true,
+                      } as Expression,
+                    }
+                  : {}),
                 centreAngle: { routine: centre!.routine, call: i.address, from: from.object, to: to.object },
               },
               branch,
             );
+          }
           branch.flags = undefined;
           branch.carry = undefined;
           returnedStack(branch);
@@ -4504,11 +4516,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
 
 /**
  * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
- * found list, what a call writes to parts it selects, the part's own field after such a call, or the neighbours an
- * ordered insertion links a part between.
+ * found list, what a call writes to parts it selects, the part's own field after such a call, the neighbours an
+ * ordered insertion links a part between, or the angle between two parts' centres.
  */
 const RUN_VALUE =
-  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion) at /;
+  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
