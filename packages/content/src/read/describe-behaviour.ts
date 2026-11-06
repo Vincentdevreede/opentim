@@ -9,6 +9,7 @@ import {
 } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, partFields, type OtherPartEffect } from "./describe-effects.ts";
+import { compareWords, type Names } from "./describe-touch.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
 import { createdPartLines, createdPartOf } from "./describe-created.ts";
 import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
@@ -112,7 +113,12 @@ export interface BehaviourWalk extends Finding {
 }
 
 export interface RestDescription extends Finding {
-  status: "known" | "unresolved";
+  /**
+   * `saved`: every reset path is read and keeps the frame the level saved, so the level gives it (`frames` lists the
+   * ones it can be, when known). `sockets`: the paths set the frame from whether plugs are in the part's sockets, with
+   * the bits they keep from the saved frame. `unresolved`: the reset can't be read, or it depends on other fields.
+   */
+  status: "known" | "saved" | "sockets" | "unresolved";
   description: string;
   state?: number;
   frame?: number;
@@ -139,6 +145,11 @@ export interface StableStateDescription extends Finding {
   frame?: number;
   fields: KnownField[];
   origins: { condition: Predicate; evidence: Evidence[] }[];
+  /**
+   * For a frame the walks rest on, rather than one a run outcome gives: how many walk branches rest there. `origins`
+   * then gives the conditions on the way of the first few. No walk starts from these, since the walks reach them.
+   */
+  walks?: number;
 }
 
 export interface AnimationDescription extends Finding {
@@ -916,6 +927,14 @@ const framesWords = (frames: number[]) =>
       ? `frame ${frames[0]}`
       : `one of frames ${listWords(frames.map(String))}`;
 /**
+ * The words where a part's two plugs are: the level loader reads the plugged parts into them (`0x13941` in Even More),
+ * and plugging a plug in (`0x5d14`) takes `0x62` when it is free and `0x64` otherwise. A word that isn't 0 holds a part.
+ */
+const SOCKETS = new Map([
+  [0x62, "a plug is in its first socket (+0x62)"],
+  [0x64, "a plug is in its second socket (+0x64)"],
+]);
+/**
  * The frames a reset can leave when every path writes the frame as `(frame & kept) | set`. A set bit that a zero test
  * of one field decides on every path is named with that field. The frames are those a path can give from any frame the
  * reset starts from, so no saved frame is assumed.
@@ -926,7 +945,7 @@ function resetFrames(
   stateOffset: number,
   saved: boolean,
   savedFrames?: number[],
-): { frames: number[]; description: string } | undefined {
+): { frames: number[]; description: string; sockets: boolean } | undefined {
   if (!part.frameCount) return undefined;
   const bits: { kept: number; set: number }[] = [];
   for (const outcome of outcomes) {
@@ -974,7 +993,9 @@ function resetFrames(
         return terms.length === 1 && (terms[0]!.operator === "!=") === !!(bits[index]!.set & (1 << bit));
       }),
     );
-    return decider && `bit ${bit} when the word at +0x${decider.left.offset.toString(16)} is not 0`;
+    return decider?.left.width === 16 && SOCKETS.has(decider.left.offset)
+      ? { offset: decider.left.offset, words: `bit ${bit} when ${SOCKETS.get(decider.left.offset)}` }
+      : decider && { words: `bit ${bit} when the word at +0x${decider.left.offset.toString(16)} is not 0` };
   });
   const start = saved ? "the frame saved in the level" : "the frame it starts from";
   const steps = [
@@ -982,13 +1003,15 @@ function resetFrames(
     ...(always ? [`sets ${bitWords(always)}`] : []),
     ...(varying
       ? decided.every(Boolean)
-        ? [`sets ${listWords(decided as string[])}`]
+        ? [`sets ${listWords(decided.map((item) => item!.words))}`]
         : [`sets ${bitWords(varying)} by tests of other fields`]
       : []),
   ];
   return {
     frames,
     description: `The reset ${listWords(steps)}, so it leaves ${framesWords(frames)}${kept ? "" : `, whatever ${start}`}.`,
+    // Every bit the paths set differently is set by whether a plug is in a socket, which the level gives.
+    sockets: !!varying && decided.every((item) => item?.offset !== undefined),
   };
 }
 
@@ -1055,6 +1078,14 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   const savedFrames = savedRest && levelEntry?.framed ? levelEntry.frames : undefined;
   const bitFrames =
     !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest, savedFrames) : undefined;
+  if (bitFrames?.sockets)
+    return {
+      status: "sockets",
+      description: bitFrames.description,
+      frames: bitFrames.frames,
+      fields,
+      ...(savedFrames ? finding([proof], [levelEntry!.assumption]) : proof),
+    };
   if (bitFrames)
     return {
       status: "unresolved",
@@ -1078,14 +1109,24 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
       : undefined;
   if (startFrames)
     return {
-      status: "unresolved",
+      status: "saved",
       description: `The reset keeps the frame the level saved: ${framesWords(startFrames.frames)}.`,
       frames: startFrames.frames,
       fields,
       ...finding([proof], [startFrames.assumption]),
-      confidence: "unresolved",
-      reason:
-        "The starting frame is the one the level saved: the reset paths keep it, so TIM.EXE alone doesn't give it.",
+    };
+  // Keeping the saved frame is what the game does; only which frames a level can save isn't counted here.
+  if (levelFrame && resolved && !known(state))
+    return {
+      status: "saved",
+      description: frameCount
+        ? `The reset keeps the frame the level saved, one of the part's ${frameCount} frames.`
+        : "The reset keeps the frame the level saved.",
+      fields,
+      ...proof,
+      reason: frameCount
+        ? `The reset keeps the frame the level saved; the part has ${frameCount} frames, more than the 32 a walk starts from.`
+        : "The reset keeps the frame the level saved; the part has no frame list to count, and no decided assumption gives the frames a level saves it on.",
     };
   if (!known(state) || !resolved)
     return {
@@ -1096,11 +1137,9 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
       fields,
       ...proof,
       confidence: "unresolved",
-      reason: levelFrame
-        ? "The starting frame is the one the level saved: the reset paths keep it, so TIM.EXE alone doesn't give it."
-        : outcomes.some((outcome) => outcome.confidence === "unresolved")
-          ? "The reset paths do not establish one rest state with resolved effects."
-          : "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
+      reason: outcomes.some((outcome) => outcome.confidence === "unresolved")
+        ? "The reset paths do not establish one rest state with resolved effects."
+        : "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
     };
   return {
     status: "known",
@@ -1161,6 +1200,61 @@ function guardCoverage(
         );
       }),
   );
+}
+/** Plain names of a part's fields in a walk note, by their layout name. */
+const PLAIN_FIELDS: Record<string, string> = {
+  state: "the frame",
+  stateDelta: "the control value",
+  previousState: "the previous frame",
+  olderState: "the frame before that",
+  drawingFlags: "the drawing flags",
+  contactPart: "the touching part",
+};
+/**
+ * The tests the walk doesn't know that decide between rules, in words: "whether the word at +0x9c is 0". A test and its
+ * opposite are said once, as the same question. At most four are named.
+ */
+function guardWords(guards: Transition[], report: BehaviourReport, bindings: Bindings, constraints: Predicate[]) {
+  const opposite: Record<string, string> = { "!=": "==", ">=": "<", ">": "<=" };
+  const names: Names = {
+    field: (offset) => {
+      const name = report.layout.fields.find((field) => field.offset === offset)?.name;
+      const at = `${offset < 0 ? "-" : "+"}0x${Math.abs(offset).toString(16)}`;
+      return (
+        (name && PLAIN_FIELDS[name]) ??
+        (name === "contextCounter" ? `the counter at ${at}` : name ? `${name} (${at})` : `the word at ${at}`)
+      );
+    },
+    of: (object, what) => {
+      const linked = /^referenced-by\(part\+0x([0-9a-f]+)\)$/.exec(object);
+      return object === "part"
+        ? what
+        : object === START
+          ? `${what} when the walk started`
+          : object === "address of part"
+            ? "the part's own address"
+            : linked
+              ? `${what} of the part linked at +0x${linked[1]}`
+              : /^(member found by the loop|part after (the )?list scan) at /.test(object)
+                ? `${what} of the part a search found`
+                : /^local after list scan at /.test(object)
+                  ? `${what} a list scan left`
+                  : `${what} of the ${object}`;
+    },
+  };
+  const tests = [
+    ...new Set(
+      guards
+        .flatMap((rule) => predicateTerms(rule.condition))
+        .filter((term) => predicateOf(term, bindings, constraints) === undefined)
+        .map((term) =>
+          term.kind === "compare"
+            ? `whether ${compareWords({ ...term, operator: (opposite[term.operator] ?? term.operator) as typeof term.operator }, names)}`
+            : "another test",
+        ),
+    ),
+  ];
+  return tests.length > 4 ? `${tests.slice(0, 4).join(", ")} and other tests` : listWords(tests) || "a test";
 }
 function unknownWords(
   expression: Expression,
@@ -2351,9 +2445,32 @@ export function walkBehaviourRules(
       };
     }
     const levelStates = possibleStates(state);
+    /** Why the walk follows no frame of an unknown start, as `possibleStates` decides. */
+    const noStartFrames = () => {
+      const frameCount = (part as WithFrameCount).frameCount ?? 0;
+      return depthLeft() <= 0
+        ? "the walk has no branch depth left to follow each frame it can be"
+        : frameCount > 32
+          ? `the part has ${frameCount} frames, more than the 32 a walk follows one by one`
+          : frameCount > 1
+            ? "the tests on the walk's way leave no frame it can be on"
+            : frameCount === 1
+              ? "the walk doesn't assume the part's one frame"
+              : "the part has no frame list to follow it on";
+    };
+    // The frames each branch starts on, from its test of the frame.
+    const startFrames = (branches: { condition: Predicate }[]) =>
+      framesWords(
+        branches.flatMap(({ condition }) =>
+          condition.kind === "compare" && condition.right.kind === "constant" ? [condition.right.value] : [],
+        ),
+      );
     if (levelStates)
       return {
-        ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+        ...base(
+          "unresolved",
+          `${state.mask ? `Only bits ${listWords(bitList(state.mask).map(String))} of the frame it starts on are known` : "The frame it starts on isn't known"}, so the walk follows ${levelStates.length === 1 ? "the one frame it can be" : "each frame it can be"}: ${startFrames(levelStates).replace(/^one of /, "")}.`,
+        ),
         confidence: "unresolved",
         stop: {
           kind: "state",
@@ -2365,7 +2482,12 @@ export function walkBehaviourRules(
       };
     const fromAnyFrame = nextFromAnyFrame();
     return {
-      ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+      ...base(
+        "unresolved",
+        fromAnyFrame
+          ? "The frame it starts on isn't known, but every rule that can apply gives a known next frame, so the walk follows each of them."
+          : `The frame it starts on isn't known, and ${noStartFrames()}, so the walk stops.`,
+      ),
       confidence: "unresolved",
       ...(fromAnyFrame
         ? {
@@ -2670,7 +2792,7 @@ export function walkBehaviourRules(
         ...base(
           "unresolved",
           unknownGuards.length
-            ? "The unknown condition selects different next fields, so no branch is chosen."
+            ? `At frame ${current}, the rules that apply set different fields, and which one does depends on ${guardWords(unknownGuards, report, bindings, constraints)}, which the walk doesn't know${branches ? ", so each way is followed" : ""}.`
             : "Applicable rules disagree on the next fields.",
         ),
         confidence: "unresolved",
@@ -2725,6 +2847,61 @@ export function walkBehaviourRules(
     seen.set(id, states.length - 1);
   }
   return { ...base("limit", `The walk reached its limit of ${max} run invocations.`), confidence: "unresolved" };
+}
+
+/** At most this many walks resting on a frame keep their conditions in its `origins`; `walks` counts all of them. */
+const RESTING_ORIGINS = 8;
+/**
+ * The frames the walks come to rest on that the run's own outcomes don't give. A walk rests when one more run leaves
+ * its frame and every field it knows as they were, under the tests on its way, so the part stays there. A walk that
+ * holds an unknown frame proves the same for each frame its rules keep. Each frame is listed once, with the fields
+ * every walk resting there agrees on.
+ */
+function walkRestsOf(
+  report: BehaviourReport,
+  part: PartBehaviour,
+  animations: AnimationDescription[],
+  listed: StableStateDescription[],
+): StableStateDescription[] {
+  const stateOffset = stateOffsetOf(report);
+  if (stateOffset === undefined) return [];
+  const frameCount = (part as WithFrameCount).frameCount;
+  const rests = new Map<number, { walk: BehaviourWalk; conditions: Predicate[]; bindings: Bindings }[]>();
+  const visit = (walk: BehaviourWalk, conditions: Predicate[]) => {
+    for (const branch of walk.stop?.branches ?? []) visit(branch.walk, [...conditions, branch.condition]);
+    if (walk.status !== "rest") return;
+    const hold = walk.parameterised?.kind === "hold" ? walk.parameterised : undefined;
+    const states = walk.parameterised ? (hold?.allowedStates ?? []) : walk.states.slice(-1);
+    for (const state of states) {
+      if (listed.some((item) => item.state === state) || (frameCount && state >= frameCount)) continue;
+      const bindings = bindingsOf(walk.fields);
+      if (hold) writeField(bindings, "part", stateOffset, bits(state, 0xffff, 16));
+      rests.set(state, [...(rests.get(state) ?? []), { walk, conditions, bindings }]);
+    }
+  };
+  for (const animation of animations)
+    visit(animation.walk, animation.trigger.condition.kind === "true" ? [] : [animation.trigger.condition]);
+  return [...rests]
+    .sort(([a], [b]) => a - b)
+    .map(([state, walks]) => {
+      const proof = finding(
+        walks.map((item) => item.walk),
+        ["A walk that rests here proves it under the tests on its way; the frame isn't claimed to be the reset's."],
+      );
+      const shown = walks.slice(0, RESTING_ORIGINS);
+      return {
+        state,
+        frame: frameOf(part, state),
+        fields: fieldsOf(agreedBindings(walks.map((item) => item.bindings)), fieldDefinitions(report, part), proof),
+        origins: shown.map(({ walk, conditions }) => ({
+          condition: conditions.length > 1 ? { kind: "and", terms: conditions } : (conditions[0] ?? { kind: "true" }),
+          evidence: walk.evidence,
+        })),
+        walks: walks.length,
+        ...proof,
+        evidence: evidence(...shown.map((item) => item.walk.evidence)),
+      };
+    });
 }
 
 function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableStateDescription[] {
@@ -2818,6 +2995,12 @@ function affineState(expression: Expression, offset: number): { scale: number; a
   const sign = expression.operator === "+" ? 1 : -1;
   return { scale: left.scale + sign * right.scale, amount: left.amount + sign * right.amount };
 }
+/**
+ * A safety bound on a part's conditional input cases. The cases come from the run's own tests and the plain numbers
+ * the writers found, and each input is expanded at most 64 times, so the list is finite; in Even More the jack-in-the-box
+ * has the most, 156. A part past the bound keeps a note that more cases remain.
+ */
+const MAX_INPUT_CASES = 1024;
 function producerPartitions(
   report: BehaviourReport,
   part: PartBehaviour,
@@ -2904,7 +3087,7 @@ function producerPartitions(
         .sort(),
     ]);
     if (result.has(id)) return;
-    if (result.size >= 64) {
+    if (result.size >= MAX_INPUT_CASES) {
       truncated = true;
       return;
     }
@@ -3013,6 +3196,7 @@ function conditionalInputCases(
         .map((rule) => (rule.to as Extract<Expression, { kind: "constant" }>).value),
     ]),
   ];
+  // A bounded test of the frame gives a case per frame when it allows fewer than this many.
   const maxCases = 64;
   for (const rule of part.transitions.filter((rule) => rule.routine === run.address)) {
     const terms = predicateTerms(rule.condition).filter(inputPredicate);
@@ -3094,7 +3278,7 @@ function conditionalInputCases(
       if (predicateOf(condition, bindings) !== false) {
         const id = JSON.stringify([signature(bindings), terms.map((term) => JSON.stringify(term)).sort()]);
         if (!cases.has(id)) {
-          if (cases.size >= maxCases) return producerPartitions(report, part, [...cases.values()], true);
+          if (cases.size >= MAX_INPUT_CASES) return producerPartitions(report, part, [...cases.values()], true);
           cases.set(id, { fields, condition, ...proof });
         }
       }
@@ -3124,7 +3308,7 @@ function conditionalInputCases(
         prior.evidence = evidence(prior.evidence, rule.evidence);
         continue;
       }
-      if (cases.size >= maxCases) return producerPartitions(report, part, [...cases.values()], true);
+      if (cases.size >= MAX_INPUT_CASES) return producerPartitions(report, part, [...cases.values()], true);
       cases.set(id, { fields, condition: caseCondition, ...proof });
     }
   }
@@ -3884,8 +4068,8 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
   const parts = report.parts.map((part): PartBehaviourDescription => {
     const rest = restOf(report, part);
     const creation = creationOf(report, part);
-    if (rest.status === "unresolved" && report.lifecycle?.reset.length) {
-      if (!rest.frames)
+    if (rest.status !== "known" && report.lifecycle?.reset.length) {
+      if (rest.status === "unresolved" && !rest.frames)
         rest.description =
           "The level reset restores the frame saved in the level; TIM.EXE alone does not supply that value.";
       rest.evidence = evidence(rest.evidence, ...report.lifecycle.reset.map((context) => context.evidence));
@@ -4163,11 +4347,16 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         // A case a decided assumption rules out, like the monkey bike pedalling with its counter at 0, isn't walked.
         const offset = stateOffsetOf(report);
         if (offset !== undefined && impossibleState(part, offset, bindingsOf(input.fields))) return;
-        // Nor is a case that needs a frame the part doesn't have, like a frame above the fish bowl's last.
+        // Nor is a case that needs a frame the part doesn't have, like a frame above the fish bowl's last. A part the
+        // program draws itself has the frames a decided assumption gives it in the middle of a run, as in the walks:
+        // the gear's run tests its frame for -1, but its frame is always 0 to 3 when a run starts.
         const frameCount = (part as WithFrameCount).frameCount;
-        if (offset !== undefined && frameCount && frameCount <= 32) {
+        const drawn = frameCount ? undefined : LEVEL_FRAMES.get(part.id);
+        const frames =
+          frameCount && frameCount <= 32 ? [...Array(frameCount).keys()] : drawn && (drawn.shown ?? drawn.frames);
+        if (offset !== undefined && frames) {
           const seeded = bindingsOf(input.fields);
-          const anyFrame = [...Array(frameCount).keys()].some((frame) => {
+          const anyFrame = frames.some((frame) => {
             const fields = new Map(seeded);
             const before = readField(fields, "part", offset, 16);
             if (known(before) && before.value !== frame) return false;
@@ -4203,12 +4392,13 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         });
       });
     animations.push(...periodicAnimations(report, part));
+    stableStates.push(...walkRestsOf(report, part, animations, stableStates));
     const uncertainties = [
       ...new Set([
         ...part.uncertainties,
         ...(inputCases.truncated
           ? [
-              "The description retained at most 64 conditional input cases with bounded producer-value partitions; further cases remain in the extracted report.",
+              `The description retained at most ${MAX_INPUT_CASES} conditional input cases with bounded producer-value partitions; further cases remain in the extracted report.`,
             ]
           : []),
         ...(rest.reason ? [rest.reason] : []),
@@ -4221,7 +4411,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
       type: part.type,
       ...(gear ? { gear } : {}),
       ...(contact ? { contact } : {}),
-      summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
+      summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : rest.status === "saved" ? "The reset keeps the frame the level saved." : rest.status === "sockets" ? "The reset sets the frame from the part's sockets." : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes and walks. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
       rest,
       ...(creation ? { creation } : {}),
       stableStates,

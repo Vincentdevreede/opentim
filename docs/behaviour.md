@@ -226,7 +226,7 @@ before/after metrics count graph transitions and unique callback call sites, poi
 They do not count every transitive engine diagnostic as a separate part failure.
 
 The comparison also keeps a scoreboard of what is still open in the descriptions: effect lines that say their meaning
-or value isn't established (counted once per part and wording), parts whose reset isn't known, parts without a listed
+or value isn't established (counted once per part and wording), parts whose reset can't be read, parts without a listed
 resting frame and parts that have no recording. Each count appears in the summary line, the table and the before and
 after changes, so a step shows its effect in one run.
 
@@ -1773,6 +1773,82 @@ known: the one-frame parts, the walls, the grass floor and the super ball start 
 everything rests there. The generator's reset keeps bits 0 and 1 of the saved frame, which are 0, so it leaves frame 0,
 4, 8 or 12, and its walks start on those. The table of these frames is `LEVEL_FRAMES` in
 `behaviour-saved-frames.ts`; an entry with `framed` narrows a part that has a frame list.
+
+### Resets the level gives
+
+A reset whose paths are all read and keep the frame the level saved used to count as unresolved. That is what the
+game does: the level gives the frame. The reset now has status `saved` in that case, with the frames it can be
+(`rest.frames`) when they are known: the part's own frames up to 32, or the ones in `LEVEL_FRAMES`. A part without a
+frame list and without a decided assumption (the wood incline, the belt, the rope end and the pinball bumper) keeps
+the status with no frames listed, and its uncertainty says why.
+
+A reset that sets bits of the frame by whether its words at `0x62` and `0x64` are 0, as the electric switch, the
+generator and the solar panel do, has status `sockets`. Those two words are where the part's plugs are (see the
+section above): the level loader fills them and the editor's plug code takes `0x62` first. The description now says
+"when a plug is in its first socket (+0x62)" instead of naming the word. Only a reset whose varying bits are all
+decided by those two words gets this status; any other field keeps it unresolved.
+
+So `unresolved` only remains where a reset path can't be read, or where its frame depends on another field. The
+comparison counts only those as unresolved resets and counts the other two as resets the level gives. In Even More
+that is 0 unresolved and 41 given by the level (38 saved, 3 from sockets); in TIM 1, 0 and 36. The lab doesn't show
+the reset's status, so it needed no change.
+
+### Resting frames from the walks
+
+A part's resting frames used to come only from its run outcomes: a rule whose next frame is known and whose walk rests
+after one more run. Many parts never get one that way, because the frame they stay on is reached over several runs.
+The walks prove more: a walk rests when one more run leaves its frame and every field it knows as they were, under the
+tests on its way. A walk that holds a frame it doesn't know proves the same for each frame its rules keep.
+`stableStates` now also lists each frame a walk rests on that the run outcomes don't give, once per frame, with the
+fields every walk resting there agrees on, the number of resting walk branches (`walks`) and the conditions on the way
+of the first eight. No walk starts from these frames: the walks already reach them.
+
+In Even More, 28 of the 33 parts without a resting frame now have one (24 of 28 in TIM 1). The rest have none for a
+reason: the wood incline and the belt (and in TIM 1 the rope) rest on any frame they are on, but they have no frame
+list to name it from; the mouse motor, Mel's house and the alligator never rest in any walk, their walks only loop or
+join another branch.
+
+### Walk notes that name the frame and the test
+
+Two notes were left vague. "The seed does not establish the state. No state zero is assumed." (34 parts in Even More)
+comes from a walk whose starting frame isn't known, mostly because the reset keeps the frame the level saved. Every
+one of these walks goes on from each frame the part can be on, so the note now says which: "The frame it starts on
+isn't known, so the walk follows each frame it can be: frames 0 to 18." When only some bits are known it names those
+bits, and when the walk can't follow the frames it says why (no frame list, more than 32 frames, no branch depth left,
+or tests that leave no frame).
+
+"The unknown condition selects different next fields, so no branch is chosen." (15 parts) comes from a step where the
+rules that apply set different fields and a test the walk doesn't know decides between them. The walk does follow
+each way. The note now names the tests, with a test and its opposite said once: for example "At frame 9, the rules
+that apply set different fields, and which one does depends on whether the counter at +0x9c is 0, which the walk
+doesn't know, so each way is followed." Fields go by their plain or layout name, or their offset, and other objects
+by how the part reaches them (the part linked at `+0x54`, the part a search found, its fields when the walk started).
+At most four tests are named. Neither old wording is left.
+
+### All input cases
+
+The description used to keep at most 64 conditional input cases per part, and the jack-in-the-box and the monkey bike
+went past that. The rest weren't repeats: without the bound the jack-in-the-box has 156 cases with 89 different walks
+(39 before) and the monkey bike 154 with 60 (30 before), in Even More and in TIM 1 alike. The list is finite on its
+own: the cases come from the run's tests and from the plain numbers the writers found, and each input is expanded at
+most 64 times. So every case is now kept, with a safety bound of 1024 that no part reaches; a part past it would still
+keep the note that more cases remain. The descriptions grow by about a tenth and take about a tenth longer, and the
+recordings compare the same.
+
+### The gear's frame -1
+
+One gear note read "At frame 65535, the next state depends on...". A gear never reaches that frame. Its run adds the
+control value at `0x12` to its frame and wraps -1 to 3 and 4 to 0, and the advancement of connected gears does the
+same (see [connected gear traversals](#connected-gear-traversals)); the reset keeps the saved frame, which a level
+gives as 0 to 3 ([the decided assumption](behaviour-assumptions.md#6-the-gears-starting-frame)), and creation sets 0. So a run always starts on 0 to 3. The run's rules still test for -1 and 4, because the code tests the frame after
+it adds the control value. The input cases turned the test "the frame is -1" into a case that starts on frame -1,
+and that case gave the note.
+
+The rules were read right; the case was not one the game can be in. An input case now has to allow a frame the part
+can be on in the middle of a run: one of its own frames, or for a part the program draws itself, the frames its decided
+assumption gives (as the walks already use). The gear loses its cases on frames -1 and 4, and no walk stands on frame
+65535 any more. The cases that test the frame after adding the control value against 65535 stay: that test is real.
+The recordings compare the same.
 
 ### Where a part is drawn and how large its frame is
 

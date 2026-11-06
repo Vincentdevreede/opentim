@@ -19,17 +19,17 @@ Starting point:
 
 - [x] **A1. One scoreboard.** Add the counts above to the measured metrics, so each later step shows its effect in one
       run. Done when the comparison prints them.
-- [ ] **A2. Resets that keep the saved frame.** 41 parts are reported as "unresolved" because their reset keeps the
+- [x] **A2. Resets that keep the saved frame.** 41 parts are reported as "unresolved" because their reset keeps the
       frame the level saved. That is the game's real behaviour, not a gap: report it as "keeps the saved frame" with the
       frames it can be. Done when "unresolved" only remains where the reset itself can't be read.
-- [ ] **A3. Resting frames.** 33 parts show "Unknown" resting frames while their walks end. Take them from where the
+- [x] **A3. Resting frames.** 33 parts show "Unknown" resting frames while their walks end. Take them from where the
       walks come to rest. Done when every part whose walks all end lists its resting frames.
-- [ ] **A4. The two vague start notes.** "The seed does not establish the state" (34 parts) and "the unknown
+- [x] **A4. The two vague start notes.** "The seed does not establish the state" (34 parts) and "the unknown
       condition selects different next fields" (15). Check each one and either resolve it or replace it with the condition
       in plain words. Done when neither note is left without a named reason.
-- [ ] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
+- [x] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
       Show all of them or prove the rest repeat the first 64.
-- [ ] **A6. The gear's frame 65535.** One gear note talks about frame 65535 (that is -1). Find out whether a gear can
+- [x] **A6. The gear's frame 65535.** One gear note talks about frame 65535 (that is -1). Find out whether a gear can
       really reach it or whether it is a reading error.
 
 ## B. Name the values that are only known while the game runs
