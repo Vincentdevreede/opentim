@@ -19,6 +19,8 @@ import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findBehaviourTiming } from "./behaviour-timing.ts";
 import { discoverBehaviourLayout } from "./behaviour-layout.ts";
 import { discoverEngineSummaries, type EngineSummary, type EnginePointer } from "./behaviour-helpers.ts";
+import { frameDrawingForType, proveFrameDrawing } from "./behaviour-frame-drawing.ts";
+import { TYPE_TABLE_ASSUMPTION } from "./describe-effects.ts";
 import {
   discoverBehaviourLifecycle,
   discoverLifecycleFieldRoles,
@@ -210,6 +212,8 @@ export interface BehaviourReport {
 }
 
 const hex = (n: number) => `0x${n.toString(16)}`;
+/** How large a proved frame drawing value may grow when a caller puts its own fields in. */
+const FRAME_DRAWING_BUDGET = 1024;
 const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
 const unknown = (reason: string, width = 16): Expression => ({ kind: "unknown", reason, width });
 const field = (object: string, offset: number, width = 16): Expression => ({ kind: "field", object, offset, width });
@@ -262,9 +266,15 @@ function expressionSize(expression: Expression): number {
   expressionSizes.set(expression, size);
   return size;
 }
-export function binary(operator: string, left: Expression, right: Expression, width = left.width): Expression {
+export function binary(
+  operator: string,
+  left: Expression,
+  right: Expression,
+  width = left.width,
+  budget = 96,
+): Expression {
   if (left.kind === "unknown" || right.kind === "unknown") return unknown(`Unresolved operand in ${operator}`, width);
-  if (expressionSize(left) + expressionSize(right) > 96)
+  if (expressionSize(left) + expressionSize(right) > budget)
     return unknown("Symbolic expression size budget reached", width);
   if (left.kind === "constant" && right.kind === "constant") {
     const a = unsigned(left.value, left.width);
@@ -576,6 +586,11 @@ export interface RoutineOptions {
   ownerLink?: number;
   /** Summaries of callees already found by following code references. */
   summaries?: Map<number, RoutineAnalysis>;
+  /**
+   * Reads through a far pointer kept on the stack whose segment word is a constant, and through a word read from a
+   * table, as table reads at that address, like the code does. Used for helpers that only read such tables.
+   */
+  tableReads?: boolean;
 }
 const memoryKey = (l: Location) => `${l.object}:${l.offset}:${l.width}`;
 const tracked = (value: Value, evidence: Evidence[] = [], writtenAt?: number): Tracked => ({
@@ -918,7 +933,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       };
     const addressView = (value: Value): Pointer | undefined => {
       if (value.kind === "pointer") return value;
-      if (value.kind === "table")
+      if (value.kind === "table" && !options.tableReads)
         return {
           kind: "pointer",
           object: `pointer loaded from table ${hex(value.segment)}+${hex(value.offset)} indexed by ${textOf(value.index)}`,
@@ -1336,6 +1351,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     base: number,
     s: AbstractState,
     ownerOffset = base,
+    budget = 96,
   ): Tracked => {
     if (expression.kind === "constant" || expression.kind === "unknown") return tracked(expression);
     const stepHint = scalarSteps.get(expression);
@@ -1413,14 +1429,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
     }
     if (expression.kind === "binary") {
-      const left = formalValue(expression.left, args, base, s, ownerOffset);
-      const right = formalValue(expression.right, args, base, s, ownerOffset);
+      const left = formalValue(expression.left, args, base, s, ownerOffset, budget);
+      const right = formalValue(expression.right, args, base, s, ownerOffset, budget);
       return tracked(
-        binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width),
+        binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width, budget),
         uniqueEvidence([...left.evidence, ...right.evidence]),
       );
     }
-    const index = formalValue(expression.index, args, base, s, ownerOffset);
+    const index = formalValue(expression.index, args, base, s, ownerOffset, budget);
     return tracked({ ...expression, index: asExpression(index.value) }, index.evidence);
   };
   const formalPredicate = (
@@ -1712,7 +1728,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       for (const offset of effect.path) pointer = memoryAt(pointer, offset, 16, s);
       const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
       if (!possible(conjunction([...s.conditions, condition]))) continue;
-      const value = formalValue(effect.value, args, engine.argumentOffset, s);
+      // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound.
+      const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : undefined;
+      const value = formalValue(effect.value, args, engine.argumentOffset, s, engine.argumentOffset, budget);
       pending.push({
         pointer,
         offset: effect.offset,
@@ -3023,19 +3041,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
     } else if (["les", "lds"].includes(i.mnemonic) && source?.kind === "memory") {
       const l = location(source, s);
+      const segmentWord =
+        options.tableReads && l?.object === "stack"
+          ? read({ ...source, displacement: source.displacement + 2, width: 16 }, s)
+          : undefined;
       const object =
         l?.object === "stack" && l.offset + 2 === argumentOffset
           ? "part"
           : l
             ? `referenced-by(${l.object}+${hex(l.offset)})`
             : undefined;
-      const ptr = object
-        ? tracked({ kind: "pointer", object, displacement: 0, width: 16 } as Pointer, [
-            ...(l?.evidence ?? []),
-            evidenceOf(i),
-          ])
-        : tracked(unknown("Far object pointer is not established"));
-      write(dest, ptr, s, i);
+      // A far pointer with a constant segment addresses a table there: the register gets its offset word.
+      const ptr =
+        segmentWord?.value.kind === "constant"
+          ? segmentWord
+          : object
+            ? tracked({ kind: "pointer", object, displacement: 0, width: 16 } as Pointer, [
+                ...(l?.evidence ?? []),
+                evidenceOf(i),
+              ])
+            : tracked(unknown("Far object pointer is not established"));
+      write(dest, segmentWord?.value.kind === "constant" ? read({ ...source, width: 16 }, s) : ptr, s, i);
       registerWrite(i.mnemonic === "les" ? "es" : "ds", ptr, s);
     } else if (i.mnemonic === "push") {
       s.stack.push(a);
@@ -4162,7 +4188,18 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: uniqueEvidence(pointerEvidence),
     },
     writes: dedup(writes),
-    transitions: markConditional(mergeTransitions(dedup(transitions), !uncertainEffects), !uncertainEffects),
+    transitions: markConditional(
+      mergeTransitions(
+        dedup(transitions),
+        !uncertainEffects,
+        new Set(
+          (options.layout?.fields ?? [])
+            .filter((f) => ["drawX", "drawY", "frameWidth", "frameHeight"].includes(f.name))
+            .map((f) => f.offset),
+        ),
+      ),
+      !uncertainEffects,
+    ),
     comparisons: dedup(comparisons),
     outcomes: dedup(outcomes),
     iterationOutcomes: dedup(iterationOutcomes),
@@ -4236,7 +4273,7 @@ export function transitionCounts(transitions: Transition[]) {
  * of the routine lost track of its effects, a pair that was unresolved only through the dropped test, like a query's
  * answer, has a resolved state path once merged: both answers lead to the same state.
  */
-function mergeTransitions(input: Transition[], pathsCertain = false): Transition[] {
+function mergeTransitions(input: Transition[], pathsCertain = false, drawing = new Set<number>()): Transition[] {
   const result = [...input];
   const inverse: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
   const terms = (p: Predicate) => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]);
@@ -4267,9 +4304,26 @@ function mergeTransitions(input: Transition[], pathsCertain = false): Transition
           const exemplar = l ?? r!;
           const lv = l?.value ?? field(exemplar.object, exemplar.offset, exemplar.width);
           const rv = r?.value ?? field(exemplar.object, exemplar.offset, exemplar.width);
+          // A drawing field keeps both values, each times the 0 or 1 of its path's test, as one value.
+          const chosen =
+            exemplar.object === "part" &&
+            drawing.has(exemplar.offset) &&
+            ["==", "!="].includes(x.operator) &&
+            !containsUnknown(lv) &&
+            !containsUnknown(rv)
+              ? binary(
+                  "+",
+                  binary("*", binary(x.operator, x.left, x.right, 16), lv, 16, FRAME_DRAWING_BUDGET),
+                  binary("*", binary(y.operator, y.left, y.right, 16), rv, 16, FRAME_DRAWING_BUDGET),
+                  16,
+                  FRAME_DRAWING_BUDGET,
+                )
+              : undefined;
           const value = same(lv, rv)
             ? lv
-            : unknown(`Field ${hex(exemplar.offset)} differs on complementary paths`, exemplar.width);
+            : chosen && !containsUnknown(chosen)
+              ? chosen
+              : unknown(`Field ${hex(exemplar.offset)} differs on complementary paths`, exemplar.width);
           updates.push({
             ...exemplar,
             condition,
@@ -4607,6 +4661,31 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     }
     return routine;
   };
+  const frameFields = Object.fromEntries(
+    ["drawX", "drawY", "frameWidth", "frameHeight"].map((name) => [
+      name,
+      layout.fields.find((f) => f.name === name)?.offset,
+    ]),
+  );
+  if (Object.values(frameFields).every((offset) => offset !== undefined))
+    proveFrameDrawing(
+      engineSummaries,
+      frameFields as { drawX: number; drawY: number; frameWidth: number; frameHeight: number },
+      (engine) =>
+        analyseRoutine(image, entries.get(engine.address)!, {
+          dataSegment: list.dataSegment,
+          stateOffset,
+          argumentOffset: engine.argumentOffset,
+          summaries: new Map(),
+          maxVisits: 800,
+          code: codes.get(engine.address),
+          engineSummaries,
+          codes,
+          layout,
+          tableReads: true,
+        }),
+      (operator, left, right, width) => binary(operator, left, right, width, Infinity),
+    );
   addRopeDispatch();
   for (const callbacks of references.values()) for (const callback of callbacks) summarise(callback.address);
 
@@ -4729,6 +4808,37 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         engineCalls: [],
         uncertainEffects: true,
       });
+  const typeTable = {
+    address: list.table,
+    stride: 58,
+    words: list.records.map((record) =>
+      Array.from(
+        { length: record.bytes.length >> 1 },
+        (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
+      ),
+    ),
+  };
+  // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
+  const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
+  const frameOffsets = Object.values(frameFields) as number[];
+  const frameWriteForType = (write: FieldWrite, type: number): FieldWrite => {
+    if (typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset)) return write;
+    const used = { table: false };
+    const value = frameDrawingForType(
+      write.value,
+      type,
+      typeOffset,
+      typeTable,
+      (operator, left, right, width) => binary(operator, left, right, width, Infinity),
+      used,
+    );
+    if (value === write.value) return write;
+    return {
+      ...write,
+      value,
+      ...(used.table ? { assumptions: [...new Set([...write.assumptions, TYPE_TABLE_ASSUMPTION])] } : {}),
+    };
+  };
   const parts = list.list.parts.map((part): PartBehaviour => {
     const callbacks = references.get(part.type)!;
     const routines = callbacks.map((callback) => {
@@ -4758,7 +4868,17 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         from: stateCountOf(part)
           ? Array.from({ length: stateCountOf(part) }, (_, n) => n).filter((n) => possible(t.condition, n, stateOffset))
           : t.from,
-      }));
+      }))
+      .map((t) => {
+        const updates = t.updates?.map((write) => frameWriteForType(write, part.type));
+        return updates?.some((write, n) => write !== t.updates![n])
+          ? {
+              ...t,
+              updates,
+              assumptions: [...new Set([...t.assumptions, ...updates.flatMap((write) => write.assumptions)])],
+            }
+          : t;
+      });
     const counterOffsets = new Set(
       allWrites
         .filter(
@@ -4852,14 +4972,16 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       stateWrites,
       transitions,
       counters,
-      reset: allWrites.filter((w) => w.routine === resetAddress),
-      visibleEffects: allWrites.filter(
-        (w) =>
-          w.object === "part" &&
-          layout.fields
-            .filter((f) => !["previousState", "stateDelta"].includes(f.name))
-            .some((f) => f.offset === w.offset),
-      ),
+      reset: allWrites.filter((w) => w.routine === resetAddress).map((w) => frameWriteForType(w, part.type)),
+      visibleEffects: allWrites
+        .filter(
+          (w) =>
+            w.object === "part" &&
+            layout.fields
+              .filter((f) => !["previousState", "stateDelta"].includes(f.name))
+              .some((f) => f.offset === w.offset),
+        )
+        .map((w) => frameWriteForType(w, part.type)),
       triggers,
       uncertainties: [
         ...new Set([
@@ -4966,16 +5088,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),
-    typeTable: {
-      address: list.table,
-      stride: 58,
-      words: list.records.map((record) =>
-        Array.from(
-          { length: record.bytes.length >> 1 },
-          (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
-        ),
-      ),
-    },
+    typeTable,
     assumptions: [
       "All addresses are relative to the unpacked load image, with the DOS relocation load base removed.",
       "Slot names, object field meanings and callback frequency have separate evidence and must not be promoted from a v25 lead alone.",

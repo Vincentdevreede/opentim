@@ -8,7 +8,7 @@ import {
   REACTION_FIELDS,
 } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
-import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
+import { effectsFromOthers, partFields, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
 import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
 import type {
@@ -244,6 +244,25 @@ function bindingsOf(fields: Pick<KnownField, "object" | "offset" | "width" | "va
   return bindings;
 }
 
+const opaqueValues = new WeakMap<Expression, boolean>();
+/**
+ * True when no bit of the value can be known, whatever the fields are: it reads a table or an unknown value, and the
+ * operators on the way keep it unknown, as `valueOf` does. A drawing value of a frame is one; checking it once saves a
+ * walk from going through it at every step.
+ */
+function opaque(expression: Expression): boolean {
+  if (expression.kind === "constant") return false;
+  if (expression.kind === "field") return expression.unresolved === true;
+  if (expression.kind !== "binary") return true;
+  let known = opaqueValues.get(expression);
+  if (known === undefined) {
+    known = ["&", "|"].includes(expression.operator)
+      ? opaque(expression.left) && opaque(expression.right)
+      : opaque(expression.left) || opaque(expression.right);
+    opaqueValues.set(expression, known);
+  }
+  return known;
+}
 /** Partial bits allow a proved flag clear or set without inventing the remaining flags. */
 function valueOf(expression: Expression, bindings: Bindings): Bits {
   const width = expression.width;
@@ -252,7 +271,7 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
     return expression.unresolved
       ? unknownBits(width)
       : readField(bindings, expression.object, expression.offset, width);
-  if (expression.kind !== "binary") return unknownBits(width);
+  if (expression.kind !== "binary" || opaque(expression)) return unknownBits(width);
   const left = valueOf(expression.left, bindings);
   const right = valueOf(expression.right, bindings);
   if (expression.operator === "&") {
@@ -1515,19 +1534,55 @@ function linearExpression(linear: { offset?: number; add: number }): Expression 
   if (!wrap(linear.add, 16)) return startField(linear.offset);
   return { kind: "binary", operator: "+", left: startField(linear.offset), right: constant, width: 16 };
 }
+/** Whether a countdown moved in these bindings, each field worked out once while they don't change. */
+function countdownsMoved(bindings: Bindings): (offset: number) => boolean {
+  const moved = new Map<number, boolean>();
+  return (offset) => {
+    let result = moved.get(offset);
+    if (result === undefined) moved.set(offset, (result = countdownChange(bindings, offset) !== undefined));
+    return result;
+  };
+}
+const fieldLists = new WeakMap<Expression, Extract<Expression, { kind: "field" }>[]>();
+/** The fields an expression reads, each once, kept with it, so a large value is gone through once. */
+function fieldsRead(expression: Expression): Extract<Expression, { kind: "field" }>[] {
+  if (expression.kind === "field") return [expression];
+  if (expression.kind !== "binary" && expression.kind !== "table") return [];
+  let fields = fieldLists.get(expression);
+  if (!fields) {
+    const all =
+      expression.kind === "table"
+        ? fieldsRead(expression.index)
+        : [...fieldsRead(expression.left), ...fieldsRead(expression.right)];
+    fields = [...new Map(all.map((f) => [`${f.object}:${f.offset}:${f.width}:${f.unresolved === true}`, f])).values()];
+    fieldLists.set(expression, fields);
+  }
+  return fields;
+}
 /** An expression with each countdown written as its starting value plus how far it moved. */
-function countdownExpression(expression: Expression, bindings: Bindings): Expression {
+function countdownExpression(
+  expression: Expression,
+  bindings: Bindings,
+  moved = countdownsMoved(bindings),
+): Expression {
+  // Only a starting value or a field whose countdown moved is written another way.
+  if (
+    !fieldsRead(expression).some(
+      (f) => f.object === START || (f.object === "part" && !f.unresolved && f.width === 16 && moved(f.offset)),
+    )
+  )
+    return expression;
   const linear = linearOf(expression, bindings);
   if (linear?.offset !== undefined) return linearExpression(linear);
   if (expression.kind !== "binary") return expression;
-  const left = countdownExpression(expression.left, bindings);
-  const right = countdownExpression(expression.right, bindings);
+  const left = countdownExpression(expression.left, bindings, moved);
+  const right = countdownExpression(expression.right, bindings, moved);
   return left === expression.left && right === expression.right ? expression : { ...expression, left, right };
 }
 /** A test with each countdown written the same way; an equality with a number becomes one of the starting value. */
-function countdownPredicate(predicate: Predicate, bindings: Bindings): Predicate {
+function countdownPredicate(predicate: Predicate, bindings: Bindings, moved = countdownsMoved(bindings)): Predicate {
   if (predicate.kind === "and") {
-    const terms = predicate.terms.map((term) => countdownPredicate(term, bindings));
+    const terms = predicate.terms.map((term) => countdownPredicate(term, bindings, moved));
     return terms.every((term, n) => term === predicate.terms[n]) ? predicate : { ...predicate, terms };
   }
   if (predicate.kind !== "compare") return predicate;
@@ -1543,18 +1598,19 @@ function countdownPredicate(predicate: Predicate, bindings: Bindings): Predicate
       };
     }
   }
-  const left = countdownExpression(predicate.left, bindings);
-  const right = countdownExpression(predicate.right, bindings);
+  const left = countdownExpression(predicate.left, bindings, moved);
+  const right = countdownExpression(predicate.right, bindings, moved);
   return left === predicate.left && right === predicate.right ? predicate : { ...predicate, left, right };
 }
 /** The rules with each countdown the walk follows written as its starting value plus how far it moved. */
 function countdownRules(rules: WithUpdates[], bindings: Bindings, offsets: number[]): WithUpdates[] {
   if (!offsets.some((offset) => countdownChange(bindings, offset) !== undefined)) return rules;
+  const moved = countdownsMoved(bindings);
   return rules.map((rule) => {
-    const condition = countdownPredicate(rule.condition, bindings);
-    const to = countdownExpression(rule.to, bindings);
+    const condition = countdownPredicate(rule.condition, bindings, moved);
+    const to = countdownExpression(rule.to, bindings, moved);
     const updates = rule.updates?.map((write) => {
-      const value = countdownExpression(write.value, bindings);
+      const value = countdownExpression(write.value, bindings, moved);
       return value === write.value ? write : { ...write, value };
     });
     if (condition === rule.condition && to === rule.to && updates?.every((write, n) => write === rule.updates![n]))
@@ -3624,6 +3680,21 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
         const period = periodOf(term.left) ?? periodOf(term.right);
         if (period) periods.add(period);
       }
+  // Where the part is drawn and how large its frame is depend on the frame, but a drawing field no rule reads can't
+  // change which frames follow.
+  const drawing = new Set(
+    report.layout.fields
+      .filter((f) => ["drawX", "drawY", "frameWidth", "frameHeight"].includes(f.name))
+      .map((f) => f.offset),
+  );
+  const read = new Set<number>();
+  for (const rule of rules) {
+    partFields(rule.condition, read);
+    partFields(rule.to, read);
+    for (const write of (rule as WithUpdates).updates ?? [])
+      if (!(write.object === "part" && drawing.has(write.offset))) partFields(write.value, read);
+  }
+  const unread = (write: FieldWrite) => write.object === "part" && drawing.has(write.offset) && !read.has(write.offset);
   const results: AnimationDescription[] = [];
   for (const period of periods) {
     const invariant = (e: Expression): boolean => !contains(e) || periodOf(e) === period;
@@ -3637,6 +3708,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
           (rule as WithUpdates).updates?.some(
             (write) =>
               contains(write.value) &&
+              !unread(write) &&
               !(write.object === "part" && write.offset === stateOffset && affine(write.value) !== undefined),
           ),
       )
@@ -3650,9 +3722,18 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
       const condition: Predicate = { kind: "and", terms };
       contexts.set(JSON.stringify(terms), { condition, proof: finding([rule]) });
     }
+    // The phase walk counts frames from 0, so a drawing value of the frame itself is left unknown there.
+    const phaseWrite = (write: FieldWrite): FieldWrite =>
+      unread(write) && contains(write.value)
+        ? { ...write, value: { kind: "unknown", reason: "A drawing value of the frame", width: write.width } }
+        : write;
     const phasePart = {
       ...part,
-      transitions: part.transitions.map((rule) => (rule.routine === run.address ? { ...rule, from: null } : rule)),
+      transitions: part.transitions.map((rule) =>
+        rule.routine === run.address
+          ? { ...rule, from: null, ...(rule.updates ? { updates: rule.updates.map(phaseWrite) } : {}) }
+          : rule,
+      ),
     };
     const phaseReport = { ...report, parts: [phasePart] };
     let tried = 0;

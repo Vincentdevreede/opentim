@@ -1583,6 +1583,47 @@ everything rests there. The generator's reset keeps bits 0 and 1 of the saved fr
 4, 8 or 12, and its walks start on those. The table of these frames is `LEVEL_FRAMES` in
 `behaviour-saved-frames.ts`; an entry with `framed` narrows a part that has a frame list.
 
+### Where a part is drawn and how large its frame is
+
+After a routine changes a part's frame, it calls two shared helpers (`0x68aa` and `0x6940` in Even More, English
+floppy, `0x5c15` and `0x5ca8` in TIM 1, French). The first sets `drawX` and `drawY` (`0x2a`, `0x2c`) and calls the
+second, which sets `frameWidth` and `frameHeight` (`0x44`, `0x46`). Most run and callback rules end with them, and
+their writes used to be unknown. The code shows what they compute:
+
+- The belt and the rope (types 8 and 10) get a size of 0 by 0.
+- A part with `0x40` set in its flags at `0x06` gets the size it keeps itself, `baseWidth` and `baseHeight` (`0x50`,
+  `0x52`).
+- Otherwise the word at `+0x1a` of the type record, when it is not 0, points to a list of sizes, four bytes for each
+  frame. When it is 0, the word at `+0x14` points to a list with a pointer for each frame, to a record with the width at
+  `+6` and the height at `+8`. When that is 0 too, the size is 0 by 0.
+- `drawX` starts at `positionX` (`0x1e`). When the word at `+0x18` of the type record is not 0, it points to two signed
+  bytes for each frame, the frame's offset. A mirrored part (`0x10` in the drawing flags at `0x08`) is drawn at
+  `positionX` plus `horizontalExtent` (`0x40`) less the offset and less the frame's width, any other part at
+  `positionX` plus the offset. `drawY` is the same with `positionY`, `verticalExtent`, the flag `0x20` and the height.
+
+The analysis reads each helper the way it reads a callback, with a far pointer kept on the stack and a word read from a
+table both read as table reads, like the code does. Every return path must be plain: its tests are equalities of the
+part's fields and table words, and its writes are values of those. A field's value is then the sum over the paths of
+the path's value times the 0 or 1 of its tests, with a test that every path makes taken out in front. Exactly one
+path's tests hold, so the value is exact, and a caller gets it in place of an unknown write. When two paths of a rule
+differ only in one test and give a drawing field different values, the rule keeps both values the same way instead of
+an unknown one.
+
+A part's own rules run on a part of its type, so for each part the type field becomes its type and the words at
+`+0x18` and `+0x1a` of its type record become the words in the program, under the type table assumption of
+[effects of other parts](#effects-of-other-parts). The word at `+0x14` is not taken from the program, since the program
+sets it while a level runs: it stores it when it loads a sheet (`0x107dc` in Even More, English floppy) and clears it
+again (`0x1084c`). The cat has no size list, so its frame's size stays a read of that list at run time.
+
+Both helpers are proved in all eleven builds, in every compiler form they have: TIM 1 reads the type table in the data
+segment, Even More through a far pointer, and the Even More CD loads that pointer again instead of sharing the ends of
+paths. Transitions with unknown writes went from 462 to 365 in Even More, English floppy, and from 402 to 324 in TIM 1,
+French. Transitions with an unknown drawing write went from 313 to 70 and from 272 to 12; the rest come from other
+values on the same path, like the cat's position after its search loop. Every walk ends the same way and no recorded
+animation changes; the monkey bike's walk from its creation rests after one run instead of two, since its drawing
+position now stays known. A periodic walk leaves out the drawing fields no rule reads, since their values depend on
+the frame.
+
 ## Saved evidence
 
 Large derived JSON files use `evidenceEncoding: "opentim-instruction-evidence-1"`. Each finding's `evidence` retains
