@@ -63,9 +63,9 @@ the rest when it is opened.
   named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the
   tip.
 - **Numbers in conditions.** A frame, a speed, a position or a control value reads signed in decimal
-  ("velocityX != -12288"), a mask and the bits it keeps in hex ("drawingFlags & 0x10 == 0", a mask of a mask as
-  one), a direction in degrees ("collider.contactAngle < 315°"), and an unsigned test's number as it is. The
-  absolute value of another part's field reads "|found.overlapX|".
+  ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too ("ropeKind & 0x18 == 0x10"; under
+  a mask below 10 as a number, and a mask of a mask as one), a direction in degrees ("collider.contactAngle <
+  315°"), and an unsigned test's number as it is. The absolute value of another part's field reads "|found.overlapX|".
 - **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
   end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
   asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). The tip
