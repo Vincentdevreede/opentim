@@ -90,6 +90,13 @@ export function audioSections(resources: readonly Resource[]): AudioSection[] {
   return sections;
 }
 
+/** The first sound the Audio page lists from this resource: the bank's first sound, or the sample file itself. */
+export function firstSoundOf(resource: Resource, resources: readonly Resource[]): string | undefined {
+  return audioSections(resources)
+    .flatMap((s) => s.items)
+    .find((item) => item.resource.name === resource.name)?.key;
+}
+
 /** Unpacks a sound of a bank once; later calls return the same result. */
 export function decodeEntry(entry: SoundEntry): DecodedSound {
   let result = decoded.get(entry);

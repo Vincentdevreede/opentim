@@ -30,6 +30,17 @@ export interface LoadedParts {
   problem?: string;
   /** The numbers of the parts that differ from the committed list, when read from the loaded files. */
   differs: number[];
+  /** The numbers of the parts the loaded files have and the committed list doesn't. */
+  missing: number[];
+}
+
+/** The numbers of the parts in `list` that `committed` doesn't have at all. */
+function newParts(list: PartList, committed: PartList): number[] {
+  const known = new Set(committed.parts.map((p) => p.type));
+  return list.parts
+    .map((p) => p.type)
+    .filter((t) => !known.has(t))
+    .sort((a, b) => a - b);
 }
 
 /** The numbers of the parts that aren't the same in both lists. */
@@ -57,6 +68,7 @@ export function readLoadedParts(
     records: new Map(),
     problem,
     differs: [],
+    missing: [],
   });
   try {
     if (listId === "tim1" || listId === "evenmore") {
@@ -73,12 +85,20 @@ export function readLoadedParts(
         records: new Map(read.records.map((r) => [r.type, r])),
         program: read,
         differs: differences(read.list, committed),
+        missing: newParts(read.list, committed),
       };
     }
     if (listId === "tim2") {
       if (!byName.has("INFO.RES")) return fallback("INFO.RES isn’t in the loaded files.");
-      const list = readTim2Parts((name) => byName.get(name)?.data);
-      return { list, source: "resources", records: new Map(), differs: differences(list, committed) };
+      // A part our list doesn't know yet is kept, so it shows as missing from our list.
+      const list = readTim2Parts((name) => byName.get(name)?.data, { keepUnknown: true });
+      return {
+        list,
+        source: "resources",
+        records: new Map(),
+        differs: differences(list, committed),
+        missing: newParts(list, committed),
+      };
     }
   } catch (error) {
     return fallback(`Couldn’t read the parts from the loaded files: ${(error as Error).message}`);

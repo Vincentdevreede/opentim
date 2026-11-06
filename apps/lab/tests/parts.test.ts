@@ -50,6 +50,17 @@ describe("readLoadedParts", () => {
     expect(damaged?.problem).toMatch(/no MZ header/);
     expect(readLoadedParts("tim2", [])?.problem).toMatch(/INFO\.RES/);
   });
+
+  it("keeps a TIM 2 part our list doesn't have, and names it as missing from our list", () => {
+    const text = "0.\tBowling Ball\tHelp.\r\n999.\tSomething New\tHelp.\r\n";
+    const info = Uint8Array.from(text, (c) => c.charCodeAt(0));
+    const loaded = readLoadedParts("tim2", [
+      { name: "INFO.RES", kind: "binary", group: "other", archive: "RESOURCE.001", offset: 0, data: info },
+    ]);
+    expect(loaded?.source).toBe("resources");
+    expect(loaded?.missing).toEqual([999]);
+    expect(loaded?.differs).toContain(999);
+  });
 });
 
 describe("partName", () => {

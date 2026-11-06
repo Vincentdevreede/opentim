@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import pkg from "../package.json";
 import LabFact from "./components/LabFact.vue";
 import LabFacts from "./components/LabFacts.vue";
@@ -23,35 +23,43 @@ import {
 } from "./library.ts";
 import { crumb, dragging } from "./ui.ts";
 import LabDot from "./components/LabDot.vue";
+import LabEmpty from "./components/LabEmpty.vue";
 
 interface NavItem {
   to: string;
   label: string;
   icon: IconName;
   needsFiles?: boolean;
+  /** What the page is for, ending the sentence of its empty state while no files are loaded. */
+  forWhat?: string;
   planned?: boolean;
 }
 
 const FILES: NavItem[] = [
   { to: "/", label: "Import", icon: "import" },
-  { to: "/files", label: "Files", icon: "files", needsFiles: true },
+  { to: "/files", label: "Files", icon: "files", needsFiles: true, forWhat: "inspect their bytes" },
 ];
 const RESOURCES: NavItem[] = [
-  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true },
-  { to: "/audio", label: "Audio", icon: "audio", needsFiles: true },
-  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true },
+  { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true, forWhat: "see their sprites" },
+  { to: "/parts", label: "Parts", icon: "parts", needsFiles: true, forWhat: "see its parts" },
+  { to: "/audio", label: "Audio", icon: "audio", needsFiles: true, forWhat: "list and play its sounds" },
+  { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, forWhat: "see its levels" },
 ];
-const TOOLS: NavItem[] = [{ to: "/sandbox", label: "Sandbox", icon: "sandbox", needsFiles: true }];
+const TOOLS: NavItem[] = [
+  { to: "/sandbox", label: "Sandbox", icon: "sandbox", needsFiles: true, forWhat: "use the Sandbox" },
+];
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Ctrl", "O"], action: "Open RESOURCE files" },
-  { keys: ["/"], action: "Filter resources (Overview, Sprites, Levels)" },
+  { keys: ["/"], action: "Filter resources (Overview, Sprites, Parts, Levels)" },
   { keys: ["↑", "↓", "↵"], action: "Move and view bytes (Overview)" },
-  { keys: ["←", "→"], action: "Previous or next frame (Sprites)" },
-  { keys: ["Space"], action: "Play or pause the preview (Sprites)" },
-  { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites)" },
-  { keys: ["H"], action: "Flip horizontally (Sprites)" },
+  { keys: ["←", "→"], action: "Previous or next frame (Sprites, Parts)" },
+  { keys: ["Space"], action: "Play or pause the preview (Sprites, Parts)" },
+  { keys: ["1", "4"], action: "Zoom 1× to 4× (Sprites, Parts)" },
+  { keys: ["H"], action: "Flip horizontally (Sprites, Parts)" },
+  { keys: ["V"], action: "Flip vertically (Parts)" },
   { keys: ["O"], action: "Show the previous frame faintly (Sprites)" },
+  { keys: ["O"], action: "Show the outline reset sets (Parts)" },
   { keys: ["/"], action: "Filter sounds (Audio)" },
   { keys: ["↑", "↓"], action: "Previous or next sound (Audio)" },
   { keys: ["Space"], action: "Play or pause the sample (Audio)" },
@@ -69,6 +77,15 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
 const router = useRouter();
 const showKeys = ref(false);
 const hasFiles = computed(() => resources.value.length > 0);
+const route = useRoute();
+/**
+ * The menu item of the page that is open, which says whether the page needs files. It is looked up by the
+ * matched route record, so `/sprites/` or `/Sprites` still finds the Sprites item.
+ */
+const page = computed(() => {
+  const path = route.matched.at(-1)?.path;
+  return [...FILES, ...RESOURCES, ...TOOLS].find((item) => item.to === path);
+});
 const readingIndex = computed(() => progress.value.findIndex((f) => f.state !== "done") + 1 || progress.value.length);
 
 function onDragOver(e: DragEvent) {
@@ -148,14 +165,8 @@ const activeClass =
             >
               <LabIcon :name="item.icon" :size="18" :stroke="1.75" />{{ item.label }}
             </span>
-            <RouterLink
-              v-else
-              :to="item.to"
-              :class="navClass"
-              :active-class="activeClass"
-              :title="item.planned ? 'Planned' : undefined"
-            >
-              <LabDot v-if="item.planned" status="none" class="absolute top-1.5 right-[9px]" />
+            <RouterLink v-else :to="item.to" :class="navClass" :active-class="activeClass">
+              <LabDot v-if="item.planned" status="none" title="Planned" class="absolute top-1.5 right-[9px]" />
               <LabIcon :name="item.icon" :size="18" :stroke="1.75" />{{ item.label }}
             </RouterLink>
           </template>
@@ -191,7 +202,15 @@ const activeClass =
       </nav>
 
       <main class="flex min-w-0 flex-1 flex-col">
-        <RouterView />
+        <!-- A page that needs files shows this until they are loaded, so the pages don't each handle it. -->
+        <LabEmpty
+          v-if="page?.needsFiles && !hasFiles"
+          :icon="page.icon"
+          title="No files loaded"
+          :text="`Import the game’s RESOURCE files to ${page.forWhat}.`"
+          import-link
+        />
+        <RouterView v-else />
       </main>
     </div>
 

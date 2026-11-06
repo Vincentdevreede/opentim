@@ -1,5 +1,6 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
+import { readTim2Parts } from "../src/read/parts.ts";
 import { animationSheets, readPartNames } from "../src/read/tim2.ts";
 
 const bytes = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
@@ -13,6 +14,17 @@ describe("TIM 2", () => {
         [10, "Rope"],
       ]),
     );
+  });
+
+  it("stops at a part without an id, unless asked to keep it as new", () => {
+    const info = bytes("0.\tBowling Ball\tHelp.\r\n999.\tSomething New\tHelp.\r\n");
+    const files = (name: string) => (name === "INFO.RES" ? info : undefined);
+    expect(() => readTim2Parts(files)).toThrow(/999 \(Something New\) has no id/);
+    const parts = readTim2Parts(files, { keepUnknown: true }).parts;
+    expect(parts.map((p) => [p.type, p.id])).toEqual([
+      [0, "bowling-ball"],
+      [999, "part-999"],
+    ]);
   });
 
   it("reads the sheets an animation draws from", () => {

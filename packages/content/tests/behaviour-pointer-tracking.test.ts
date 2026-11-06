@@ -312,6 +312,7 @@ describe("helper relations and indexed pointer reads", () => {
     ]);
     const shift = engine(0x80);
     shift.argumentKind = "unknown";
+    shift.returnConvention = { kind: "far", stackBytes: 0 };
     shift.numeric = { operation, width: 32, low: "ax", high: "dx", count: "cl", minimumCount: 0, maximumCount: 31 };
     const result = analyseRoutine(image, entry, { engineSummaries: new Map([[0x80, shift]]) });
     expect(result.writes.find((write) => write.offset === 0x60)?.value).toMatchObject({ kind: "constant", value: low });
@@ -326,6 +327,7 @@ describe("helper relations and indexed pointer reads", () => {
     image.set([...prologue, 0xb8, 1, 0, 0x33, 0xd2, 0xb1, 32, 0x9a, 0x80, 0, 0, 0, 0x89, 0x44, 0x60, ...epilogue]);
     const shift = engine(0x80);
     shift.argumentKind = "unknown";
+    shift.returnConvention = { kind: "far", stackBytes: 0 };
     shift.numeric = {
       operation: "leftShift32",
       width: 32,

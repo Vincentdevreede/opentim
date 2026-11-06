@@ -11,6 +11,16 @@ import { discoverContactScalar } from "./behaviour-contact-scalars.ts";
 import { addContactSegmentSummaries, type ContactSegmentTest } from "./behaviour-contact-segment.ts";
 import { addContactSelection, type ContactSelection } from "./behaviour-contact-selection.ts";
 import { discoverContactResponse, type ContactResponse } from "./behaviour-contact-response.ts";
+import {
+  discoverContactRotation,
+  discoverRotationScalarSummary,
+  discoverRotationShift,
+  discoverRotationLeftShift,
+  type ContactRotation,
+  type RotationScalar,
+} from "./behaviour-contact-rotation.ts";
+import { discoverFirstContactResponse, type ContactResponseFirst } from "./behaviour-contact-response-first.ts";
+import { discoverContactResponsePair, type ContactResponsePair } from "./behaviour-contact-response-pair.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
 import { addContactMotionAngleSummaries, type ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
@@ -66,6 +76,10 @@ export interface EngineSummary extends Finding {
   contactSelection?: ContactSelection;
   contactSmall?: ContactSmallRelation;
   contactResponse?: ContactResponse;
+  contactRotation?: ContactRotation;
+  rotationScalar?: RotationScalar;
+  contactResponseFirst?: ContactResponseFirst;
+  contactResponsePair?: ContactResponsePair;
   contactOutline?: ContactOutline;
   contactMotionAngle?: ContactMotionAngle;
   shortCircuit?: ConnectionBypass;
@@ -2276,5 +2290,31 @@ export function discoverEngineSummaries(
   addContactOutlineSummaries(codes, summaries, dataSegment);
   addContactMotionAngleSummaries(codes, summaries, layout, dataSegment, image);
   addContactSelection(codes, summaries);
+  for (const code of codes.values()) {
+    const scalar = discoverRotationScalarSummary(code, image);
+    const shift = discoverRotationShift(code) ?? discoverRotationLeftShift(code);
+    if (scalar) summaries.set(code.address, scalar);
+    if (shift) summaries.set(code.address, shift);
+  }
+  for (const code of codes.values()) {
+    const rotation = discoverContactRotation(code, codes, summaries, image);
+    if (rotation) summaries.set(code.address, rotation);
+  }
+  for (const code of codes.values()) {
+    const response = discoverFirstContactResponse(code, codes, summaries, image, table, dataSegment, typeCount);
+    if (
+      response &&
+      stateOffset !== undefined &&
+      response.writes.every((w) => w.offset + w.width / 8 <= stateOffset || stateOffset + 2 <= w.offset)
+    )
+      summaries.set(code.address, response);
+    const pair = discoverContactResponsePair(code, codes, summaries, table, dataSegment, typeCount, image);
+    if (
+      pair &&
+      stateOffset !== undefined &&
+      pair.writes.every((w) => w.offset + w.width / 8 <= stateOffset || stateOffset + 2 <= w.offset)
+    )
+      summaries.set(code.address, pair);
+  }
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

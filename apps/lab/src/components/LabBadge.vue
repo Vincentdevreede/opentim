@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import type { Confidence } from "../kinds.ts";
+import { CONFIDENCE_TIPS, type Confidence } from "../kinds.ts";
+import LabTip from "./LabTip.vue";
 
-defineProps<{ status: Confidence; label?: string }>();
+/**
+ * A status in a small pill: a mark and a label. Under the pointer it lights up and explains itself, in `title` or else
+ * in the words for its status.
+ */
+defineProps<{ status: Confidence; label?: string; title?: string }>();
 
 const STYLES: Record<Confidence, { badge: string; mark: string }> = {
   decoded: { badge: "text-decoded border-decoded/35 bg-decoded/8", mark: "size-[7px] rounded-full bg-current" },
@@ -25,11 +30,15 @@ const STYLES: Record<Confidence, { badge: string; mark: string }> = {
 </script>
 
 <template>
-  <span
-    class="inline-flex h-[18px] items-center gap-1 rounded-full border pr-[7px] pl-1.5 text-label leading-none font-semibold tracking-[.02em] whitespace-nowrap"
-    :class="STYLES[status].badge"
-  >
-    <span class="box-border shrink-0" :class="STYLES[status].mark" aria-hidden="true"></span>
-    {{ label ?? status }}
+  <span class="inline-flex shrink-0">
+    <LabTip :text="title ?? CONFIDENCE_TIPS[status]" :focusable="false">
+      <span
+        class="inline-flex h-[18px] cursor-help items-center gap-1 rounded-full border pr-[7px] pl-1.5 text-label leading-none font-semibold tracking-[.02em] whitespace-nowrap transition-colors hover:bg-current/16"
+        :class="STYLES[status].badge"
+      >
+        <span class="box-border shrink-0" :class="STYLES[status].mark" aria-hidden="true"></span>
+        {{ label ?? status }}
+      </span>
+    </LabTip>
   </span>
 </template>

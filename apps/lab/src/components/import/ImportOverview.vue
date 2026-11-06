@@ -3,18 +3,21 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watchEffect } from
 import { useRouter } from "vue-router";
 import { editionHint, editionLanguages, editionName } from "../../edition.ts";
 import { GROUPS, SUPPORT, type KindGroup } from "../../kinds.ts";
+import { listIdOf, readLoadedParts } from "../../parts.ts";
 import { decode, imagePalette, isImage, statusOf } from "../../sprites.ts";
 import {
   archives,
   canPersist,
   edition,
   forget,
+  program,
   readSeconds,
   resources,
   selected,
   type Resource,
 } from "../../library.ts";
-import { crumb, formatBytes, hex, openSprite, selectedLevel } from "../../ui.ts";
+import { firstSoundOf } from "../../audio.ts";
+import { crumb, formatBytes, hex, openSprite, selectedLevel, selectedSound } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
 import LabIcon from "../LabIcon.vue";
@@ -62,6 +65,33 @@ const cards = computed(() => [
   { id: "all" as const, label: "All kinds", count: resources.value.length },
   ...GROUPS.map((g) => ({ ...g, count: resources.value.filter((r) => r.group === g.id).length })),
 ]);
+
+/** The parts of the loaded game, read from its program or from INFO.RES, for the Parts card. */
+const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
+/** The badge of the Parts card: where the parts were read from, or that the lab has no list for this game. */
+const partsBadge = computed(() => {
+  const l = loadedParts.value;
+  if (!l)
+    return {
+      status: "unsupported" as const,
+      title: "The lab has no parts list for these files yet. It has lists for TIM 1, Even More and TIM 2.",
+    };
+  if (l.source === "committed")
+    return { status: "unsupported" as const, title: `Not read from the loaded files. ${l.problem ?? ""}`.trim() };
+  const from = l.source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
+  // Parts our list doesn't have yet make the list incomplete; parts that only differ don't.
+  if (l.missing.length)
+    return {
+      status: "partial" as const,
+      title: `Read from ${from}. Our list is missing parts ${l.missing.join(", ")}.`,
+    };
+  return {
+    status: "decoded" as const,
+    title: l.differs.length
+      ? `Read from ${from}. Parts ${l.differs.join(", ")} differ from the list committed to OpenTIM.`
+      : `Read from ${from}, the same as the committed list.`,
+  };
+});
 
 /** The badge of a kind: what its decoder made of the loaded files of that kind, or what the lab can do with it. */
 function cardStatus(id: KindGroup) {
@@ -126,6 +156,7 @@ const openTargets = computed<OpenTarget[]>(() => {
     "files",
     ...(image.value ? (["sprites"] as const) : []),
     ...(r.group === "level" || r.group === "scene" ? (["levels"] as const) : []),
+    ...(firstSoundOf(r, resources.value) ? (["audio"] as const) : []),
   ];
 });
 
@@ -133,6 +164,7 @@ function openIn(target: OpenTarget) {
   if (!current.value) return;
   if (target === "sprites") openSprite.value = 0;
   if (target === "levels") selectedLevel.value = current.value.name;
+  if (target === "audio") selectedSound.value = firstSoundOf(current.value, resources.value);
   void router.push(`/${target}`);
 }
 
@@ -168,7 +200,10 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
   <PageHeader title="Overview">
     <template #subtitle>
       <span class="font-mono text-ink">{{ resources.length }}</span> resources from
-      <span class="font-mono text-ink">{{ archives.length }}</span> files · read in {{ readSeconds.toFixed(1) }} s
+      <span class="font-mono text-ink">{{ archives.length }}</span> files<template v-if="program">
+        including <span class="font-mono text-ink">{{ program.name }}</span></template
+      >
+      · read in {{ readSeconds.toFixed(1) }} s
     </template>
     <LabButton v-if="canPersist" variant="ghost" tone="danger" @click="confirmRemove = true"
       ><LabIcon name="trash" />Remove from browser</LabButton
@@ -183,25 +218,38 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
           · {{ editionLanguages(edition) }}</span
         >
       </h2>
-      <div role="group" aria-label="Filter by kind" class="grid shrink-0 grid-cols-8 gap-2">
-        <button
-          v-for="card in cards"
-          :key="card.id"
-          type="button"
-          class="flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left"
-          :class="
-            group === card.id
-              ? 'border-accent bg-accent/8'
-              : 'border-line bg-sunken hover:border-line-strong hover:bg-hover'
-          "
-          :aria-pressed="group === card.id"
-          @click="group = card.id"
-        >
-          <span class="text-ui text-soft">{{ card.label }}</span>
-          <span class="font-mono text-stat leading-none">{{ card.count }}</span>
-          <span v-if="card.id === 'all'" class="font-mono text-muted">{{ archives.length }} files</span>
-          <LabBadge v-else v-bind="cardStatus(card.id)" class="self-start" />
-        </button>
+      <div role="group" aria-label="Filter by kind" class="grid shrink-0 grid-cols-9 gap-2">
+        <template v-for="card in cards" :key="card.id">
+          <button
+            type="button"
+            class="flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left"
+            :class="
+              group === card.id
+                ? 'border-accent bg-accent/8'
+                : 'border-line bg-sunken hover:border-line-strong hover:bg-hover'
+            "
+            :aria-pressed="group === card.id"
+            @click="group = card.id"
+          >
+            <span class="text-ui text-soft">{{ card.label }}</span>
+            <span class="font-mono text-stat leading-none">{{ card.count }}</span>
+            <span v-if="card.id === 'all'" class="font-mono text-muted">{{ archives.length }} files</span>
+            <LabBadge v-else v-bind="cardStatus(card.id)" class="self-start" />
+          </button>
+          <!-- Parts aren't files, so this card opens their page instead of filtering the table. -->
+          <button
+            v-if="card.id === 'sprites'"
+            type="button"
+            class="flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg border border-line bg-sunken px-3 py-2.5 text-left hover:border-line-strong hover:bg-hover"
+            @click="router.push('/parts')"
+          >
+            <span class="flex items-center gap-1 text-ui text-soft"
+              >Parts<LabIcon name="chevronRight" :size="12" class="text-muted"
+            /></span>
+            <span class="font-mono text-stat leading-none">{{ loadedParts?.list.parts.length ?? 0 }}</span>
+            <LabBadge v-bind="partsBadge" class="self-start" />
+          </button>
+        </template>
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
@@ -294,6 +342,7 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
 
       <div v-if="!canPersist" class="mt-auto px-3 pb-3"><StorageNotice /></div>
       <section :class="canPersist && 'mt-auto'" class="border-t border-line pb-1">
+        <!-- Every loaded file, the program like TIM.EXE among them. -->
         <LabPanelHeader title="Loaded files" :meta="archives.length" />
         <LabListRow v-for="a in archives" :key="a.name" :name="a.name" inset class="last:after:hidden">
           <template #end>
