@@ -385,11 +385,26 @@ describe("summariseEffects", () => {
               { kind: "field", offset: 0x38, width: 16, value: 0xf000 },
             ],
           }),
+          effect({
+            sourceType: 39,
+            sourcePart: "trampoline",
+            touch: { returns: 0 },
+            description: "A trampoline it touches halves velocityX (rounding down).",
+            sets: [
+              {
+                kind: "expression",
+                offset: 0x36,
+                width: 16,
+                value: { kind: "binary", operator: ">>", left: field(0x36), right: constant(1), width: 16 },
+                words: "halves velocityX (rounding down)",
+              },
+            ],
+          }),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [push, away, punch] = summariseEffects(report, description)[12]!;
+  const [push, away, punch, touch] = summariseEffects(report, description)[12]!;
 
   it("writes what another part sets and the value, with what this part must be in a few words", () => {
     expect(push).toMatchObject({
@@ -414,5 +429,10 @@ describe("summariseEffects", () => {
       sourceWhen: ["mirrored"],
     });
     expect(punch!.description).toContain("(velocityX 4096, velocityY -4096)");
+  });
+
+  it("writes a value of the part's own fields as a formula, and marks a touch", () => {
+    expect(touch).toMatchObject({ touch: true, sets: [{ what: "velocityX", value: "velocityX >> 1" }] });
+    expect(push!.touch).toBeUndefined();
   });
 });

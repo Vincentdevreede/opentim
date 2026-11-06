@@ -125,6 +125,8 @@ export interface OtherEffect extends Finding {
   /** The part that does it. */
   sourceType: number;
   source: string;
+  /** Set when this part touches the source, rather than the source reaching it. */
+  touch?: true;
   /** What it sets, like `speed` or `velocity`, and to what, as text. A direction on the screen has no `what`. */
   sets: { what: string; value: string }[];
   /** For a speed that points away from the other part: the largest error of that direction, in degrees. */
@@ -643,9 +645,12 @@ export function summariseEffects(
           ...e.sets.flatMap((s) =>
             s.kind === "speed"
               ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
-              : pair.length && (s.offset === 0x36 || s.offset === 0x38)
-                ? []
-                : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
+              : s.kind === "expression"
+                ? // A value of the part's own fields, like a touch that halves its velocityX.
+                  [{ what: write.place("part", s.offset), value: write.expression(s.value) }]
+                : pair.length && (s.offset === 0x36 || s.offset === 0x38)
+                  ? []
+                  : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
           ),
         ];
         return {
@@ -655,6 +660,7 @@ export function summariseEffects(
           ...awayWithin(e.sets),
           sourceType: e.sourceType,
           source: e.sourcePart,
+          ...(e.touch ? { touch: true } : {}),
           sets,
           when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
           sourceWhen: e.sourceConditionWords,

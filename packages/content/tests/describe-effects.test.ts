@@ -6,6 +6,7 @@ import {
   FIXED_LIST_ASSUMPTION,
   predicateForType,
   SCREEN_DIRECTION_ASSUMPTION,
+  TOUCH_ASSUMPTION,
   TYPE_TABLE_ASSUMPTION,
 } from "../src/read/describe-effects.ts";
 
@@ -292,5 +293,133 @@ describe("effects of other parts", () => {
     });
     // The frame list at +0x14 stays a read made while the game runs.
     expect(predicateForType(word(0x14), "member", 4, 1, table, used)).toMatchObject({ left: { kind: "table" } });
+  });
+});
+
+describe("effects of parts that touch", () => {
+  const TOUCHER = "collider";
+  const velocityY = f(TOUCHER, 0x38);
+  const sign = (e: Expression): Expression => ({ kind: "binary", operator: ">>", left: e, right: c(15), width: 16 });
+  const absolute = (e: Expression): Expression => ({
+    kind: "binary",
+    operator: "-",
+    left: { kind: "binary", operator: "^", left: e, right: sign(e), width: 16 },
+    right: sign(e),
+    width: 16,
+  });
+  const touchWrite = (offset: number, value: Expression, object = TOUCHER): FieldWrite => ({
+    ...finding,
+    object,
+    offset,
+    width: 16,
+    value,
+    condition: { kind: "true" },
+    routine: 0x1da61,
+  });
+  const outcome = (terms: Predicate[], fields: FieldWrite[], returns = 0) => ({
+    ...finding,
+    effectsComplete: true,
+    condition: { kind: "and" as const, terms },
+    fields,
+    returnValue: c(returns),
+  });
+  const mirrored = (set: boolean) => compare(and(f("part", 8), 16), set ? "!=" : "==", c(0));
+  const edge = (n: number) => compare(f(TOUCHER, 0x8a), "==", c(n));
+  const slow = compare(absolute(velocityY), "<", c(1536), true);
+  const fast = compare(absolute(velocityY), ">=", c(1536), true);
+  const reversed: Expression = { kind: "binary", operator: "-", left: c(0), right: absolute(velocityY), width: 16 };
+  const part = (id: string, type: number, reads: number[] = [], bounce?: number) => ({
+    id,
+    type,
+    routines:
+      bounce === undefined
+        ? []
+        : [{ slot: 0, field: 0x22, address: bounce, segment: 0, offset: 0, shared: false, sharedDefault: false }],
+    transitions: reads.map((offset) => ({
+      ...finding,
+      from: null,
+      to: f("part", 12),
+      condition: compare(f("part", offset), "!=", c(0)),
+      routine: 0x500,
+    })),
+  });
+  const report = {
+    layout: {
+      fields: [
+        { offset: 4, name: "type" },
+        { offset: 12, name: "state" },
+        { offset: 0x36, name: "velocityX" },
+        { offset: 0x38, name: "velocityY" },
+        { offset: 0x8a, name: "contactEdge" },
+        { offset: 8, name: "drawingFlags", masks: [{ name: "horizontalFlip", value: 16 }] },
+      ],
+    },
+    parts: [
+      part("cat", 12),
+      part("brick-wall", 1),
+      part("bullet", 20, [0x38]),
+      part("mouse", 42),
+      part("alligator", 61, [], 0x1da61),
+    ],
+    helpers: [
+      {
+        kind: "part-factory",
+        factory: {
+          startingWords: [
+            { field: 6, values: Array.from({ length: 62 }, (_, t) => (t === 1 || t === 61 ? 0x4800 : 0x800)) },
+          ],
+        },
+      },
+    ],
+    routines: [
+      {
+        address: 0x1da61,
+        outcomes: [
+          // Both speeds when the alligator isn't mirrored: the two paths join into one line without the speed test.
+          outcome([mirrored(false), edge(0), fast, compare(f(TOUCHER, 4), "!=", c(42))], [touchWrite(0x38, reversed)]),
+          outcome([mirrored(false), edge(0), slow, compare(f(TOUCHER, 4), "!=", c(42))], [touchWrite(0x38, reversed)]),
+          // Only a mirrored alligator, and only for the mouse; it also changes the alligator itself.
+          outcome(
+            [mirrored(true), compare(f(TOUCHER, 4), "==", c(42))],
+            [touchWrite(0x38, c(0xfa00)), touchWrite(12, c(7), "part")],
+            1,
+          ),
+          // A value the analysis doesn't know gives no line.
+          outcome([edge(3)], [touchWrite(0x36, { kind: "unknown", reason: "Not known.", width: 16 })]),
+        ],
+      },
+    ],
+  } as unknown as BehaviourReport;
+  const lines = effectsFromOthers(report, evaluateBehaviourCondition);
+  const touches = (type: number) => lines.get(type)?.effects.filter((e) => e.touch) ?? [];
+
+  it("gives a moving part what the bounce of a part it touches sets, from its own fields, with the tests in words", () => {
+    const [line] = touches(12);
+    expect(touches(12)).toHaveLength(1);
+    expect(line).toMatchObject({
+      sourcePart: "alligator",
+      routine: 0x1da61,
+      touch: { returns: 0 },
+      sets: [{ kind: "expression", offset: 0x38, words: "sets velocityY to -|velocityY|" }],
+      sourceCondition: mirrored(false),
+      sourceConditionWords: ["not mirrored"],
+      condition: compare(f("part", 0x8a), "==", c(0)),
+      conditionWords: ["its contactEdge is 0"],
+      description:
+        "An alligator it touches, when the alligator is not mirrored, sets velocityY to -|velocityY|. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
+    });
+    expect(line!.assumptions).toContain(TOUCH_ASSUMPTION);
+  });
+
+  it("keeps a test that names another type, and says when a contact response may follow", () => {
+    const mouse = touches(42);
+    expect(mouse.map((e) => e.description)).toEqual([
+      "An alligator it touches, when the alligator is mirrored, sets velocityY to -1536. Its bounce returns 1 then, so the game may go on to a contact response, which can change these again.",
+    ]);
+  });
+
+  it("leaves out a fixed type by the decided assumption, and a part whose rules read the field", () => {
+    expect(lines.get(1)).toEqual({ effects: [], assumptions: [FIXED_LIST_ASSUMPTION] });
+    expect(touches(20)).toEqual([]);
   });
 });

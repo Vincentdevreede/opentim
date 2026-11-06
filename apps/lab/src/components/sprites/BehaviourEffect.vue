@@ -37,7 +37,8 @@ const tip = computed(() =>
           ><span class="text-accent">{{ s.value }}</span></span
         >
       </span>
-      <span v-if="effect.sourceWhen.length || effect.when.length" class="ml-auto flex gap-1">
+      <span v-if="effect.touch || effect.sourceWhen.length || effect.when.length" class="ml-auto flex flex-wrap gap-1">
+        <LabChip v-if="effect.touch" tone="faint">touching</LabChip>
         <LabChip v-for="w in effect.sourceWhen" :key="`source ${w}`" tone="faint">{{ w }}</LabChip>
         <LabChip v-for="w in effect.when" :key="w">{{ w }}</LabChip>
       </span>

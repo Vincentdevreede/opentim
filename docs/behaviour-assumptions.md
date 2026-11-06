@@ -499,7 +499,9 @@ Not proved: a level file made outside the game could store `0x1000` for such a p
 flags.
 
 **What it gives.** Parts of a fixed type get no line for the explosion's push. Without it, every wall, ramp and motor
-would show the push with the condition "on the moving list". The parts it rules out state it in their description.
+would show the push with the condition "on the moving list". The parts it rules out state it in their description. The
+contact dispatch walks the moving parts list too, so these parts also get no line for what a part they touch does to
+them, see [effects of parts that touch](behaviour.md#effects-of-parts-that-touch).
 
 **How to recheck.**
 

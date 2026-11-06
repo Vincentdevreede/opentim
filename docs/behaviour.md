@@ -820,6 +820,84 @@ In Even More the balloon gets "Touching a bullet, a gear, a scissors or a thumb 
 which the walk keeps as its condition. Mel Schlemming gets four walks for touching another Mel. TIM 1 has the bullet,
 gear and scissors for the balloon. Bounce outcomes that also change the touched part, like the trampoline's and the
 electric switch's, or that write values that aren't numbers, like the alligator's, get no walk.
+Those that change the touching part without changing its frame get a line instead, see the next section.
+
+### Effects of parts that touch
+
+Most of what a bounce does to the part that touches it changes no frame: the conveyor belt changes its `velocityX`,
+the alligator throws it up, the pinball bumper gives it a new speed. These are now lines in `effectsFromOthers`, like
+the explosion's push, and the lab shows them with a "touching" chip. In Even More (English floppy) a basketball gets,
+among others:
+
+- "A conveyor belt it touches, when the conveyor belt's stateDelta is at least 1, adds 4096 to velocityX. Only when its
+  contactEdge is 0 and its velocityX + 4096 is at most 4096. Its bounce returns 1 then, so the game may go on to a
+  contact response, which can change these again."
+- "An alligator it touches, when the alligator is not mirrored, sets velocityY to -|velocityY|. Only when its
+  contactEdge is 0 and |its velocityY| is at least 1536 and ..."
+- "A pinball bumper it touches sets its speed to 7168, away from the pinball bumper. Its bounce returns 0 then, so no
+  contact response follows."
+
+A bounce path gives a line for a part type when:
+
+- its effects are complete and it writes only the touching part (`collider`) and the touched part (`part`). What it
+  does to the touched part is that part's own business, and the line doesn't say it;
+- every value it writes on the touching part is a number, a speed the speed setter got (as for the explosion), or
+  worked out from the touching part's own fields when the bounce is called, like `velocityX >> 1`. A value that reads
+  the touched part, a table or something unknown gives no line;
+- it writes no field the part's own rules read, and not its state. Those are walks, see the section above;
+- its tests of the touching part's type pass for the type. Tests that name a type, like the alligator's for the mouse
+  (type 42), give the line to that type only; the others go on every type that can move. Its other tests stay as the
+  line's conditions, in words: of the touching part ("its contactEdge is 0"), of the touched part ("the alligator is
+  mirrored") and of the two together ("its centre x - the trampoline's centre x is between -14 and 14").
+
+The contact dispatch walks the moving parts list (head `0x4d7d` in Even More, English floppy, the list the routine at
+`0x6469` puts a dropped part on at `0x649a`; TIM 1 French `0x52f9`, at `0x57ee`). So a part of a fixed type never
+touches, by [the decided assumption on the fixed list](behaviour-assumptions.md#11-parts-on-the-fixed-list), and states
+it instead of the lines. The assumption on the bullet doesn't apply here: the gun links each bullet into this list
+itself. In Even More the game also calls Mel Schlemming's bounce on Mel himself, with what he touched as `part`, so
+Mel's own bounce gives Mel no line.
+
+A bounce reaches the same writes on many paths, like the pinball bumper's on four. The paths that set the same and
+return the same are joined: each path's tests become the values each tested expression may take, a path whose cases
+another already covers is left out, and two paths that differ only in one expression's values become one when the
+values together are still one range. A test every value passes drops out, so the bumper's four paths give one line
+without tests. Joining only unites whole paths, so a line holds exactly when one of its paths' tests hold.
+
+What the bounce returns decides what follows: 0 skips the contact response, and another number lets the dispatch
+pick one by the part's flags, which can change the velocity again (see [contact callbacks and response
+selection](#contact-callbacks-and-response-selection)). The line says which. The words read the compiler's absolute
+value `(x ^ (x >> 15)) - (x >> 15)` as `|x|`, a position plus half the frame size as the centre, and the trampoline's
+two words at `0x1a` and `0x1c` as one long, positionY times 512 with its sign.
+
+In Even More (English floppy) this gives 441 lines on 24 part types:
+
+- 20 types that can move get 19 each: 12 from the conveyor belt, 4 from the alligator, 2 from the trampoline and 1
+  from the pinball bumper (the bowling ball, balloon, basketball, birdcage, bucket, dynamite, baseball,
+  jack-o-lantern, heart, rocket, explosion, pinball, tennis ball, candle, rope end, cheese, super ball, teapot, pool
+  ball and shamrock);
+- the cat gets no trampoline lines, and the mouse none either but 8 from the alligator: their rules read the list flags
+  at `0x06`, where the trampoline clears `0x0001`. The alligator's other 4 lines for the mouse set `0x2000` in its
+  drawing flags and `0x0200` in field `0x0a`, which takes it out of the contact dispatch;
+- Mel Schlemming gets the conveyor belt's, the alligator's and the trampoline's, but not the bumper's: his rules read
+  `velocityY`;
+- the bullet gets the alligator's 4 and the trampoline's that keeps `velocityX`, since its rules read `velocityX`.
+
+TIM 1 (French) has no alligator or bumper and a simpler conveyor belt: 167 lines, 10 each for 15 types (8 from the
+conveyor belt, 2 from the trampoline), 8 for the cat and the mouse and 1 for the bullet. No walk changes, the lines of
+other parts stay the same, and the recordings match as before: 596 and 504 complete, none different. Describing a build
+takes about as long as before.
+
+These touch outcomes still give no line:
+
+- The gear's (`0x1b032`): it adds or subtracts 4096 or 2048 to a velocity through four small helpers (`0x1afc2`,
+  `0x1afdc`, `0x1affa`, `0x1b014`) that then limit it, like `velocityX = velocityX - s`, and `-s` when that is below
+  `s`. Their summaries keep the written values unknown.
+- The vacuum cleaner's (`0x1e5af`): it changes fields `0x08`, `0x0a` and `0x12` through a helper whose values the
+  analysis doesn't know.
+- The electric switch's (`0x1a5d8`): it subtracts 1 from a bullet's `velocityX`, which the bullet's rules read. As the
+  value isn't a number, it is no walk either.
+- The teeter-totter's: its paths depend on a query's answer and stay unresolved.
+- The trampoline's paths for Mel that return 1: they read the frame tables and set `velocityY`, which Mel's rules read.
 
 ### The outline search
 

@@ -4,11 +4,31 @@
  * out for this part's type. A line is only made when the outcome's condition on the member is decided by the type
  * alone, apart from which list the part is on, and when every field it sets gets a number. An outcome that sets the
  * part's state, or a field the part's own rules read, can change its frame: walks are the place for that, so it gets
- * no line here.
+ * no line here. A part also gets what the bounce of a part it touches sets on it, with the tests of both parts.
  */
-import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
+import type {
+  BehaviourReport,
+  Confidence,
+  Evidence,
+  Expression,
+  FieldWrite,
+  Finding,
+  Predicate,
+  RoutineOutcome,
+} from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
+import {
+  compareWords,
+  formula,
+  impossible,
+  joinPaths,
+  longPart,
+  testsInWords,
+  testsOf,
+  type Names,
+  type Tests,
+} from "./describe-touch.ts";
 
 /**
  * The list flags of a part at `0x06`: the routine that puts a part on a list (`0x6469` in Even More, English floppy)
@@ -71,13 +91,21 @@ export type OtherPartSetting =
        */
       away?: { routine: number; degrees: number };
     }
-  | { kind: "field"; offset: number; width: number; value: number };
+  | { kind: "field"; offset: number; width: number; value: number }
+  /**
+   * A field set from this part's own fields as they were when it touched the source, with `part` this part: like the
+   * alligator's `0 - |velocityY|`. `words` says it, like "sets velocityY to -|velocityY|".
+   */
+  | { kind: "expression"; offset: number; width: number; value: Expression; words: string };
 
 export interface OtherPartEffect extends Finding {
   sourceType: number;
   sourcePart: string;
   routine: number;
-  /** What the source part's own fields must be, with `part` the source: like the explosion going to frame 2. */
+  /**
+   * What the source part's own fields must be, with `part` the source: like the explosion going to frame 2. For a touch,
+   * tests that compare the two parts are here too, with `collider` this part.
+   */
   sourceCondition: Predicate;
   /** The tests of `sourceCondition` that have a name, in a few words, like "mirrored". */
   sourceConditionWords: string[];
@@ -88,6 +116,12 @@ export interface OtherPartEffect extends Finding {
   conditionWords: string[];
   /** When it sets both velocities to numbers: where that moves the part on the screen, like "up and to the left". */
   velocityDirection?: string;
+  /**
+   * Set when this part touches the source: the contact dispatch calls the source's bounce with this part. `returns` is
+   * what the bounce returns on these paths, which says whether the game goes on to a contact response, undefined when
+   * it isn't a number.
+   */
+  touch?: { returns?: number };
   description: string;
 }
 
@@ -251,6 +285,77 @@ interface Candidate {
   memberTerms: Predicate[];
 }
 
+/** The part that touched the source, as the bounce callback gets it; `part` is the source, the part it touched. */
+const TOUCHER = "collider";
+export const TOUCH_ASSUMPTION =
+  "The part touches the source, which is another part, and the fields of both meet the tests when the contact dispatch calls the source's bounce; that this happens in a level is not claimed.";
+
+/** Whether a value reads a table, which a line can't look up. */
+function readsTable(value: Expression | Predicate): boolean {
+  if (value.kind === "table") return true;
+  if (value.kind === "binary" || value.kind === "compare") return readsTable(value.left) || readsTable(value.right);
+  if (value.kind === "and") return value.terms.some(readsTable);
+  return false;
+}
+
+/** A path of a bounce callback that sets fields of the part that touched it. */
+interface TouchCandidate {
+  sourceType: number;
+  sourcePart: string;
+  routine: number;
+  outcome: RoutineOutcome;
+  writes: FieldWrite[];
+  /** The tests of the touching part (and of numbers alone), of the touched part, and those that compare the two. */
+  toucherTerms: Predicate[];
+  sourceTerms: Predicate[];
+  bothTerms: Predicate[];
+  /** What the bounce returns on the path, when it is a number. */
+  returns?: number;
+}
+
+/**
+ * A bounce path that can give a touch line: its effects are complete, it writes the touching part, and nothing but the
+ * two parts, and each value it writes there is a number, a speed the speed setter got, or worked out from the touching
+ * part's own fields alone.
+ */
+function touchCandidate(
+  source: { id: string; type: number },
+  routine: number,
+  outcome: RoutineOutcome,
+): TouchCandidate | undefined {
+  if (!outcome.effectsComplete || outcome.confidence === "unresolved") return undefined;
+  const writes = outcome.fields.filter((f) => f.object === TOUCHER);
+  // What the bounce does to the touched part itself is that part's own business.
+  if (!writes.length || outcome.fields.some((f) => f.object !== TOUCHER && f.object !== "part")) return undefined;
+  const own = (value: Expression) => {
+    const read = objects(value);
+    return !read.unknown && [...read.objects].every((o) => o === TOUCHER) && !readsTable(value);
+  };
+  if (writes.some((w) => !w.directedSpeed && !own(w.value))) return undefined;
+  const toucherTerms: Predicate[] = [],
+    sourceTerms: Predicate[] = [],
+    bothTerms: Predicate[] = [];
+  for (const term of terms(outcome.condition)) {
+    const { objects: read, unknown } = objects(term);
+    if (unknown || term.kind !== "compare") return undefined;
+    if ([...read].every((o) => o === TOUCHER)) toucherTerms.push(term);
+    else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
+    else if ([...read].every((o) => o === "part" || o === TOUCHER)) bothTerms.push(term);
+    else return undefined;
+  }
+  return {
+    sourceType: source.type,
+    sourcePart: source.id,
+    routine,
+    outcome,
+    writes,
+    toucherTerms,
+    sourceTerms,
+    bothTerms,
+    ...(outcome.returnValue.kind === "constant" ? { returns: outcome.returnValue.value } : {}),
+  };
+}
+
 /**
  * By part type: the lines for what other parts do to it without changing its frame, and the decided assumptions that
  * ruled out others. `evaluate` tests a condition against known fields, as the walks do.
@@ -269,7 +374,299 @@ export function effectsFromOthers(
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
 
+  const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
+  /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
+  const settingWords = (offset: number, value: Expression) => {
+    const field = fieldName(offset);
+    const own = (e: Expression) => e.kind === "field" && e.object === "part" && e.offset === offset && e.width === 16;
+    const signedWord = (n: number) => (n >= 0x8000 ? n - 0x10000 : n);
+    if (value.kind === "binary" && own(value.left) && value.right.kind === "constant") {
+      const n = value.right.value;
+      const hex = `0x${n.toString(16).padStart(4, "0")}`;
+      if (value.operator === "+" || value.operator === "-") {
+        const amount = value.operator === "+" ? signedWord(n) : -signedWord(n);
+        return amount >= 0 ? `adds ${amount} to ${field}` : `subtracts ${-amount} from ${field}`;
+      }
+      // An arithmetic shift right halves a signed word and rounds down.
+      if (value.operator === ">>" && n === 1) return `halves ${field} (rounding down)`;
+      if (value.operator === "&") return `clears ${`0x${(~n & 0xffff).toString(16).padStart(4, "0")}`} in ${field}`;
+      if (value.operator === "|") return `sets ${hex} in ${field}`;
+      if (value.operator === "^") return `turns ${hex} in ${field} round`;
+    }
+    if (value.kind === "binary" && value.operator === "-" && value.left.kind === "constant" && value.left.value === 0) {
+      if (own(value.right)) return `reverses ${field}`;
+    }
+    const plain: Names = { field: fieldName, of: (_, what) => what };
+    const long = longPart(value);
+    if (long)
+      return `sets ${field} to the ${long.high ? "high" : "low"} word of ${formula(long.word, plain)} × ${2 ** long.shift}`;
+    return `sets ${field} to ${formula(value, plain)}`;
+  };
+  /**
+   * What the writes set on a part of the type: numbers, speeds and values of its own fields. Undefined when a speed
+   * isn't a number for it.
+   */
+  const settingsOf = (writes: FieldWrite[], member: string, type: number, used: { table: boolean }) => {
+    const sets: OtherPartSetting[] = [];
+    /** The speeds whose every write points along the line from the source's centre to this part's. */
+    const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
+    for (const w of writes) {
+      if (w.value.kind === "constant" && !w.directedSpeed) {
+        sets.push({ kind: "field", offset: w.offset, width: w.width, value: w.value.value });
+        continue;
+      }
+      if (!w.directedSpeed) {
+        // A value worked out from the part's own fields, as a touch can set: like halving its velocityX.
+        const value = rename(w.value, member, "part");
+        sets.push({
+          kind: "expression",
+          offset: w.offset,
+          width: w.width,
+          value,
+          words: settingWords(w.offset, value),
+        });
+        continue;
+      }
+      const speed = numberOf(forType(w.directedSpeed.speed, member, typeOffset, type, report.typeTable, used));
+      if (speed === undefined) return undefined;
+      const prior = sets.find(
+        (s): s is Extract<OtherPartSetting, { kind: "speed" }> =>
+          s.kind === "speed" && s.setter === w.directedSpeed!.routine && s.speed === speed,
+      );
+      const direction = w.directedSpeed.direction;
+      const away =
+        direction?.from === "part" && direction.to === member
+          ? { routine: direction.routine, call: direction.call }
+          : undefined;
+      if (prior) {
+        prior.fields = [...prior.fields, w.offset].sort((a, b) => a - b);
+        const line = lines.get(prior);
+        if (line?.routine !== away?.routine || line?.call !== away?.call) lines.set(prior, undefined);
+      } else {
+        const set: OtherPartSetting = { kind: "speed", fields: [w.offset], speed, setter: w.directedSpeed.routine };
+        sets.push(set);
+        lines.set(set, away);
+      }
+    }
+    const proofs: string[] = [];
+    for (const [set, line] of lines) {
+      if (set.kind !== "speed" || !line) continue;
+      const centre = report.helpers?.find((h) => h.address === line.routine)?.centreAngle;
+      const velocity = report.helpers?.find((h) => h.address === set.setter)?.directedVelocity;
+      // The direction is of the whole velocity: both its fields must be this speed from that one answer.
+      if (velocity && velocity.stores.some((store) => !set.fields.includes(store.field))) continue;
+      const degrees = centre && velocity && directionError(centre.backend, velocity, set.speed);
+      if (degrees === undefined) continue;
+      // Rounded up, so the bound still holds.
+      set.away = { routine: line.routine, degrees: Math.ceil(degrees * 100) / 100 };
+      proofs.push(...centre!.assumptions, CENTRES_ASSUMPTION);
+    }
+    return { sets, proofs };
+  };
+  /** The settings in words, with the source's name; both velocities set to numbers read as a direction on the screen. */
+  const sayings = (sets: OtherPartSetting[], name: string) => {
+    // Both velocities set to numbers read as one direction on the screen, with the numbers after it.
+    const velocity = (name: string) =>
+      sets.find(
+        (s): s is Extract<OtherPartSetting, { kind: "field" }> =>
+          s.kind === "field" && s.width === 16 && fieldNames.get(s.offset) === name,
+      );
+    const [across, down] = [velocity("velocityX"), velocity("velocityY")];
+    const signedWord = (value: number) => (value >= 0x8000 ? value - 0x10000 : value);
+    const vx = across && signedWord(across.value),
+      vy = down && signedWord(down.value);
+    const velocityDirection =
+      vx !== undefined && vy !== undefined
+        ? [vy < 0 ? "up" : vy > 0 ? "down" : "", vx < 0 ? "to the left" : vx > 0 ? "to the right" : ""]
+            .filter((w) => w)
+            .join(" and ") || undefined
+        : undefined;
+    // The two words of a long set from one value read as one: like the trampoline's 32-bit position at 0x1a.
+    const longs = new Map<OtherPartSetting, string>();
+    for (const low of sets) {
+      const part = low.kind === "expression" ? longPart(low.value) : undefined;
+      const high = sets.find(
+        (s) =>
+          s.kind === "expression" &&
+          low.kind === "expression" &&
+          s.offset === low.offset + 2 &&
+          JSON.stringify(longPart(s.value)) === JSON.stringify(part && { ...part, high: true }),
+      );
+      if (!part || part.high || !high || low.kind !== "expression") continue;
+      longs.set(
+        low,
+        `sets the long at 0x${low.offset.toString(16).padStart(2, "0")} to ${formula(part.word, { field: fieldName, of: (_, what) => what })} × ${2 ** part.shift}`,
+      );
+      longs.set(high, "");
+    }
+    const said = sets.flatMap((s) => {
+      if (longs.has(s)) return longs.get(s) ? [longs.get(s)!] : [];
+      if (velocityDirection && (s === across || s === down))
+        return s === across ? [`sets its velocity ${velocityDirection} (velocityX ${vx}, velocityY ${vy})`] : [];
+      if (s.kind === "expression") return [s.words];
+      if (s.kind === "speed")
+        return [
+          s.away
+            ? `sets its speed to ${s.speed}, away from the ${name}`
+            : `sets its speed to ${s.speed}, in a direction the ${name} works out`,
+        ];
+      const field = fieldNames.get(s.offset);
+      // A velocity is a signed word.
+      const value = field?.startsWith("velocity") && s.value >= 0x8000 ? s.value - 0x10000 : s.value;
+      return [`sets ${field ?? `+0x${s.offset.toString(16)}`} to ${value}`];
+    });
+    return { said, velocityDirection };
+  };
+  /** Types whose bounce the game also calls on a part of that type itself, with what it touched (Mel in Even More). */
+  const selfCalled = new Set((report.collisionDispatch ?? []).flatMap((d) => d.specialSelfCall?.type ?? []));
+  /**
+   * The touch lines of a part: what the bounce of a part it touches sets on it. Paths that set the same, and return
+   * the same, are joined where their tests allow it. `read` are the fields the part's own rules read.
+   */
+  const touchLines = (part: BehaviourReport["parts"][number], read: Set<number>, assumptions: Set<string>) => {
+    const readsField = (w: FieldWrite) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte));
+    // The contact dispatch walks the moving list: a part of a fixed type is never on it, by a decided assumption.
+    const fixed = !!startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
+    interface Path {
+      c: TouchCandidate;
+      sets: OtherPartSetting[];
+      raw: Predicate[];
+      confidence: Confidence;
+      assumptions: Set<string>;
+      evidence: Evidence[];
+    }
+    const groups = new Map<string, { tests: Tests; value: Path }[]>();
+    for (const c of touches) {
+      // The bounce of such a type may run with a part of the type as the toucher and anything as `part`.
+      if (selfCalled.has(c.sourceType) && part.type === c.sourceType) continue;
+      const used = { table: false };
+      const kept: Predicate[] = [];
+      let possible = true;
+      for (const term of [...c.toucherTerms, ...c.bothTerms, ...c.sourceTerms]) {
+        const typed = predicateForType(term, TOUCHER, typeOffset, part.type, report.typeTable, used);
+        const value = evaluate(typed, []);
+        if (value === true) continue;
+        if (value === false || readsTable(typed)) {
+          possible = false;
+          break;
+        }
+        kept.push(typed);
+      }
+      // A write to a field the part's rules read can change its frame: walks are the place for that.
+      if (!possible || c.writes.some(readsField)) continue;
+      const settings = settingsOf(c.writes, TOUCHER, part.type, used);
+      if (!settings) continue;
+      if (fixed) {
+        assumptions.add(FIXED_LIST_ASSUMPTION);
+        continue;
+      }
+      const tests = testsOf(kept);
+      if (!tests || impossible(tests)) continue;
+      const key = JSON.stringify([c.routine, settings.sets, c.returns ?? null]);
+      const group = groups.get(key) ?? [];
+      groups.set(key, group);
+      group.push({
+        tests,
+        value: {
+          c,
+          sets: settings.sets,
+          raw: kept,
+          confidence: c.outcome.confidence,
+          assumptions: new Set([
+            ...c.outcome.assumptions,
+            ...c.writes.flatMap((w) => w.assumptions),
+            ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...settings.proofs,
+          ]),
+          evidence: uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]),
+        },
+      });
+    }
+    const lines: OtherPartEffect[] = [];
+    const rank: Record<Confidence, number> = { checked: 0, inferred: 1, unresolved: 2 };
+    for (const group of groups.values())
+      for (const { tests, value, joined } of joinPaths(group, (into, from) => {
+        for (const a of from.assumptions) into.assumptions.add(a);
+        into.evidence = uniqueEvidence([...into.evidence, ...from.evidence]);
+        if (rank[from.confidence] > rank[into.confidence]) into.confidence = from.confidence;
+      })) {
+        const { c, sets } = value;
+        const name = nameOf(c.sourcePart);
+        // Each test with its comparisons and words; a path's own tests when they can't be said in short.
+        const list =
+          testsInWords(tests) ??
+          (joined
+            ? undefined
+            : value.raw.map((p) => ({
+                predicates: [p],
+                objects: objects(p).objects,
+                words: (names: Names) => compareWords(p as Extract<Predicate, { kind: "compare" }>, names),
+              })));
+        if (!list) continue;
+        const names = (whose: (object: string) => string): Names => ({
+          field: fieldName,
+          of: (object, what) => `${whose(object)}${what}`,
+        });
+        const both = names((object) => (object === TOUCHER ? "its " : `the ${name}'s `));
+        const toucher: Predicate[] = [],
+          source: Predicate[] = [],
+          toucherWords: string[] = [],
+          sourceWords: string[] = [],
+          sourcePhrases: string[] = [];
+        for (const test of list) {
+          const flag = test.predicates.length === 1 ? test.predicates[0]! : undefined;
+          if ([...test.objects].every((o) => o === TOUCHER)) {
+            const own = test.predicates.map((p) => renamePredicate(p, TOUCHER, "part"));
+            toucher.push(...own);
+            const drawn = own.length === 1 ? drawingFlagWords(own[0]!, report) : undefined;
+            toucherWords.push(drawn ? `it is ${drawn}` : test.words(both));
+          } else if ([...test.objects].every((o) => o === "part")) {
+            source.push(...test.predicates);
+            const drawn = flag && drawingFlagWords(flag, report);
+            sourceWords.push(drawn || test.words(names(() => "")));
+            sourcePhrases.push(drawn ? `the ${name} is ${drawn}` : test.words(both));
+          } else {
+            source.push(...test.predicates);
+            toucherWords.push(test.words(both));
+          }
+        }
+        const { said, velocityDirection } = sayings(sets, name);
+        const when = sourcePhrases.length ? `, when ${sourcePhrases.join(" and ")},` : "";
+        const only = toucherWords.length ? ` Only when ${toucherWords.join(" and ")}.` : "";
+        // The dispatch goes on to a contact response only when the bounce returns something other than 0.
+        const response =
+          c.returns === undefined
+            ? " The game may go on to a contact response, which can change these again."
+            : c.returns === 0
+              ? " Its bounce returns 0 then, so no contact response follows."
+              : ` Its bounce returns ${c.returns} then, so the game may go on to a contact response, which can change these again.`;
+        lines.push({
+          sourceType: c.sourceType,
+          sourcePart: c.sourcePart,
+          routine: c.routine,
+          sourceCondition: conjunction(source),
+          sourceConditionWords: sourceWords,
+          sets,
+          condition: conjunction(toucher),
+          conditionWords: toucherWords,
+          ...(velocityDirection ? { velocityDirection } : {}),
+          touch: c.returns === undefined ? {} : { returns: c.returns },
+          description: `${article(name)} ${name} it touches${when} ${said.join(" and ")}.${only}${response}`,
+          confidence: value.confidence,
+          assumptions: [
+            ...new Set([
+              ...value.assumptions,
+              ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
+              TOUCH_ASSUMPTION,
+            ]),
+          ],
+          evidence: value.evidence,
+        });
+      }
+    return lines;
+  };
   const candidates: Candidate[] = [];
+  const touches: TouchCandidate[] = [];
   for (const source of report.parts)
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
@@ -303,6 +700,12 @@ export function effectsFromOthers(
           memberTerms,
         });
       }
+      // The contact dispatch calls the bounce of the touched part's type with the part that touched it (`collider`).
+      if (callback.slot === 0)
+        for (const outcome of routines.get(callback.address)?.outcomes ?? []) {
+          const touch = touchCandidate(source, callback.address, outcome);
+          if (touch) touches.push(touch);
+        }
     }
 
   for (const part of report.parts) {
@@ -351,89 +754,16 @@ export function effectsFromOthers(
       }
       if (!possible || !decided) continue;
       if (c.writes.some((w) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte)))) continue;
-      const sets: OtherPartSetting[] = [];
-      /** The speeds whose every write points along the line from the source's centre to this part's. */
-      const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
-      let numbered = true;
-      for (const w of c.writes) {
-        if (!w.directedSpeed) {
-          sets.push({ kind: "field", offset: w.offset, width: w.width, value: (w.value as { value: number }).value });
-          continue;
-        }
-        const speed = numberOf(forType(w.directedSpeed.speed, c.member, typeOffset, part.type, report.typeTable, used));
-        if (speed === undefined) {
-          numbered = false;
-          break;
-        }
-        const prior = sets.find(
-          (s): s is Extract<OtherPartSetting, { kind: "speed" }> =>
-            s.kind === "speed" && s.setter === w.directedSpeed!.routine && s.speed === speed,
-        );
-        const direction = w.directedSpeed.direction;
-        const away =
-          direction?.from === "part" && direction.to === c.member
-            ? { routine: direction.routine, call: direction.call }
-            : undefined;
-        if (prior) {
-          prior.fields = [...prior.fields, w.offset].sort((a, b) => a - b);
-          const line = lines.get(prior);
-          if (line?.routine !== away?.routine || line?.call !== away?.call) lines.set(prior, undefined);
-        } else {
-          const set: OtherPartSetting = { kind: "speed", fields: [w.offset], speed, setter: w.directedSpeed.routine };
-          sets.push(set);
-          lines.set(set, away);
-        }
-      }
-      const proofs: string[] = [];
-      for (const [set, line] of lines) {
-        if (set.kind !== "speed" || !line) continue;
-        const centre = report.helpers?.find((h) => h.address === line.routine)?.centreAngle;
-        const velocity = report.helpers?.find((h) => h.address === set.setter)?.directedVelocity;
-        // The direction is of the whole velocity: both its fields must be this speed from that one answer.
-        if (velocity && velocity.stores.some((store) => !set.fields.includes(store.field))) continue;
-        const degrees = centre && velocity && directionError(centre.backend, velocity, set.speed);
-        if (degrees === undefined) continue;
-        // Rounded up, so the bound still holds.
-        set.away = { routine: line.routine, degrees: Math.ceil(degrees * 100) / 100 };
-        proofs.push(...centre!.assumptions, CENTRES_ASSUMPTION);
-      }
-      if (!numbered) continue;
+      const settings = settingsOf(c.writes, c.member, part.type, used);
+      if (!settings) continue;
+      const { sets, proofs } = settings;
       // The part would get this line but for its list: a decided assumption keeps it off the moving list.
       if (byList) {
         assumptions.add(offList!);
         continue;
       }
       const name = nameOf(c.sourcePart);
-      // Both velocities set to numbers read as one direction on the screen, with the numbers after it.
-      const velocity = (name: string) =>
-        sets.find(
-          (s): s is Extract<OtherPartSetting, { kind: "field" }> =>
-            s.kind === "field" && s.width === 16 && fieldNames.get(s.offset) === name,
-        );
-      const [across, down] = [velocity("velocityX"), velocity("velocityY")];
-      const signedWord = (value: number) => (value >= 0x8000 ? value - 0x10000 : value);
-      const vx = across && signedWord(across.value),
-        vy = down && signedWord(down.value);
-      const velocityDirection =
-        vx !== undefined && vy !== undefined
-          ? [vy < 0 ? "up" : vy > 0 ? "down" : "", vx < 0 ? "to the left" : vx > 0 ? "to the right" : ""]
-              .filter((w) => w)
-              .join(" and ") || undefined
-          : undefined;
-      const said = sets.flatMap((s) => {
-        if (velocityDirection && (s === across || s === down))
-          return s === across ? [`sets its velocity ${velocityDirection} (velocityX ${vx}, velocityY ${vy})`] : [];
-        if (s.kind === "speed")
-          return [
-            s.away
-              ? `sets its speed to ${s.speed}, away from the ${name}`
-              : `sets its speed to ${s.speed}, in a direction the ${name} works out`,
-          ];
-        const field = fieldNames.get(s.offset);
-        // A velocity is a signed word.
-        const value = field?.startsWith("velocity") && s.value >= 0x8000 ? s.value - 0x10000 : s.value;
-        return [`sets ${field ?? `+0x${s.offset.toString(16)}`} to ${value}`];
-      });
+      const { said, velocityDirection } = sayings(sets, name);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
       const description = `${article(name)} ${name} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when it is ${words.join(" and ")}.` : ""}`;
       const key = JSON.stringify([c.routine, sets, conditionTerms]);
@@ -468,6 +798,7 @@ export function effectsFromOthers(
         evidence,
       });
     }
+    for (const line of touchLines(part, read, assumptions)) effects.set(`touch ${effects.size}`, line);
     if (effects.size || assumptions.size)
       result.set(part.type, { effects: [...effects.values()], assumptions: [...assumptions] });
   }
