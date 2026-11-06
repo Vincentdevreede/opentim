@@ -821,7 +821,9 @@ function walkOf(a: AnimationDescription, write: ReturnType<typeof writer>): Walk
               .replace(/^Touching (.+?)(, if .*)?$/, "touching $1")
           : roleOf(a.trigger.name),
     start: a.initial,
-    condition: termsOf(a.inputCondition ?? a.trigger.condition, write),
+    // A hit walked from an input case needs both: the case, and what the hit itself tests, like the trampoline's
+    // contactEdge == 0. The trigger's condition holds both for a hit; the same term is said once.
+    condition: [...new Set([...termsOf(a.inputCondition, write), ...termsOf(a.trigger.condition, write)])],
     about: a.trigger.name,
     description: a.description,
   };

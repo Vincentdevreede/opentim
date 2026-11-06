@@ -61,7 +61,8 @@ the rest when it is opened.
 - **Walks.** A trigger with more than 12 rows folds them by where they start ("running from 3"), so the
   jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
   named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the
-  tip.
+  tip. A hit walked from an input case shows both in its condition: the case and the hit's own tests, so the
+  bullet's "touching a trampoline" rows also read "contactEdge == 0" and the speed the touch needs.
 - **Numbers in conditions.** A frame, a speed, a position or a control value reads signed in decimal
   ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too ("ropeKind & 0x18 == 0x10"; under
   a mask below 10 as a number, and a mask of a mask as one), a direction in degrees ("collider.contactAngle <

@@ -290,13 +290,14 @@ describe("summariseWalks", () => {
     name: string,
     w: BehaviourWalk,
     inputCondition?: Predicate,
+    condition: Predicate = { kind: "true" },
   ): AnimationDescription => ({
     ...finding,
     id: name,
     initial: "run-guard",
     prerequisites: [],
     inputCondition,
-    trigger: { ...finding, kind, name, routine: 0x1d034, condition: { kind: "true" }, writes: [] },
+    trigger: { ...finding, kind, name, routine: 0x1d034, condition, writes: [] },
     walk: w,
   });
   const report = {
@@ -397,6 +398,12 @@ describe("summariseWalks", () => {
             "related-write",
             "Touching an electric switch, if the frame is 0 and a part-specific value is 12288",
             walk({ status: "rest", frames: [visit(0)] }),
+            compare("==", field(0x0c), constant(0)),
+            // The input case and the hit's own test, as the analysis gives a hit walked from an input case.
+            {
+              kind: "and",
+              terms: [compare("==", field(0x0c), constant(0)), compare("==", field(0x12), constant(0))],
+            },
           ),
           animation(
             "callback",
@@ -431,6 +438,10 @@ describe("summariseWalks", () => {
   it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {
     expect(touch).toMatchObject({ trigger: "touching an electric switch" });
     expect(touch!.about).toBe("Touching an electric switch, if the frame is 0 and a part-specific value is 12288");
+  });
+
+  it("keeps what a hit itself tests next to the input case it is walked from, saying each term once", () => {
+    expect(touch!.condition).toEqual(["state == 0", "stateDelta == 0"]);
   });
 
   it("keeps the frames, where a loop goes back to, and the path under each condition where it splits", () => {
