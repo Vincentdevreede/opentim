@@ -114,6 +114,69 @@ describe("writer", () => {
     );
   });
 
+  it("reads numbers in a condition by what they are: signed values, masks in hex and directions in degrees", () => {
+    const binary = (operator: string, left: Expression, right: Expression): Expression => ({
+      kind: "binary",
+      operator,
+      left,
+      right,
+      width: 16,
+    });
+    // A speed or a frame is signed, also when a test only says equal or not, and a negative number added is taken off.
+    expect(predicate(compare("!=", field(0x12), constant(0xd000)))).toBe("stateDelta != -12288");
+    const signedTest: Predicate = {
+      kind: "compare",
+      operator: ">=",
+      left: field(0x0c),
+      right: constant(0xfff2),
+      signed: true,
+    };
+    expect(predicate(signedTest)).toBe("state >= -14");
+    expect(predicate(compare("!=", binary("+", field(0x0c), constant(0xffff)), constant(0)))).toBe("state - 1 != 0");
+    // An unsigned test keeps the number it compares with as it is.
+    expect(predicate(compare("<", field(0x12), constant(0xe000)))).toBe("stateDelta < 57344");
+    // A mask of a mask is one mask, and the masked value reads in hex like it.
+    const kind = binary("&", binary("&", field(0x12), constant(0x8018)), constant(0x7fff));
+    expect(predicate(compare("==", kind, constant(0x10)))).toBe("stateDelta & 0x18 == 0x10");
+    expect(predicate(compare("==", binary("&", field(0x08), constant(16)), constant(0)))).toBe("part+0x08 & 0x10 == 0");
+    expect(predicate(compare("!=", binary("&", field(0x08), constant(0x18)), constant(8)))).toBe(
+      "part+0x08 & 0x18 != 0x8",
+    );
+    // Bits set before a mask that keeps none of them say nothing, and a mask that keeps only those is a number.
+    const set = binary("|", field(0x08), constant(0x40));
+    expect(predicate(compare("==", binary("&", set, constant(0x400)), constant(0)))).toBe("part+0x08 & 0x400 == 0");
+    expect(predicate(compare("!=", binary("&", set, constant(0x40)), constant(0)))).toBe("0x40 != 0");
+    // The direction a part was hit from is an angle, a full turn being 0x10000; a masked one stays in bits.
+    const angles = writer([...fields, { offset: 0x88, name: "contactAngle" }]);
+    const angle = field(0x88, "collider");
+    expect(angles.predicate(compare("<", angle, constant(0xe000)))).toBe("collider.contactAngle < 315°");
+    expect(angles.predicate(compare("<", binary("+", angle, constant(0x800)), constant(0x1000)))).toBe(
+      "collider.contactAngle + 11.25° < 22.5°",
+    );
+    const side = binary("&", binary("+", angle, constant(0x4000)), constant(0x8000));
+    expect(angles.predicate(compare("==", side, constant(0)))).toBe("(collider.contactAngle + 0x4000) & 0x8000 == 0");
+    // Outside a condition numbers read as before.
+    expect(expression(constant(0xd000))).toBe("0xd000");
+  });
+
+  it("names what the rope code passes a rope callback, and the record of the rope it is asked about", () => {
+    const named = [...fields, { offset: 0x04, name: "type" }];
+    const rope = writer(named, new Map(), "rope");
+    const asked =
+      'pointer loaded from table 0x2fe1+0x66 indexed by {"kind":"binary","operator":"+","left":{"kind":"field","object":"argument","offset":10,"width":16},"right":{"kind":"field","object":"address of part","offset":0,"width":16},"width":16}';
+    expect(rope.predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("ropeKind == 2");
+    expect(rope.predicate(compare("!=", field(0x0a, "argument"), constant(0)))).toBe("ropeSlot != 0");
+    expect(rope.predicate(compare("==", field(0x04, "referenced-by(argument+0x6)"), constant(3)))).toBe(
+      "otherEnd.type == 3",
+    );
+    expect(rope.predicate(compare("<=", field(0x12, "argument"), field(0x12, "argument")))).toBe(
+      "pullMomentum.high <= pullMomentum.high",
+    );
+    expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope+0x0e == 0");
+    // Other routines' arguments aren't the rope code's, so they keep the analysis's words.
+    expect(writer(named).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument+0x0c == 2");
+  });
+
   it("joins conditions and says when there is none", () => {
     expect(predicate({ kind: "true" })).toBe("always");
     expect(
@@ -334,17 +397,34 @@ describe("summariseWalks", () => {
             "Touching an electric switch, if the frame is 0 and a part-specific value is 12288",
             walk({ status: "rest", frames: [visit(0)] }),
           ),
+          animation(
+            "callback",
+            "rope callback candidate",
+            walk({ status: "rest", frames: [visit(1)] }),
+            compare("==", field(0x0c, "argument"), constant(2)),
+          ),
+          animation(
+            "callback",
+            "flip callback candidate",
+            walk({ status: "rest", frames: [visit(1)] }),
+            compare("==", field(0x0c, "argument"), constant(2)),
+          ),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const [run, rope, explosion, bounce, hit, touch] = summariseWalks(report, description)[3]!;
+  const [run, rope, explosion, bounce, hit, touch, pulled, flipped] = summariseWalks(report, description)[3]!;
 
   it("names each walk by its trigger and writes its condition as terms", () => {
     expect(run).toMatchObject({ trigger: "run", start: "run-guard", condition: ["stateDelta != 0"] });
     expect(rope).toMatchObject({ trigger: "rope", condition: [] });
     expect(explosion).toMatchObject({ trigger: "by explosion", end: "hold" });
     expect(hit).toMatchObject({ trigger: "hit by an explosion", end: "rest", frames: [-1] });
+  });
+
+  it("names what the rope code passes only in the walks the rope callback starts", () => {
+    expect(pulled).toMatchObject({ trigger: "rope", condition: ["ropeKind == 2"] });
+    expect(flipped).toMatchObject({ trigger: "flip", condition: ["argument+0x0c == 2"] });
   });
 
   it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {

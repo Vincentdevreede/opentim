@@ -76,12 +76,18 @@ describe("tidying conditions", () => {
     expect(tidyTerm(`${expression(binary("+", absolute, constant(1)))} > 2`)).toBe("|state - olderY| + 1 > 2");
     const own = binary(">>", state, constant(15));
     expect(tidyTerm(`${expression(binary("-", binary("^", state, own), own))} < 3`)).toBe("|state| < 3");
+    // Also of another part's field, like the overlap of the part a search found.
+    expect(tidyTerm("(found.overlapX ^ (found.overlapX >> 15)) - (found.overlapX >> 15) < 292")).toBe(
+      "|found.overlapX| < 292",
+    );
     expect(tidyTerm("x + 0xffe0 > 3")).toBe("x - 32 > 3");
     expect(tidyTerm("(x - 32) - 0xffc0")).toBe("(x - 32) + 64");
   });
 
   it("drops repeats, comparisons of numbers and terms another implies", () => {
     expect(tidyTerms(["a < 0", "a != 0", "a <= 0", "3 == 3", "a < 0", "b >= 2"])).toEqual(["a < 0", "b >= 2"]);
+    // Masked bits read in hex, and say the same.
+    expect(tidyTerms(["k & 0x7 != 0x4", "k & 0x7 == 0x2", "0x200 != 0"])).toEqual(["k & 0x7 == 0x2"]);
   });
 });
 

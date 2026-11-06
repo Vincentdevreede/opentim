@@ -284,14 +284,88 @@ const LINKS = new Map<number, Kind>([
 ]);
 type Kind = "part" | "belt" | "outline" | "rope" | "other";
 
+/**
+ * How numbers read in a condition: `words` as everywhere else (small ones in decimal, others in hex), `signed` and
+ * `unsigned` in decimal, `bits` in hex unless below 10, `masked` (what masked bits are compared with) in hex unless 0,
+ * and an angle in degrees (a full turn is 0x10000).
+ */
+type Numbers = "words" | "signed" | "unsigned" | "bits" | "masked" | "angle" | "signed angle";
+
+/**
+ * The words the rope code passes a rope callback, by their place on its stack: the part at the other end of the rope
+ * (0x08462 passes the part whose rope moved, the connection query 0x1d638 the part that asks), the slot number of the
+ * rope's end on this part, the kind of pull 0x7996 works out (with 0x8000 when the teeter-totter only asks first, as
+ * its run does at 0x1d2a5), and the momentum of the part that started the pull, passed along unchanged.
+ */
+const ROPE_ARGUMENTS = new Map([
+  [0x0a, "ropeSlot"],
+  [0x0c, "ropeKind"],
+  [0x10, "pullMomentum"],
+  [0x12, "pullMomentum.high"],
+]);
+
+/** What the lab's own names in a condition stand for, with the analysis's raw form, for the tips. */
+export const NAMED_TERMS: { name: string; raw: string; meaning: string }[] = [
+  { name: "otherEnd", raw: "[argument+0x06]", meaning: "the part at the other end of the rope" },
+  { name: "ropeSlot", raw: "argument+0x0a", meaning: "which of its two rope links the rope is tied to" },
+  { name: "ropeKind", raw: "argument+0x0c", meaning: "the kind of pull, with 0x8000 when it only asks" },
+  { name: "pullMomentum", raw: "argument+0x10", meaning: "the momentum of the part that started the pull" },
+  {
+    name: "askedRope",
+    raw: "[table …+0x66[…]]",
+    meaning: "the record of the rope it is asked about, its rope link at 0x66 picked by ropeSlot",
+  },
+];
+
+/**
+ * A mask of a mask as one, `(x & 0x8007) & 0x7fff` as `x & 0x7`, and bits set before a mask that keeps none of them
+ * left out, `(x | 0x40) & 0x400` as `x & 0x400`. When the mask keeps only bits that were set, the value is the mask.
+ */
+function foldMask(e: Extract<Expression, { kind: "binary" }>): Expression {
+  const { left, right } = e;
+  if (e.operator !== "&" || right.kind !== "constant" || left.kind !== "binary" || left.right.kind !== "constant")
+    return e;
+  const [inner, mask] = [left.right.value >>> 0, right.value >>> 0];
+  if (left.operator === "&")
+    return foldMask({ ...e, left: left.left, right: { ...right, value: (inner & mask) >>> 0 } });
+  if (left.operator === "|" && (inner & mask) === 0) return foldMask({ ...e, left: left.left });
+  if (left.operator === "|" && (inner & mask) === mask) return right;
+  return e;
+}
+
 /** Writes expressions and conditions as text, with the names of the part's fields. */
 export function writer(
   fields: readonly { offset: number; name: string }[],
   /** Names that only hold for this part's own fields, like the gear's neighbours. */
   own: ReadonlyMap<number, string> = new Map(),
+  /** The routine the expressions come from, when its argument has names: the rope callback's. */
+  routine?: "rope",
 ) {
   const names = new Map([...PART_FIELDS, ...fields.map((f) => [f.offset, f.name] as const)]);
   const number = (n: number) => (n >= 0 && n < 100 ? String(n) : n < 0 && n > -100 ? String(n) : hex(n >>> 0));
+  /** A number in a condition, in the style its place asks for. */
+  const numberIn = (n: number, width: number, style: Numbers): string => {
+    const bits = width > 0 && width <= 32 ? width : 16;
+    const unsigned = n < 0 ? n + 2 ** bits : n;
+    const signedValue = unsigned >= 2 ** (bits - 1) ? unsigned - 2 ** bits : unsigned;
+    switch (style) {
+      case "words":
+        return number(n);
+      case "bits":
+        return unsigned < 10 ? String(unsigned) : hex(unsigned);
+      case "masked":
+        return unsigned ? hex(unsigned) : "0";
+      case "unsigned":
+        return String(unsigned);
+      case "signed":
+        return String(signedValue);
+      case "angle":
+      case "signed angle": {
+        const degrees = ((style === "angle" ? unsigned : signedValue) * 360) / 0x10000;
+        return `${Number(degrees.toFixed(2))}°`;
+      }
+    }
+  };
   /** An object the analysis names, as text and the kind of thing it is. */
   const object = (text: string): { name: string; kind: Kind } => {
     // The same object read after a call that may have changed it.
@@ -310,6 +384,9 @@ export function writer(
     if (/^a candidate selected by the overlap query at 0x[0-9a-f]+$/.test(text)) return { name: "found", kind: "part" };
     if (/^a part reached through a rope, belt or pulley at 0x[0-9a-f]+$/.test(text))
       return { name: "reached", kind: "part" };
+    // The part at the other end of the rope, which the rope code passes a rope callback.
+    if (routine === "rope" && /^referenced-by\(argument\+0x0?6\)$/.test(text))
+      return { name: "otherEnd", kind: "part" };
     const linked = /^referenced-by\((.+)\+0x([0-9a-f]+)\)$/.exec(text);
     if (linked) {
       const inner = object(linked[1]!);
@@ -324,6 +401,10 @@ export function writer(
       // A link without a name is bracketed, so its own fields don't read as a sum.
       return { name: kind === "other" || name.includes("+") ? `[${name}]` : name, kind };
     }
+    // The record of the rope a rope callback is asked about: the part's rope link at 0x66, or the one after it, picked
+    // by the slot number of the rope's end (decided assumption 1), like the teeter-totter's at 0x1d53d.
+    if (/^pointer loaded from table 0x[0-9a-f]+\+0x66 indexed by .*"object":"address of part"/.test(text))
+      return { name: "askedRope", kind: "rope" };
     const table = /^pointer loaded from table (\S+) indexed by /.exec(text);
     if (table) return { name: `[table ${table[1]}[…]]`, kind: "other" };
     return { name: text, kind: "other" };
@@ -374,23 +455,52 @@ export function writer(
     const scanned = /^value after the list scan at (0x[0-9a-f]+) in (.+)$/.exec(target);
     if (scanned) return `${field(object(scanned[2]!), offset)} after the scan at ${scanned[1]}`;
     if (target === "stack") return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)}`;
-    if (target === "argument") return `argument+${hex(offset, 2)}`;
+    if (target === "argument")
+      return (routine === "rope" && ROPE_ARGUMENTS.get(offset)) || `argument+${hex(offset, 2)}`;
     return field(object(target), offset);
   };
-  const expression = (e: Expression, nested = false): string => {
+  /** Whether a value is a direction word, like where a part was hit (0x0d98), or one with a turn added. */
+  const isAngle = (e: Expression): boolean =>
+    (e.kind === "field" && /(^|\.)contactAngle$/.test(place(e.object, e.offset))) ||
+    (e.kind === "binary" &&
+      (e.operator === "+" || e.operator === "-") &&
+      isAngle(e.left) &&
+      e.right.kind === "constant");
+  const expression = (e: Expression, nested = false, style: Numbers = "words"): string => {
     // One of two values a test picks, written as the two values and the test.
     const choice = choiceOf(e);
     if (choice) {
-      const text = `${expression(choice.then, true)} if ${predicate(choice.test)}, else ${expression(choice.otherwise, true)}`;
+      const text = `${expression(choice.then, true, style)} if ${predicate(choice.test)}, else ${expression(choice.otherwise, true, style)}`;
       return nested ? `(${text})` : text;
     }
     switch (e.kind) {
       case "constant":
-        return number(e.value);
+        return numberIn(e.value, e.width, style);
       case "field":
         return place(e.object, e.offset);
       case "binary": {
-        const text = `${expression(e.left, true)} ${e.operator} ${expression(e.right, true)}`;
+        if (style === "words") {
+          const text = `${expression(e.left, true)} ${e.operator} ${expression(e.right, true)}`;
+          return nested ? `(${text})` : text;
+        }
+        // In a condition: masks in hex, and what they are applied to in bits too; a shift by a count; a negative
+        // number added as one taken off.
+        const masked = foldMask(e);
+        if (masked.kind !== "binary") return expression(masked, nested, "masked");
+        const bitwise = ["&", "|", "^"].includes(masked.operator);
+        const shift = ["<<", ">>", ">>>"].includes(masked.operator);
+        const inner: Numbers = bitwise ? "bits" : style;
+        const left = expression(masked.left, true, inner);
+        let operator = masked.operator;
+        let right =
+          bitwise && masked.right.kind === "constant"
+            ? hex(masked.right.value >>> 0)
+            : expression(masked.right, true, shift ? "unsigned" : inner);
+        if ((operator === "+" || operator === "-") && /^-\d/.test(right)) {
+          operator = operator === "+" ? "-" : "+";
+          right = right.slice(1);
+        }
+        const text = `${left} ${operator} ${right}`;
         return nested ? `(${text})` : text;
       }
       case "table":
@@ -403,8 +513,25 @@ export function writer(
     switch (p.kind) {
       case "true":
         return "always";
-      case "compare":
-        return `${expression(p.left)} ${p.operator} ${expression(p.right)}`;
+      case "compare": {
+        // A frame, a speed, a position or a control value as a signed number, a direction in degrees, and a value of
+        // masked bits in hex like the mask.
+        const masked = (e: Expression) => e.kind === "binary" && ["&", "|", "^"].includes(e.operator);
+        const style: Numbers = [p.left, p.right].some(isAngle)
+          ? p.signed
+            ? "signed angle"
+            : "angle"
+          : [p.left, p.right].some(masked)
+            ? "bits"
+            : p.signed || p.operator === "==" || p.operator === "!="
+              ? "signed"
+              : "unsigned";
+        // The bits a mask keeps are compared with bits, also when they are a single one; ordered, they are a number.
+        const equal = p.operator === "==" || p.operator === "!=";
+        const side = (e: Expression): Numbers =>
+          style === "bits" && e.kind === "constant" ? (equal ? "masked" : "unsigned") : style;
+        return `${expression(p.left, false, side(p.left))} ${p.operator} ${expression(p.right, false, side(p.right))}`;
+      }
       case "and":
         return p.terms.map(predicate).join(" and ");
       case "unknown":
@@ -528,12 +655,16 @@ function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummar
 
 function summarisePart(
   part: PartBehaviour,
-  write: ReturnType<typeof writer>,
+  fields: readonly { offset: number; name: string }[],
   stateOffset: number,
   report: BehaviourReport,
 ): PartSummary {
   const roles = new Map(part.routines.map((r) => [r.address, roleOf(r.role)]));
   const routineName = (address: number) => roles.get(address) ?? hex(address, 5);
+  const write = partWriter(part, fields);
+  // The rope callback's own findings name what the rope code passes it.
+  const rope = partWriter(part, fields, "rope");
+  const writerOf = (routine: number) => (roles.get(routine) === "rope" ? rope : write);
   const finding = (f: { confidence: Confidence; assumptions: string[]; evidence: Evidence[] }): Finding => ({
     confidence: f.confidence,
     assumptions: f.assumptions,
@@ -542,9 +673,9 @@ function summarisePart(
   const writeOf = (w: FieldWrite): Write => ({
     ...finding(w),
     routine: routineName(w.routine),
-    target: write.place(w.object, w.offset),
-    value: write.expression(w.value),
-    condition: write.predicate(w.condition),
+    target: writerOf(w.routine).place(w.object, w.offset),
+    value: writerOf(w.routine).expression(w.value),
+    condition: writerOf(w.routine).predicate(w.condition),
   });
   return {
     routines: part.routines.map((r) => ({
@@ -565,7 +696,7 @@ function summarisePart(
         toState: t.to.kind === "constant" ? frameOf(t.to.value) : undefined,
         targets: targetsOf(t.to, t.from, stateOffset),
         keeps,
-        condition: write.predicate(t.condition),
+        condition: writerOf(t.routine).predicate(t.condition),
       };
     }),
     // The six routines are listed on their own; triggers are what else starts a change.
@@ -576,7 +707,7 @@ function summarisePart(
         // Name the field, like "stateDelta gates a state change" for "Field 0x12 gates a state change".
         name: t.name.replace(/^Field (0x[0-9a-f]+)/, (_, offset: string) => write.place("part", Number(offset))),
         routine: routineName(t.routine),
-        condition: t.condition && write.predicate(t.condition),
+        condition: t.condition && writerOf(t.routine).predicate(t.condition),
       })),
     counters: part.counters.map((c) => ({
       ...finding(c),
@@ -657,8 +788,19 @@ function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0
 }
 
 /** The walks of a part, one for each trigger and starting case the analysis follows. */
-function walksOf(animations: readonly AnimationDescription[], write: ReturnType<typeof writer>): Walk[] {
-  return animations.map((a) => ({
+function walksOf(
+  animations: readonly AnimationDescription[],
+  write: ReturnType<typeof writer>,
+  /** The writer for walks the rope callback starts, which names what the rope code passes it. */
+  rope: ReturnType<typeof writer> = write,
+): Walk[] {
+  return animations.map((a) =>
+    walkOf(a, a.trigger.kind === "callback" && roleOf(a.trigger.name) === "rope" ? rope : write),
+  );
+}
+
+function walkOf(a: AnimationDescription, write: ReturnType<typeof writer>): Walk {
+  return {
     ...pathOf(a.walk, write),
     trigger:
       a.trigger.kind === "run" || a.trigger.kind === "input-case"
@@ -675,13 +817,13 @@ function walksOf(animations: readonly AnimationDescription[], write: ReturnType<
     condition: termsOf(a.inputCondition ?? a.trigger.condition, write),
     about: a.trigger.name,
     description: a.description,
-  }));
+  };
 }
 
 /** The writer for a part: with the names of the gear's neighbours when it is a gear. */
-function partWriter(part: PartBehaviour, fields: readonly { offset: number; name: string }[]) {
+function partWriter(part: PartBehaviour, fields: readonly { offset: number; name: string }[], routine?: "rope") {
   const own = new Map(gearSlots(part).map((s) => [s.offset, s.name]));
-  return writer(fields, own);
+  return writer(fields, own, routine);
 }
 
 /** The walks from the triggers of each part, by type, from the report's description. */
@@ -689,7 +831,10 @@ export function summariseWalks(report: BehaviourReport, description: BehaviourDe
   const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
   const animations = new Map(description.parts.map((d) => [d.type, d.animations]));
   return Object.fromEntries(
-    report.parts.map((p) => [p.type, walksOf(animations.get(p.type) ?? [], partWriter(p, fields))]),
+    report.parts.map((p) => [
+      p.type,
+      walksOf(animations.get(p.type) ?? [], partWriter(p, fields), partWriter(p, fields, "rope")),
+    ]),
   );
 }
 
@@ -911,9 +1056,7 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   return {
     fields,
     timing,
-    parts: Object.fromEntries(
-      report.parts.map((p) => [p.type, summarisePart(p, partWriter(p, fields), stateOffset, report)]),
-    ),
+    parts: Object.fromEntries(report.parts.map((p) => [p.type, summarisePart(p, fields, stateOffset, report)])),
     assumptions: report.assumptions,
   };
 }

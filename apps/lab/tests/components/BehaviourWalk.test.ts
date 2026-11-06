@@ -2,7 +2,9 @@ import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { expect, it } from "vitest";
 import { visibleText } from "../visible-text.ts";
-import type { WalkRow } from "../../src/behaviour-view.ts";
+import type { BehaviourDescription, BehaviourReport, Expression, Predicate } from "@opentim/content";
+import { summariseWalks } from "../../src/behaviour.ts";
+import { walkGroups, type WalkRow } from "../../src/behaviour-view.ts";
 import BehaviourWalk from "../../src/components/sprites/BehaviourWalk.vue";
 
 const row: WalkRow = {
@@ -29,4 +31,72 @@ it("shows where a walk starts, its frames, how it ends and the condition it need
 
 it("counts the cases that follow the same path", async () => {
   expect(await text({ ...row, variants: [["state == 0"], ["state == 1"]] })).toContain("2×");
+});
+
+it("reads a rope walk's condition by the names of what the rope code passes, with their raw form in the tip", async () => {
+  const finding = { confidence: "inferred" as const, assumptions: [], evidence: [] };
+  const word = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
+  const argument = (offset: number): Expression => ({ kind: "field", object: "argument", offset, width: 16 });
+  const masked: Expression = {
+    kind: "binary",
+    operator: "&",
+    left: { kind: "binary", operator: "&", left: argument(0x0c), right: word(0x8007), width: 16 },
+    right: word(0x7fff),
+    width: 16,
+  };
+  const asked: Expression = {
+    kind: "field",
+    object:
+      'pointer loaded from table 0x2fe1+0x66 indexed by {"kind":"field","object":"address of part","offset":0,"width":16}',
+    offset: 0x0e,
+    width: 16,
+  };
+  const condition: Predicate = {
+    kind: "and",
+    terms: [
+      { kind: "compare", operator: "==", left: masked, right: word(4), signed: false },
+      { kind: "compare", operator: "==", left: asked, right: word(0), signed: false },
+      {
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "field", object: "part", offset: 0x36, width: 16 },
+        right: word(0xd000),
+        signed: false,
+      },
+    ],
+  };
+  const walk = { ...finding, status: "rest", states: [], frames: [], runCalls: 0, fields: [], timingReason: "" };
+  const report = {
+    layout: { fields: [{ offset: 0x36, name: "velocityX", ...finding }] },
+    parts: [{ type: 3, routines: [] }],
+  } as unknown as BehaviourReport;
+  const description = {
+    parts: [
+      {
+        type: 3,
+        animations: [
+          {
+            ...finding,
+            id: "rope",
+            initial: "documented-rest",
+            prerequisites: [],
+            inputCondition: condition,
+            trigger: { ...finding, kind: "callback", name: "rope callback candidate", routine: 0x1d52d, writes: [] },
+            walk: { ...walk, frames: [{ ...finding, state: 1, frame: 1, atRun: 0, runCalls: 0 }] },
+          },
+        ],
+      },
+    ],
+  } as unknown as BehaviourDescription;
+  const [group] = walkGroups(summariseWalks(report, description)[3]!);
+  const html = await renderToString(
+    createSSRApp({ render: () => h(BehaviourWalk, { row: group!.rows[0]!, frames: [0, 1, 2] }) }),
+  );
+  const line = visibleText(html);
+  // The server writes `&` as an entity, which the page shows as `&`.
+  expect(line).toContain("ropeKind &amp; 0x7 == 0x4 and askedRope+0x0e == 0 and velocityX != -12288");
+  expect(line).not.toContain("argument");
+  expect(line).not.toContain("table");
+  expect(html).toContain("ropeKind is argument+0x0c: the kind of pull, with 0x8000 when it only asks.");
+  expect(html).toContain("askedRope is [table …+0x66[…]]");
 });

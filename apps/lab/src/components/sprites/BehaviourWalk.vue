@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { WalkPath } from "../../behaviour.ts";
-import { readTerm, START_WORDS, type WalkRow } from "../../behaviour-view.ts";
+import { namedTermLines, readTerm, START_WORDS, type WalkRow } from "../../behaviour-view.ts";
 import BehaviourPath from "./BehaviourPath.vue";
 import BehaviourRow from "./BehaviourRow.vue";
 
@@ -38,6 +38,9 @@ const tip = computed(() => {
   const lines = [...r.about.slice(0, 2), "", `Starts ${START_WORDS[r.start]}.`];
   if (r.variants.length) lines.push(`${r.variants.length} cases follow this path.`);
   if (r.path.branches.length) lines.push(`Splits ${r.path.branches.length} ways on an input the analysis can't tell.`);
+  // The lab's names in the conditions, with the analysis's own form.
+  const named = namedTermLines([condition.value, ...branches.value.map((b) => b.condition), ...r.variants.map(read)]);
+  if (named.length) lines.push("", ...named);
   lines.push("", `${r.confidence}. Click for why it ends there.`);
   return lines.join("\n");
 });
