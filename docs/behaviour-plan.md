@@ -1,8 +1,8 @@
 # Part behaviour: the last 10%
 
 Each step has a number that shows it is done. The numbers come from the recording comparison on Even More (English
-floppy) and TIM 1 (French), measured on 2cda1a2. A step that needs a decision from you is marked **(ask)**; I collect
-those and ask them together.
+floppy) and TIM 1 (French), measured on 2cda1a2. A step that needs a decision from you says so; I collect those and ask
+them together.
 
 Starting point:
 
@@ -69,19 +69,24 @@ the level), and every one of those is listed by name.
 ## D. Recordings that stop early
 
 - [ ] **D1. Mouse motor restart, cat, mouse and Mel's house** (20 in Even More). They wait for a search to find
-      another part. **(ask)** You said a part is only alone at the start. I can prove it stays alone when no part in the
-      recording creates another part, and check from the recording that nothing else is on the bench. If that holds, these
-      close without a new assumption.
+      another part. Decided: prove the part stays alone (no part in the recording creates another part, and the recording
+      shows nothing else on the bench) and close only the recordings where both hold. No new assumption.
 - [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
-      save. You chose to leave this open. **(ask)** Still leave it, or take "no belt attached" for these recordings?
+      save. Still open. Check what you saw in the game against the code:
+  - it starts biking when the shade is pulled down;
+  - a belt on it works like the mouse motor's wheel while it bikes;
+  - when hit, it pauses and shows stars, then bikes on;
+  - if the shade isn't pulled down again, it doesn't start again.
+
+  Then ask whether the recorded bikes had a belt attached.
 
 ## E. Parts without a recording
 
 - [ ] **E1. Check them against the shipped levels.** 28 parts have no recording (walls, balls, ropes, pulley, belt,
       electric switch, solar panel, magnifying glass, rope end and the holiday parts). Compare their starting frames and
       resting frames with every shipped level. Done when no level disagrees.
-- [ ] **E2. A short list for you to look at in the game.** **(ask)** For the parts where code alone leaves room, a few
-      things to try in the game, each with what the analysis expects. Only if you want to do that.
+- [ ] **E2. A short list for you to try in the game.** Decided: yes. For the parts where code alone leaves room, a
+      few things to try, each with what the analysis expects.
 
 ## F. All builds
 
