@@ -1,6 +1,7 @@
 import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { expect, it } from "vitest";
+import { visibleText } from "../visible-text.ts";
 import type { OtherEffect } from "../../src/behaviour.ts";
 import BehaviourEffect from "../../src/components/sprites/BehaviourEffect.vue";
 
@@ -17,11 +18,7 @@ const effect: OtherEffect = {
   description: "An explosion that reaches it sets its speed to 4096. Only when it is on the moving list.",
 };
 const text = async (e: OtherEffect, name = "Explosion") =>
-  (await renderToString(createSSRApp({ render: () => h(BehaviourEffect, { effect: e, name }) })))
-    .replace(/<!--.*?-->/g, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  visibleText(await renderToString(createSSRApp({ render: () => h(BehaviourEffect, { effect: e, name }) }))).trim();
 
 it("shows the other part, what it sets and the value on one line, with a chip for the list", async () => {
   expect(await text(effect)).toBe("Explosion speed 4096 moving list");

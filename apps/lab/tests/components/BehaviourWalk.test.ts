@@ -1,6 +1,7 @@
 import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { expect, it } from "vitest";
+import { visibleText } from "../visible-text.ts";
 import type { WalkRow } from "../../src/behaviour-view.ts";
 import BehaviourWalk from "../../src/components/sprites/BehaviourWalk.vue";
 
@@ -16,10 +17,7 @@ const row: WalkRow = {
   descriptions: [],
 };
 const text = async (r: WalkRow, frames = [0, 1, 2]) =>
-  (await renderToString(createSSRApp({ render: () => h(BehaviourWalk, { row: r, frames }) })))
-    .replace(/<!--.*?-->/g, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ");
+  visibleText(await renderToString(createSSRApp({ render: () => h(BehaviourWalk, { row: r, frames }) })));
 
 it("shows where a walk starts, its frames, how it ends and the condition it needs", async () => {
   const html = await renderToString(createSSRApp({ render: () => h(BehaviourWalk, { row, frames: [0, 1, 2] }) }));
