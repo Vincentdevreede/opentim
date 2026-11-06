@@ -106,6 +106,8 @@ the level), and every one of those is listed by name.
       the cat's still recordings 2), TIM 1 512 to 516 (the mouse 4), none different.
       The TIM 1 cat's loop over the found list is now recognised as a loop that stops at the first part it finds (see
       "The TIM 1 cat's loop over the found list"): TIM 1 516 to 520.
+      The Even More mouse motor's control value is now kept at the end of its count (see "The mouse motor's control
+      value at the end of its count"): Even More 612 to 616. Only the monkey bike stays open in both builds.
 - [ ] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Still open. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

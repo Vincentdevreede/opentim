@@ -1767,6 +1767,26 @@ which never run while the list is empty, and a pointer tested against itself (`o
 The TIM 1 cat's four recordings that look in the found list close: complete matches in TIM 1 went from 516 to 520 (12
 through a skipped search), prefixes from 36 to 32. Even More stays at 612. None is different.
 
+### The mouse motor's control value at the end of its count
+
+The Even More mouse motor's four run recordings (control value 1, counter 12) agreed frame for frame and stayed
+prefixes: some ways of the walk could still flip the frame after the count ran out. The cause wasn't a join. At every
+run the mouse motor (`0x1bfb5`) has two paths that flip the frame: one while the counter at `0x96` still runs, one for
+the last count, which also clears the control value at `0x12`. The walk doesn't know the counter, only its starting
+value plus how far it moved, so both paths apply, and since they lead to the same frame the walk took one step with
+what they agree on and forgot the control value. After the count it then allowed "the control value isn't 0" and
+another flip.
+
+Now, when only tests of a countdown's starting value tell such rules apart, the walk follows each path as its own branch,
+as it already does when they lead to different frames. Nothing is chosen: each branch carries its own test of the
+starting value, which a recording that gives the counter decides. The branch for the last count knows the control
+value is 0.
+
+All eight mouse motor recordings in Even More now match (the four run recordings through the skipped search, as the
+others): complete matches went from 612 to 616, prefixes from 36 to 32. TIM 1 stays at 520, and walk endings don't
+change (Even More 696 end through branches and 629 directly, TIM 1 625 and 521). None is different. What stays open in
+both builds are the monkey bike's 32 recordings (D2).
+
 ### The monkey bike's control value after its reaction
 
 The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at

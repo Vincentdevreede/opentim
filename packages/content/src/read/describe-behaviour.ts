@@ -2769,9 +2769,19 @@ export function walkBehaviourRules(
         : stopped;
     }
     let next = outcomes[0]!;
-    // Rules that all lead to the same frame need no branch: the walk goes on with what they agree on.
+    // Rules that all lead to the same frame need no branch: the walk goes on with what they agree on. Unless only tests
+    // of a countdown's starting value tell them apart, like the mouse motor's last count, which also clears its control
+    // value: then each is followed, so what it sets isn't forgotten.
+    const onlyStartTests =
+      unknownGuards.length > 0 &&
+      unknownGuards.every((rule) =>
+        predicateTerms(rule.condition)
+          .filter((term) => predicateOf(term, bindings, constraints) === undefined)
+          .every((term) => startTestOffset(term) !== undefined),
+      );
     const sameFrame =
       outcomes.length > 1 &&
+      !onlyStartTests &&
       outcomes.every((outcome) => known(outcome.destination) && outcome.destination.value === next.destination.value);
     if (sameFrame && outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
       next = { ...next, next: agreedBindings(outcomes.map((outcome) => outcome.next)) };
