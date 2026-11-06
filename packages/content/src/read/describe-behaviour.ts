@@ -1,6 +1,12 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
-import { CONTROL_VALUES, IMPOSSIBLE_STATES, LEVEL_FRAMES, ONE_FRAME_ASSUMPTION } from "./behaviour-saved-frames.ts";
+import {
+  CONTROL_VALUES,
+  IMPOSSIBLE_STATES,
+  LEVEL_FRAMES,
+  ONE_FRAME_ASSUMPTION,
+  REACTION_FIELDS,
+} from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, type OtherPartEffect } from "./describe-effects.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
@@ -1334,6 +1340,23 @@ function countdownFields(
 }
 /** By part type and offset: the numbers the run tests a countdown for. */
 const countdownValues = new Map<string, Set<number>>();
+/** The numbers the rules test a 16-bit part field for being equal or not equal to. */
+function testedNumbers(rules: WithUpdates[], offset: number): Set<number> {
+  const numbers = new Set<number>();
+  for (const rule of rules)
+    for (const term of predicateTerms(rule.condition))
+      if (
+        term.kind === "compare" &&
+        (term.operator === "==" || term.operator === "!=") &&
+        term.left.kind === "field" &&
+        term.left.object === "part" &&
+        term.left.offset === offset &&
+        term.left.width === 16 &&
+        term.right.kind === "constant"
+      )
+        numbers.add(term.right.value);
+  return numbers;
+}
 /**
  * A rule stands for the return paths that lead to its frame, joined two at a time where they differ in one test. A
  * field those paths set differently is unknown in the rule, like the mouse motor's control value, which its run clears
@@ -1667,6 +1690,11 @@ export function walkBehaviourRules(
      * runs work out their own values again.
      */
     runValues?: ReadonlyMap<string, number>;
+    /**
+     * Whether a field a decided assumption keeps during the part's reaction (`REACTION_FIELDS`) is kept here as the
+     * value it had at the walk's start. Not when one of the part's own callbacks that change that field starts the walk.
+     */
+    reaction?: boolean;
   } = {},
 ): BehaviourWalk {
   const explored: Explored = options.explored ?? { states: new Map(), size: 0 };
@@ -1682,7 +1710,11 @@ export function walkBehaviourRules(
     routine,
     stateOffset ?? -1,
   );
-  const counters = countdowns(part, rules, stateOffset);
+  const counted = countdowns(part, rules, stateOffset);
+  // A field kept through a reaction is followed like a countdown that never moves, while the walk keeps it.
+  const reaction = REACTION_FIELDS.get(part.id);
+  if (reaction) countdownValues.set(`${part.type}:${reaction.offset}`, testedNumbers(rules, reaction.offset));
+  const counters = reaction ? [...counted, reaction.offset] : counted;
   const definitions = fieldDefinitions(report, part);
   for (const field of [
     ...seed,
@@ -1697,10 +1729,43 @@ export function walkBehaviourRules(
   let bindings = bindingsOf(seed);
   // The first walk of a tree follows each countdown it doesn't know from the value it starts with.
   if (!options.explored)
-    for (const offset of counters)
+    for (const offset of counted)
       if (!readField(bindings, "part", offset, 16).mask) writeField(bindings, CHANGE, offset, bits(0, 0xffff, 16));
+  // The first walk of a tree that may keep the field through a reaction keeps it from the value it starts with.
+  if (reaction && options.reaction && !options.explored && !readField(bindings, "part", reaction.offset, 16).mask)
+    writeField(bindings, CHANGE, reaction.offset, bits(0, 0xffff, 16));
   bindings = settleCountdowns(bindings, counters);
   let constraints = options.condition ? predicateTerms(options.condition).filter(inputPredicate) : [];
+  /** Whether the walk keeps the field through a reaction in these fields. */
+  const keepsReaction = (fields: Bindings) => !!reaction && known(readField(fields, CHANGE, reaction.offset, 16));
+  /**
+   * After a run that began on a frame outside the reaction, or with that frame unknown, the field is no longer kept:
+   * the reaction ended and its next run read it. Tests of its starting value become tests of the field itself, which
+   * holds that value as long as the walk keeps it.
+   */
+  const leaveReaction = (fields: Bindings, tests: Predicate[], from: number | undefined) => {
+    if (!reaction || !keepsReaction(fields) || (from !== undefined && reaction.frames.includes(from)))
+      return { fields, tests };
+    const unmoved = readField(fields, CHANGE, reaction.offset, 16).value === 0;
+    const left = new Map(fields);
+    writeField(left, CHANGE, reaction.offset, unknownBits(16));
+    writeField(left, START, reaction.offset, unknownBits(16));
+    return {
+      fields: left,
+      tests: tests.flatMap((test): Predicate[] =>
+        startTestOffset(test) !== reaction.offset
+          ? [test]
+          : unmoved && test.kind === "compare"
+            ? [{ ...test, left: { kind: "field", object: "part", offset: reaction.offset, width: 16 } }]
+            : [],
+      ),
+    };
+  };
+  // A tree's first walk, or a starting frame a level saves, outside the reaction doesn't keep the field.
+  if ((!options.explored || options.levelStart) && stateOffset !== undefined) {
+    const frame = readField(bindings, "part", stateOffset, 16);
+    if (known(frame)) ({ fields: bindings, tests: constraints } = leaveReaction(bindings, constraints, frame.value));
+  }
   if (counters.length) constraints = countdownTests(constraints, bindings, part.type);
   // How deep this walk's branches may still nest. Widening at the limit gives the walk a fresh depth once.
   let branchDepth = options.branchDepth ?? BRANCH_DEPTH;
@@ -2037,15 +2102,19 @@ export function walkBehaviourRules(
     if (depth <= 0) return depthUsedUp();
     if (excluded.size) proof = finding([proof], [...excluded]);
     return [...ways.values()].map(({ rules, next, kept }, n) => {
+      const after = leaveReaction(next, shared(kept), states.at(-1));
       const wayProof = finding(
         [proof, ...rules],
-        byFrame && rules.length > 1
-          ? ["The rules that apply here lead to the same next frame; the fields they set differently are forgotten."]
-          : [],
+        [
+          ...(byFrame && rules.length > 1
+            ? ["The rules that apply here lead to the same next frame; the fields they set differently are forgotten."]
+            : []),
+          ...(keepsReaction(settleCountdowns(after.fields, counters)) ? [reaction!.assumption] : []),
+        ],
       );
-      const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, wayProof), {
+      const walk = walkBehaviourRules(report, partType, fieldsOf(after.fields, definitions, wayProof), {
         maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
-        condition: { kind: "and", terms: shared(kept) },
+        condition: { kind: "and", terms: after.tests },
         branchDepth: depth - 1,
         explored,
         path: [...path, n],
@@ -2097,9 +2166,11 @@ export function walkBehaviourRules(
       stateOffset,
       rule.to,
     );
-    const walk = walkBehaviourRules(report, partType, fieldsOf(next, definitions, finding([proof, rule])), {
+    // The frame this run began on isn't known, so a field kept through a reaction isn't kept past it.
+    const after = leaveReaction(next, kept, undefined);
+    const walk = walkBehaviourRules(report, partType, fieldsOf(after.fields, definitions, finding([proof, rule])), {
       maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - 1),
-      condition: { kind: "and", terms: kept },
+      condition: { kind: "and", terms: after.tests },
       branchDepth: depth - 1,
       explored,
       path: [...path, 0],
@@ -2569,6 +2640,7 @@ export function walkBehaviourRules(
     bindings = next.next;
     states.push(next.destination.value);
     proofs.push(step);
+    ({ fields: bindings, tests: constraints } = leaveReaction(bindings, constraints, current));
     // A walk that comes round to the same fields with only a countdown moved, and no test of it on the way, forgets
     // how far it moved, so it can notice the loop.
     if (counters.length) {
@@ -2579,6 +2651,8 @@ export function walkBehaviourRules(
         bindings = withoutCountdowns(bindings);
       plainSeen.add(plain);
     }
+    // Keeping the field into the next run rests on the decided assumption.
+    if (keepsReaction(bindings)) proof = finding([proof], [reaction!.assumption]);
     const id = walkSignature();
     const prior = seen.get(id);
     if (prior !== undefined) return base(prior === states.length - 2 ? "rest" : "loop", undefined, prior);
@@ -3794,7 +3868,13 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
               reason: "The trigger has untracked object effects, so its final starting fields are not established.",
               timingReason: "No run invocation can be established from this trigger.",
             }
-          : walkBehaviourRules(report, part.type, seed, held.length ? { condition: { kind: "and", terms: held } } : {});
+          : walkBehaviourRules(report, part.type, seed, {
+              ...(held.length ? { condition: { kind: "and", terms: held } } : {}),
+              // The part's own callbacks that change a field kept through its reaction start it from their value.
+              reaction: !(
+                trigger.kind === "callback" && REACTION_FIELDS.get(part.id)?.changedBy.includes(trigger.name)
+              ),
+            });
       animations.push({
         id,
         initial: created ? "creation" : stable ? "documented-rest" : "reset",
@@ -3989,7 +4069,11 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           writes: [],
           ...finding([input]),
         };
-        const walk = walkBehaviourRules(report, part.type, input.fields, { condition: input.condition, midRun: true });
+        const walk = walkBehaviourRules(report, part.type, input.fields, {
+          condition: input.condition,
+          midRun: true,
+          reaction: true,
+        });
         animations.push({
           id: `run-guard-${index}`,
           initial: "run-guard",

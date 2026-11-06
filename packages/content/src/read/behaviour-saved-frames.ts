@@ -130,3 +130,34 @@ export const IMPOSSIBLE_STATES: ReadonlyMap<
     ],
   ],
 ]);
+
+/**
+ * The monkey bike's reaction after a hit: its bounce (`0x1bd05` in Even More) puts it on frame 5 or 9, starts the
+ * counter at `0x96` and sets its control value at `0x12` to 0 (`0x1bd2e`). While the counter runs, its run (`0x1bdbd`)
+ * shows frames 5 to 12 and doesn't touch the control value. When the counter runs out on frames 5 to 8 it goes to frame
+ * 0, and the next run pedals again unless the control value is 0 (`0x1be5a`). Only the bounce and the rope callback
+ * (`0x1becc`, which writes 1 or -1) change the control value otherwise. Decided with the user: neither happens while
+ * the reaction plays.
+ */
+export const MONKEY_BIKE_REACTION_ASSUMPTION =
+  "While the monkey bike plays its reaction after a hit, nothing pulls its rope or bounces it, so its control value at 0x12 keeps the value it had when the reaction started.";
+
+/**
+ * By part id: a field a decided assumption keeps while the part plays a reaction on these frames, and the assumption.
+ * A walk keeps it as the value it had at the walk's start through the reaction and the run right after it, but not when
+ * one of the part's own callbacks that change the field (named here by role) starts the walk.
+ */
+export const REACTION_FIELDS: ReadonlyMap<
+  string,
+  { frames: number[]; offset: number; changedBy: string[]; assumption: string }
+> = new Map([
+  [
+    "monkey-bike",
+    {
+      frames: [5, 6, 7, 8, 9, 10, 11, 12],
+      offset: 0x12,
+      changedBy: ["bounce callback candidate", "rope callback candidate"],
+      assumption: MONKEY_BIKE_REACTION_ASSUMPTION,
+    },
+  ],
+]);

@@ -1372,6 +1372,32 @@ What stays a prefix, by cause (Even More 84, TIM 1 76):
   0, where the run pedals again when the control value is not 0. No rule on that way writes a known control value, and
   the recording gives it only at the start, so the walk can't tell it is still 0.
 
+### The monkey bike's control value after its reaction
+
+The monkey bike's reaction recordings start on frame 5 with the counter at `0x96` at 20 and the control value at
+`0x12` at 0. After 20 runs the bike is on frame 0 with the counter at 0, and there its run (`0x1be5a` in Even More,
+`0x1a567` in TIM 1) pedals again unless the control value is 0. Those recordings stayed prefixes in both builds.
+
+Nothing lost the value on the way: the reset walk never knew it. The reset puts back the control value a level saves,
+which the walk doesn't know, and the run doesn't write it during the reaction, so the walk carried "unknown" to frame 0. The join into the walk that starts on frame 0 didn't lose anything either, since that walk didn't know it. The
+comparison takes a recording's starting fields as the part's fields only on the first run, and on later runs only as
+starting values of fields the walk follows from its start (the countdowns). So at run 21 the test of the control value
+stayed open.
+
+A decided assumption ([the monkey bike's reaction](behaviour-assumptions.md#16-the-monkey-bikes-reaction)) settles
+it: while the bike plays its reaction, nothing pulls its rope or bounces it, so its control value keeps the value it
+had when the reaction started. A walk that starts in the reaction (a first walk, or a starting frame a level saves, on
+frames 5 to 12) now keeps the control value as its starting value, like a countdown that never moves. It keeps it
+through every run that begins on frames 5 to 12 and through the run right after them, which reads it; then the field
+goes back to plain tests of itself. A run that writes it ends this, as for a countdown. A walk started by the bike's own
+bounce or rope callback doesn't keep it, since those write the control value; the reset, the flip and the input cases
+can. Every finding that keeps the value past a run states the assumption.
+
+The four reaction recordings now match completely in both builds: complete matches went from 564 to 568 in Even More
+and from 476 to 480 in TIM 1, and prefixes from 84 to 80 and from 76 to 72. None is different. Walk endings don't
+change (Even More 521 end through branches and 577 end directly, TIM 1 450 and 476), and the monkey bike's 65 walks
+all still end. What stays a prefix for the bike are its recordings seeded on frames 5 to 12, as before.
+
 ### Outlines
 
 Many parts build their own outline in their reset: the shape other parts bounce off. The part's outline pointer at

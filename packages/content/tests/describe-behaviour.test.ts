@@ -6,6 +6,7 @@ import {
   ELECTRIC_MOTOR_ASSUMPTION,
   GEAR_ASSUMPTION,
   MONKEY_BIKE_ASSUMPTION,
+  MONKEY_BIKE_REACTION_ASSUMPTION,
   MOUSE_MOTOR_ASSUMPTION,
   TEETER_TOTTER_END_ASSUMPTION,
 } from "../src/read/behaviour-saved-frames.ts";
@@ -738,6 +739,103 @@ describe("descriptions from extracted behaviour rules", () => {
         [[10, 10], "rest"],
       ]);
       expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+  });
+
+  describe("the monkey bike's control value during its reaction", () => {
+    const minus = (offset: number, value: number): Expression => ({
+      kind: "binary",
+      operator: "-",
+      left: field(offset),
+      right: constant(value),
+      width: 16,
+    });
+    const counted = (operator: string): Predicate => ({
+      kind: "compare",
+      left: minus(0x96, 1),
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    /**
+     * Like the monkey bike's run: while its counter at 0x96 runs it shows frames 5 and 6, then frame 0, where it pedals
+     * on to frame 1 unless its control value at 0x12 is 0. Its reaction never writes the control value.
+     */
+    const reacting = () => {
+      const data = report([
+        { ...rule(constant(6), both(test(0x96, "!=", 0), counted("!=")), [write(0x96, minus(0x96, 1))]), from: [5] },
+        { ...rule(constant(5), both(test(0x96, "!=", 0), counted("!=")), [write(0x96, minus(0x96, 1))]), from: [6] },
+        { ...rule(constant(0), both(test(0x96, "!=", 0), counted("==")), [write(0x96, minus(0x96, 1))]), from: [5, 6] },
+        { ...rule(field(12), both(test(0x96, "==", 0), test(0x12, "==", 0))), from: [0, 1] },
+        { ...rule(constant(1), both(test(0x96, "==", 0), test(0x12, "!=", 0))), from: [0, 1] },
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id: "monkey-bike", frameCount: 13 } as never;
+      data.routines[0] = {
+        ...data.routines[0]!,
+        uncertainties: [],
+        returnPathsComplete: true,
+        outcomes: [
+          { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+        ],
+      } as never;
+      return data;
+    };
+    const nodes = (walk: BehaviourWalk): BehaviourWalk[] => [
+      walk,
+      ...(walk.stop?.branches ?? []).flatMap((branch) => nodes(branch.walk)),
+    ];
+    const recording: MeasuredClip = {
+      path: "synthetic",
+      frames: [5, 6, 5, 6, 0].map((state, n) => ({ state, control: 0, timer: 4 - n })),
+      loopStart: null,
+      input: {},
+      skippedEngineServices: {},
+    };
+    const compared = (walk: BehaviourWalk) => {
+      const animation: AnimationDescription = {
+        ...proof,
+        id: "react",
+        initial: "reset",
+        prerequisites: [],
+        initialFields: [known(12, 5)],
+        trigger: { ...proof, kind: "run", name: "Run", routine: 100, condition: { kind: "true" }, writes: [] },
+        walk,
+      };
+      return compareMeasuredWalks([animation], recording, reacting()).classification;
+    };
+
+    it("keeps the control value it had when the reaction started, so a recording that gives it proves the ending", () => {
+      const walk = walkBehaviourRules(reacting(), 39, [known(12, 5)], { reaction: true });
+      // After the reaction, the test of the control value is a test of the value the walk started with.
+      const end = nodes(walk).find((node) => node.states[0] === 0 && node.stop?.branches?.length);
+      expect(JSON.stringify(end?.stop?.branches?.map((branch) => branch.condition))).toContain(START);
+      expect(end?.assumptions).toContain(MONKEY_BIKE_REACTION_ASSUMPTION);
+      expect(compared(walk)).toBe("complete");
+    });
+
+    it("doesn't keep it when the walk may not, like after the bike's own bounce or rope callback", () => {
+      const walk = walkBehaviourRules(reacting(), 39, [known(12, 5)]);
+      expect(nodes(walk).some((node) => node.assumptions.includes(MONKEY_BIKE_REACTION_ASSUMPTION))).toBe(false);
+      expect(compared(walk)).toBe("prefix");
+    });
+
+    it("doesn't keep it in the description after the bike's own bounce", () => {
+      const data = reacting();
+      const hit = [write(12, constant(5)), write(0x96, constant(4))];
+      data.routines[2] = {
+        ...data.routines[2]!,
+        writes: hit,
+        outcomes: [{ ...proof, condition: { kind: "true" }, fields: hit, returnValue: constant(0) }],
+      };
+      const bounce = describeBehaviour(data).parts[0]!.animations.find((item) => item.trigger.kind === "callback")!;
+      expect(bounce.walk.states[0]).toBe(5);
+      expect(nodes(bounce.walk).some((node) => node.assumptions.includes(MONKEY_BIKE_REACTION_ASSUMPTION))).toBe(false);
+    });
+
+    it("doesn't keep it from a frame outside the reaction", () => {
+      const walk = walkBehaviourRules(reacting(), 39, [known(12, 0), known(0x96, 0)], { reaction: true });
+      expect(JSON.stringify(walk.stop?.branches?.map((branch) => branch.condition))).not.toContain(START);
+      expect(nodes(walk).some((node) => node.assumptions.includes(MONKEY_BIKE_REACTION_ASSUMPTION))).toBe(false);
     });
   });
 

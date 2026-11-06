@@ -617,3 +617,51 @@ start on those.
 
 - Look for another writer of the generator's saved frame.
 - Run the saved frame check over the levels of every build.
+
+## 16. The monkey bike's reaction
+
+Decided on 2026-11-06 with the user. In the code: `MONKEY_BIKE_REACTION_ASSUMPTION` and `REACTION_FIELDS` in
+`packages/content/src/read/behaviour-saved-frames.ts`. Explained in
+[the monkey bike's control value after its reaction](behaviour.md#the-monkey-bikes-control-value-after-its-reaction).
+
+**The question.** After a hit, the monkey bike plays its reaction: it shows frames 5 to 12 while its counter at `0x96`
+counts down. When the counter runs out on frames 5 to 8 it goes to frame 0, and its next run pedals again unless its
+control value at `0x12` is 0. A walk that starts in the middle of the reaction, like the reset walk on frame 5, doesn't
+know the control value. Can it change while the reaction plays, or does the run after it see the value it had when the
+reaction started?
+
+**What the code shows** (Even More, English floppy; TIM 1 French in brackets):
+
+- The bike's run at `0x1bdbd` (`0x1a4ce`) reads the control value only when the counter is 0 (`0x1be5a`, `0x1a567`).
+  While the counter runs it only counts down and moves the frame. When the counter runs out on frames 9 to 12 it sets
+  the control value to -1 or 1 (`0x1be0e` and `0x1be15`, `0x1a51f` and `0x1a526`); on frames 5 to 8 it goes to frame 0
+  and leaves the control value alone. It also copies its control value to a part it reaches (`0x1bddc`), but never
+  writes its own otherwise.
+- Its bounce at `0x1bd05` (`0x1a411`) starts the reaction: it sets frame 5 or 9, the counter to 28 and the control
+  value to 0 (`0x1bd2e`, `0x1a43a`), but only when the counter is 0.
+- Its rope callback at `0x1becc` (`0x1a5d9`) writes 1 or -1 (`0x1bf4c` and `0x1bf53`, `0x1a65b` and `0x1a662`). On
+  frames 5 to 8 it can also move the bike on to frames 9 to 12 (`0x1bf2f`).
+- Belt writers skip parts with `0x0800` in `+0x08`, so they don't write the bike (see assumption 9). No other writer of
+  the bike's control value was found.
+
+**What we assume.**
+
+- While the monkey bike plays its reaction after a hit, nothing pulls its rope or bounces it, so its control value at
+  `0x12` keeps the value it had when the reaction started.
+
+Not proved: a rope tied to the bike can be pulled at any time, and that writes the control value. The bounce only acts
+while the counter is 0, so it can't come during the countdown, but it can between the run where the counter runs out
+and the next one. The decision is that the reaction is described on its own, as the recorder plays it.
+
+**What it gives.** A walk that starts in the reaction (on frames 5 to 12, from the reset, a flip or an input case)
+keeps the control value as the value it had at the walk's start, through the reaction and the run right after it.
+That run's test of the control value is then a test of the starting value, which a recording that gives the control
+value decides. Walks started by the bike's own bounce or rope callback don't use it: those are what write the control
+value. The monkey bike's reaction recordings (4 in each recorded build) now match completely: complete matches went
+from 564 to 568 in Even More and from 476 to 480 in TIM 1. Walk endings don't change.
+
+**How to recheck.**
+
+- List every writer of the bike's `0x12` (the list above and in assumption 9) and check none can run during the
+  reaction other than the rope callback and the bounce.
+- In the game, pull a rope tied to a monkey bike while it reacts to a hit, and see whether it pedals again afterwards.

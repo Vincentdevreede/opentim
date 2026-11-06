@@ -14,6 +14,7 @@ import {
   ELECTRIC_MOTOR_ASSUMPTION,
   GEAR_ASSUMPTION,
   MONKEY_BIKE_ASSUMPTION,
+  MONKEY_BIKE_REACTION_ASSUMPTION,
   MOUSE_MOTOR_ASSUMPTION,
   ONE_FRAME_ASSUMPTION,
   SELF_DRAWN_ASSUMPTION,
@@ -40,4 +41,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Parts with one frame", assumptions: [ONE_FRAME_ASSUMPTION] },
   { title: "Parts the game draws itself", assumptions: [SELF_DRAWN_ASSUMPTION] },
   { title: "The generator's starting frame", assumptions: [GENERATOR_ASSUMPTION] },
+  { title: "The monkey bike's reaction", assumptions: [MONKEY_BIKE_REACTION_ASSUMPTION] },
 ];
