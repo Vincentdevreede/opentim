@@ -779,6 +779,30 @@ saved with `0x0004` in its third flags word and no other part is, and no part is
 No level saves a bullet, and the gun doesn't give the bullets it makes `0x1000`, so the bullet's walks may never
 happen in a game; the walk keeps the test.
 
+### Lightable parts
+
+[Assumption 17](behaviour-assumptions.md#17-parts-the-candle-can-light) settles the first point of the section above:
+only the cannon, the dynamite, the rocket and the candle are marked as lightable (`0x0004` in field `0x0a`), and they
+always are. `hitsFromOthers` takes that flag as known for every part: set for these four, clear for the rest. Their
+"Hit by a candle or a rocket" walks no longer keep the flag test as a condition; a walk still needs the type's
+constructor to set the flag. Other types still get no such walk. The ones whose rules read the control value, which
+would otherwise get one, state the assumption in their description, like the balloon and the teapot (21 types in Even
+More, English floppy).
+
+No walk is added or lost: walks that end stay at 1,098 in Even More and 926 in TIM 1, and the recordings match as
+before, 564 and 476 complete, none different.
+
+### The bullet and the jack-in-the-box
+
+[Assumption 18](behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box) settles the second point: a bullet
+never has `0x1000` at `0x06`, so the jack-in-the-box never punches it. It works like the assumption on the fixed list
+(`offMovingList` in `describe-effects.ts` gives either one), but only for the bullet. The bullet's two punch walks are
+gone, and the bullet states the assumption in its description instead. The effect lines take it too, though the
+bullet had none.
+
+Walks that end, before and after: Even More 1,098 and 1,096, TIM 1 926 and 924. No part has a walk that stops, and
+the recordings match as before: 564 and 476 complete, none different.
+
 ### Walks from parts that touch
 
 The contact dispatch (`0x1078` and `0x10bc` in Even More) goes through the moving parts. For one that touched another

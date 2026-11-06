@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { describeBehaviour, evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
-import { hitsFromOthers } from "../src/read/describe-hits.ts";
+import { BULLET_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
+import { hitsFromOthers, LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const proof = {
@@ -93,7 +94,7 @@ const fromSearch = (
 
 /**
  * A balloon and a mouse motor whose run reads the control value at 0x12, and an explosion that hits them. A rocket
- * that a candle lights, and a bullet a jack-in-the-box punches, whose sources name no type.
+ * that a candle lights, and a bullet and Mel Schlemming that a jack-in-the-box may punch, whose sources name no type.
  */
 function report(): BehaviourReport {
   const reset = [write("part", 12, c(0)), write("part", 0x12, c(0))];
@@ -130,6 +131,7 @@ function report(): BehaviourReport {
       part("explosion", 41, [], [500]),
       part("rocket", 36, [rule(c(1), compare(f("part", 0x12), "!=", c(0)))]),
       part("bullet", 20, [rule(c(1), compare(f("part", 0x36), "!=", c(0)))]),
+      part("mel-schlemming", 54, [rule(c(1), compare(f("part", 0x36), "!=", c(0)))]),
       part("candle", 45, [], [600]),
       part("jack-in-the-box", 13, [], [700]),
     ],
@@ -265,15 +267,27 @@ describe("walks from other parts that change a part's frame", () => {
     expect(rocket[0]).toMatchObject({
       name: "Hit by a candle",
       writes: [{ object: "part", offset: 0x12, value: c(1) }],
-      condition: and(
-        compare(f("part", 0x12), "==", c(0)),
-        compare(masked("part", 0x0a, 4), "!=", c(0)),
-        compare(masked("part", 8, 0x2000), "==", c(0)),
-      ),
+      // The decided assumption marks the rocket as lightable, so the walk doesn't keep that test.
+      condition: and(compare(f("part", 0x12), "==", c(0)), compare(masked("part", 8, 0x2000), "==", c(0))),
     });
-    // The balloon reads the control value too, but no code gives it the flag the candle's search needs.
+    expect(rocket[0]!.assumptions).toContain(LIGHTABLE_ASSUMPTION);
+    // The balloon reads the control value too, but the decided assumption says it is never lightable.
     expect(hits.get(4)!.hits.map((h) => h.name)).toEqual(["Hit by an explosion"]);
-    expect(hits.get(20)!.hits).toMatchObject([
+    expect(hits.get(4)!.assumptions).toEqual([LIGHTABLE_ASSUMPTION]);
+  });
+
+  it("keeps a lightable part's walk to the flags its constructor gives", () => {
+    // Without the constructor's flag the candle's search gives the rocket no walk, though the assumption names it.
+    const data = report();
+    const factory = data.helpers!.find((h) => h.kind === "part-factory")!;
+    (factory as { factory: { constructorFlags: unknown[] } }).factory.constructorFlags = [];
+    expect(hitsFromOthers(data, evaluateBehaviourCondition).get(36)).toBeUndefined();
+  });
+
+  it("gives the bullet no punch from the jack-in-the-box, by the decided assumption, and says so", () => {
+    expect(hits.get(20)).toEqual({ hits: [], assumptions: [BULLET_LIST_ASSUMPTION] });
+    // Another part that reads its velocity is still punched when it is on the moving list.
+    expect(hits.get(54)!.hits).toMatchObject([
       {
         name: "Hit by a jack in the box",
         writes: [{ offset: 0x36, value: c(0xf800) }],

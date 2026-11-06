@@ -22,6 +22,24 @@ export const FIXED_TYPE = 0x4000;
 
 export const FIXED_LIST_ASSUMPTION =
   "A part of a type whose starting flags have 0x4000 is never on the moving list: its list flags at 0x06 never have 0x1000. The game puts such a part on the fixed list, and no shipped level saves one with 0x1000.";
+/**
+ * The gun makes each bullet with the part factory and links it into the list of moving parts itself (`0x629d`, called
+ * at `0x1b3b5` in Even More, English floppy), giving it `0x0010` at `0x06` but not `0x1000`, which only the routine at
+ * `0x6469` sets. No shipped level saves a bullet. Decided with the user on 2026-11-06.
+ */
+export const BULLET_LIST_ASSUMPTION =
+  "A jack-in-the-box never punches a bullet: a bullet never has 0x1000 in its list flags at 0x06, which the analysis calls being on the moving list. The gun doesn't give the bullets it makes that flag, and no shipped level saves a bullet.";
+/**
+ * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
+ * any: for a part of a fixed type, or the bullet.
+ */
+export function offMovingList(
+  part: { id: string; type: number },
+  startingFlags: { values: number[] } | undefined,
+): string | undefined {
+  if (startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0) return FIXED_LIST_ASSUMPTION;
+  return part.id === "bullet" ? BULLET_LIST_ASSUMPTION : undefined;
+}
 const CENTRES_ASSUMPTION =
   "The two centres are less than 32768 apart across and down, so the word differences the centre angle takes are the true ones. When they are the same point there is no direction, and the setter puts the whole speed into velocityY.";
 /**
@@ -286,8 +304,9 @@ export function effectsFromOthers(
   for (const part of report.parts) {
     const effects = new Map<string, OtherPartEffect>();
     const assumptions = new Set<string>();
-    const fixed = startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
-    const known = fixed
+    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so.
+    const offList = offMovingList(part, startingFlags);
+    const known = offList
       ? (member: string) => [
           { object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST } satisfies Pick<
             KnownField,
@@ -307,7 +326,7 @@ export function effectsFromOthers(
         words: string[] = [];
       let possible = true,
         decided = true,
-        byFixedList = false;
+        byList = false;
       for (const term of c.memberTerms) {
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
         const value = evaluate(typed, known(c.member));
@@ -315,10 +334,10 @@ export function effectsFromOthers(
         const flag = listFlagWords(typed, c.member);
         if (value === false) {
           // Ruled out by the decided assumption only when no other test rules it out too.
-          if (flag && fixed && possible) byFixedList = true;
+          if (flag && offList && possible) byList = true;
           else {
             possible = false;
-            byFixedList = false;
+            byList = false;
           }
           continue;
         }
@@ -375,9 +394,9 @@ export function effectsFromOthers(
         proofs.push(...centre!.assumptions, CENTRES_ASSUMPTION);
       }
       if (!numbered) continue;
-      // A fixed type would get this line but for its list: the decided assumption keeps it off the moving list.
-      if (byFixedList) {
-        assumptions.add(FIXED_LIST_ASSUMPTION);
+      // The part would get this line but for its list: a decided assumption keeps it off the moving list.
+      if (byList) {
+        assumptions.add(offList!);
         continue;
       }
       const name = nameOf(c.sourcePart);

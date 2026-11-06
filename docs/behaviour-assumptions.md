@@ -665,3 +665,86 @@ from 564 to 568 in Even More and from 476 to 480 in TIM 1. Walk endings don't ch
 - List every writer of the bike's `0x12` (the list above and in assumption 9) and check none can run during the
   reaction other than the rope callback and the bounce.
 - In the game, pull a rope tied to a monkey bike while it reacts to a hit, and see whether it pedals again afterwards.
+
+## 17. Parts the candle can light
+
+Decided on 2026-11-06 with the user. In the code: `LIGHTABLE_ASSUMPTION` in
+`packages/content/src/read/describe-hits.ts`. Explained in
+[hits found by a search's flags](behaviour.md#hits-found-by-a-searchs-flags).
+
+**The question.** The candle's first search and the rocket's keep only parts with `0x0004` in field `0x0a`, and their
+loops set the control value at `0x12` of each such part to 1 when it is 0: they light it. A level stores that word, so
+can a part of another type have the flag, or one of these four lack it?
+
+**What the code shows** (Even More, English floppy):
+
+- The constructors of the cannon (`0x162c9`), the dynamite (`0x16306`), the rocket (`0x1664f`) and the candle
+  (`0x167ea`) set `0x0004` in `0x0a`. The factory's own table gives it to no type, and a scan of the program finds no
+  other instruction that sets it. The instructions that clear bits there (`0x00fba`, `0x08971`, `0x1857f` and the part
+  reader at `0x136a9`) all keep it, and the part copy (`0x66ec`) takes the word of the part it copies.
+- The candle's first search (call at `0x19ab2`, search `0x448e`) keeps only parts with `0x0004` in `0x0a` (`0x44c7`),
+  and its loop at `0x19abf` sets `0x12` to 1 on each one where it is 0. The rocket's run makes the same search (call at
+  `0x1c76a`).
+- The part reader (`0x13653`) reads the third flags word of a level of version `0x101` or later into `0x0a` and clears
+  only `0x0010` there.
+- In the shipped levels of the eleven builds, every cannon, candle, dynamite and rocket is saved with `0x0004` in its
+  third flags word and no other part is. Every build's constructors set it for the same four types and no others (TIM
+  1 French: `0x14b33`, `0x14b72`, `0x14edd`, `0x15088`).
+
+**What we assume.**
+
+- Only the cannon, dynamite, rocket and candle are ever marked as lightable (`0x0004` in field `0x0a`), and they always
+  are. Only their constructors set it, and in the shipped levels every one of these four has it and no other part does.
+
+Not proved: a level file made outside the game could set or clear the flag, since loading keeps the stored word.
+
+**What it gives.** The "Hit by a candle or a rocket" walks of the cannon, the dynamite, the rocket and the candle no
+longer keep "only when it has `0x0004` in field `0x0a`" as a condition. A walk still needs the type's constructor to
+set the flag. Other types still get no such walk, and the 21 types in Even More (English floppy) that would otherwise
+get one, because their rules read the control value, state the assumption in their description.
+
+**How to recheck.**
+
+- Search each build again for instructions that set or clear `0x0004` in a part's word at `0x0a`.
+- Look at levels saved by players for a part with `0x0004` in its third flags word that isn't one of these four, or one
+  of these four without it.
+
+## 18. The bullet and the jack-in-the-box
+
+Decided on 2026-11-06 with the user. In the code: `BULLET_LIST_ASSUMPTION` in
+`packages/content/src/read/describe-effects.ts`. Explained in
+[hits found by a search's flags](behaviour.md#hits-found-by-a-searchs-flags).
+
+**The question.** The jack-in-the-box's punch sets the velocity of every part it finds that has `0x1000` in its list
+flags at `0x06`, which the analysis calls being on the moving list. The bullet's own rules read its velocity, so the
+punch gave it two walks. Can a bullet ever have that flag?
+
+**What the code shows** (Even More, English floppy):
+
+- The jack-in-the-box's loop (in its run at `0x1b888`) tests `0x1000` at `0x06` of each part its search finds
+  (`0x1b93d`) and only then sets its velocities (`0x1b95c`, `0x1b964`). A part without it is only acted on when its type
+  is in a table of six (the teeter-totter, the mouse motor, the fish bowl, the bellows, the electric switch and the
+  scissors), and the bullet isn't.
+- The gun makes its bullet with the part factory (type 20, `0x1b3a1`) and links it into the list of moving parts itself
+  (`0x629d` at `0x1b3b5`). It then sets `0x0010` at `0x06` (`0x1b3bc`), not `0x1000`.
+- The routine at `0x6469` is the only one that sets `0x1000` (see [assumption 11](#11-parts-on-the-fixed-list)), when
+  the player drops a part. The bullet isn't a part the player can place.
+- No shipped level of the eleven builds saves a bullet.
+
+**What we assume.**
+
+- A jack-in-the-box never punches a bullet: a bullet never has `0x1000` in its list flags at `0x06`, which the analysis
+  calls being on the moving list. The gun doesn't give the bullets it makes that flag, and no shipped level saves a
+  bullet.
+
+Not proved: a level file made outside the game could save a bullet with `0x1000`, since loading keeps the stored flags.
+
+**What it gives.** The bullet gets no walk and no line from the jack-in-the-box's punch. Before, it had two walks:
+punched up and to the left or up and to the right (velocityX -2048 or 2048, velocityY -2048), only when on the moving
+list. It is ruled out the same way as a part of a fixed type by [assumption 11](#11-parts-on-the-fixed-list), but only
+for the bullet, and the bullet states the assumption in its description.
+
+**How to recheck.**
+
+- Look at levels saved by players for a bullet.
+- Check in each build that the gun's run still links the bullet in without `0x1000`, and that nothing else sets it.
