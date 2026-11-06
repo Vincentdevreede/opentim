@@ -23,9 +23,9 @@ function animation(states = [0, 1, 0, 0]): AnimationDescription {
     ],
     trigger: {
       ...proof,
-      kind: "callback",
-      name: "Contact",
-      description: "If contact reaches this write.",
+      kind: "run",
+      name: "Run from a resting frame",
+      description: "The run from a documented resting frame.",
       routine: 0,
       condition: { kind: "true" },
       writes: [],
@@ -995,6 +995,7 @@ describe("recordings compared with what the recorder writes between runs", () =>
     /** A walk from a callback that writes this field, knowing the written bits from its start. */
     const triggered = (offset: number, value: number, knownMask = 0xffff, condition: Predicate = { kind: "true" }) => {
       const model = animation();
+      model.trigger.kind = "callback";
       model.initialFields = [
         ...model.initialFields!,
         { ...proof, object: "part", offset, width: 16, value, knownMask },
@@ -1049,6 +1050,28 @@ describe("recordings compared with what the recorder writes between runs", () =>
         signed: false,
       };
       expect(compareMeasuredWalks([triggered(18, 1, 0xffff, argument)], clip()).basis).toBe("seeded-state");
+    });
+    it("needs the trigger's start to set or test the seeded fields the run reads", () => {
+      // Like the monkey bike's flip: its walk knows nothing of the frame or the control value, so it fits any seed.
+      const vague = triggered(0x50, 0, 0);
+      vague.initialFields = [];
+      expect(compareMeasuredWalks([vague], clip()).classification).toBe("unavailable");
+      const frame = [
+        {
+          ...proof,
+          from: null,
+          routine: 0x1000,
+          condition: test(12, "==", 0),
+          to: { kind: "constant", value: 1, width: 16 },
+        },
+      ];
+      expect(compareMeasuredWalks([vague], clip(), report([], frame), undefined, 6).classification).toBe("unavailable");
+      // A seeded field the run never reads isn't needed.
+      expect(compareMeasuredWalks([vague], clip(), report(), undefined, 6).basis).toBe("seeded-state");
+      // A test of the trigger's on the frame counts, like the rope's test that the bike is on frames 0 to 4.
+      const tests = triggered(18, 1, 0xffff, test(12, "==", 0));
+      tests.initialFields = tests.initialFields!.filter((field) => field.offset !== 12);
+      expect(compareMeasuredWalks([tests], clip()).basis).toBe("seeded-state");
     });
     it("gives way to an input case that fits as well, since that needs fewer facts", () => {
       const input = animation();

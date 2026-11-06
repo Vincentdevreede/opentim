@@ -1123,7 +1123,13 @@ const partObject = (object: string): boolean =>
  * fields the trigger leaves alone) holds for the recorder's fields. Without the bench (`zero`), the recorder gives only
  * the fields its action and the clip's first frame name.
  */
-function recorderStart(animation: AnimationDescription, given: RecordedField[], zero?: ReadonlySet<number>): boolean {
+function recorderStart(
+  animation: AnimationDescription,
+  given: RecordedField[],
+  zero: ReadonlySet<number> | undefined,
+  seeded: RecordedField[],
+  reads: ReadonlySet<number> | undefined,
+): boolean {
   const written = new Set(
     animation.trigger.writes
       .filter((write) => write.object === "part")
@@ -1159,7 +1165,8 @@ function recorderStart(animation: AnimationDescription, given: RecordedField[], 
   if (!writesGiven) return false;
   const terms = (predicate: Predicate): Predicate[] =>
     predicate.kind === "and" ? predicate.terms.flatMap(terms) : predicate.kind === "compare" ? [predicate] : [];
-  return terms(animation.trigger.condition).every((term) => {
+  const tested = new Set<number>();
+  const held = terms(animation.trigger.condition).every((term) => {
     // A test of the event itself, like the argument a rope passes, says nothing about the part's start.
     if (!objectsRead(term).every(partObject)) return true;
     // Nor does a test of a field the trigger writes: the walk starts from the written value.
@@ -1170,8 +1177,28 @@ function recorderStart(animation: AnimationDescription, given: RecordedField[], 
     )
       return true;
     const fields = zero ? withZero({ condition: term }, given, zero) : given;
-    return !!fields && evaluateBehaviourCondition(term, fields) === true;
+    if (!fields || evaluateBehaviourCondition(term, fields) !== true) return false;
+    for (const { offset, width } of fieldsRead(term))
+      for (let byte = 0; byte < Math.max(1, width / 8); byte++) tested.add(offset + byte);
+    return true;
   });
+  if (!held) return false;
+  // And the start must be the trigger's own: every field the recorder seeds that the run reads, the trigger's start sets
+  // or tests. A walk that only fits because it knows almost nothing, like the monkey bike's flip, isn't from the seed.
+  const known = new Set<number>(written);
+  for (const field of animation.initialFields ?? [])
+    if (field.object === "part")
+      for (let byte = 0; byte < field.width / 8; byte++)
+        if ((field.knownMask >>> (8 * byte)) & 0xff) known.add(field.offset + byte);
+  return seeded.every(
+    (field) =>
+      field.object !== "part" ||
+      [...Array(field.width / 8).keys()].every((byte) => {
+        const offset = field.offset + byte;
+        if (!((field.knownMask >>> (8 * byte)) & 0xff) || (reads && !reads.has(offset))) return true;
+        return known.has(offset) || tested.has(offset);
+      }),
+  );
 }
 function matchStart(
   report: BehaviourReport | undefined,
@@ -1226,6 +1253,8 @@ function matchStart(
         ? [...recorded, ...(mode.facts.inputs?.(0) ?? [])]
         : recorded.filter((field) => field !== RECORDER_CONTACT),
       mode.facts?.zero,
+      recorded.filter((field) => field !== RECORDER_CONTACT),
+      mode.start?.reads,
     )
   )
     return undefined;

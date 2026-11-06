@@ -144,6 +144,9 @@ the level), and every one of those is listed by name.
       stand. Still 648 and 552 complete: per build 31 moved (the bike's 30, the mouse's creation clip), 26 to recorder
       fields, 4 to seeded state and 1 to input case. Matches that need the part untouched at the start (decided)
       now say so: 8 per build.
+      A seeded state now also needs the trigger's start to set or test every seeded field the run reads (see "A seeded
+      state needs the trigger's own start"). Nothing moves on the current base: 648 and 552 complete, 0 seeded state, 68
+      recorder fields per build.
 - [x] **D2. Monkey bike** (32 per build). It checks the belt link on its pedalling frames, which the recording doesn't
       save. Check what you saw in the game against the code:
   - it starts biking when the shade is pulled down;

@@ -2094,6 +2094,22 @@ recorder's value, so complete stays 648 and 552:
 Per build the bases go from 1 creation, 456 reset or rest (364 in TIM 1), 135 input case, 2 seeded state, 38 recorder
 fields and 16 skipped search (12) to 0, 428 (336), 136, 4, 64 and 16 (12).
 
+### A seeded state needs the trigger's own start
+
+A walk that knows almost nothing fits almost any seed, like the bike's flip above: the frame and counter came from the
+recording, not from the flip. Decided: a seeded state counts only when the trigger's start sets or tests
+every field the recorder seeds that the run reads (the frame, control value, counter, heat, speed and flags). The
+trigger may write it, its start may carry it from the reset or rest, or one of its tests on the part may hold it, like
+the rope's test that the bike is on frames 0 to 4. Otherwise the clip needs the run's input case on the recorder's
+values (`input-case` or `recorder-fields`), and stays a prefix if none fits.
+
+Later changes to the descriptions had already moved the bike's 4 reaction clips to the run's input case on the
+recorder's values, so on the current base nothing moves: per build 428 reset or rest (336 in TIM 1), 136 input case, 0
+seeded state, 68 recorder fields and 16 skipped search (12), all 648 and 552 complete. The rule still matters: in Even
+More, of the trigger walks that alone fit a clip as a seeded state (the flips of the vacuum cleaner, fan, alligator and
+others, the conveyor belt's, the balloon's and bullet's hits and more), only the teeter totter's rope outcomes and Mel's
+flip still do.
+
 ### Outlines
 
 Many parts build their own outline in their reset: the shape other parts bounce off. The part's outline pointer at
