@@ -45,14 +45,24 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       the analysis can't name went from 365 to 247 of 925 in Even More and from 324 to 223 of 764 in TIM 1. Every walk
       still ends, and the recordings stay at 596 complete, 52 prefix, 0 different (Even More) and 504, 48, 0 (TIM 1).
       In 4 teeter-totter rules per build both values are known but a query's answer picks one: that belongs to B1.
-- [ ] **B1. Search results (found list `0x78`, `0x7a`, `0x7c`).** About 160 rules, most of them the cat (108), then the
+- [x] **B1. Search results (found list `0x78`, `0x7a`, `0x7c`).** About 160 rules, most of them the cat (108), then the
       teeter-totter, jack-in-the-box, mouse, teapot, candle, rocket, fan, bellows, vacuum cleaner, magnifying glass, Mel's
       house, solar panel and explosion. Name the list links and the found part's fields.
+      Done: the head after a search is "found list after the query", a found part's link "next in the found list", its
+      `0x7a` and `0x7c` "value the query writes to a found part", another part's field after a list scan "value after
+      the list scan". The scoreboard counts rules with named run values apart from rules with unknown writes.
 - [ ] **B2. The touching part's speed.** The gear (48), alligator, trampoline, conveyor belt, pinball bumper, bullet,
       thumb tack and electric switch write the touching part's speed and position. Write each as a formula of the touching
       part's own fields.
-- [ ] **B3. Parts reached through ropes and belts (`0x14`, `0x5a`, `0x5c`).** Short in many parts (one or two rules
+- [x] **B3. Parts reached through ropes and belts (`0x14`, `0x5a`, `0x5c`).** Short in many parts (one or two rules
       each). Name them through the relay that is already proved.
+      Done: the relay's byte is exact on the owner (unless its type is 49) and on every part it reaches; the owner's
+      `0x14` is now 2 in 37 rules of Even More and 33 of TIM 1. Rope links and ends of a reached part are "value the
+      call writes to a selected part", and the owner after such a call is "part after field effect". With B1, rules
+      with unknown writes go from 242 to 33 of 925 (Even More) and 218 to 28 of 764 (TIM 1), counted by the new rule;
+      rules with named run values from 5 to 214 and 5 to 195. Walks and recordings don't change. Open: whether a
+      rope or belt can lead from a part back to itself (if it never can, the owner's rope links and ends after the
+      call would stay known).
 - [ ] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
       part type each one creates and give its starting fields.
 - [ ] **B5. A part's own fields.** What is left per part: the cat (`0x1e`), teeter-totter (`0x08`), Mel (`0x16`, `0x18`,
