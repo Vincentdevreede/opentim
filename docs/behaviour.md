@@ -2227,6 +2227,43 @@ reason: the wood incline and the belt (and in TIM 1 the rope) rest on any frame 
 list to name it from; the mouse motor, Mel's house and the alligator never rest in any walk, their walks only loop or
 join another branch.
 
+### Starting frames in the shipped levels
+
+No recording shows 28 part types of Even More and 22 of TIM 1 (walls, balls, rope, pulley, belt, electric switch,
+solar panel, magnifying glass, rope end, the holiday parts and others), so the shipped levels are the only check of
+where they start. `checkLevelFrames` (`level-frame-check.ts`) compares every saved frame with the frames the
+description allows: those a decided assumption gives (`LEVEL_FRAMES`), or else the part's own frames
+([assumption 13](behaviour-assumptions.md#13-parts-with-one-frame)). It also checks the decided control values
+([assumption 9](behaviour-assumptions.md#9-control-values)) and notes a start frame that isn't one of the part's
+resting frames. `pnpm --filter @opentim/content check-level-frames` runs it over game folders and fails on a frame or
+control value the description doesn't allow.
+
+Over all eleven builds (1,281 level files, every one read, board and bin parts alike) no level disagrees:
+
+- The walls, the grass floor, the super ball and every part with one frame are saved on frame 0; the pulley and the
+  curved pipe wall on 0 to 3. That is what the reset gives them, and their resting frame.
+- The electric switch is saved on 0, 1, 3, 4 or 5 and the solar panel on 0 or 1. Worked out with the plugs the level
+  gives, the reset leaves every switch and panel on one of its resting frames. A few switches (2 or 3 per build) are
+  saved without the bit of a plug they have, as the flip saves its frame before the reset (see
+  [resets that set the frame from the sockets](#resets-that-set-the-frame-from-the-sockets)).
+- The belt is always saved on frame 0, the rope in TIM 1 (no frame list there) on 0, the pinball bumper on 0. The rope
+  end, the heart and the shamrock are in no shipped level; the jack-o-lantern and the Christmas tree are in one level
+  each (two builds), on frame 0.
+- The wood incline has no frame list and no decided assumption, so nothing limits its frame. Every shipped incline has
+  the frame its resize gives, its width divided by 16 less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two
+  inclines fit the same rule but not the editor: in "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five
+  full Even More builds, an incline has width 0 and frame -1. The editor keeps the width between 16 and 64 (the type
+  record's limits), so these were made another way, and their reset reads its outline from the word before its table.
+  A decided list of 0 to 3 for the incline would be wrong for those two levels.
+- The decided starting frames still hold everywhere: the conveyor belt on 0, 7, 14, 21 or 28, each the frame its
+  width gives; the gear and the electric motor on 0; the mouse motor on 0 or 1; the generator on 0 or 4. Every level
+  saves every control value as 0.
+- Only Mel Schlemming starts on a frame that isn't one of his resting frames: he is saved on frame 0 and walks from
+  there.
+
+What the code leaves open for these parts, and for effects of other parts no recording covers, is now a list of things
+to try in the game: [behaviour-game-checks.md](behaviour-game-checks.md).
+
 ### Walk notes that name the frame and the test
 
 Two notes were left vague. "The seed does not establish the state. No state zero is assumed." (34 parts in Even More)
