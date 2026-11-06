@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import {
+  ANSWER_ASSUMPTION,
   effectsFromOthers,
   FIXED_LIST_ASSUMPTION,
   predicateForType,
@@ -448,6 +449,53 @@ describe("effects of parts that touch", () => {
   it("leaves out a fixed type by the decided assumption, and a part whose rules read the field", () => {
     expect(lines.get(1)).toEqual({ effects: [], assumptions: [FIXED_LIST_ASSUMPTION] });
     expect(touches(20)).toEqual([]);
+  });
+
+  it("keeps a query's answer as a test of the touched part, like the teeter-totter's bounce pool", () => {
+    // The teeter-totter clears the contact part of what lands on it when the pool says the landing is new.
+    const answer: Expression = {
+      kind: "field",
+      object: "answer of the query at 0x1d12a",
+      offset: 0,
+      width: 16,
+      unresolved: true,
+    } as Expression;
+    const pool = {
+      ...report,
+      routines: [
+        {
+          address: 0x1da61,
+          outcomes: [
+            {
+              ...outcome(
+                [edge(0), compare(answer, "!=", c(0))],
+                [touchWrite(0x84, c(0)), touchWrite(0x12, c(1), "part")],
+              ),
+              confidence: "unresolved",
+            },
+            // Another unknown in the tests still gives no line.
+            {
+              ...outcome(
+                [edge(2), compare({ kind: "unknown", reason: "Not known.", width: 16 }, "!=", c(0))],
+                [touchWrite(0x84, c(0))],
+              ),
+              confidence: "unresolved",
+            },
+          ],
+        },
+      ],
+    } as unknown as BehaviourReport;
+    const cat = effectsFromOthers(pool, evaluateBehaviourCondition)
+      .get(12)!
+      .effects.filter((e) => e.touch);
+    expect(cat).toHaveLength(1);
+    expect(cat[0]).toMatchObject({
+      confidence: "inferred",
+      sourceConditionWords: ["the answer of the query at 0x1d12a is not 0"],
+      description:
+        "An alligator it touches, when the answer of the query at 0x1d12a is not 0, sets +0x84 to 0. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
+    });
+    expect(cat[0]!.assumptions).toContain(ANSWER_ASSUMPTION);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { describeBehaviour, evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
-import { BULLET_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
+import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
 import { hitsFromOthers, LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
@@ -216,7 +216,7 @@ describe("walks from other parts that change a part's frame", () => {
           condition: and(compare(f("collider", 4), "==", c(4)), angle(0x8000)),
           fields: [write("collider", 0x12, c(1))],
         },
-        // A path that also changes the thumb tack itself isn't a walk of the balloon alone.
+        // A path that also changes the thumb tack itself: that is the thumb tack's own business.
         {
           ...proof,
           effectsComplete: true,
@@ -227,14 +227,90 @@ describe("walks from other parts that change a part's frame", () => {
     } as never);
     const balloon = hitsFromOthers(data, evaluateBehaviourCondition).get(4)!.hits;
     const touch = balloon.find((hit) => hit.name === "Touching a thumb tack")!;
+    // Both paths set the same, so the walk keeps only the tests both make: none.
     expect(touch).toMatchObject({
       sources: [{ type: 53, part: "thumb-tack", routine: 600 }],
       writes: [{ object: "part", offset: 0x12, value: c(1) }],
-      condition: compare(f("part", 0x88), "==", c(0x8000)),
+      condition: { kind: "true" },
     });
     expect(touch.assumptions.join(" ")).toContain("The part touches the source");
     // The explosion's hit stays its own walk, though it writes the same.
     expect(balloon.map((hit) => hit.name)).toContain("Hit by an explosion");
+  });
+
+  it("walks every moving part a bounce changes, with values of its own fields and what a response leaves unknown", () => {
+    const data = report();
+    // The bullet and Mel move; the cat's type is fixed here, so it never touches.
+    data.helpers!.push({
+      ...proof,
+      address: 0x15d9c,
+      kind: "part-factory",
+      factory: {
+        startingWords: [{ field: 6, values: Array.from({ length: 64 }, (_, t) => (t === 12 ? 0x4800 : 0x800)) }],
+      },
+    } as never);
+    data.helpers = data.helpers!.filter((h) => !(h.kind === "part-factory" && h.address === 0x15d9b));
+    data.parts.find((p) => p.id === "cat")!.transitions = [rule(c(1), compare(f("part", 0x36), "!=", c(0)))] as never;
+    (data as { collisionDispatch?: unknown }).collisionDispatch = [
+      { responses: [{ routine: 0x3980, status: "described", writes: [{ path: [], offset: 0x38, width: 16 }] }] },
+    ];
+    const minusOne: Expression = { kind: "binary", operator: "-", left: f("collider", 0x36), right: c(1), width: 16 };
+    const answer = { ...f("answer of the query at 0x1d12a", 0), unresolved: true } as Expression;
+    const centres = compare(f("collider", 0x1e), "<", f("part", 0x1e));
+    const sw = { ...part("electric-switch", 21, []), routines: [{ slot: 0, address: 800, role: "bounce", ...proof }] };
+    data.parts.push(sw as never);
+    data.routines.push({
+      address: 800,
+      writes: [],
+      ...proof,
+      outcomes: [
+        // Any type: velocityX one less, where the two parts are, when the query says so. The switch changes too.
+        {
+          ...proof,
+          confidence: "unresolved",
+          effectsComplete: true,
+          condition: and(centres, compare(answer, "!=", c(0))),
+          fields: [write("collider", 0x36, minusOne), write("part", 12, c(4))],
+          returnValue: c(0),
+        },
+        // Mel only, and a response may follow: velocityY is unknown after it, but the frame isn't.
+        {
+          ...proof,
+          effectsComplete: true,
+          condition: compare(f("collider", 4), "==", c(54)),
+          fields: [write("collider", 0x38, c(0)), write("collider", 12, c(9))],
+          returnValue: c(1),
+        },
+        // A response would leave nothing known: no walk.
+        {
+          ...proof,
+          effectsComplete: true,
+          condition: compare(f("collider", 4), "==", c(20)),
+          fields: [write("collider", 0x38, c(5))],
+          returnValue: c(1),
+        },
+      ],
+    } as never);
+    const hits = hitsFromOthers(data, evaluateBehaviourCondition);
+    const bullet = hits.get(20)!.hits.find((h) => h.name === "Touching an electric switch")!;
+    expect(bullet.writes).toEqual([
+      expect.objectContaining({
+        offset: 0x36,
+        value: { kind: "binary", operator: "-", left: f("part", 0x36), right: c(1), width: 16 },
+      }),
+    ]);
+    expect(bullet.confidence).toBe("inferred");
+    expect(bullet.assumptions.join(" ")).toContain("compare the two parts");
+    expect(bullet.assumptions.join(" ")).toContain("A query's answer");
+    const mel = hits.get(54)!.hits.filter((h) => h.name === "Touching an electric switch");
+    expect(mel.map((h) => h.writes.map((w) => [w.offset, w.value.kind]))).toContainEqual([
+      [12, "constant"],
+      [0x38, "unknown"],
+    ]);
+    expect(mel.find((h) => h.writes.length === 2)!.assumptions.join(" ")).toContain("contact response");
+    // The cat's type is fixed: it never touches, and says so.
+    expect(hits.get(12)!.hits.filter((h) => h.name.startsWith("Touching"))).toEqual([]);
+    expect(hits.get(12)!.assumptions).toContain(FIXED_LIST_ASSUMPTION);
   });
 
   it("splits the mouse motor's start by the step it gets, with the part's own test", () => {

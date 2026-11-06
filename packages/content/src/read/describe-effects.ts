@@ -316,6 +316,44 @@ function readsTable(value: Expression | Predicate): boolean {
   return false;
 }
 
+/**
+ * A query's answer, like the bounce pool's at `0x867c` (Even More, English floppy) that the teeter-totter asks whether a
+ * landing is new: one value of that call, which the analysis names but doesn't know.
+ */
+const ANSWER = /^answer of the query at (0x[0-9a-f]+)$/;
+export const ANSWER_ASSUMPTION =
+  "A query's answer is one value of that call: the line holds when the answer passes the test, whatever it depends on.";
+/** Whether a test reads a query's answer, and nothing else the analysis doesn't know. */
+export function readsAnswer(term: Predicate): boolean {
+  let answer = false,
+    other = false;
+  const visit = (v: Expression | Predicate) => {
+    if (v.kind === "unknown") other = true;
+    else if (v.kind === "field") {
+      if (ANSWER.test(v.object) && v.unresolved) answer = true;
+      else if (v.unresolved) other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  visit(term);
+  return answer && !other;
+}
+/**
+ * Whether an outcome's only unknown is a query's answer in its tests: its effects are complete and every value it writes
+ * is known, so it is unresolved only because the answer is.
+ */
+export function onlyAnswersOpen(outcome: { effectsComplete?: boolean; condition: Predicate; fields: FieldWrite[] }) {
+  return (
+    !!outcome.effectsComplete &&
+    terms(outcome.condition).some(readsAnswer) &&
+    terms(outcome.condition).every((t) => readsAnswer(t) || !objects(t).unknown) &&
+    outcome.fields.every((f) => !objects(f.value).unknown)
+  );
+}
+
 /** A path of a bounce callback that sets fields of the part that touched it. */
 interface TouchCandidate {
   sourceType: number;
@@ -341,7 +379,7 @@ function touchCandidate(
   routine: number,
   outcome: RoutineOutcome,
 ): TouchCandidate | undefined {
-  if (!outcome.effectsComplete || outcome.confidence === "unresolved") return undefined;
+  if (!outcome.effectsComplete || (outcome.confidence === "unresolved" && !onlyAnswersOpen(outcome))) return undefined;
   const writes = outcome.fields.filter((f) => f.object === TOUCHER);
   // What the bounce does to the touched part itself is that part's own business.
   if (!writes.length || outcome.fields.some((f) => f.object !== TOUCHER && f.object !== "part")) return undefined;
@@ -355,7 +393,14 @@ function touchCandidate(
     bothTerms: Predicate[] = [];
   for (const term of terms(outcome.condition)) {
     const { objects: read, unknown } = objects(term);
-    if (unknown || term.kind !== "compare") return undefined;
+    if (term.kind !== "compare") return undefined;
+    // A query's answer is the touched part's business: its bounce asked the query.
+    if (readsAnswer(term)) {
+      if ([...read].every((o) => o === "part" || ANSWER.test(o))) sourceTerms.push(term);
+      else return undefined;
+      continue;
+    }
+    if (unknown) return undefined;
     if ([...read].every((o) => o === TOUCHER)) toucherTerms.push(term);
     else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
     else if ([...read].every((o) => o === "part" || o === TOUCHER)) bothTerms.push(term);
@@ -589,11 +634,13 @@ export function effectsFromOthers(
           c,
           sets: settings.sets,
           raw: kept,
-          confidence: c.outcome.confidence,
+          // Unresolved only because of a query's answer, which the line keeps as a test.
+          confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
           assumptions: new Set([
             ...c.outcome.assumptions,
             ...c.writes.flatMap((w) => w.assumptions),
             ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...(c.sourceTerms.some(readsAnswer) ? [ANSWER_ASSUMPTION] : []),
             ...settings.proofs,
           ]),
           evidence: uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]),
@@ -634,12 +681,14 @@ export function effectsFromOthers(
           sourcePhrases: string[] = [];
         for (const test of list) {
           const flag = test.predicates.length === 1 ? test.predicates[0]! : undefined;
-          if ([...test.objects].every((o) => o === TOUCHER)) {
+          // A query's answer belongs to the touched part, whose bounce asked the query.
+          const read = [...test.objects].map((o) => (ANSWER.test(o) ? "part" : o));
+          if (read.every((o) => o === TOUCHER)) {
             const own = test.predicates.map((p) => renamePredicate(p, TOUCHER, "part"));
             toucher.push(...own);
             const drawn = own.length === 1 ? drawingFlagWords(own[0]!, report) : undefined;
             toucherWords.push(drawn ? `it is ${drawn}` : test.words(both));
-          } else if ([...test.objects].every((o) => o === "part")) {
+          } else if (read.every((o) => o === "part")) {
             source.push(...test.predicates);
             const drawn = flag && drawingFlagWords(flag, report);
             sourceWords.push(drawn || test.words(names(() => "")));

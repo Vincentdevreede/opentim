@@ -355,6 +355,8 @@ export function formula(e: Expression, names: Names, nested = false): string {
     const size = 2 ** e.width;
     return e.width <= 16 && e.value >= size / 2 ? String(e.value - size) : String(e.value);
   }
+  // A query's answer is one value of that call, named by the call.
+  if (e.kind === "field" && e.unresolved && /^answer of the query at /.test(e.object)) return `the ${e.object}`;
   if (e.kind === "field") return names.of(e.object, names.field(e.offset));
   if (e.kind === "binary") {
     const absolute = isAbsolute(e);

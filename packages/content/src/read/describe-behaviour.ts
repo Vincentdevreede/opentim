@@ -4391,6 +4391,61 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           ...finding([trigger, walk]),
         });
       });
+    // A hit that works a field out from the part's own value, like an electric switch taking 1 from a bullet's
+    // velocityX, says nothing new where that value isn't known. It is walked too from each input case that knows every
+    // field it reads: like a flying bullet, frame 0 with velocityX 12288.
+    const ruleFields = new Set<number>([stateOffsetOf(report) ?? -1]);
+    for (const rule of part.transitions) {
+      partFields(rule.condition, ruleFields);
+      partFields(rule.to, ruleFields);
+    }
+    for (const [index, hit] of (hits.get(part.type)?.hits ?? []).entries()) {
+      // The fields the values of the fields the rules read are worked out from.
+      const reads = new Set<number>();
+      for (const write of hit.writes)
+        if (write.value.kind !== "constant" && ruleFields.has(write.offset)) partFields(write.value, reads);
+      if (!reads.size) continue;
+      inputCases.cases.forEach((input, caseIndex) => {
+        const before = bindingsOf(input.fields);
+        if (predicateOf(hit.condition, before) === false) return;
+        const read = [...reads].map((offset) => readField(before, "part", offset, 16));
+        if (!read.every(known)) return;
+        const proof = finding(
+          [hit, input],
+          [
+            "The part is as the input case says when the other part does this; the case is a condition, not a proved event.",
+          ],
+        );
+        const seed = fieldsOf(
+          applyWrites(before, hit.writes),
+          [...fieldDefinitions(report, part), ...hit.writes],
+          proof,
+        );
+        const trigger: AnimationTrigger = {
+          kind: "related-write",
+          name: `${hit.name}, ${inputConditionWords(input.condition, report, part).replace(/^If /, "if ")}`,
+          scope: "one overlap-list member",
+          routine: hit.sources[0]!.routine,
+          condition: { kind: "and", terms: [input.condition, hit.condition] },
+          writes: hit.writes,
+          sourceType: hit.sources[0]!.type,
+          effectsComplete: true,
+          ...proof,
+        };
+        const walk = walkBehaviourRules(report, part.type, seed, { midRun: true, reaction: true });
+        animations.push({
+          id: `hit-${index}-case-${caseIndex}`,
+          initial: "run-guard",
+          inputCondition: input.condition,
+          initialFields: seed,
+          description: walkWords(walk),
+          prerequisites: [],
+          trigger: { ...trigger, description: triggerWords(trigger, report) },
+          walk,
+          ...finding([trigger, walk]),
+        });
+      });
+    }
     animations.push(...periodicAnimations(report, part));
     stableStates.push(...walkRestsOf(report, part, animations, stableStates));
     const uncertainties = [
