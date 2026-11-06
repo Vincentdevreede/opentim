@@ -5,6 +5,7 @@
 
 import type { Confidence } from "@opentim/content";
 import {
+  NAMED_TERMS,
   statesText,
   type Change,
   type PartSummary,
@@ -25,7 +26,7 @@ export function tidyTerm(term: string): string {
       .replace(/\(\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)\)/g, "|$1|")
       .replace(/\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)/g, "|$1|")
       .replace(
-        /\(\((\w+)\) \^ \(\1 >> 15\)\) - \(\1 >> 15\)|\((\w+) \^ \(\2 >> 15\)\) - \(\2 >> 15\)/g,
+        /\(\(([\w.]+)\) \^ \(\1 >> 15\)\) - \(\1 >> 15\)|\(([\w.]+) \^ \(\2 >> 15\)\) - \(\2 >> 15\)/g,
         (_, a, b) => `|${a ?? b}|`,
       )
       .replace(/ \+ 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` - ${0x10000 - parseInt(n, 16)}`)
@@ -35,11 +36,13 @@ export function tidyTerm(term: string): string {
   );
 }
 
-const COMPARE = /^(.+) (==|!=|<|<=|>|>=) (-?\d+)$/;
+const COMPARE = /^(.+) (==|!=|<|<=|>|>=) (-?\d+|0x[0-9a-f]+)$/;
 
 /** The terms of a condition, tidied, without repeats, comparisons of two numbers, or terms another one implies. */
 export function tidyTerms(terms: readonly string[]): string[] {
-  const list = [...new Set(terms.map(tidyTerm))].filter((t) => !/^-?\d+ (==|!=|<|<=|>|>=) -?\d+$/.test(t));
+  const number = "(-?\\d+|0x[0-9a-f]+)";
+  const numbers = new RegExp(`^${number} (==|!=|<|<=|>|>=) ${number}$`);
+  const list = [...new Set(terms.map(tidyTerm))].filter((t) => !numbers.test(t));
   const has = (t: string) => list.includes(t);
   return list.filter((t) => {
     const m = COMPARE.exec(t);
@@ -102,6 +105,17 @@ export function readTerm(term: string, sides?: readonly string[]): string {
   if (op === "<") return n === 1 ? "hit on edge 0" : `hit on edges 0–${n - 1}`;
   if (op === ">=") return `hit on edge ${n} or later`;
   return `hit on edge ${op} ${n}`;
+}
+
+/**
+ * What the lab's own names in some conditions stand for, a line each for the tips: the name, the analysis's raw form
+ * and what it is, like "ropeKind is argument+0x0c: the kind of pull, with 0x8000 when it only asks."
+ */
+export function namedTermLines(texts: readonly string[]): string[] {
+  const all = texts.join(" ");
+  return NAMED_TERMS.filter(({ name }) => new RegExp(`\\b${name}\\b`).test(all)).map(
+    ({ name, raw, meaning }) => `${name} is ${raw}: ${meaning}.`,
+  );
 }
 
 /** The terms of a condition as the lab writes it, like `a != 0 and b == 4`. */

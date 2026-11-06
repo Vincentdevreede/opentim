@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { RestSummary } from "../../behaviour.ts";
-import { RESET_WORDS, restingWords, termsOf, tidyTerms, weakest } from "../../behaviour-view.ts";
+import { readTerm, RESET_WORDS, restingWords, termsOf, tidyTerms, weakest } from "../../behaviour-view.ts";
 import { statesText } from "../../behaviour.ts";
 import BehaviourRow from "./BehaviourRow.vue";
 
@@ -44,8 +44,11 @@ const restingTip = computed(() =>
   ].join("\n"),
 );
 const states = computed(() => props.rest.resting.map((r) => r.state));
-/** A condition on the way to a resting frame, tidied like a walk's. */
-const tidy = (condition: string) => tidyTerms(termsOf(condition)).join(" and ");
+/** A condition on the way to a resting frame, tidied and read like a walk's. */
+const tidy = (condition: string) =>
+  tidyTerms(termsOf(condition))
+    .map((t) => readTerm(t))
+    .join(" and ");
 </script>
 
 <template>

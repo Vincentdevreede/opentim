@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { ownTerms, readTerm, type ChangeRow } from "../../behaviour-view.ts";
+import { namedTermLines, ownTerms, readTerm, type ChangeRow } from "../../behaviour-view.ts";
 import LabIcon from "../LabIcon.vue";
 import BehaviourRow from "./BehaviourRow.vue";
 
@@ -29,6 +29,9 @@ const tip = computed(() => {
   if (r.expression) lines.push(`state = ${r.expression}`);
   lines.push(r.shared.length ? `When ${read(r.shared)}` : "Always");
   if (r.variants.length) lines.push(`and one of ${r.variants.length} cases`);
+  // The lab's names in the conditions, with the analysis's own form.
+  const named = namedTermLines([read(r.shared), ...r.variants.map(read)]);
+  if (named.length) lines.push("", ...named);
   lines.push("", `${instructions.value} instructions, ${r.confidence}. Click for every path.`);
   return lines.join("\n");
 });

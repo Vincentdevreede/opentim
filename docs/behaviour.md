@@ -62,6 +62,16 @@ the rest when it is opened.
   jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
   named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the
   tip.
+- **Numbers in conditions.** A frame, a speed, a position or a control value reads signed in decimal
+  ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too ("ropeKind & 0x18 == 0x10"; under
+  a mask below 10 as a number, and a mask of a mask as one), a direction in degrees ("collider.contactAngle <
+  315°"), and an unsigned test's number as it is. The absolute value of another part's field reads "|found.overlapX|".
+- **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
+  end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
+  asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). The tip
+  gives each name's raw form. In Even More this leaves 22 of the 7,768 conditions the tab shows with raw terms, down
+  from 311: the rope callback's argument on two parts' resting frames, the flip's argument on part 47 and a table
+  with an unknown index on part 4.
 - **Run values.** A value the run finds itself reads by what it is: "stateDelta after the query at …", "found",
   "reached" (a part through a rope, belt or pulley), "centre angle at …", "gear jam at …", "next in the list after
   the insertion at …", and a value a test picks as "3 if state == 2, else 5".
