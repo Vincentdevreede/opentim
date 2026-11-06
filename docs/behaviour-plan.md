@@ -102,7 +102,9 @@ Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
       values from B in plain words. Done: the tab shows the rest and the resting frames, the parts a part creates,
       what it does to other parts and to its own flags, other parts' settings by their proved meaning and run values
       by name, and folds a trigger's many walks by where they start. See "The Behaviour tab".
-- [ ] **G2. PR text and final numbers**, shown to you before it is posted.
+- [ ] **G2. PR text and final numbers**, shown to you before it is posted. Final numbers on 0b1d5ce: every walk ends
+      (1,391 in Even More, 1,207 in TIM 1), 0 unknown writes, 0 vague effect lines, 0 unresolved resets, and every
+      recording complete (648 and 552). The text is drafted and waits for your read.
 
 ## Not in this plan
 
