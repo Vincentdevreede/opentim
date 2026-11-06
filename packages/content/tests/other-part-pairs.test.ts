@@ -1,0 +1,260 @@
+import { describe, expect, it } from "vitest";
+import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
+import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
+import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
+import { LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
+import { CONSUMER_UNREAD, otherPartPairs, renderOtherPartPairs, SOURCE_VALUE } from "../src/read/other-part-pairs.ts";
+
+const GLOVE = "overlap candidate at 0x19732";
+const HOUSE = "overlap candidate at 0x1e29b";
+const CANDLE = "overlap candidate at 0x19acd";
+const finding = { confidence: "inferred" as const, assumptions: ["A stated assumption."], evidence: [] };
+const c = (value: number): Expression => ({ kind: "constant", value, width: 16 });
+const f = (object: string, offset: number): Expression => ({ kind: "field", object, offset, width: 16 });
+const bin = (operator: string, left: Expression, right: Expression): Expression => ({
+  kind: "binary",
+  operator,
+  left,
+  right,
+  width: 16,
+});
+const compare = (left: Expression, operator: string, right: Expression): Predicate => ({
+  kind: "compare",
+  operator,
+  left,
+  right,
+  signed: false,
+});
+const and = (...terms: Predicate[]): Predicate => ({ kind: "and", terms });
+const write = (object: string, offset: number, value: Expression): FieldWrite => ({
+  ...finding,
+  object,
+  offset,
+  width: 16,
+  value,
+  condition: { kind: "true" },
+  routine: 0x100,
+});
+/** The mass word of the member's type record, at +0x02 of a 58-byte record at 0x2ef10. */
+const mass = (member: string): Expression => ({
+  kind: "table",
+  segment: 0x2ef1,
+  offset: 2,
+  index: bin("*", f(member, 4), c(58)),
+  width: 16,
+});
+const member = (object: string, header: number, condition: Predicate, fields: FieldWrite[]) => ({
+  ...finding,
+  scope: "one overlap-list member" as const,
+  header,
+  object,
+  effectsComplete: true,
+  condition,
+  fields,
+});
+const callback = (slot: number, address: number) => ({
+  slot,
+  field: 0x26,
+  address,
+  segment: 0,
+  offset: 0,
+  shared: false,
+  sharedDefault: false,
+});
+/** A loop over the list of the query called at `call`, so the search's flag tests are known. */
+const loop = (header: number, call: number, helper: number) => ({
+  listLoops: [{ header, source: "overlap-query", queries: [call] }],
+  engineCalls: [{ ...finding, instruction: call, summary: helper, purpose: "search" }],
+});
+const search = (address: number, tests: { offset: number; mask: number; set: boolean }[]) => ({
+  ...finding,
+  address,
+  kind: "overlap-list",
+  purpose: "search",
+  writes: [{ ...finding, root: "unknown", selection: "overlap-candidate", path: [], offset: 0x78, width: 16 }],
+  list: { headField: 0x78, nextField: 0x78, memberTests: tests.map((t) => ({ ...finding, ...t })) },
+});
+
+function report(): BehaviourReport {
+  const part = (id: string, type: number, slots: { slot: number; address: number }[] = [], reads: number[] = []) => ({
+    id,
+    type,
+    routines: slots.map((s) => callback(s.slot, s.address)),
+    transitions: reads.map((offset) => ({
+      ...finding,
+      from: null,
+      to: f("part", 12),
+      condition: compare(f("part", offset), "!=", c(0)),
+      routine: 0x500,
+    })),
+  });
+  const moving = compare(bin("&", f(GLOVE, 6), c(0x1000)), "!=", c(0));
+  return {
+    layout: {
+      fields: [
+        { offset: 4, name: "type" },
+        { offset: 12, name: "state" },
+        { offset: 0x36, name: "velocityX" },
+        { offset: 8, name: "drawingFlags", masks: [{ name: "horizontalFlip", value: 16 }] },
+      ],
+    },
+    parts: [
+      part("brick-wall", 1),
+      part("conveyor-belt", 5, [{ slot: 0, address: 0x400 }]),
+      part("cat", 12, [], [0x36]),
+      part("teeter-totter", 3, [{ slot: 1, address: 0x600 }]),
+      part("boxing-glove", 35, [{ slot: 1, address: 0x19657 }]),
+      part("candle", 45, [{ slot: 1, address: 0x19a67 }], [0x12]),
+      part("mel-schlemming", 54),
+      part("mels-house", 58, [{ slot: 1, address: 0x1e247 }]),
+    ],
+    helpers: [
+      search(0x42da, [{ offset: 8, mask: 0x2000, set: false }]),
+      search(0x448e, [
+        { offset: 8, mask: 0x2000, set: false },
+        { offset: 0x0a, mask: 0x0004, set: true },
+      ]),
+      {
+        ...finding,
+        address: 0x1d797,
+        kind: "conditional-list-consumer",
+        purpose: "consumer",
+        writes: [],
+        listConsumer: { fields: [{ root: "member", offset: 0x12, width: 16 }] },
+      },
+      {
+        kind: "part-factory",
+        factory: {
+          startingWords: [
+            {
+              field: 6,
+              values: Array(60)
+                .fill(0x800)
+                .map((v, t) => (t === 1 || t === 3 || t === 58 ? 0x4800 : v)),
+            },
+          ],
+          constructorFlags: [{ ...finding, type: 45, field: 0x0a, mask: 0x0004 }],
+        },
+      },
+    ],
+    typeTable: {
+      address: 0x2ef10,
+      stride: 58,
+      words: Array.from({ length: 60 }, (_, type) => [0, type === 12 ? 120 : 10, ...Array(27).fill(0)]),
+    },
+    routines: [
+      {
+        address: 0x19657,
+        ...loop(0x19732, 0x196d1, 0x42da),
+        // The punch: a goal mark and a speed the member's mass picks, 6656 less 512 from a mass of 100 on.
+        iterationOutcomes: [
+          member(GLOVE, 0x19732, moving, [
+            write(GLOVE, 0x0a, bin("|", f(GLOVE, 0x0a), c(0x0400))),
+            write(GLOVE, 0x38, bin("-", c(6656), bin("*", bin(">=", mass(GLOVE), c(100)), c(512)))),
+          ]),
+        ],
+      },
+      {
+        address: 0x1e247,
+        ...loop(0x1e29b, 0x1e264, 0x42da),
+        iterationOutcomes: [
+          member(HOUSE, 0x1e29b, and(compare(f(HOUSE, 4), "==", c(54)), compare(f(HOUSE, 12), "<", c(6))), [
+            write(HOUSE, 8, bin("|", f(HOUSE, 8), c(0x2000))),
+          ]),
+        ],
+      },
+      {
+        address: 0x19a67,
+        ...loop(0x19acd, 0x19ab2, 0x448e),
+        // Lights what isn't lit yet: only parts with the lightable mark are in the list.
+        iterationOutcomes: [member(CANDLE, 0x19acd, compare(f(CANDLE, 0x12), "==", c(0)), [write(CANDLE, 0x12, c(1))])],
+      },
+      {
+        address: 0x400,
+        // A belt halves the toucher's velocityY, and a far side reads the belt's own position.
+        outcomes: [
+          {
+            ...finding,
+            effectsComplete: true,
+            condition: { kind: "true" },
+            fields: [write("collider", 0x38, bin(">>", f("collider", 0x38), c(1)))],
+            returnValue: c(0),
+          },
+        ],
+      },
+      {
+        address: 0x600,
+        engineCalls: [{ ...finding, instruction: 0x650, summary: 0x1d797, purpose: "consumer" }],
+        iterationOutcomes: [
+          member("overlap candidate at 0x700", 0x700, compare(f("overlap candidate at 0x700", 4), "==", c(12)), [
+            write("overlap candidate at 0x700", 0x36, f("part", 0x1e)),
+          ]),
+        ],
+      },
+    ],
+  } as unknown as BehaviourReport;
+}
+
+describe("other parts' effects with values the type settles", () => {
+  const lines = effectsFromOthers(report(), evaluateBehaviourCondition);
+
+  it("works a speed out from the part's type record and names a goal mark it sets", () => {
+    const [punch] = lines.get(12)!.effects.filter((e) => e.sourcePart === "boxing-glove");
+    expect(punch!.description).toBe(
+      "A boxing glove that reaches it sets its goal mark 0x0400 in field 0x0a and sets +0x38 to 6144. Only when it is on the moving list and its out-of-play flag 0x2000 is clear.",
+    );
+    const [mel] = lines.get(54)!.effects.filter((e) => e.sourcePart === "boxing-glove");
+    expect(mel!.sets).toContainEqual({ kind: "field", offset: 0x38, width: 16, value: 6656 });
+  });
+
+  it("keeps a test of the part's own fields when the source names its type", () => {
+    const [house] = lines.get(54)!.effects.filter((e) => e.sourcePart === "mels-house");
+    expect(house!.description).toBe(
+      "A mels house that reaches it sets its out-of-play flag 0x2000 in drawing flags. Only when its state is below 6 (unsigned).",
+    );
+    expect(house!.conditionWords).toEqual(["its state is below 6 (unsigned)"]);
+  });
+
+  it("gives no line from a search that keeps only parts with a flag the part never has", () => {
+    expect(lines.get(54)!.effects.some((e) => e.sourcePart === "candle")).toBe(false);
+  });
+});
+
+describe("the pairs of other parts", () => {
+  const pairs = otherPartPairs(report(), evaluateBehaviourCondition);
+  const pair = (source: string, target: string) =>
+    pairs.pairs.find((p) => p.sourcePart === source && p.targetPart === target);
+
+  it("finds each pair the code allows and where it is described", () => {
+    expect(pair("boxing-glove", "cat")).toMatchObject({ status: "described", way: "overlap list", lines: 1 });
+    expect(pair("mels-house", "mel-schlemming")).toMatchObject({ status: "described", lines: 1 });
+    // The house names Mel's type: no other part is in its pairs.
+    expect(pairs.pairs.filter((p) => p.sourcePart === "mels-house")).toHaveLength(1);
+    expect(pair("conveyor-belt", "cat")).toMatchObject({ status: "described", way: "touch" });
+  });
+
+  it("says which decided assumption rules a pair out", () => {
+    expect(pair("conveyor-belt", "brick-wall")).toMatchObject({
+      status: "ruled out",
+      reasons: [FIXED_LIST_ASSUMPTION],
+    });
+    expect(pair("candle", "cat")).toMatchObject({ status: "ruled out", reasons: [LIGHTABLE_ASSUMPTION] });
+    // The candle can light itself, another candle: the candle's own rules read the control value, so it is a walk.
+    expect(pair("candle", "candle")).toMatchObject({ status: "described", walks: 1 });
+  });
+
+  it("says why a pair is missing", () => {
+    expect(pair("teeter-totter", "cat")).toMatchObject({ status: "missing", reasons: [SOURCE_VALUE] });
+    expect(pairs.consumers).toEqual([
+      { sourceType: 3, sourcePart: "teeter-totter", routine: 0x600, consumer: 0x1d797, calls: [0x650], fields: [0x12] },
+    ]);
+    expect(renderOtherPartPairs(pairs)).toContain(CONSUMER_UNREAD);
+  });
+
+  it("counts the found list's link as bookkeeping no part's rules read", () => {
+    expect(pairs.foundLists.find((l) => l.sourcePart === "candle")).toMatchObject({
+      queries: [{ call: 0x19ab2, helper: 0x448e, fields: [0x78] }],
+      readBy: [],
+    });
+  });
+});

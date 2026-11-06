@@ -29,6 +29,14 @@ import {
   type Names,
   type Tests,
 } from "./describe-touch.ts";
+import {
+  flagTest,
+  isLightableTest,
+  LIGHTABLE_ASSUMPTION,
+  LIGHTABLE_PARTS,
+  searchTests,
+  type SearchTest,
+} from "./describe-hits.ts";
 
 /**
  * The list flags of a part at `0x06`: the routine that puts a part on a list (`0x6469` in Even More, English floppy)
@@ -288,6 +296,30 @@ function numberOf(e: Expression): number | undefined {
   const a = numberOf(e.left),
     b = numberOf(e.right);
   if (a === undefined || b === undefined) return undefined;
+  // A comparison gives 1 or 0, read unsigned at the width of what it compares, as the walks read it.
+  if (["==", "!=", "<", "<=", ">", ">="].includes(e.operator)) {
+    const [x, y] = [wrap(a, e.left.width), wrap(b, e.left.width)];
+    const op = e.operator;
+    return Number(
+      op === "=="
+        ? x === y
+        : op === "!="
+          ? x !== y
+          : op === "<"
+            ? x < y
+            : op === "<="
+              ? x <= y
+              : op === ">"
+                ? x > y
+                : x >= y,
+    );
+  }
+  // An arithmetic shift right keeps the sign of the word it shifts.
+  if (e.operator === ">>") {
+    const size = 2 ** e.left.width;
+    const value = a >= size / 2 ? a - size : a;
+    return wrap(Math.floor(value / 2 ** b), e.width);
+  }
   const result =
     e.operator === "+"
       ? a + b
@@ -299,11 +331,13 @@ function numberOf(e: Expression): number | undefined {
             ? a & b
             : e.operator === "|"
               ? a | b
-              : e.operator === "<<"
-                ? a * 2 ** b
-                : e.operator === ">>>"
-                  ? Math.floor(a / 2 ** b)
-                  : undefined;
+              : e.operator === "^"
+                ? a ^ b
+                : e.operator === "<<"
+                  ? a * 2 ** b
+                  : e.operator === ">>>"
+                    ? Math.floor(a / 2 ** b)
+                    : undefined;
   return result === undefined ? undefined : wrap(result, e.width);
 }
 
@@ -412,6 +446,13 @@ interface Candidate {
   writes: FieldWrite[];
   sourceTerms: Predicate[];
   memberTerms: Predicate[];
+  /**
+   * Whether the source names the part's type, or else the flag tests of the search that found it, when they are all
+   * known. Only then may a line keep tests of the part's own fields that its type doesn't decide: a search may keep
+   * only parts with a flag the outcome doesn't show, like the candle's, which keeps lightable parts.
+   */
+  named: boolean;
+  search?: SearchTest[];
 }
 
 /** The part that touched the source, as the bounce callback gets it; `part` is the source, the part it touched. */
@@ -548,6 +589,11 @@ export function effectsFromOthers(
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
 
+  const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
+  /** Whether a new part of the type gets the bits: from the factory's table, or from its constructor's first run. */
+  const gives = (type: number, t: SearchTest) =>
+    ((factory?.startingWords?.find((w) => w.field === t.offset)?.values[type] ?? 0) & t.mask) === t.mask ||
+    !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
   const settingWords = (offset: number, value: Expression) => {
@@ -590,11 +636,18 @@ export function effectsFromOthers(
     /** The speeds whose every write points along the line from the source's centre to this part's. */
     const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
     for (const w of writes) {
-      if (w.value.kind === "constant" && !w.directedSpeed) {
-        sets.push({ kind: "field", offset: w.offset, width: w.width, value: w.value.value });
+      // A number, or a value the part's type settles, like a speed read from its type record.
+      const number = w.directedSpeed
+        ? undefined
+        : numberOf(forType(w.value, member, typeOffset, type, report.typeTable, used));
+      if (number !== undefined) {
+        sets.push({ kind: "field", offset: w.offset, width: w.width, value: number });
         continue;
       }
       if (!w.directedSpeed) {
+        // Only a value of the part's own fields says something a line can repeat.
+        const read = objects(w.value);
+        if (read.unknown || readsTable(w.value) || [...read.objects].some((o) => o !== member)) return undefined;
         // A value worked out from the part's own fields, as a touch can set: like halving its velocityX.
         const value = rename(w.value, member, "part");
         sets.push({
@@ -905,8 +958,15 @@ export function effectsFromOthers(
         const member = outcome.object;
         const writes = outcome.fields.filter((f) => f.object === member);
         if (!writes.length || writes.length !== outcome.fields.length) continue;
-        // Every field set needs a number: a constant, or the speed the speed setter was given.
-        if (writes.some((w) => !w.directedSpeed && w.value.kind !== "constant")) continue;
+        // Every field set needs a number for the part's type, a formula of its own fields, or the speed the speed setter
+        // was given: so a value may read only the member and the type table.
+        if (
+          writes.some((w) => {
+            const read = objects(w.value);
+            return !w.directedSpeed && (read.unknown || [...read.objects].some((o) => o !== member));
+          })
+        )
+          continue;
         const sourceTerms: Predicate[] = [],
           memberTerms: Predicate[] = [];
         let open = false;
@@ -918,7 +978,19 @@ export function effectsFromOthers(
           else open = true;
         }
         if (open) continue;
+        const named = memberTerms.some(
+          (t) =>
+            t.kind === "compare" &&
+            t.operator === "==" &&
+            t.left.kind === "field" &&
+            t.left.object === member &&
+            t.left.offset === typeOffset &&
+            t.right.kind === "constant",
+        );
+        const search = named ? undefined : searchTests(report, callback.address, outcome.header);
         candidates.push({
+          named,
+          ...(search ? { search } : {}),
           sourceWords: sourceTerms.flatMap((t) => drawingFlagWords(t, report) ?? []),
           sourceType: source.type,
           sourcePart: source.id,
@@ -963,8 +1035,27 @@ export function effectsFromOthers(
         words: string[] = [];
       let possible = true,
         decided = true,
-        byList = false;
-      for (const term of c.memberTerms) {
+        byList = false,
+        usesLightable = false;
+      // The search's flags: one it needs must be given to the type, by the factory, its constructor or, for the lightable
+      // mark, the decided assumption. A flag it needs clear stays as the line's condition.
+      const searchTerms: Predicate[] = [];
+      /** The name of each flag the search needs clear, by its test. */
+      const clearNames = new Map<Predicate, string>();
+      for (const t of c.search ?? []) {
+        if (!t.set) {
+          const test = flagTest(c.member, t);
+          searchTerms.push(test);
+          const named = PART_FLAGS.find((flag) => flag.offset === t.offset && flag.mask === t.mask);
+          if (named) clearNames.set(test, named.name);
+          continue;
+        }
+        if (isLightableTest(t)) {
+          if (!LIGHTABLE_PARTS.has(part.id)) possible = false;
+          else usesLightable = true;
+        } else if (!gives(part.type, t)) possible = false;
+      }
+      for (const term of [...c.memberTerms, ...searchTerms]) {
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
         const value = evaluate(typed, known(c.member));
         if (value === true) continue;
@@ -978,9 +1069,21 @@ export function effectsFromOthers(
           }
           continue;
         }
-        if (!flag) decided = false;
-        conditionTerms.push(renamePredicate(typed, c.member, "part"));
-        words.push(flag ?? "");
+        const own = renamePredicate(typed, c.member, "part");
+        // A test of the part's own fields that its type doesn't decide, like Mel's frame, stays as the line's condition,
+        // in words, as for a touch: "its state is below 6".
+        if (!flag && (!(c.named || c.search) || own.kind !== "compare" || readsTable(own))) decided = false;
+        conditionTerms.push(own);
+        // A flag the search needs clear says its name, like "its out-of-play flag 0x2000 is clear".
+        const cleared = clearNames.get(term);
+        words.push(
+          flag ??
+            (cleared
+              ? `its ${cleared} is clear`
+              : own.kind === "compare"
+                ? compareWords(own, { field: fieldName, of: (_, what) => `its ${what}` })
+                : ""),
+        );
       }
       if (!possible || !decided) continue;
       if (c.writes.some((w) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte)))) continue;
@@ -995,7 +1098,7 @@ export function effectsFromOthers(
       const name = nameOf(c.sourcePart);
       const { said, velocityDirection } = sayings(sets, name);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
-      const description = `${article(name)} ${name} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when it is ${words.join(" and ")}.` : ""}`;
+      const description = `${article(name)} ${name} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (w.startsWith("its ") ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
       const key = JSON.stringify([c.routine, sets, conditionTerms]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
@@ -1020,6 +1123,7 @@ export function effectsFromOthers(
             ...c.outcome.assumptions,
             ...c.writes.flatMap((w) => w.assumptions),
             ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
             ...proofs,
             ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
             "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",

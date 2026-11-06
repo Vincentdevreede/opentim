@@ -35,11 +35,11 @@ const MOVING_LIST = 0x1000;
  * rocket (`0x1664f`) and the candle (`0x167ea`) set it. Decided with the user on 2026-11-06: these four always have it
  * and no other part does, though a level stores the word.
  */
-const LIGHTABLE = { offset: 0x0a, mask: 0x0004 };
-const LIGHTABLE_PARTS = new Set(["cannon", "dynamite", "rocket", "candle"]);
+export const LIGHTABLE = { offset: 0x0a, mask: 0x0004 };
+export const LIGHTABLE_PARTS = new Set(["cannon", "dynamite", "rocket", "candle"]);
 export const LIGHTABLE_ASSUMPTION =
   "Only the cannon, dynamite, rocket and candle are ever marked as lightable (0x0004 in field 0x0a), and they always are. Only their constructors set it, and in the shipped levels every one of these four has it and no other part does.";
-const isLightableTest = (t: { offset: number; mask: number }) =>
+export const isLightableTest = (t: { offset: number; mask: number }) =>
   t.offset === LIGHTABLE.offset && t.mask === LIGHTABLE.mask;
 
 /** One way other parts change this part's fields that its rules read. */
@@ -80,12 +80,12 @@ function readsTable(value: Expression | Predicate): boolean {
 }
 
 /** A flag test of a search on the member it keeps, like `(member + 0x0a & 0x0004) != 0`. */
-interface SearchTest extends Finding {
+export interface SearchTest extends Finding {
   offset: number;
   mask: number;
   set: boolean;
 }
-const flagTest = (member: string, t: SearchTest): Predicate => ({
+export const flagTest = (member: string, t: SearchTest): Predicate => ({
   kind: "compare",
   operator: t.set ? "!=" : "==",
   left: {
@@ -103,7 +103,7 @@ const flagTest = (member: string, t: SearchTest): Predicate => ({
  * The flag tests on a member that the searches filling a loop's list make, when the reader has every such test of
  * each search: only the tests all of them make, since the member may come from any of them.
  */
-function searchTests(report: BehaviourReport, routine: number, header: number): SearchTest[] | undefined {
+export function searchTests(report: BehaviourReport, routine: number, header: number): SearchTest[] | undefined {
   const code = report.routines.find((r) => r.address === routine);
   const loop = code?.listLoops?.find((l) => l.header === header && l.source === "overlap-query");
   if (!loop?.queries.length) return undefined;
