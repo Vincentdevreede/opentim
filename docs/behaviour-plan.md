@@ -15,7 +15,9 @@ section it names.
 | Recordings that stop early                                            |        52 of 648 |   0 |    48 of 552 |   0 |
 | Parts without any recording                                           |               28 |  28 |           22 |  22 |
 
-The parts without a recording are checked against the shipped levels instead (E1).
+The parts without a recording are checked against the shipped levels instead (E1). The parts left without a
+resting frame (Even More 2, 6, 8, 58 and 61, TIM 1 2, 6, 8 and 10) have walks that all end, but in a loop or by
+keeping the frame they are given, so no walk rests on one frame.
 
 ## A. Make the score honest
 
