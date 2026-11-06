@@ -162,6 +162,65 @@ and six loop gaps. TIM 1 French has 206 out of 797, 13 calls, zero pointer losse
 builds extracted successfully; `readBehaviour` took 2.94–4.23 seconds in the final capture. Description generation
 was measured separately at 1.19–1.44 seconds. These times are observations for this machine, not browser guarantees.
 
+### All eleven builds
+
+Step F1 of the plan measures every supplied build the way the two recorded ones are measured: `extract-behaviour` and
+`compare-behaviour --no-descriptions` over all eleven in one run each, `leaves.ts` (every walk must end),
+`check-level-frames` and `list-assumptions --check`. Nine different executables: the TIM 1 English floppy and disk
+image builds have the same `TIM.EXE`, and so do the two French Even More builds.
+
+| Build                          | Executable | Parts | Unresolved transitions | Conditional | Unknown writes | Named run values | Vague effect lines | Unresolved resets | Resets the level gives | Without resting frames | Walks that end | Levels | Recordings               |
+| ------------------------------ | ---------- | ----: | ---------------------: | ----------: | -------------: | ---------------: | -----------------: | ----------------: | ---------------------: | ---------------------: | -------------: | -----: | ------------------------ |
+| TIM 1 English                  | `1d8702c4` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 English floppy           | `34c844ba` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 English disk image       | `34c844ba` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| TIM 1 French                   | `4a54cc37` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | 552 of 552 complete      |
+| TIM 1 German                   | `8aec613a` |    51 |               0 of 764 |         122 |              0 |              214 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
+| Even More English floppy       | `b11cf18e` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | 648 of 648 complete      |
+| Even More English CD           | `2557edb3` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    172 | none for this executable |
+| Even More English demo         | `605e9c0a` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |     12 | none for this executable |
+| Even More French               | `9b15a150` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+| Even More French (with German) | `9b15a150` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+| Even More German               | `9cad1156` |    63 |               0 of 925 |         128 |              0 |              234 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
+
+The two recorded builds: in Even More 456 recordings match from the reset or a resting frame, 1 from creation, 135
+from an input case, 2 from a seeded state, 38 through the recorder's fields and 16 through a search the recorder
+skipped; in TIM 1 it is 364, 1, 135, 2, 38 and 12. None is a prefix and none differs. Every build has 0 unresolved
+call sites, 0 pointer losses and 0 loop gaps, and the same callbacks (158 routines in Even More, 135 in TIM 1). Every
+shipped level (1,281 files) agrees with the description, and all 267 assumptions are listed.
+
+Only two executables have recordings, so the others were also compared with the recordings of their own game, as a
+check of the description and not as proof about that executable. The French and German builds of both games match
+every recording, like the recorded ones. The Even More CD and demo builds and the English TIM 1 builds match all but
+the recordings that need a search the recorder skipped (16 and 12): the recording names that search by its address in
+the recorded executable, and in these builds the search sits elsewhere, so those walks stop where the search is and
+count as prefixes. None differs.
+
+What differs between the builds, and why it doesn't change a part:
+
+- The code is laid out differently. The CD build keeps far calls as far calls and spreads its code over 81 segments
+  where the floppy has 36 (see [the release wrapper](#the-release-wrapper-in-the-even-more-cd-build)); the demo's
+  engine is smaller (44 fewer routines read, 5 fewer that call an interrupt). So the analysis reads more or fewer
+  engine routines: Even More 889 (floppy), 940 (CD), 845 (demo), 886 (French and German); TIM 1 830 (English) and 832
+  (French and German). The part callbacks and every count in the table are the same.
+- Globals and data tables sit at other addresses. A rule that reads a global (a brick wall's test of a value in the
+  data segment, for example) reads it at another offset in another build. The build comparison counts these as
+  unresolved differences, as it says it would: they can't show a difference in behaviour. The same goes for some
+  rules of the cat and other parts that test a run value: their choices come out nested in another order where the
+  code is laid out differently.
+- The names of run values carry the address of the query or search that gives them (for example "answer of the query
+  at 0x1d2af"). The build comparison now leaves those addresses out, like the addresses in other names.
+- In the CD build the dynamite plunger's rules write a choice with its two ways in the other order (what the new part
+  gets when the allocation fails or succeeds, and the plunger's control value). The build comparison now puts the two
+  sides of `+`, `*`, `&`, `|` and `^` in a fixed order.
+- The demo has the same 63 part types as the full game but only 12 levels; the CD build has 172 levels, 9 more than
+  the floppy.
+
+After the last two changes, the comparison of builds within each game finds no difference in what the analysis
+resolves (before them, the teeter-totter and the balloon differed in every other executable, and the dynamite
+plunger in the CD build). Every part has the same counts of rules of each kind, the same resting frames, the same
+reset kind and the same number of walks in every build of its game.
+
 ## Descriptions and conditional frame walks
 
 `describeBehaviour(report)` returns plain data for every part. `rest.description` explains a known reset frame or
@@ -220,6 +279,9 @@ pnpm --filter @opentim/content compare-behaviour \
   --baseline /path/to/baseline-reports --reports /path/to/new-reports \
   --oracle /path/to/v25/animations.json --out /tmp/behaviour-comparison
 ```
+
+`--baseline` can be left out to measure reports on their own. `--no-descriptions` leaves out the description files
+(about 300 MB a build), so all eleven builds fit in one run; the summary lines, `comparison.json` and `report.md` stay.
 
 Extraction writes an analysis-time sidecar for each build; comparison measures description time separately. The
 before/after metrics count graph transitions and unique callback call sites, pointer losses and loop diagnostics.
