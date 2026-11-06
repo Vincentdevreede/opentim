@@ -117,4 +117,24 @@ describe("the value a routine leaves in a field", () => {
     expect(field.value.kind).toBe("binary");
     expect(caller.transitions[0]!.to).toMatchObject({ kind: "constant", value: 5 });
   });
+  it("composes a large helper value into a caller, like a drawing position the frame drawing helper set", () => {
+    // Helper at 0x100: [si+0x2a] = [si+0x10] + 45 times [si+0x12]. Caller at 0: [si+0x12] = [si+0x20] + [si+0x22], then
+    // calls it, so the composed value is larger than the usual budget.
+    const image = new Uint8Array(0x300);
+    const adds = Array.from({ length: 45 }, () => [0x03, 0x44, 0x12]).flat();
+    image.set([0x55, 0x8b, 0xec, 0x8b, 0x76, 6, 0x8b, 0x44, 0x10, ...adds, 0x89, 0x44, 0x2a, 0x5d, 0xcb], 0x100);
+    image.set([
+      ...[0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0x8b, 0x44, 0x20, 0x03, 0x44, 0x22, 0x89, 0x44, 0x12],
+      ...[0x56, 0x9a, 0, 1, 0, 0, 0x59, 0x5e, 0x5d, 0xcb],
+    ]);
+    const helper = analyseRoutine(image, { address: 0x100, segment: 0, offset: 0x100 });
+    expect(helper.outcomes![0]!.fields.find((f) => f.offset === 0x2a)!.value.kind).toBe("binary");
+    const caller = analyseRoutine(
+      image,
+      { address: 0, segment: 0, offset: 0 },
+      { summaries: new Map([[0x100, helper]]) },
+    );
+    const field = caller.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x2a)!;
+    expect(field.value.kind).toBe("binary");
+  });
 });

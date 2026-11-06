@@ -4141,12 +4141,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               s,
               summary.objectPointer.argumentOffset,
             ),
+            // A drawing field the helper set through the frame drawing helper is as large as that helper's value.
             value: formalValue(
               effect.value,
               args,
               summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset,
               s,
               summary.objectPointer.argumentOffset,
+              FRAME_DRAWING_BUDGET,
             ),
           }));
           const returned = outcomeReturn(outcome);

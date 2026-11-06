@@ -2148,6 +2148,15 @@ them).
 This names the mouse motor's control value after its start (`0x1c074` in Even More, English floppy): 1, or -1 when the
 motor is flipped. Even More goes from 5 to 4 rules with unknown writes; TIM 1, French, from 3 to 2.
 
+### Large values a caller takes from a helper
+
+When a caller takes a helper's ways one by one, it puts the part's fields as it holds them into each value the helper
+leaves. Those values used to be cut off at the usual expression budget (96 nodes), which a drawing position the frame
+drawing helper set is larger than, so the field became "Unresolved operand in +". They now get the budget the frame
+drawing helper's own values get. This gives the fish bowl's run (`0x1ad0e` in Even More, English floppy) the drawing
+position `0x2a` and `0x2c` its helper `0x1ad71` sets when it moves the bowl to frame 11. Even More goes from 4 to 3
+rules with unknown writes; no other rule changes. TIM 1, French, goes from 2 to 1 (its fish bowl).
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`
