@@ -736,11 +736,12 @@ describe("summariseRests", () => {
 });
 
 describe("summariseDoings", () => {
-  const line = (kind: string, description: string, confidence = "inferred") => ({
+  const line = (kind: string, description: string, confidence = "inferred", condition?: Predicate) => ({
     ...finding,
     confidence,
     kind,
     description,
+    ...(condition ? { condition } : {}),
   });
   const cannonball =
     "Creates a cannonball (type 43, which starts on frame 0) at positionX = its positionX + 97 and positionY = its positionY - 7, moving at velocityX = 12288 and velocityY = -4096 (each kept within the cannonball's speed limit).";
@@ -753,17 +754,21 @@ describe("summariseDoings", () => {
       {
         type: 18,
         effects: [
-          line("related-object", cannonball),
-          line("drawing", ran),
-          line("drawing", ran, "unresolved"),
-          line("drawing", `Sets flag 0x200 of the part's drawing flags. ${ran}`),
+          line("related-object", cannonball, "inferred", compare("==", field(0x0c), constant(2))),
+          line("drawing", ran, "inferred", compare("!=", field(0x12), constant(0))),
+          line("drawing", ran, "unresolved", compare("==", field(0x12), constant(0))),
+          line("drawing", `Sets flag 0x200 of the part's drawing flags. ${ran}`, "inferred", { kind: "true" }),
           line("helper", "Can call a shared helper: Turns a rope around."),
           line("related-object", relay),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const doings = summariseDoings(description)[18]!;
+  const report = {
+    layout: { fields: fields.map((f) => ({ ...f, confidence: "checked", evidence: [], assumptions: [] })) },
+    parts: [{ type: 18, routines: [] }],
+  } as unknown as BehaviourReport;
+  const doings = summariseDoings(report, description)[18]!;
 
   it("keeps the parts it creates, what it does to other parts and its own flags with a proved meaning", () => {
     expect(doings.map((d) => [d.on, d.description])).toEqual([
@@ -776,5 +781,11 @@ describe("summariseDoings", () => {
   it("makes each sentence one line, and ways that say the same one line, as unsure as the least sure of them", () => {
     expect(doings[1]).toMatchObject({ ways: 3, confidence: "unresolved" });
     expect(doings[0]).toMatchObject({ ways: 1, confidence: "inferred" });
+  });
+
+  it("keeps the condition of each way, so a line never reads as if it always happens", () => {
+    expect(doings[0]!.conditions).toEqual(["state == 2"]);
+    expect(doings[1]!.conditions).toEqual(["stateDelta != 0", "stateDelta == 0", "always"]);
+    expect(doings[2]!.conditions).toEqual([]);
   });
 });

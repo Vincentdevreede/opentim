@@ -176,6 +176,11 @@ export interface Doing extends Finding {
   description: string;
   /** How many ways through its routines give the same sentence. */
   ways: number;
+  /**
+   * The conditions of those ways as text, each once; `always` when a way has no test. Empty when the analysis gives
+   * none.
+   */
+  conditions: string[];
 }
 
 export interface PartSummary {
@@ -894,9 +899,17 @@ const PROVED = /ran-this-step mark|out-of-play flag|goal mark|contact flag|fine 
  * What each part does, by type, from the report's description: the parts it creates, what it does to other parts, and
  * the flags of its own whose meaning the code proves. Ways that say the same are one line.
  */
-export function summariseDoings(description: BehaviourDescription): Record<number, Doing[]> {
+export function summariseDoings(report: BehaviourReport, description: BehaviourDescription): Record<number, Doing[]> {
+  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const parts = new Map(report.parts.map((p) => [p.type, p]));
   return Object.fromEntries(
     description.parts.map((d) => {
+      const part = parts.get(d.type);
+      const write = part ? partWriter(part, fields) : writer(fields);
+      // The rope callback's own findings name what the rope code passes it.
+      const rope = part ? partWriter(part, fields, "rope") : write;
+      const ropeRoutines = new Set(part?.routines.filter((r) => roleOf(r.role) === "rope").map((r) => r.address));
+      const writerOf = (routine?: number) => (routine !== undefined && ropeRoutines.has(routine) ? rope : write);
       const lines = new Map<string, Doing>();
       for (const e of d.effects) {
         const on =
@@ -914,10 +927,15 @@ export function summariseDoings(description: BehaviourDescription): Record<numbe
           on === "created"
             ? [e.description]
             : e.description.split(/(?<=\.) (?=[A-Z])/).filter((t) => on === "others" || PROVED.test(t));
+        // When it does it: a way through its routines can need a test, like the gun's mirrored bullet.
+        const conditions = (e.conditions ?? (e.condition ? [e.condition] : [])).map((c) =>
+          writerOf(e.routine).predicate(c),
+        );
         for (const sentence of sentences) {
           const line = lines.get(sentence);
           if (line) {
             line.ways++;
+            for (const c of conditions) if (!line.conditions.includes(c)) line.conditions.push(c);
             if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
               line.confidence = e.confidence;
             continue;
@@ -929,6 +947,7 @@ export function summariseDoings(description: BehaviourDescription): Record<numbe
             on,
             description: sentence,
             ways: 1,
+            conditions: [...new Set(conditions)],
           });
         }
       }

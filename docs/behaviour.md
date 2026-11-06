@@ -58,6 +58,10 @@ the rest when it is opened.
 - **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
   goal marks, contact flags) and its own flags with a proved meaning (out of play, ran this step), one line per
   sentence with how many ways give it.
+- **When it does it.** Under each line of "Creates" and "To itself and others" stands the condition of its first way,
+  like the gun's two bullets ("drawingFlags & 0x10 == 0" and "!= 0"), with how many more ways there are and each of
+  them when the line is opened; "always" when a way has no test. The teeter-totter's out-of-play flag, the explosion's
+  (only for type 19) and the bullet's (only at state 2) so never read as if they always happen.
 - **Walks.** A trigger with more than 12 rows folds them by where they start ("running from 3"), so the
   jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
   named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the

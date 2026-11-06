@@ -121,6 +121,12 @@ export function namedTermLines(texts: readonly string[]): string[] {
 /** The terms of a condition as the lab writes it, like `a != 0 and b == 4`. */
 export const termsOf = (condition: string): string[] => (condition === "always" ? [] : condition.split(" and "));
 
+/** A condition as the tab reads it: its terms tidied, read in words where the code shows what they test, joined. */
+export const conditionText = (condition: string, sides?: readonly string[]): string =>
+  tidyTerms(termsOf(condition))
+    .map((t) => readTerm(t, sides))
+    .join(" and ");
+
 /** The targets of a change as short text: one number, or up to three runs like `0–3→0 · 4–7→4`. */
 export function targetsText(from: readonly number[], targets: readonly number[]): string | number | undefined {
   if (!targets.length || from.length !== targets.length) return undefined;

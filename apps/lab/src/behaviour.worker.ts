@@ -30,7 +30,7 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
     const walks = summariseWalks(report, description);
     const effects = summariseEffects(report, description);
     const rests = summariseRests(report, description);
-    const doings = summariseDoings(description);
+    const doings = summariseDoings(report, description);
     post({
       kind: "walks",
       result: { status: "done", walks, effects, rests, doings, seconds: (performance.now() - started) / 1000 },
