@@ -1484,6 +1484,10 @@ A helper that only updates its part's fields used to be described as "Updates ob
 established" as soon as one field had no checked name. It now names the fields it can and gives the others by offset,
 like the eye hook's helper at `0x1aaaa`: "Updates fields 0x6a, 0x6b while preserving the state".
 
+A routine that does the same thing on many paths, like the teeter-totter's run moving the parts lying on it, used to
+give one effect line per path: 1,424 lines for the teeter-totter in Even More. The same effect of one routine is now
+one line, which keeps every path's condition in `conditions` when they differ; the teeter-totter has 122.
+
 ### Parts whose run keeps everything
 
 Most simple parts share one empty run routine (`0x29f` in Even More: it only sets up and restores `bp`), and the same

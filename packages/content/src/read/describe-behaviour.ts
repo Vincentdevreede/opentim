@@ -155,6 +155,8 @@ export interface DescribedEffect extends Finding {
   kind: "drawing" | "counter" | "related-object" | "helper" | "outline";
   description: string;
   condition?: Predicate;
+  /** When paths with different conditions do the same, each of their conditions, in place of `condition`. */
+  conditions?: Predicate[];
   field?: number;
   routine?: number;
 }
@@ -3534,14 +3536,25 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
           ...finding([write]),
         });
   }
+  // The same effect of one routine on several paths is one line; when the paths' conditions differ, it keeps them all.
   const unique = new Map<string, DescribedEffect>();
   for (const effect of effects) {
-    const id = JSON.stringify([effect.kind, effect.description, effect.field, effect.condition]);
+    const id = JSON.stringify([effect.kind, effect.description, effect.field, effect.routine]);
     const prior = unique.get(id);
-    if (prior) {
-      prior.evidence = evidence(prior.evidence, effect.evidence);
-      prior.confidence = confidence(prior.confidence, effect.confidence);
-    } else unique.set(id, effect);
+    if (!prior) {
+      unique.set(id, effect);
+      continue;
+    }
+    prior.evidence = evidence(prior.evidence, effect.evidence);
+    prior.confidence = confidence(prior.confidence, effect.confidence);
+    const conditions = prior.conditions ?? (prior.condition ? [prior.condition] : []);
+    const next = effect.conditions ?? (effect.condition ? [effect.condition] : []);
+    for (const condition of next)
+      if (!conditions.some((known) => JSON.stringify(known) === JSON.stringify(condition))) conditions.push(condition);
+    if (conditions.length > 1) {
+      prior.conditions = conditions;
+      delete prior.condition;
+    }
   }
   return [...unique.values()];
 }

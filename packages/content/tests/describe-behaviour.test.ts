@@ -1511,6 +1511,21 @@ describe("creation defaults and related input conditions", () => {
     });
   });
 
+  it("gives the same effect of one routine on several paths one line with each path's condition", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    const other = "referenced-by(part+0x84)";
+    data.routines[2]!.writes = [test(12, "==", 0), test(12, "==", 1), test(12, "==", 1)].map((condition) => ({
+      ...write(0x40, constant(1)),
+      object: other,
+      condition,
+      routine: 300,
+    }));
+    const lines = describeBehaviour(data).parts[0]!.effects.filter((effect) => effect.field === 0x40);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.condition).toBeUndefined();
+    expect(lines[0]!.conditions).toEqual([test(12, "==", 0), test(12, "==", 1)]);
+  });
+
   it("rests on each frame when the run keeps every field", () => {
     const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
     data.parts[0]!.frameCount = 3;
