@@ -155,6 +155,10 @@ retf`;
     ]);
     expect(summary.connected?.recordFields.map((item) => item.offset)).toEqual([0x04, 0x08, 0x14]);
     expect(summary.writes.find((write) => write.root === "argument")).toMatchObject({ offset: 0x14, width: 8 });
+    // The rope ends come only from the rope geometry update and the links only from the belt end check, which decided
+    // assumptions 19 and 20 rule out for the owner of some callers.
+    expect(summary.connected?.ropeHolderFields).toEqual([{ offset: 0x96, width: 16 }]);
+    expect(summary.connected?.beltEndFields).toEqual([{ offset: 0x5a, width: 16 }]);
     summaries.delete(0);
     summaries.set(0xa0, helper(0xa0));
     addConnectionSummaries(codes, summaries, { ropeGeometry: [], ropeReverse: [], relay: [relay] });

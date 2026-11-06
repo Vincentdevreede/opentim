@@ -68,7 +68,11 @@ touching part's speed, reversed". A rule then counts as named, not unknown.
       with unknown writes go from 242 to 33 of 925 (Even More) and 218 to 28 of 764 (TIM 1), counted by the new rule;
       rules with named run values from 5 to 214 and 5 to 195. Walks and recordings don't change. A rope or belt never
       leads from a part back to itself (the user's answer, true in every shipped level), but that isn't what keeps the
-      owner's rope links and ends: see "The owner's rope fields after the relay". Two questions stay open there.
+      owner's rope links and ends: see "The owner's rope fields after the relay". The user settled the two questions
+      there on 2026-11-06 (decided assumptions 19 and 20): only a rope piece or a pulley holds a rope record, and the
+      editor never flips a part while its belt has a loose end. A flip callback's part now keeps its rope ends and links
+      after the relay: no rule names them after the call any more (each of the eight fields was named 74 times in
+      Even More and 67 in TIM 1). Walks and recordings don't change.
 - [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger fill in a new object. Find which
       part type each one creates and give its starting fields. Done: they make a rope end, a cannonball, a bullet and an
       explosion; each way through the routine is one effect line with the new part's place, speed and other fields.
@@ -175,7 +179,7 @@ the level), and every one of those is listed by name.
 
   Done (see "The monkey bike against what the user saw" in `docs/behaviour.md`): all five agree with the code. The
   shade is the bike's own rope: its rope callback starts it. The code has no way for a pedalling bike to stop during a
-  run (a hit only pauses it), so it stops only when the machine is stopped; one question about that stays open. The
+  run (a hit only pauses it), so it stops only when the machine is stopped, which the user confirmed. The
   walk after a hit while pedalling now pedals on in every branch (it knew -1 or 1 isn't 0). The recorder clears the
   belt link and the bike's run never writes it, so the recorded bikes had no belt: the 32 recordings close under the
   recorder's own basis. Even More 616 to 648 of 648 complete, TIM 1 520 to 552 of 552, none different.
@@ -189,8 +193,11 @@ the level), and every one of those is listed by name.
       allows, the switch and the solar panel start on a resting frame once their plugs are counted, every control value
       is 0, and the decided starting frames (assumptions 5 to 8 and 13 to 15) hold everywhere. The wood incline has no
       frame list to check; its frame always matches its width, and two Even More levels have an incline of width 0 on
-      frame -1, which the editor can't make. The rope end, heart and shamrock are in no level. `check-level-frames`
-      repeats the check (for F2). See "Starting frames in the shipped levels" in `docs/behaviour.md`.
+      frame -1, which the editor can't make. The user decided on 2026-11-06 that an incline starts on the frame its
+      width gives (decided assumption 21): `LEVEL_FRAMES` gives it frames -1 to 3, and `check-level-frames` checks
+      each incline's frame against its width too. The rope end, heart and shamrock are in no level.
+      `check-level-frames` repeats the check (for F2). See "Starting frames in the shipped levels" in
+      `docs/behaviour.md`.
 - [x] **E2. A short list for you to try in the game.** Decided: yes. For the parts where code alone leaves room, a
       few things to try, each with what the analysis expects.
       Done: 25 items in `docs/behaviour-game-checks.md`, by part, the most telling first: the electric switch gives

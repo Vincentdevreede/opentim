@@ -1411,8 +1411,22 @@ structure in all eleven builds):
   proved: it is set at seven places, three of them only around a call of the rope routine `0x6c3d` (`0x8156`,
   `0x821c`, `0x1cb2c`) and one inside the scissors' cut until `0x1cdee` puts the old mode back (`0x1cd47`).
 
-So the analysis keeps both groups named after the call. Knowing them would take a decision: that only ropes and
-pulleys hold a rope record (the loader trusts the file), and that a flip never meets a belt with a loose end.
+The user decided both on 2026-11-06:
+[decided assumption 19](behaviour-assumptions.md#19-parts-that-hold-a-rope-record), only a rope piece or a pulley ever
+holds a rope record, and [decided assumption 20](behaviour-assumptions.md#20-flipping-a-part-with-a-loose-belt-end), in
+the editor a part is never flipped while one end of its belt is still loose. The reader (`addRelayOwnerKeeps`) now
+records, for each routine that calls the relay, which of the owner's fields it keeps:
+
+- The rope ends `0x96` and `0x9c`, when the routine is named directly by the type table, nothing else calls it, and none
+  of the types that name it is the rope or the pulley. The relay summary says which part fields come only from the
+  rope geometry update (`ropeHolderFields`).
+- The links `0x5a` to `0x60`, `0x6a` and `0x6c`, when the routine is moreover named only as a flip callback. The relay
+  summary says which part fields come only from the belt end check (`beltEndFields`).
+
+Every part callback that calls the relay passes both tests in all eleven builds (27 types in Even More, 23 in TIM 1,
+all flip callbacks). The relay has other callers that the type table doesn't name (eleven in Even More, English
+floppy); they keep nothing, and the analysis doesn't walk them. Assumption 20 concerns flipping a part in the editor; it
+says nothing about the machine running. Parts the relay reaches, other than the owner, still forget these fields.
 
 ### The magnifying glass's last call
 
@@ -2167,8 +2181,8 @@ The statements:
    kind 4, or the end of a reaction that began while pedalling, makes the control value something other than 0, and a
    hit alone never starts a bike that stands still. But the code has no way for a pedalling bike to stop during a run:
    no routine sets its control value to 0 except the bounce, and after that reaction it pedals on. It stops only when
-   the machine is stopped and the level reset puts it back on frame 0 with control value 0. Whether the user saw it
-   stop by itself is asked below.
+   the machine is stopped and the level reset puts it back on frame 0 with control value 0. The user confirmed on
+   2026-11-06 that this is what the game does: a pedalling bike stops only when the machine is stopped.
 5. **A belt from the bike can drive another part, like a jack-in-the-box.** Agrees. The jack's flags have no `0x0800`,
    so the bike's copy reaches it. Its run (`0x1b888`) adds its control value to its frame on frames 0 to 7 (turned round
    when the jack is flipped) and wraps at 8 and -1. The bike writes only -1, 0 or 1, the numbers
@@ -2454,12 +2468,15 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
 - The belt is always saved on frame 0, the rope in TIM 1 (no frame list there) on 0, the pinball bumper on 0. The rope
   end, the heart and the shamrock are in no shipped level; the jack-o-lantern and the Christmas tree are in one level
   each (two builds), on frame 0.
-- The wood incline has no frame list and no decided assumption, so nothing limits its frame. Every shipped incline has
-  the frame its resize gives, its width divided by 16 less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two
-  inclines fit the same rule but not the editor: in "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five
-  full Even More builds, an incline has width 0 and frame -1. The editor keeps the width between 16 and 64 (the type
-  record's limits), so these were made another way, and their reset reads its outline from the word before its table.
-  A decided list of 0 to 3 for the incline would be wrong for those two levels.
+- The wood incline has no frame list. Every shipped incline has the frame its resize gives, its width divided by 16
+  less 1 (`0x1b82f` in Even More, English floppy): 0 to 3. Two inclines fit the same rule but not the editor: in
+  "Ambulance Driver" (L117) and "Rocket Launcher" (L143) of the five full Even More builds, an incline has width 0 and
+  frame -1. The editor keeps the width between 16 and 64 (the type record's limits), so these were made another way,
+  and their reset reads its outline from the word before its table. The user decided on 2026-11-06 that an incline
+  starts on the frame its width gives
+  ([decided assumption 21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame)): `LEVEL_FRAMES` lists frames
+  -1 to 3 with the rule, the incline's rest says so, and the check now also compares each incline's frame with the one
+  its width gives (`fromWidth`). The walks can't tie the frame to the width, so they start from the five frames.
 - The decided starting frames still hold everywhere: the conveyor belt on 0, 7, 14, 21 or 28, each the frame its
   width gives; the gear and the electric motor on 0; the mouse motor on 0 or 1; the generator on 0 or 4. Every level
   saves every control value as 0.
@@ -2567,7 +2584,8 @@ so the type is that number:
 | dynamite plunger | `0x1c3c1`        | `0x29` | explosion  |
 
 Part 43 keeps its id `pinball`, since ids never change once published, but in TIM 1 and Even More it is the cannonball
-the cannon fires, so the descriptions call it that.
+the cannon fires, so the descriptions call it that. Only the behaviour descriptions do: the user decided on 2026-11-06
+that the Lab keeps showing "Pinball" as the part's name.
 
 Helpers make parts the same way: an explosion at `0x1a432`, and in the other builds the scissors' rope cut makes two rope ends and a rope (types `0x31` and `0x0a`). The reader takes the type only from `mov` of a number into a
 register and `push` of that register, or a `push` of a number, right before the far call, with nothing jumping to the
