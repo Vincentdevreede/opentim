@@ -71,6 +71,25 @@ describe("writer", () => {
     );
   });
 
+  it("names the other values a run finds itself, in place of the analysis's own words", () => {
+    expect(expression(field(0x12, "part after the query at 0x1d2d1"))).toBe("stateDelta after the query at 0x1d2d1");
+    expect(expression(field(0x12, "part after list scan at 0x1bff5"))).toBe("stateDelta after the scan at 0x1bff5");
+    expect(expression(field(-2, "local after list scan at 0x1c1f8"))).toBe("local -0x02 after the scan at 0x1c1f8");
+    expect(expression(field(-4, "local after find-first loop at 0x1c1f8"))).toBe(
+      "local -0x04 after the loop at 0x1c1f8",
+    );
+    expect(expression(field(0x12, "part at the walk's start"))).toBe("stateDelta at the walk's start");
+    expect(expression(field(0x00, "centre angle answer at 0x1a5c4"))).toBe("centre angle at 0x1a5c4");
+    expect(expression(field(0x00, "nullable allocation result at 0x192d3"))).toBe("new part from the call at 0x192d3");
+    expect(expression(field(0x00, "gear connection conflict at 0x1b1b0"))).toBe("gear jam at 0x1b1b0");
+    expect(expression(field(0x00, "next in the ordered list after the insertion at 0x1a2b4"))).toBe(
+      "next in the list after the insertion at 0x1a2b4",
+    );
+    expect(expression(field(0x0c, "a part reached through a rope, belt or pulley at 0x65c1"))).toBe("reached.state");
+    expect(expression(field(0x0c, "a candidate selected by the overlap query at 0x4a70"))).toBe("found.state");
+    expect(expression(field(0x0c, "referenced-by(part after the query at 0x1d2af+0x84)"))).toBe("[part+0x84].state");
+  });
+
   it("gives this part's own fields the names that only hold for it", () => {
     const gear = writer(fields, new Map([[0x5a, "gearLeft"]]));
     expect(gear.expression(field(0x5a))).toBe("gearLeft");

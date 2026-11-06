@@ -261,7 +261,8 @@ export function writer(
     // The same object read after a call that may have changed it.
     const after = / after (unresolved write|unresolved effect|field effect) at 0x[0-9a-f]+$/.exec(text);
     if (after) return object(text.slice(0, after.index));
-    if (text === "part") return { name: "", kind: "part" };
+    if (text === "part" || /^part after (the query|list scan) at 0x[0-9a-f]+$/.test(text))
+      return { name: "", kind: "part" };
     // The part's found list right after a search filled it: its head is the part found last.
     if (/^found list after the query at 0x[0-9a-f]+$/.test(text)) return { name: "", kind: "part" };
     if (text === "collider") return { name: "collider", kind: "part" };
@@ -269,6 +270,10 @@ export function writer(
     if (/^overlap candidate at /.test(text)) return { name: "found", kind: "part" };
     // The part a find-first loop stopped at, like the mouse the cat looks at.
     if (/^member found by the loop at 0x[0-9a-f]+$/.test(text)) return { name: "found", kind: "part" };
+    // The part an overlap query picked, and a part a rope, belt or pulley reaches from this one.
+    if (/^a candidate selected by the overlap query at 0x[0-9a-f]+$/.test(text)) return { name: "found", kind: "part" };
+    if (/^a part reached through a rope, belt or pulley at 0x[0-9a-f]+$/.test(text))
+      return { name: "reached", kind: "part" };
     const linked = /^referenced-by\((.+)\+0x([0-9a-f]+)\)$/.exec(text);
     if (linked) {
       const inner = object(linked[1]!);
@@ -305,6 +310,27 @@ export function writer(
     if (offset === 0 && /^member found by the loop at 0x[0-9a-f]+ link$/.test(target)) return "found";
     const answer = /^answer of the query at (0x[0-9a-f]+)$/.exec(target);
     if (answer && offset === 0) return `answer at ${answer[1]}`;
+    // The angle from one part's centre to another's, which a call works out while the game runs.
+    const angle = /^centre angle answer at (0x[0-9a-f]+)$/.exec(target);
+    if (angle && offset === 0) return `centre angle at ${angle[1]}`;
+    // Whether a call that makes a part made one, and whether the gear's turn jams.
+    const made = /^nullable allocation result at (0x[0-9a-f]+)$/.exec(target);
+    if (made && offset === 0) return `new part from the call at ${made[1]}`;
+    const jam = /^gear connection conflict at (0x[0-9a-f]+)$/.exec(target);
+    if (jam && offset === 0) return `gear jam at ${jam[1]}`;
+    // The part's own fields after a call that may change them, and at the start of a walk.
+    const later = /^part after (the query|list scan) at (0x[0-9a-f]+)$/.exec(target);
+    if (later)
+      return `${field({ name: "", kind: "part" }, offset)} after the ${later[1] === "list scan" ? "scan" : "query"} at ${later[2]}`;
+    if (target === "part at the walk's start")
+      return `${field({ name: "", kind: "part" }, offset)} at the walk's start`;
+    // A value a scan or a loop leaves in the routine's own stack.
+    const local = /^local after (list scan|find-first loop) at (0x[0-9a-f]+)$/.exec(target);
+    if (local)
+      return `local ${offset < 0 ? "-" : "+"}${hex(Math.abs(offset), 2)} after the ${local[1] === "list scan" ? "scan" : "loop"} at ${local[2]}`;
+    // The neighbours an ordered insertion links a part between, which only the run knows.
+    const linked = /^(next|previous) in the ordered list after the insertion at (0x[0-9a-f]+)$/.exec(target);
+    if (linked) return `${linked[1]} in the list after the insertion at ${linked[2]}`;
     // What a search writes in the parts it finds: the next part in its found list, and the values it works out.
     if (/^next in the found list of the query at 0x[0-9a-f]+$/.test(target)) return "next found";
     const written = /^value the (query|call) at (0x[0-9a-f]+) writes to a (found|selected) part$/.exec(target);
