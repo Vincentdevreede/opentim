@@ -13,7 +13,7 @@ import { DECIDED_ASSUMPTIONS } from "../src/read/behaviour-assumptions.ts";
 const decided = DECIDED_ASSUMPTIONS[0]!.assumptions[0]!;
 const report = {
   assumptions: ["The PIT clock is 1,193,182 Hz."],
-  helpers: [{ address: 0x100, assumptions: ["Callees preserve SI | DI."] }],
+  helpers: [{ address: 0x100, assumptions: ["Callees preserve SI | DI.", "A path like C:\\| reads back."] }],
   parts: [
     { id: "cat", type: 12, routines: [{ address: 0x200 }], assumptions: ["A part assumption."] },
     { id: "teeter-totter", type: 3, routines: [{ address: 0x300 }], assumptions: [decided] },
@@ -44,6 +44,7 @@ describe("the generated assumptions list", () => {
     addBuild(table, "evenmore", collectAssumptions(report));
     const document = renderAssumptions(table, { tim1: 0, evenmore: 1 });
     expect(document).toContain("| Callees preserve SI \\| DI. | – | 1 · 1/1 | none, shared |");
+    expect(document).toContain("| A path like C:\\\\\\| reads back. |");
     expect(document).toContain(`| **decided** ${decided} |`);
     expect(compareAssumptions(table, document)).toEqual({ missing: [], stale: [] });
   });

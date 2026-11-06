@@ -64,7 +64,8 @@ export function addBuild(table: AssumptionTable, game: Game, uses: Map<string, A
   }
 }
 
-const cell = (text: string) => text.replace(/\|/g, "\\|").replace(/\n/g, " ");
+/** A table cell: a backslash or pipe gets a backslash in front, so the text reads back exactly. */
+const cell = (text: string) => text.replace(/[\\|]/g, (c) => `\\${c}`).replace(/\n/g, " ");
 const PARTS_SHOWN = 6;
 function partsText(parts: Set<string>): string {
   const list = [...parts].sort();
@@ -122,13 +123,11 @@ export function listedAssumptions(document: string): Set<string> {
   if (start < 0) return listed;
   for (const line of document.slice(start).split("\n").slice(2)) {
     if (!line.startsWith("| ")) break;
-    const first = line.slice(2).split(/(?<!\\)\|/)[0]!;
-    listed.add(
-      first
-        .trim()
-        .replace(/^\*\*decided\*\* /, "")
-        .replace(/\\\|/g, "|"),
-    );
+    // The first cell ends at the first pipe without a backslash; a backslash keeps the character after it.
+    let first = "";
+    for (let at = 2; at < line.length && line[at] !== "|"; at++)
+      first += line[at] === "\\" ? (line[++at] ?? "") : line[at];
+    listed.add(first.trim().replace(/^\*\*decided\*\* /, ""));
   }
   return listed;
 }
