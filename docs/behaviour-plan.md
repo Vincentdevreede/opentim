@@ -89,7 +89,10 @@ Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
 - [x] **F1. Measure all eleven builds.** Every build has the numbers of the recorded build of its game, and every
       walk ends (Even More 1,338, TIM 1 1,154). No recording differs; 16 (Even More CD and demo) and 12 (TIM 1 English)
       stop as prefixes because they need a search the recorder skipped. See "All eleven builds".
-- [ ] **F2. Recheck the decided assumptions** over all builds and the shipped levels after A to E.
+- [x] **F2. Recheck the decided assumptions** over all builds and the shipped levels after A to E. All 21 hold in
+      all eleven builds and 1,281 level files, and every one is still stated by the findings that use it. One earlier
+      note was corrected: two belts in L21 have width 40, off the 16 grid, on the frame that width gives. See "Recheck
+      of the decided assumptions" in `docs/behaviour-assumptions.md`.
 
 ## G. Close
 

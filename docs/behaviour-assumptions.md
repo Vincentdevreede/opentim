@@ -294,7 +294,8 @@ in both recorded builds.
 
 **Rechecked on 2026-11-05** in all eleven builds: the limits, the resize formula, the run's wrap and the constructor
 (frame 28, control 0) are the same everywhere. The only other writers of the belt's frame are the reset, the part copy
-and the loader. Every shipped belt has a width from 32 to 96 on the 16 grid and the frame its width gives.
+and the loader. Every shipped belt has a width from 32 to 96 and the frame its width gives (corrected on 2026-11-07:
+two in L21 have width 40, off the 16 grid; see the recheck below).
 
 ## 6. The gear's starting frame
 
@@ -877,3 +878,46 @@ which end. The walks can't tie the frame to the width, so they start from all fi
 **Rechecked on 2026-11-06** in all eleven builds (1,281 level files): every incline (353 in each TIM 1 build, 844 to 911
 in the full Even More builds, 78 in the demo) is saved on the frame its width gives, on frames 0 to 3 apart from the two
 of width 0 on frame -1.
+
+## Recheck of the decided assumptions
+
+Rechecked on 2026-11-07 (step F2 of [the plan](behaviour-plan.md)) in all eleven builds and their 1,281 shipped level
+files, after the work of 2026-11-06. The eleven `TIM.EXE` files are the same files as at the earlier rechecks (dated
+2026-10-27), so the code facts found then still stand. What can have changed is the analysis, so each assumption was
+checked again where the analysis finds it in each build (by the kind of routine, not by address), and every level was
+read again. The tools: `check-level-frames`, `list-assumptions --check` and `list-other-part-pairs` over all eleven
+builds, and small scratch scripts for the code and level checks below.
+
+"Still used" counts the places the report and the description state the assumption in Even More (English floppy), with
+the parts whose findings state it; every one is stated in all eleven builds.
+
+| #   | Assumption                         | Result | What was checked in each build                                                                                                                                                                                                      | Still used                                        |
+| --- | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| 1   | Ropes                              | holds  | The query's only callers are the teeter-totter's run and rope callback (3 calls); that callback writes `0x12` and `0x08` on its own part. Levels: every rope slot is 0 or 1, no rope has both ends on one part.                     | yes, 9,055 (teeter-totter)                        |
+| 2   | Rope cut and part copy             | holds  | The part copy has 3 callers: the wall split (twice) and the editor. Slots as in 1. The allocator is unchanged code.                                                                                                                 | yes, 147 (scissors) and 500 (24 parts)            |
+| 3   | The teeter-totter's search         | holds  | The list insertion has 15 callers in Even More and 14 in TIM 1, the same in each build of a game; the search that keeps its owner is called only by the teeter-totter's run. Levels: no part is listed twice.                       | yes, 6,652 (teeter-totter)                        |
+| 4   | The monkey bike's starting frame   | holds  | Its own routines come onto frames 5 to 12 only from the bounce (5 or 9) and the rope callback (+4). Levels: every bike on frame 0.                                                                                                  | yes, 2,699 (monkey bike)                          |
+| 5   | The conveyor belt's frame          | holds  | Its resize sets both frames to `(width - 32) / 16 * 7`. Levels: every belt on the frame its width gives (two in L21 have width 40, see below).                                                                                      | yes, 1,944 (conveyor belt)                        |
+| 6   | The gear's frame                   | holds  | Only its run writes its frame, adding the control value and wrapping. Levels: every gear on frame 0.                                                                                                                                | yes, 278 (gear)                                   |
+| 7   | The mouse motor's frame            | holds  | Only its run writes its frame, with `xor 1`. Levels: frame 0 or 1.                                                                                                                                                                  | yes, 1,033 (mouse motor)                          |
+| 8   | The electric motor's frame         | holds  | Only its run writes its frame, counting down and back to 2. Levels: frame 0.                                                                                                                                                        | yes, 196 (electric motor)                         |
+| 9   | Control values                     | holds  | The three parts' own routines write only -1, 0, 1 or another part's value. Levels: every saved control value is 0.                                                                                                                  | yes, 8,053 (gear, jack-in-the-box, teeter-totter) |
+| 10  | The teeter-totter's ends           | holds  | Its constructor gives it `0x000c` in `+0x08`, so the editor can't belt it. Levels: no belt ends at a teeter-totter.                                                                                                                 | yes, 2,215 (teeter-totter)                        |
+| 11  | Parts on the fixed list            | holds  | One instruction sets `0x1000` (the drop routine's `or ax, 0x1000`); the only `and` on `0x06` keeps `0x4000`. Levels: no fixed part with `0x1000` (2,738 per TIM 1 build, 5,445 to 5,800 per full Even More build, 477 in the demo). | yes, 40 (39 parts)                                |
+| 12  | Screen directions                  | holds  | Nothing to run: the code is unchanged and the screen side still rests on what the user saw.                                                                                                                                         | yes, 128 (22 parts)                               |
+| 13  | Parts with one frame               | holds  | Levels: every part on one of its own frames, every one-frame part on frame 0.                                                                                                                                                       | yes, 14,176 (45 parts)                            |
+| 14  | Parts the game draws itself        | holds  | Of their own routines only the curved pipe wall's flip writes its frame (`xor 1`, `xor 2`). Levels: pulley and curved pipe wall on 0 to 3, the others on 0.                                                                         | yes, 335 (7 parts)                                |
+| 15  | The generator's frame              | holds  | None of its routines writes the saved frame; its reset keeps bits 0 and 1. Levels: frame 0 or 4.                                                                                                                                    | yes, 342 (generator)                              |
+| 16  | The monkey bike's reaction         | holds  | Its own writers of `0x12` are still only the bounce (0), the run and the rope callback (-1 or 1). Still not proved, as before.                                                                                                      | yes, 965 (monkey bike)                            |
+| 17  | Parts the candle can light         | holds  | Only the constructors of the cannon, dynamite, rocket and candle set `0x0004` in `0x0a`, the factory table gives it to none, and the only `and` there keeps it. Levels: all of these four have it, no other part does.              | yes, 119 (25 parts)                               |
+| 18  | The bullet and the jack-in-the-box | holds  | The drop routine is still the only setter of `0x1000`. Levels: no bullet.                                                                                                                                                           | yes, 2 (bullet)                                   |
+| 19  | Parts that hold a rope record      | holds  | Four stores of a rope record's slot 0. Levels: only ropes and pulleys hold rope records.                                                                                                                                            | yes, 5,564 (27 parts)                             |
+| 20  | Flipping with a loose belt end     | holds  | Among the part callbacks only flip callbacks call the relay (27 types in Even More, 23 in TIM 1). Levels: no belt with a loose end.                                                                                                 | yes, 5,568 (27 parts)                             |
+| 21  | The wood incline's frame           | holds  | Only its resize writes its frames, to `width / 16 - 1`. Levels: every incline on the frame its width gives; width 0 on frame -1 only in L117 and L143 of the five full Even More builds.                                            | yes, 118 (wood incline)                           |
+
+Nothing fails and nothing is unused. `list-assumptions --check` finds the same 269 assumptions as the generated list,
+`check-level-frames` finds no level that disagrees, and `list-other-part-pairs` passes.
+
+One earlier note was wrong, though the assumption isn't affected: the recheck of assumption 5 said every shipped belt
+has a width on the 16 grid. Level L21 has two conveyor belts of width 40 in every build except the Even More demo. Both
+are on frame 0, the frame that width gives, since the resize divides with truncation.
