@@ -3,7 +3,7 @@
  * in the lab: findings keep their confidence and the addresses of their instructions, and expressions become text.
  */
 
-import { describeGear } from "@opentim/content";
+import { choiceOf, describeGear } from "@opentim/content";
 import type {
   AnimationDescription,
   BehaviourDescription,
@@ -308,6 +308,12 @@ export function writer(
     return field(object(target), offset);
   };
   const expression = (e: Expression, nested = false): string => {
+    // One of two values a test picks, written as the two values and the test.
+    const choice = choiceOf(e);
+    if (choice) {
+      const text = `${expression(choice.then, true)} if ${predicate(choice.test)}, else ${expression(choice.otherwise, true)}`;
+      return nested ? `(${text})` : text;
+    }
     switch (e.kind) {
       case "constant":
         return number(e.value);

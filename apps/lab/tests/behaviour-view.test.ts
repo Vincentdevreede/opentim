@@ -48,6 +48,24 @@ describe("valueForState", () => {
   });
 });
 
+describe("values a test picks", () => {
+  it("writes the two values and the test that picks one", () => {
+    const { expression } = writer([{ offset: 0x0c, name: "state" }]);
+    const picked = (operator: string, other: string, then: Expression, otherwise: Expression) =>
+      binary(
+        "+",
+        binary("*", binary(operator, state, constant(2)), then),
+        binary("*", binary(other, state, constant(2)), otherwise),
+      );
+    expect(expression(picked("==", "!=", constant(3), constant(5)))).toBe("3 if state == 2, else 5");
+    expect(expression(picked("<", ">=", binary("+", state, constant(1)), constant(5)))).toBe(
+      "(state + 1) if state < 2, else 5",
+    );
+    // Without the opposite test, it is a sum like any other.
+    expect(expression(picked("==", "==", constant(3), constant(5)))).toBe("((state == 2) * 3) + ((state == 2) * 5)");
+  });
+});
+
 describe("tidying conditions", () => {
   it("writes an absolute value and a negative constant shorter", () => {
     const { expression } = writer([{ offset: 0x0c, name: "state" }]);
