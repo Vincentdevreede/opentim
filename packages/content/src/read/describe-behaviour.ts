@@ -9,6 +9,7 @@ import {
 } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import { effectsFromOthers, partFields, type OtherPartEffect } from "./describe-effects.ts";
+import { compareWords, type Names } from "./describe-touch.ts";
 import { hitsFromOthers } from "./describe-hits.ts";
 import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
 import type {
@@ -1198,6 +1199,61 @@ function guardCoverage(
       }),
   );
 }
+/** Plain names of a part's fields in a walk note, by their layout name. */
+const PLAIN_FIELDS: Record<string, string> = {
+  state: "the frame",
+  stateDelta: "the control value",
+  previousState: "the previous frame",
+  olderState: "the frame before that",
+  drawingFlags: "the drawing flags",
+  contactPart: "the touching part",
+};
+/**
+ * The tests the walk doesn't know that decide between rules, in words: "whether the word at +0x9c is 0". A test and its
+ * opposite are said once, as the same question. At most four are named.
+ */
+function guardWords(guards: Transition[], report: BehaviourReport, bindings: Bindings, constraints: Predicate[]) {
+  const opposite: Record<string, string> = { "!=": "==", ">=": "<", ">": "<=" };
+  const names: Names = {
+    field: (offset) => {
+      const name = report.layout.fields.find((field) => field.offset === offset)?.name;
+      const at = `${offset < 0 ? "-" : "+"}0x${Math.abs(offset).toString(16)}`;
+      return (
+        (name && PLAIN_FIELDS[name]) ??
+        (name === "contextCounter" ? `the counter at ${at}` : name ? `${name} (${at})` : `the word at ${at}`)
+      );
+    },
+    of: (object, what) => {
+      const linked = /^referenced-by\(part\+0x([0-9a-f]+)\)$/.exec(object);
+      return object === "part"
+        ? what
+        : object === START
+          ? `${what} when the walk started`
+          : object === "address of part"
+            ? "the part's own address"
+            : linked
+              ? `${what} of the part linked at +0x${linked[1]}`
+              : /^(member found by the loop|part after (the )?list scan) at /.test(object)
+                ? `${what} of the part a search found`
+                : /^local after list scan at /.test(object)
+                  ? `${what} a list scan left`
+                  : `${what} of the ${object}`;
+    },
+  };
+  const tests = [
+    ...new Set(
+      guards
+        .flatMap((rule) => predicateTerms(rule.condition))
+        .filter((term) => predicateOf(term, bindings, constraints) === undefined)
+        .map((term) =>
+          term.kind === "compare"
+            ? `whether ${compareWords({ ...term, operator: (opposite[term.operator] ?? term.operator) as typeof term.operator }, names)}`
+            : "another test",
+        ),
+    ),
+  ];
+  return tests.length > 4 ? `${tests.slice(0, 4).join(", ")} and other tests` : listWords(tests) || "a test";
+}
 function unknownWords(
   expression: Expression,
   report: BehaviourReport,
@@ -2384,9 +2440,32 @@ export function walkBehaviourRules(
       };
     }
     const levelStates = possibleStates(state);
+    /** Why the walk follows no frame of an unknown start, as `possibleStates` decides. */
+    const noStartFrames = () => {
+      const frameCount = (part as WithFrameCount).frameCount ?? 0;
+      return depthLeft() <= 0
+        ? "the walk has no branch depth left to follow each frame it can be"
+        : frameCount > 32
+          ? `the part has ${frameCount} frames, more than the 32 a walk follows one by one`
+          : frameCount > 1
+            ? "the tests on the walk's way leave no frame it can be on"
+            : frameCount === 1
+              ? "the walk doesn't assume the part's one frame"
+              : "the part has no frame list to follow it on";
+    };
+    // The frames each branch starts on, from its test of the frame.
+    const startFrames = (branches: { condition: Predicate }[]) =>
+      framesWords(
+        branches.flatMap(({ condition }) =>
+          condition.kind === "compare" && condition.right.kind === "constant" ? [condition.right.value] : [],
+        ),
+      );
     if (levelStates)
       return {
-        ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+        ...base(
+          "unresolved",
+          `${state.mask ? `Only bits ${listWords(bitList(state.mask).map(String))} of the frame it starts on are known` : "The frame it starts on isn't known"}, so the walk follows ${levelStates.length === 1 ? "the one frame it can be" : "each frame it can be"}: ${startFrames(levelStates).replace(/^one of /, "")}.`,
+        ),
         confidence: "unresolved",
         stop: {
           kind: "state",
@@ -2398,7 +2477,12 @@ export function walkBehaviourRules(
       };
     const fromAnyFrame = nextFromAnyFrame();
     return {
-      ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+      ...base(
+        "unresolved",
+        fromAnyFrame
+          ? "The frame it starts on isn't known, but every rule that can apply gives a known next frame, so the walk follows each of them."
+          : `The frame it starts on isn't known, and ${noStartFrames()}, so the walk stops.`,
+      ),
       confidence: "unresolved",
       ...(fromAnyFrame
         ? {
@@ -2703,7 +2787,7 @@ export function walkBehaviourRules(
         ...base(
           "unresolved",
           unknownGuards.length
-            ? "The unknown condition selects different next fields, so no branch is chosen."
+            ? `At frame ${current}, the rules that apply set different fields, and which one does depends on ${guardWords(unknownGuards, report, bindings, constraints)}, which the walk doesn't know${branches ? ", so each way is followed" : ""}.`
             : "Applicable rules disagree on the next fields.",
         ),
         confidence: "unresolved",

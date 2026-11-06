@@ -1765,6 +1765,23 @@ reason: the wood incline and the belt (and in TIM 1 the rope) rest on any frame 
 list to name it from; the mouse motor, Mel's house and the alligator never rest in any walk, their walks only loop or
 join another branch.
 
+### Walk notes that name the frame and the test
+
+Two notes were left vague. "The seed does not establish the state. No state zero is assumed." (34 parts in Even More)
+comes from a walk whose starting frame isn't known, mostly because the reset keeps the frame the level saved. Every
+one of these walks goes on from each frame the part can be on, so the note now says which: "The frame it starts on
+isn't known, so the walk follows each frame it can be: frames 0 to 18." When only some bits are known it names those
+bits, and when the walk can't follow the frames it says why (no frame list, more than 32 frames, no branch depth left,
+or tests that leave no frame).
+
+"The unknown condition selects different next fields, so no branch is chosen." (15 parts) comes from a step where the
+rules that apply set different fields and a test the walk doesn't know decides between them. The walk does follow
+each way. The note now names the tests, with a test and its opposite said once: for example "At frame 9, the rules
+that apply set different fields, and which one does depends on whether the counter at +0x9c is 0, which the walk
+doesn't know, so each way is followed." Fields go by their plain or layout name, or their offset, and other objects
+by how the part reaches them (the part linked at `+0x54`, the part a search found, its fields when the walk started).
+At most four tests are named. Neither old wording is left.
+
 ### Where a part is drawn and how large its frame is
 
 After a routine changes a part's frame, it calls two shared helpers (`0x68aa` and `0x6940` in Even More, English

@@ -1537,6 +1537,31 @@ describe("creation defaults and related input conditions", () => {
     expect(lines[0]!.conditions).toEqual([test(12, "==", 0), test(12, "==", 1)]);
   });
 
+  it("names the frames a walk follows from a start it doesn't know, and the test that splits its rules", () => {
+    const data = report(
+      [
+        rule(constant(1), both(test(12, "==", 0), test(0x9c, "==", 0))),
+        rule(constant(2), both(test(12, "==", 0), test(0x9c, "!=", 0))),
+        rule(field(12), test(12, "!=", 0)),
+      ],
+      [write(0x12, constant(0))],
+    );
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.uncertainties).toContain(
+      "The frame it starts on isn't known, so the walk follows each frame it can be: frames 0 to 2.",
+    );
+    const reasons: string[] = [];
+    const visit = (walk: BehaviourWalk) => {
+      if (walk.reason) reasons.push(walk.reason);
+      for (const branch of walk.stop?.branches ?? []) visit(branch.walk);
+    };
+    for (const animation of part.animations) visit(animation.walk);
+    expect(reasons).toContain(
+      "At frame 0, the rules that apply set different fields, and which one does depends on whether the word at +0x9c is 0, which the walk doesn't know, so each way is followed.",
+    );
+  });
+
   it("lists the frames the walks rest on when no run outcome gives one", () => {
     // From the saved frame the run goes 0, 1, 2 and stays on 2, but no single run outcome shows that.
     const data = report(

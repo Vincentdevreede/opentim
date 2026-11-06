@@ -24,7 +24,7 @@ Starting point:
       frames it can be. Done when "unresolved" only remains where the reset itself can't be read.
 - [x] **A3. Resting frames.** 33 parts show "Unknown" resting frames while their walks end. Take them from where the
       walks come to rest. Done when every part whose walks all end lists its resting frames.
-- [ ] **A4. The two vague start notes.** "The seed does not establish the state" (34 parts) and "the unknown
+- [x] **A4. The two vague start notes.** "The seed does not establish the state" (34 parts) and "the unknown
       condition selects different next fields" (15). Check each one and either resolve it or replace it with the condition
       in plain words. Done when neither note is left without a named reason.
 - [ ] **A5. Input cases past 64.** The jack-in-the-box and monkey bike keep only 64 input cases in the description.
