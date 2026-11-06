@@ -420,6 +420,29 @@ export function choiceOf(e: Expression): { test: Comparison; then: Expression; o
   return { test, then: a.right, otherwise: b.right };
 }
 /**
+ * One value from the ways through a routine, each with its tests and its value, when the ways split like a tree: some
+ * test is on every way, as itself or as its opposite, and so on down to one way. Undefined when they don't, when a
+ * side is empty, or when a test isn't a comparison: then a way the tests allow may be missing.
+ */
+export function chooseByTests(
+  ways: { tests: Predicate[]; value: Expression }[],
+  width: number,
+): Expression | undefined {
+  if (!ways.length || ways.some((way) => way.tests.some((test) => test.kind !== "compare"))) return undefined;
+  if (ways.length === 1) return ways[0]!.tests.length ? undefined : ways[0]!.value;
+  const test = ways[0]!.tests[0] as Comparison | undefined;
+  if (!test) return undefined;
+  const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
+  const holds = ways.filter((way) => way.tests.some((t) => same(t, test)));
+  const fails = ways.filter((way) => way.tests.some((t) => same(t, opposite)));
+  if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) return undefined;
+  const without = (list: typeof ways, drop: Predicate) =>
+    list.map((way) => ({ ...way, tests: way.tests.filter((t) => !same(t, drop)) }));
+  const then = chooseByTests(without(holds, test), width);
+  const otherwise = then && chooseByTests(without(fails, opposite), width);
+  return otherwise && choose(test, then, otherwise, width);
+}
+/**
  * The speed and the limit of a value the speed limit made: `limit if speed > limit, else -limit if speed < -limit,
  * else speed`, signed. Undefined for any other value.
  */

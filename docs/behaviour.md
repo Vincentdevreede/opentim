@@ -2102,6 +2102,20 @@ This names the links of the rope end, cannonball, bullet and explosion that the 
 plunger make. Rules with unknown writes go from 25 to 16 of 925 in Even More, English floppy, and from 23 to 14 of 764
 in TIM 1, French.
 
+### Fields a helper sets on every way
+
+A helper whose every way through was followed becomes a relation (`engineFromObjectRelation`): its stores to the
+part, each with the tests of its way. A caller used to call such a field unknown ("Conditional owner-field-relation
+effect") unless one store covered every case, although the helper sets it on each way. Now, when every way ends with
+a value in the field and the ways split like a tree on their tests (one test is on every way, as itself or its
+opposite, and so on), the field gets one exact value, `chooseByTests`: the value of the way whose tests hold, built with
+`choose`. A field one way leaves alone, or whose ways don't split like that, keeps its stores with their tests.
+
+Most of these helpers are the flip helpers that move a rope or belt point with the part's flip flag (`0x08 & 0x10`):
+the cannon's and the dynamite's `0x72` and `0x73`, the dynamite plunger's `0x6a` and `0x6b`, and the belt point
+`0x56` to `0x58` of the monkey bike and the electric motor. Rules with unknown writes go from 16 to 10 of 925 in Even
+More, English floppy, and from 14 to 8 of 764 in TIM 1, French.
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`
