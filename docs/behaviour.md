@@ -2173,6 +2173,17 @@ at` the call's address, like the other values one run gives (`RUN_VALUE`); the c
 (`centreAngle`). So the bumper's bounce writes the ball's velocity as a named value of that angle: Even More, English
 floppy, goes from 3 to 2 rules with unknown writes. TIM 1, French, has no pinball bumper and stays at 1.
 
+### Calls in a small helper read exactly
+
+The exact reader of a small helper (`ownerPathStores`) used to give up on any helper with a call. It now reads past a
+call that leaves the part alone (the same test `ownerStoreConditions` uses: the callee's footprint is complete for part
+memory and it writes only globals), and forgets the registers a C call may change (`ax`, `bx`, `cx`, `dx`, `es` and
+their halves). This gives the vacuum cleaner's helper `0x1e8bb` (Even More, English floppy) its stores on the part it
+pulls in: a balloon (type 4) gets control value 1, any other part flag `0x2000` of its drawing flags and flag `0x100`
+of field `0x0a`, whatever the screen queue and sound calls in between do. Before, its writes had no condition ("This
+footprint retains writes without selecting a control-flow path"). Even More goes from 2 to 1 rules with unknown writes.
+No other helper changes.
+
 ### Frame sizes from the part's sheet
 
 A part without a size of its own or a list of sizes in its type record gets its frame's size from the list at `+0x14`

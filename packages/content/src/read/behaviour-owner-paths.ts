@@ -218,7 +218,7 @@ const fold = (operator: string, left: Expression, right: Expression, width: numb
 };
 
 /**
- * Every path of a small helper with no calls, read exactly: the registers and the part's fields hold values worked out
+ * Every path of a small helper, read exactly, when each call it makes leaves the part alone: the registers and the part's fields hold values worked out
  * from the part's fields and the helper's arguments as it got them, and each test compares two such values. So a helper
  * like the gear's push (`0x1afdc` in Even More, English floppy), `velocityX -= s; if (velocityX < s) velocityX = -s`,
  * gives velocityX - s when velocityX - s is at least s, and -s otherwise. Undefined when an instruction or a value
@@ -234,8 +234,10 @@ export function ownerPathStores(
   firstArgument: number,
   /** The data segment: a word or byte read from it at a known index is a table read, like a frame's rope point. */
   dataSegment?: number,
+  /** Whether a call leaves the part alone; a call it doesn't vouch for ends the reading. */
+  callKeepsOwner?: (call: Instruction) => boolean,
 ): OwnerPathStore[] | undefined {
-  if (code.status !== "complete" || code.calls.length) return undefined;
+  if (code.status !== "complete") return undefined;
   const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
   const next = new Map<number, { to: number; kind: string }[]>();
   for (const edge of code.edges) {
@@ -382,6 +384,11 @@ export function ownerPathStores(
           ? fold("-", one, value, width)
           : fold(i.mnemonic === "inc" ? "+" : "-", value, one, width));
       if (!result || !put(dest, result)) return fail();
+    } else if (i.flow === "call") {
+      // A call that writes only globals keeps the part's fields; it may change the registers a C call may change.
+      if (!callKeepsOwner?.(i)) return fail();
+      for (const name of ["ax", "bx", "cx", "dx", "es", "al", "ah", "bl", "bh", "cl", "ch", "dl", "dh"])
+        registers.delete(name);
     } else if (i.flow !== "branch" && i.flow !== "jump" && i.flow !== "return") return fail();
     if (i.flow === "return") {
       if (i.operands.length) return fail();
