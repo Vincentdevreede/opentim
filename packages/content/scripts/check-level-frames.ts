@@ -65,7 +65,9 @@ for (const [game, folders] of [
         console.error(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    // A folder without one level read checked nothing, which must not pass as agreement.
+    // A level that can't be read is a level not checked, which must not pass as agreement; nor may a folder
+    // without one level read.
+    disagreements += unread.length;
     if (!levels.length) {
       console.error(`${folder}: no level could be read, so nothing was checked.`);
       disagreements++;
@@ -93,6 +95,8 @@ for (const [game, folders] of [
     }
   }
 if (disagreements) {
-  console.error(`${disagreements} saved values disagree with the description.`);
+  console.error(
+    `${disagreements} problems: saved values that disagree with the description, levels that can't be read, or folders without a level.`,
+  );
   process.exitCode = 1;
 } else console.log("Every saved frame and control value is one the description allows.");
