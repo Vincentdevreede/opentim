@@ -73,6 +73,12 @@ Why the missing ones are missing (a pair can have several reasons):
       unresolved write at 0x1e721 (`sub [di+0x38], ax`, the pull times overlapY). Next: keep a
       helper's answer that depends only on the found part's type as one value until the type is known, and fold it
       for each type in the line and the pair check.
+      Per type (2026-11-07, patch in `~/.cache/opentim-behaviour/patches/per-type-loops.patch`): reading the loops
+      again for each type a found part can have, with its type field and the type record words the game never writes
+      as numbers, resolves many more ways (vacuum cleaner 6,152 of 17,928, teeter-totter 8,712 of 15,048, fan 1,048 of
+      1,064; the cat none of 284). But it takes 315 seconds per build instead of 15, and the report gets too large to
+      write. Next: read only the loop body per type, group types that give the same numbers (the vacuum's pull has 8
+      mass classes, not 63 types), and keep only what the lines need.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
