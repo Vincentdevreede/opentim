@@ -89,6 +89,11 @@ Why the missing ones are missing (a pair can have several reasons):
       (a test reading both parts), which the pair check allows only for list consumers. Next: allow and word such place
       tests for overlap searches too (as C3 did for the teeter-totter's ends), then make the per-type reading fast and
       move it after the rest in the Lab.
+      The place tests, read per type for the balloon: the vacuum cleaner tests that the part's positionY is 44 or 47
+      below the vacuum's (`M.20 > part.20 + 0x2c`, `>= part.20 + 0x2f`) and that the part's centre X lies within 4
+      pixels of the vacuum's centre X; when it does, it adds a local (`stack.-6`, not yet read) halved to velocityX.
+      The teeter-totter tests the part's centre X against its own centre with a frame-dependent width, and the ends
+      `(positionX + 74) - part.positionX` and `positionX - part.positionX` in the ranges C3 already names.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
