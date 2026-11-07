@@ -106,6 +106,7 @@ describe("query answers", () => {
       unresolved: 0,
       conditional: routine.transitions.length,
       unknownWrites: 0,
+      callWritten: 0,
       namedRunValues: 0,
     });
   });
@@ -128,6 +129,7 @@ describe("query answers", () => {
       unresolved: 0,
       conditional: 0,
       unknownWrites: 0,
+      callWritten: 0,
       namedRunValues: 1,
     });
   });
