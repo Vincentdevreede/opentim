@@ -221,6 +221,14 @@ export interface EngineSummary extends Finding {
     minimumCount: 0;
     maximumCount: 31;
   };
+  /**
+   * A compiler runtime helper for 32-bit arithmetic that takes its words on the stack: the signed 16 by 16 bit
+   * multiply that leaves the product in DX:AX, or the 32-bit division that leaves the quotient or the remainder there
+   * and pops its four words.
+   */
+  arithmetic?:
+    | { operation: "multiply16"; stackBytes: 0 }
+    | { operation: "divide32"; signed: boolean; remainder: boolean; stackBytes: 8 };
   list?: {
     headField: number;
     nextField: number;
@@ -809,6 +817,40 @@ function readonlyReturns(
   }
   if (pending.length) return [];
   return result;
+}
+
+/** The signed multiply: `mov bx, sp`, `mov ax, [bx+4]`, `imul word [bx+6]`, `retf`, the same in every build. */
+const MULTIPLY16 = "8bdc8b4704f76f06cb";
+/**
+ * The body of the 32-bit division, the same 145 bytes in every build. Its entries set CX first: bit 0 makes it unsigned
+ * and bit 1 makes it give the remainder instead of the quotient. A signed division truncates toward zero, and a
+ * remainder takes the dividend's sign.
+ */
+const DIVIDE32 =
+  "5556578bec8bf98b460a8b560c8b5e0e8b4e100bc975080bd274690bdb7465f7c70100751c0bd2790af7daf7d883da0083cf0c0bc9790af7d9" +
+  "f7db83d90083f7048be9b920005733ff33f6d1e0d1d2d1d6d1d73bfd720b77043bf372052bf31bfd40e2e75bf7c3020074068bc68bd7d1ebf7" +
+  "c304007407f7daf7d883da005f5e5dca0800f7f3f7c7020074019233d2ebed";
+const hexOf = (instructions: readonly Instruction[]) =>
+  instructions.map((i) => i.bytes.map((b) => b.toString(16).padStart(2, "0")).join("")).join("");
+
+/** The 32-bit arithmetic helper a routine is, recognised by its exact code. */
+function wideArithmetic(code: RoutineCode): EngineSummary["arithmetic"] | undefined {
+  const i = [...code.instructions].sort((a, b) => a.address - b.address);
+  if (hexOf(i) === MULTIPLY16) return { operation: "multiply16", stackBytes: 0 };
+  const [entry, jump] = i;
+  if (!entry || jump?.mnemonic !== "jmp" || !jump.target || jump.address !== entry.address + entry.size)
+    return undefined;
+  const variant =
+    entry.mnemonic === "xor" && isRegister(entry.operands[0], "cx") && isRegister(entry.operands[1], "cx")
+      ? 0
+      : entry.mnemonic === "mov" && isRegister(entry.operands[0], "cx") && entry.operands[1]?.kind === "immediate"
+        ? entry.operands[1].value
+        : undefined;
+  if (variant === undefined || variant > 3) return undefined;
+  const body = i.filter((x) => x.address >= jump.target!.address);
+  const contiguous = body.every((x, n) => n === 0 || body[n - 1]!.address + body[n - 1]!.size === x.address);
+  if (!contiguous || hexOf(body) !== DIVIDE32) return undefined;
+  return { operation: "divide32", signed: !(variant & 1), remainder: !!(variant & 2), stackBytes: 8 };
 }
 
 function wideShift(code: RoutineCode): EngineSummary["numeric"] | undefined {
@@ -1624,6 +1666,19 @@ export function discoverEngineSummaries(
         unknownEffects: [...direct.unknownEffects, ...code.uncertainties],
       },
     };
+    const arithmetic = wideArithmetic(code);
+    if (arithmetic) {
+      summary.kind = "wide-integer-arithmetic";
+      summary.arithmetic = arithmetic;
+      summary.purpose =
+        arithmetic.operation === "multiply16"
+          ? "Multiplies the two signed words on the stack into the 32-bit product in DX:AX."
+          : `Divides the ${arithmetic.signed ? "signed" : "unsigned"} 32-bit word pair on the stack by the next one and leaves the ${arithmetic.remainder ? "remainder" : "quotient"} in DX:AX, popping both.`;
+      if (arithmetic.operation === "divide32")
+        summary.assumptions.push(
+          "The divisor is not 0: the helper's own `div` faults on 0, which would stop the game, so a running game never divides by 0 here.",
+        );
+    }
     const numeric = wideShift(code);
     if (numeric) {
       summary.kind = "wide-integer-shift";

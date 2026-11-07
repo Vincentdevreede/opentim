@@ -313,7 +313,8 @@ export function binary(
         : operator === "-"
           ? a - b
           : operator === "*"
-            ? a * b
+            ? // Exact in every width: two 32-bit words multiply past what a double keeps.
+              Number((BigInt(a) * BigInt(b)) % 2n ** BigInt(width))
             : operator === "&"
               ? a & b
               : operator === "|"
@@ -1781,6 +1782,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         !engine.contactResponseFirst &&
         !engine.contactResponsePair &&
         !engine.numeric &&
+        !engine.arithmetic &&
         !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind))
     )
       return true;
@@ -1791,9 +1793,31 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const convention = engine.returnConvention;
     return (
       !!convention &&
-      !convention.stackBytes &&
+      convention.stackBytes === (engine.arithmetic?.stackBytes ?? 0) &&
       (convention.kind === "far" ? !!(i.far || farBridge) : !i.far && !segmentPush)
     );
+  };
+  /**
+   * The 32-bit value of a low and a high word. Words split from one 32-bit value, `x & 0xffff` and
+   * `(x >>> 16) & 0xffff`, give that value back, so a value passed from one 32-bit helper to the next keeps its size.
+   */
+  const joinWords = (low: Expression, high: Expression): Expression => {
+    const halfOf = (word: Expression) =>
+      word.kind === "binary" && word.operator === "&" && word.right.kind === "constant" && word.right.value === 0xffff
+        ? word.left
+        : undefined;
+    const whole = halfOf(low),
+      upper = halfOf(high);
+    if (
+      whole?.width === 32 &&
+      upper?.kind === "binary" &&
+      upper.operator === ">>>" &&
+      upper.right.kind === "constant" &&
+      upper.right.value === 16 &&
+      same(upper.left, whole)
+    )
+      return whole;
+    return binary("|", binary("<<", high, constant(16), 32), low, 32);
   };
   const applyEngine = (engine: EngineSummary, args: Tracked[], s: AbstractState, i: Instruction): boolean => {
     if (!angleFrameMatches(engine, i)) return false;
@@ -1849,9 +1873,40 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         );
     }
     const first = args.at(-1)?.value;
-    if (!engine.numeric && engine.argumentKind === "scalar" && (first?.kind === "pointer" || first?.kind === "stack"))
+    if (
+      !engine.numeric &&
+      !engine.arithmetic &&
+      engine.argumentKind === "scalar" &&
+      (first?.kind === "pointer" || first?.kind === "stack")
+    )
       return false;
     let numericResult: { low: Tracked; high: Tracked } | undefined;
+    if (engine.arithmetic) {
+      // The caller pushes the high word first, so the low word of each 32-bit value is nearer the top.
+      const words = args.slice(-(engine.arithmetic.operation === "multiply16" ? 2 : 4)).reverse();
+      const sign = (word: Tracked) =>
+        binary("-", binary("^", asExpression(word.value), constant(0x8000), 32), constant(0x8000), 32);
+      const pair = (low: Tracked, high: Tracked) => joinWords(asExpression(low.value), asExpression(high.value));
+      let result: Expression | undefined;
+      if (engine.arithmetic.operation === "multiply16" && words.length === 2)
+        result = binary("*", sign(words[0]!), sign(words[1]!), 32);
+      else if (engine.arithmetic.operation === "divide32" && words.length === 4) {
+        const { signed, remainder } = engine.arithmetic;
+        result = binary(
+          `${signed ? "s" : ""}${remainder ? "%" : "/"}`,
+          pair(words[0]!, words[1]!),
+          pair(words[2]!, words[3]!),
+          32,
+        );
+      }
+      if (result && result.kind !== "unknown") {
+        const proof = uniqueEvidence([...words.flatMap((w) => w.evidence), evidenceOf(i), ...engine.evidence]);
+        numericResult = {
+          low: tracked(binary("&", result, constant(0xffff), 16), proof),
+          high: tracked(binary("&", binary(">>>", result, constant(16), 32), constant(0xffff), 16), proof),
+        };
+      }
+    }
     if (engine.numeric) {
       const count = registerRead(engine.numeric.count, s);
       if (
@@ -1861,12 +1916,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ) {
         const low = registerRead(engine.numeric.low, s),
           high = registerRead(engine.numeric.high, s);
-        const combined = binary(
-          "|",
-          binary("<<", asExpression(high.value), constant(16), 32),
-          asExpression(low.value),
-          32,
-        );
+        const combined = joinWords(asExpression(low.value), asExpression(high.value));
         const shifted = binary(
           engine.numeric.operation === "leftShift32" ? "<<" : ">>",
           combined,
@@ -3861,6 +3911,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         !engine.globalObjectWrites?.length &&
         !engine.returns.length &&
         !engine.numeric &&
+        !engine.arithmetic &&
         summary &&
         !summary.uncertainEffects &&
         summary.outcomes?.length &&
