@@ -48,7 +48,9 @@ the rest when it is opened.
 - **Rest.** "placed" says how the reset leaves the frame: one frame, "keeps the saved frame" (the level gives it) or
   "from its plugs" (the sockets give it), with the frames it can be, or "unresolved". "rests on" lists the frames the
   part comes to rest on; its tip says how many walks end on each or that a run keeps it, and opened it gives the
-  first condition on the way to each. A frame the program keeps as a word reads signed, so the wood incline's
+  first condition on the way to each, with how many more walks rest there ("and others" when the analysis keeps the
+  conditions of only the first 8). A frame a walk reaches with no test reads "always", with no condition as needed,
+  like the teeter-totter's frame 0. A frame the program keeps as a word reads signed, so the wood incline's
   frame 65535 reads -1, here and in the walks.
 - **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
   "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
@@ -58,14 +60,21 @@ the rest when it is opened.
 - **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
   goal marks, contact flags) and its own flags with a proved meaning (out of play, ran this step), one line per
   sentence with how many ways give it.
+- **When it does it.** Under each line of "Creates" and "To itself and others" stands the condition of its first way,
+  like the gun's two bullets ("drawingFlags & 0x10 == 0" and "!= 0"), with how many more ways there are and each of
+  them when the line is opened; "always" when a way has no test. So the teeter-totter's out-of-play flag, the explosion's
+  (only for type 19) and the bullet's (only at state 2) no longer read as if they always happen.
 - **Walks.** A trigger with more than 12 rows folds them by where they start ("running from 3"), so the
   jack-in-the-box's 156 input cases and the monkey bike's 154 open a frame at a time. Walks from a touch are
   named like the hits, "touching a trampoline"; what the touch needs of the part stays in the condition and the
-  tip.
+  tip. A hit walked from an input case shows both in its condition: the case and the hit's own tests, so the
+  bullet's "touching a trampoline" rows also read "contactEdge == 0" and the speed the touch needs.
 - **Numbers in conditions.** A frame, a speed, a position or a control value reads signed in decimal
-  ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too ("ropeKind & 0x18 == 0x10"; under
+  ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too, also from 0x8000 up ("ropeKind & 0x18 == 0x10"; under
   a mask below 10 as a number, and a mask of a mask as one), a direction in degrees ("collider.contactAngle <
   315°"), and an unsigned test's number as it is. The absolute value of another part's field reads "|found.overlapX|".
+  The analysis's own sentences next to them say a frame, a speed and the control value signed too: the wood
+  incline's walk "Shows state -1" and the bullet's case "a part-specific value is -12288".
 - **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
   end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
   asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). The tip
@@ -1191,7 +1200,9 @@ ropes) are its own business and are left out, as for any run's list.
 Each of the six parts now has walks from the teeter-totter: the bellows, the scissors, the dynamite plunger and the
 flashlight 4 each (two ends, mirrored or not), and the mouse motor and fish bowl through their shared walks.
 `list-other-part-pairs` counts the six as their own way, "list consumer", described, and no longer lists the helper
-as read only as a footprint. Walks that end: 28 more in each build (Even More 1,363 to 1,391, TIM 1 1,179 to
+as read only as a footprint. A pair counts only the lines of its own way: a touch's lines for a touch, the run's list
+lines for its list and none for a consumer (lines never come from one), so a line of the run's own list never makes
+its consumer pair described. The counts in both builds stay as they were. Walks that end: 28 more in each build (Even More 1,363 to 1,391, TIM 1 1,179 to
 1,207), and none stays open.
 The recordings stay at 648 complete in Even More and 552 in TIM 1 with none different, no rule writes an unknown
 value and no effect line is vague.

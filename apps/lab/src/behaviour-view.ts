@@ -31,8 +31,10 @@ export function tidyTerm(term: string): string {
       )
       .replace(/ \+ 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` - ${0x10000 - parseInt(n, 16)}`)
       .replace(/ - 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` + ${0x10000 - parseInt(n, 16)}`)
-      // Equal or not equal to a 16-bit word is the same test with its signed value.
-      .replace(/ (==|!=) 0x([89a-f][0-9a-f]{3})$/, (_, op: string, n: string) => ` ${op} ${parseInt(n, 16) - 0x10000}`)
+      // Equal or not equal to a 16-bit word is the same test with its signed value; masked bits stay hex like the mask.
+      .replace(/^(.+) (==|!=) 0x([89a-f][0-9a-f]{3})$/, (whole, left: string, op: string, n: string) =>
+        / [&|^] 0x[0-9a-f]+\)*$/.test(left) ? whole : `${left} ${op} ${parseInt(n, 16) - 0x10000}`,
+      )
   );
 }
 
@@ -120,6 +122,12 @@ export function namedTermLines(texts: readonly string[]): string[] {
 
 /** The terms of a condition as the lab writes it, like `a != 0 and b == 4`. */
 export const termsOf = (condition: string): string[] => (condition === "always" ? [] : condition.split(" and "));
+
+/** A condition as the tab reads it: its terms tidied, read in words where the code shows what they test, joined. */
+export const conditionText = (condition: string, sides?: readonly string[]): string =>
+  tidyTerms(termsOf(condition))
+    .map((t) => readTerm(t, sides))
+    .join(" and ");
 
 /** The targets of a change as short text: one number, or up to three runs like `0–3→0 · 4–7→4`. */
 export function targetsText(from: readonly number[], targets: readonly number[]): string | number | undefined {
@@ -426,6 +434,13 @@ export const RESET_WORDS: Record<"saved" | "sockets" | "unresolved", string> = {
 /** Why a part rests on a frame, in a few words: how many walks end there, or a run that keeps it. */
 export const restingWords = (frame: { walks?: number }) =>
   frame.walks ? `${frame.walks} ${frame.walks === 1 ? "walk ends" : "walks end"} here` : "a run keeps it";
+
+/**
+ * What follows the first way's condition to a resting frame: how many more ways rest there, or "and others" when the
+ * analysis keeps the conditions of only the first few, so whether one of the others needs no test isn't known.
+ */
+export const restingMore = (frame: { ways: number; capped?: true }) =>
+  frame.capped ? "and others" : frame.ways > 1 ? `${frame.ways - 1} more ${frame.ways === 2 ? "way" : "ways"}` : "";
 
 /** A trigger with more walk rows than this folds them by where they start. */
 export const FOLD_ROWS = 12;

@@ -368,8 +368,14 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
     const { path, type } = list[0]!;
     const target = report.parts.find((p) => p.type === type)!;
     const open = list.filter((item) => !item.ruled.size);
+    // Lines come from a touch or the run's own list, never from a consumer: a line of the same run's list doesn't
+    // describe what its consumer does.
     const lines = (effects.get(type)?.effects ?? []).filter(
-      (e) => e.sourceType === path.sourceType && e.routine === path.routine,
+      (e) =>
+        e.sourceType === path.sourceType &&
+        e.routine === path.routine &&
+        path.way !== "list consumer" &&
+        (e.touch !== undefined) === (path.way === "touch"),
     );
     // A consumer's walks name it, apart from the run's own list.
     const walks = (hits.get(type)?.hits ?? []).filter((h) =>

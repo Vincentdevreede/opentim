@@ -147,8 +147,14 @@ export interface RestingFrame extends Finding {
   state: number;
   /** How many walk branches come to rest on it, when the walks give it rather than a run outcome. */
   walks?: number;
-  /** The conditions on the way there, for the first few, as text. */
+  /** The conditions on the way there, for the first few, as text; empty when a way there has none. */
   conditions: string[];
+  /** Set when a way there has no test, so the part rests there whatever the conditions of the other ways. */
+  always?: true;
+  /** How many ways come to rest on it: the walks, or the run outcomes that keep it. */
+  ways: number;
+  /** Set when the analysis keeps the conditions of only the first few ways, so the others' aren't known. */
+  capped?: true;
 }
 
 /** How a part's frame is when the machine is put back, and the frames it comes to rest on. */
@@ -176,6 +182,11 @@ export interface Doing extends Finding {
   description: string;
   /** How many ways through its routines give the same sentence. */
   ways: number;
+  /**
+   * The conditions of those ways as text, each once; `always` when a way has no test. Empty when the analysis gives
+   * none.
+   */
+  conditions: string[];
 }
 
 export interface PartSummary {
@@ -821,7 +832,9 @@ function walkOf(a: AnimationDescription, write: ReturnType<typeof writer>): Walk
               .replace(/^Touching (.+?)(, if .*)?$/, "touching $1")
           : roleOf(a.trigger.name),
     start: a.initial,
-    condition: termsOf(a.inputCondition ?? a.trigger.condition, write),
+    // A hit walked from an input case needs both: the case, and what the hit itself tests, like the trampoline's
+    // contactEdge == 0. The trigger's condition holds both for a hit; the same term is said once.
+    condition: [...new Set([...termsOf(a.inputCondition, write), ...termsOf(a.trigger.condition, write)])],
     about: a.trigger.name,
     description: a.description,
   };
@@ -867,16 +880,22 @@ export function summariseRests(
         description: rest.description,
         ...(rest.reason ? { reason: rest.reason } : {}),
         resting: d.stableStates
-          .map((stable) => ({
-            confidence: stable.confidence,
-            assumptions: stable.assumptions,
-            evidence: instructions(stable.evidence),
-            state: frameOf(stable.state),
-            ...(stable.walks ? { walks: stable.walks } : {}),
-            conditions: [...new Set(stable.origins.map((o) => write.predicate(o.condition)))].filter(
-              (c) => c !== "always",
-            ),
-          }))
+          .map((stable): RestingFrame => {
+            const conditions = [...new Set(stable.origins.map((o) => write.predicate(o.condition)))];
+            const always = conditions.includes("always");
+            return {
+              confidence: stable.confidence,
+              assumptions: stable.assumptions,
+              evidence: instructions(stable.evidence),
+              state: frameOf(stable.state),
+              ...(stable.walks ? { walks: stable.walks } : {}),
+              // A way without a test rests there always, so no other way's condition is needed.
+              conditions: always ? [] : conditions,
+              ...(always ? { always: true as const } : {}),
+              ways: stable.walks ?? stable.origins.length,
+              ...((stable.walks ?? 0) > stable.origins.length ? { capped: true as const } : {}),
+            };
+          })
           // A frame word of -1 comes last in the description; signed, it comes first.
           .sort((a, b) => a.state - b.state),
       };
@@ -892,9 +911,17 @@ const PROVED = /ran-this-step mark|out-of-play flag|goal mark|contact flag|fine 
  * What each part does, by type, from the report's description: the parts it creates, what it does to other parts, and
  * the flags of its own whose meaning the code proves. Ways that say the same are one line.
  */
-export function summariseDoings(description: BehaviourDescription): Record<number, Doing[]> {
+export function summariseDoings(report: BehaviourReport, description: BehaviourDescription): Record<number, Doing[]> {
+  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const parts = new Map(report.parts.map((p) => [p.type, p]));
   return Object.fromEntries(
     description.parts.map((d) => {
+      const part = parts.get(d.type);
+      const write = part ? partWriter(part, fields) : writer(fields);
+      // The rope callback's own findings name what the rope code passes it.
+      const rope = part ? partWriter(part, fields, "rope") : write;
+      const ropeRoutines = new Set(part?.routines.filter((r) => roleOf(r.role) === "rope").map((r) => r.address));
+      const writerOf = (routine?: number) => (routine !== undefined && ropeRoutines.has(routine) ? rope : write);
       const lines = new Map<string, Doing>();
       for (const e of d.effects) {
         const on =
@@ -912,10 +939,15 @@ export function summariseDoings(description: BehaviourDescription): Record<numbe
           on === "created"
             ? [e.description]
             : e.description.split(/(?<=\.) (?=[A-Z])/).filter((t) => on === "others" || PROVED.test(t));
+        // When it does it: a way through its routines can need a test, like the gun's mirrored bullet.
+        const conditions = (e.conditions ?? (e.condition ? [e.condition] : [])).map((c) =>
+          writerOf(e.routine).predicate(c),
+        );
         for (const sentence of sentences) {
           const line = lines.get(sentence);
           if (line) {
             line.ways++;
+            for (const c of conditions) if (!line.conditions.includes(c)) line.conditions.push(c);
             if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
               line.confidence = e.confidence;
             continue;
@@ -927,6 +959,7 @@ export function summariseDoings(description: BehaviourDescription): Record<numbe
             on,
             description: sentence,
             ways: 1,
+            conditions: [...new Set(conditions)],
           });
         }
       }

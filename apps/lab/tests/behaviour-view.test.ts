@@ -7,6 +7,7 @@ import {
   outlineShape,
   outlineSides,
   readTerm,
+  restingMore,
   ownTerms,
   routineGroups,
   stateGroups,
@@ -82,12 +83,25 @@ describe("tidying conditions", () => {
     );
     expect(tidyTerm("x + 0xffe0 > 3")).toBe("x - 32 > 3");
     expect(tidyTerm("(x - 32) - 0xffc0")).toBe("(x - 32) + 64");
+    // A word compared whole reads signed; bits under a hex mask stay hex like the mask.
+    expect(tidyTerm("x == 0xd000")).toBe("x == -12288");
+    expect(tidyTerm("x & 0xc000 == 0x8000")).toBe("x & 0xc000 == 0x8000");
+    expect(tidyTerm("(x + 0x4000) & 0xc000 != 0xc000")).toBe("(x + 0x4000) & 0xc000 != 0xc000");
   });
 
   it("drops repeats, comparisons of numbers and terms another implies", () => {
     expect(tidyTerms(["a < 0", "a != 0", "a <= 0", "3 == 3", "a < 0", "b >= 2"])).toEqual(["a < 0", "b >= 2"]);
     // Masked bits read in hex, and say the same.
     expect(tidyTerms(["k & 0x7 != 0x4", "k & 0x7 == 0x2", "0x200 != 0"])).toEqual(["k & 0x7 == 0x2"]);
+  });
+});
+
+describe("restingMore", () => {
+  it("counts the other ways from every walk that rests on a frame, and says and others when only a few are kept", () => {
+    expect(restingMore({ ways: 1 })).toBe("");
+    expect(restingMore({ ways: 2 })).toBe("1 more way");
+    expect(restingMore({ ways: 158 })).toBe("157 more ways");
+    expect(restingMore({ ways: 191, capped: true })).toBe("and others");
   });
 });
 

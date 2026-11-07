@@ -290,13 +290,14 @@ describe("summariseWalks", () => {
     name: string,
     w: BehaviourWalk,
     inputCondition?: Predicate,
+    condition: Predicate = { kind: "true" },
   ): AnimationDescription => ({
     ...finding,
     id: name,
     initial: "run-guard",
     prerequisites: [],
     inputCondition,
-    trigger: { ...finding, kind, name, routine: 0x1d034, condition: { kind: "true" }, writes: [] },
+    trigger: { ...finding, kind, name, routine: 0x1d034, condition, writes: [] },
     walk: w,
   });
   const report = {
@@ -397,6 +398,12 @@ describe("summariseWalks", () => {
             "related-write",
             "Touching an electric switch, if the frame is 0 and a part-specific value is 12288",
             walk({ status: "rest", frames: [visit(0)] }),
+            compare("==", field(0x0c), constant(0)),
+            // The input case and the hit's own test, as the analysis gives a hit walked from an input case.
+            {
+              kind: "and",
+              terms: [compare("==", field(0x0c), constant(0)), compare("==", field(0x12), constant(0))],
+            },
           ),
           animation(
             "callback",
@@ -431,6 +438,10 @@ describe("summariseWalks", () => {
   it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {
     expect(touch).toMatchObject({ trigger: "touching an electric switch" });
     expect(touch!.about).toBe("Touching an electric switch, if the frame is 0 and a part-specific value is 12288");
+  });
+
+  it("keeps what a hit itself tests next to the input case it is walked from, saying each term once", () => {
+    expect(touch!.condition).toEqual(["state == 0", "stateDelta == 0"]);
   });
 
   it("keeps the frames, where a loop goes back to, and the path under each condition where it splits", () => {
@@ -669,6 +680,16 @@ describe("summariseRests", () => {
           { ...finding, state: 0, fields: [], origins: [{ condition: { kind: "true" }, evidence }] },
           {
             ...finding,
+            state: 1,
+            fields: [],
+            walks: 158,
+            origins: [
+              { condition: compare("!=", field(0x12), constant(0)), evidence },
+              { condition: { kind: "true" }, evidence },
+            ],
+          },
+          {
+            ...finding,
             state: 2,
             fields: [],
             walks: 157,
@@ -712,10 +733,16 @@ describe("summariseRests", () => {
 
   it("lists the resting frames with how many walks end there and the conditions on the way", () => {
     expect(rests[3]!.resting).toMatchObject([
-      { state: 0, conditions: [] },
-      { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"] },
+      { state: 0, conditions: [], ways: 1, always: true },
+      { state: 1 },
+      { state: 2, walks: 157, conditions: ["stateDelta != 0", "stateDelta == 0"], ways: 157, capped: true },
     ]);
     expect(rests[3]!.resting[0]!.walks).toBeUndefined();
+  });
+
+  it("rests on a frame always when a way there has no test, keeping no other way's condition as needed", () => {
+    expect(rests[3]!.resting[1]).toMatchObject({ walks: 158, always: true, conditions: [], ways: 158 });
+    expect(rests[3]!.resting[2]!.always).toBeUndefined();
   });
 
   it("gives a frame the program keeps as a word signed, like the wood incline's -1, in order", () => {
@@ -725,11 +752,12 @@ describe("summariseRests", () => {
 });
 
 describe("summariseDoings", () => {
-  const line = (kind: string, description: string, confidence = "inferred") => ({
+  const line = (kind: string, description: string, confidence = "inferred", condition?: Predicate) => ({
     ...finding,
     confidence,
     kind,
     description,
+    ...(condition ? { condition } : {}),
   });
   const cannonball =
     "Creates a cannonball (type 43, which starts on frame 0) at positionX = its positionX + 97 and positionY = its positionY - 7, moving at velocityX = 12288 and velocityY = -4096 (each kept within the cannonball's speed limit).";
@@ -742,17 +770,21 @@ describe("summariseDoings", () => {
       {
         type: 18,
         effects: [
-          line("related-object", cannonball),
-          line("drawing", ran),
-          line("drawing", ran, "unresolved"),
-          line("drawing", `Sets flag 0x200 of the part's drawing flags. ${ran}`),
+          line("related-object", cannonball, "inferred", compare("==", field(0x0c), constant(2))),
+          line("drawing", ran, "inferred", compare("!=", field(0x12), constant(0))),
+          line("drawing", ran, "unresolved", compare("==", field(0x12), constant(0))),
+          line("drawing", `Sets flag 0x200 of the part's drawing flags. ${ran}`, "inferred", { kind: "true" }),
           line("helper", "Can call a shared helper: Turns a rope around."),
           line("related-object", relay),
         ],
       },
     ],
   } as unknown as BehaviourDescription;
-  const doings = summariseDoings(description)[18]!;
+  const report = {
+    layout: { fields: fields.map((f) => ({ ...f, confidence: "checked", evidence: [], assumptions: [] })) },
+    parts: [{ type: 18, routines: [] }],
+  } as unknown as BehaviourReport;
+  const doings = summariseDoings(report, description)[18]!;
 
   it("keeps the parts it creates, what it does to other parts and its own flags with a proved meaning", () => {
     expect(doings.map((d) => [d.on, d.description])).toEqual([
@@ -765,5 +797,11 @@ describe("summariseDoings", () => {
   it("makes each sentence one line, and ways that say the same one line, as unsure as the least sure of them", () => {
     expect(doings[1]).toMatchObject({ ways: 3, confidence: "unresolved" });
     expect(doings[0]).toMatchObject({ ways: 1, confidence: "inferred" });
+  });
+
+  it("keeps the condition of each way, so a line never reads as if it always happens", () => {
+    expect(doings[0]!.conditions).toEqual(["state == 2"]);
+    expect(doings[1]!.conditions).toEqual(["stateDelta != 0", "stateDelta == 0", "always"]);
+    expect(doings[2]!.conditions).toEqual([]);
   });
 });

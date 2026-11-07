@@ -3681,6 +3681,8 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       : `Updates the number of ${subject} outline corners.`;
   return `Updates ${subject} field ${offset}; what it means isn't established.`;
 }
+/** The fields whose words the sentences read as signed numbers: the frames, the speeds and the control value. */
+const SIGNED_WORDS = /^(state|previousState|olderState|stateDelta|velocityX|velocityY)$/;
 function inputConditionWords(predicate: Predicate, report: BehaviourReport, part: PartBehaviour): string {
   const nameOf = (expression: Expression) =>
     expression.kind === "field" && expression.object === "part"
@@ -3749,8 +3751,9 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
       ">": "is above",
       ">=": "is at least",
     };
+    // A frame, a speed or the control value is a signed word, so 0xd000 reads -12288 as in the lab's conditions.
     const right =
-      term.right.kind === "constant" && (term.signed || leftName === "stateDelta")
+      term.right.kind === "constant" && (term.signed || (leftName !== undefined && SIGNED_WORDS.test(leftName)))
         ? String(signed(wrap(term.right.value, term.left.width), term.left.width))
         : fieldName(term.right);
     if (
@@ -3812,12 +3815,11 @@ function walkWords(walk: BehaviourWalk): string {
   if (walk.parameterised?.kind === "hold")
     return "Keeps the supplied frame unchanged while the stated condition holds; no numeric starting frame is assumed.";
   if (!walk.states.length) return walk.reason ?? "The initial frame has not been established.";
-  const labels = walk.frames
-    .slice(0, 12)
-    .map(
-      (frame) =>
-        `${frame.frame === undefined ? "state" : "frame"} ${frame.state}${frame.runCalls > 1 ? ` for ${frame.runCalls} run invocations` : ""}`,
-    );
+  const labels = walk.frames.slice(0, 12).map(
+    (frame) =>
+      // A frame is a signed word, like the wood incline's -1.
+      `${frame.frame === undefined ? "state" : "frame"} ${signed(wrap(frame.state, 16), 16)}${frame.runCalls > 1 ? ` for ${frame.runCalls} run invocations` : ""}`,
+  );
   const prefix = labels.join(", ") + (walk.frames.length > 12 ? ", followed by the remaining recorded frames" : "");
   if (walk.status === "rest") return `Shows ${prefix}, then holds the last frame.`;
   if (walk.status === "loop") return `Shows ${prefix}, then repeats its proved cycle.`;

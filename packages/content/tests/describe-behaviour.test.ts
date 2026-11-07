@@ -303,6 +303,19 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(names.some((name) => name.includes("above 2"))).toBe(false);
   });
 
+  it("writes a frame and a speed in its sentences as the signed words they are", () => {
+    const data = report([rule(constant(0xffff), test(0x36, "==", 0xd000)), rule(field(12), test(0x36, "!=", 0xd000))]);
+    data.layout.fields.push({ name: "velocityX", offset: 0x36, ...proof });
+    delete (data.parts[0] as { frameCount?: number }).frameCount;
+    const cases = describeBehaviour(data).parts[0]!.animations.filter((item) => item.trigger.kind === "input-case");
+    const names = cases.map((item) => item.trigger.name);
+    expect(names.some((name) => name.includes("is -12288"))).toBe(true);
+    expect(names.some((name) => name.includes("53248"))).toBe(false);
+    const words = cases.map((item) => item.description ?? "");
+    expect(words.some((text) => /\b(state|frame) -1\b/.test(text))).toBe(true);
+    expect(words.some((text) => text.includes("65535"))).toBe(false);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),
