@@ -1,7 +1,8 @@
 /** The game files loaded into the lab, and the state of the import that loads them. */
 
 import { MAP_NAME, installLanguage, isArchiveName, isLanguagePackageName } from "@opentim/resources";
-import { ref, shallowRef } from "vue";
+import { ref, shallowRef, watch } from "vue";
+import { stopBehaviourRead } from "./behaviour.ts";
 import { detectEdition, isProgramName, sha256, type Edition } from "./edition.ts";
 import {
   ImportError,
@@ -107,6 +108,12 @@ export const saving = ref(false);
 export const edition = shallowRef<Edition>();
 /** The game's program, like `TIM.EXE`, when it was loaded with the archives. */
 export const program = shallowRef<{ name: string; data: Uint8Array }>();
+// The behaviour of a program that was replaced isn't needed anymore, even when no page waits for it now.
+watch(
+  () => program.value?.data,
+  (_, before) => before && stopBehaviourRead(before),
+  { flush: "sync" },
+);
 /** The resource selected in Overview and Files. */
 export const selected = ref<string>();
 

@@ -1148,6 +1148,17 @@ export type BehaviourMessage = { kind: "behaviour"; result: BehaviourResult } | 
 /** The behaviour and the walks of a program, once per program: a later call gets the same answers, unless one failed. */
 const results = new WeakMap<Uint8Array, { result: Promise<BehaviourResult>; walks: Promise<WalksResult> }>();
 
+/** How to stop the read of a program while its worker still runs. */
+const running = new Map<Uint8Array, (message: string) => void>();
+
+/**
+ * Stops the read of a program that was replaced, so its worker doesn't keep going for answers nobody needs. Its
+ * promises end with an error and it isn't kept, so reading the program again starts over.
+ */
+export function stopBehaviourRead(program: Uint8Array): void {
+  running.get(program)?.("The program was replaced.");
+}
+
 /**
  * Reads the behaviour of a program in a worker, then the walks from its triggers. The behaviour comes first, so it can
  * show while the walks are still being read.
@@ -1165,11 +1176,18 @@ export function readBehaviourInBackground(
       walks: new Promise((resolve) => (resolveWalks = resolve)),
     };
     let worker: Worker | undefined;
+    const end = () => {
+      worker?.terminate();
+      if (running.get(program) === stop) running.delete(program);
+    };
     const stop = (message: string) => {
       resolveResult({ status: "error", message });
       resolveWalks({ status: "error", message });
-      worker?.terminate();
+      end();
+      if (results.get(program) === reading) results.delete(program);
     };
+    results.set(program, reading);
+    running.set(program, stop);
     // Starting the worker or sending it the program can throw too, which ends the read like an error in the worker.
     try {
       worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
@@ -1179,7 +1197,7 @@ export function readBehaviourInBackground(
           if (data.result.status === "error") stop(data.result.message);
         } else {
           resolveWalks(data.result);
-          worker?.terminate();
+          end();
         }
       };
       // Settling a promise again does nothing, so a failure after the behaviour came only fails the walks.
@@ -1188,7 +1206,6 @@ export function readBehaviourInBackground(
     } catch (e) {
       stop(e instanceof Error ? e.message : "The analysis couldn’t start.");
     }
-    results.set(program, reading);
     // A failed read isn't kept, so a later call tries again.
     const forget = (r: { status: string }) => {
       if (r.status === "error" && results.get(program) === reading) results.delete(program);
