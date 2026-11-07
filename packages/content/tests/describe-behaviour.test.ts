@@ -1517,6 +1517,20 @@ describe("creation defaults and related input conditions", () => {
     data.routines[2]!.writes = made.map((item, n) => (n === 2 ? { ...item, evidence: [store] } : item));
     const bullets = () => describeBehaviour(data).parts[0]!.effects.filter((e) => e.description.startsWith("Creates"));
     expect(bullets()[0]!.evidence.map((item) => item.address)).toContain(0x1b390);
+    // The constructor's frame is the starting frame only when the way leaves the new part's state alone.
+    data.creation = [
+      {
+        ...proof,
+        partType: 20,
+        routine: 0x500,
+        source: "constructor",
+        fields: [{ ...proof, offset: 12, name: "state", value: 0, width: 16 }],
+        uncertainties: [],
+      },
+    ];
+    expect(bullets()[0]!.description).toMatch(/^Creates a bullet \(type 20, which starts on frame 0\) at /);
+    data.routines[2]!.outcomes[0]!.fields.push({ ...write(12, constant(3)), object: bullet, routine: 300 });
+    expect(bullets()[0]!.description).toMatch(/^Creates a bullet \(type 20\) at .* It also sets state to 3 and 0x22 /);
     // A counter says which field it counts with.
     data.parts[0]!.counters = [{ ...proof, offset: 0x96, comparisons: [{ ...proof }] }] as never;
     expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(

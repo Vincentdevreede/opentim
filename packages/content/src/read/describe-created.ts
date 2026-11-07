@@ -152,9 +152,14 @@ export function createdPartLines(
           into.push(`${name}${into === given ? " to" : " ="} ${formula(value, wordsOf)}`);
         else other.push(name);
       }
+      // The constructor's frame is where the part starts only when this way leaves its state alone.
       const start = report.creation
         ?.find((item) => item.partType === created.type)
-        ?.fields.find((field) => field.name === "state");
+        ?.fields.find(
+          (field) =>
+            field.name === "state" &&
+            !writes.some((write) => write.offset < field.offset + 2 && field.offset < write.offset + write.width / 8),
+        );
       const starts = start ? `, which starts on frame ${start.value}` : "";
       const first = id
         ? `Creates ${article} ${what} (type ${created.type}${starts})`
