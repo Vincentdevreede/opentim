@@ -4383,14 +4383,26 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             ? engine
             : undefined;
         const finals = new Map<number, { value: Tracked; width: number }>();
-        /** Fields the relation also writes through another argument, which may be the owner when passed twice. */
+        /** Fields the relation also writes, even one byte of, through another argument, which may be the owner when passed twice. */
         const aliased = new Set<number>();
+        const bytesOf = (w: { offset: number; width: number }) => ({ from: w.offset, to: w.offset + w.width / 8 });
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
-          const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
-          if (exact?.some((w) => (w.argumentOffset ?? relation!.argumentOffset) !== relation!.argumentOffset)) {
+          const field = {
+            from: offset,
+            to: Math.max(...possibleWrites.filter((w) => w.offset === offset).map((w) => bytesOf(w).to)),
+          };
+          if (
+            relation?.writes.some((w) => {
+              if (w.root !== "argument" || w.path.length) return false;
+              if ((w.argumentOffset ?? relation.argumentOffset) === relation.argumentOffset) return false;
+              const bytes = bytesOf(w);
+              return bytes.from < field.to && field.from < bytes.to;
+            })
+          ) {
             aliased.add(offset);
             continue;
           }
+          const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
           if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
           const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
           if (!containsUnknown(asExpression(value.value))) finals.set(offset, { value, width: exact[0]!.width });
