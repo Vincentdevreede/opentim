@@ -759,7 +759,11 @@ function cyclic(count: number, edges: number[][]): boolean[] {
   }
   return result;
 }
-/** Bounds one search, so a pathological tree gives a prefix rather than a long wait. */
+/**
+ * Bounds one comparison, so a pathological tree gives a prefix rather than a long wait. The search from the walk's
+ * start and every search of the ways at a join share it, since each position the first search reaches can start
+ * another.
+ */
 const TREE_NODES = 200_000;
 
 /**
@@ -801,6 +805,7 @@ function followTree(
   const at = (path: number[]) =>
     path.reduce<BehaviourWalk | undefined>((walk, n) => walk?.stop?.branches?.[n]?.walk, root);
   const agreed = new Map<string, TreeOutcome | undefined>();
+  let spent = 0;
   interface Sink {
     from?: number;
     progress: boolean;
@@ -837,7 +842,8 @@ function followTree(
       const key = `${idOf(walk)}:${index}:${runKey(run)}:${adjustKey(adjust)}`;
       let id = keys.get(key);
       if (id === undefined) {
-        if (nodes.length >= TREE_NODES) return undefined;
+        if (spent >= TREE_NODES) return undefined;
+        spent++;
         keys.set(key, (id = nodes.length));
         nodes.push({ walk, index, run, adjust });
         edges.push([]);

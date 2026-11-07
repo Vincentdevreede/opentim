@@ -295,6 +295,21 @@ describe("state-preserving forwarding wrappers", () => {
     addStatePreservingForwarders(codes, summaries, true);
     expect(summaries.get(0)?.footprint.partMemoryComplete).toBe(true);
   });
+  it("composes again when a helper's reached fields change but its writes stay the same", () => {
+    const { code, summaries, helper } = fixture();
+    const codes = new Map([[0, code]]);
+    complete(helper);
+    addStatePreservingForwarders(codes, summaries);
+    // The same field, now reached as a record field through other links.
+    helper.connected = { ...helper.connected!, partFields: [], recordFields: [{ offset: 0x9c, width: 16 }] };
+    helper.connected.recordLinks = [0x54];
+    addStatePreservingForwarders(codes, summaries, true);
+    expect(summaries.get(0)?.connected).toMatchObject({
+      partFields: [],
+      recordFields: [{ offset: 0x9c, width: 16 }],
+      recordLinks: [0x54],
+    });
+  });
   it("proves no new wrapper when composing again", () => {
     const { code, summaries } = fixture();
     addStatePreservingForwarders(new Map([[0, code]]), summaries, true);

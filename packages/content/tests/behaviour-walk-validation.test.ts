@@ -464,6 +464,31 @@ describe("comparisons that follow a walk's branches", () => {
     expect(compareMeasuredWalks([model], recording([2])).classification).toBe("unavailable");
   });
 
+  it("shares one size limit between a comparison and the ways it checks at joins that knew fewer tests", () => {
+    // From the first frame one way joins back with the starting value 128 larger, a join the recording's starting
+    // value decides, and the other joins a branch that knew fewer tests, whose ways are searched on their own. That
+    // gives 512 searches of 1536 positions each: every one is well within the limit, but together they pass it, which
+    // leaves the comparison open from the first frame.
+    const model = start(
+      split(
+        [0],
+        [
+          {
+            condition: unsaved("=="),
+            walk: walk([0], "joins", {
+              joined: { path: [], index: 0, sameTests: true, shift: [{ offset: 12, by: 128 }] },
+            }),
+          },
+          { condition: unsaved("!="), walk: walk([0], "joins", { joined: { path: [], index: 0, sameTests: false } }) },
+        ],
+        "state",
+      ),
+    );
+    expect(compareMeasuredWalks([model], recording([0, 1]))).toMatchObject({
+      classification: "prefix",
+      prefixFrames: 0,
+    });
+  });
   it("keeps the stop for a value the branches don't cover", () => {
     const stopped = walk([0, 1], "unresolved", { reason: "The next state depends on a field." });
     const model = start(

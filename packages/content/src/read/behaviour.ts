@@ -6,7 +6,7 @@
 
 import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
-import { ropeCallbackWrites, ropeDispatchSummary } from "./behaviour-rope-dispatch.ts";
+import { settleRopeDispatch } from "./behaviour-rope-dispatch.ts";
 import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
 import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
 import { discoverGearRun, type GearRunContract } from "./behaviour-gear-run.ts";
@@ -5242,44 +5242,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
             )
             .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
         : undefined;
-      const original = query;
-      type Fields = NonNullable<ReturnType<typeof ropeCallbackWrites>>;
-      const fieldsOf = (lists: Fields[], pick: (fields: Fields) => Fields["partFields"]) => [
-        ...new Map(lists.flatMap(pick).map((f) => [`${f.offset}:${f.width}`, f])).values(),
-      ];
-      const merge = (lists: Fields[]): Fields => ({
-        partFields: fieldsOf(lists, (l) => l.partFields),
-        ownFields: fieldsOf(lists, (l) => l.ownFields),
-        recordFields: fieldsOf(lists, (l) => l.recordFields),
-        globals: lists.some((l) => l.globals),
-      });
-      const key = (fields: Fields) =>
-        JSON.stringify(
-          [fields.partFields, fields.ownFields, fields.recordFields].map((items) =>
-            items.map((f) => `${f.offset}:${f.width}`).sort(),
-          ),
-        );
-      // `ownFields` here holds what a question that comes back can change on the part that asks.
-      let fields: Fields = { partFields: [], ownFields: [], recordFields: [], globals: false };
-      let accepted = false;
-      for (let round = 0; round < 5; round++) {
-        summaries.clear();
-        const analyses = targets.map((target) => summarise(target));
-        const each = analyses.map((analysis) => ropeCallbackWrites([analysis]));
-        const union = merge([fields, ...each.filter((item): item is Fields => !!item)]);
-        union.ownFields = asking
-          ? fieldsOf([fields, ...asking.flatMap((at) => each[at] ?? [])], (l) => l.ownFields)
-          : union.partFields;
-        if (round > 0 && each.every(Boolean) && key(union) === key(fields)) {
-          accepted = true;
-          break;
-        }
-        fields = union;
-        engineSummaries.set(query.address, ropeDispatchSummary(original, fields, analyses, 8, fields.ownFields));
-      }
-      if (!accepted) engineSummaries.set(query.address, original);
-      const at = helpers.findIndex((helper) => helper.address === query.address);
-      if (at >= 0) helpers[at] = engineSummaries.get(query.address)!;
+      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, () => summaries.clear());
     }
     summaries.clear();
   }
