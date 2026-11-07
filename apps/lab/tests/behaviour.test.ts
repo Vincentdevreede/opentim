@@ -810,3 +810,30 @@ describe("summariseDoings", () => {
     expect(doings[2]!.conditions).toEqual([]);
   });
 });
+
+describe("summariseDoings with ways that say the same", () => {
+  const way = (address: number, assumption: string) => ({
+    confidence: "inferred",
+    kind: "drawing",
+    description:
+      "Sets the part's ran-this-step mark 0x0040 in drawing flags (the step's run loop clears it first and then calls no run callback of a part that has it).",
+    assumptions: [assumption],
+    evidence: [{ address, bytes: "90", text: "nop" }],
+    condition: { kind: "true" },
+  });
+  const first = way(0x100, "The first way's assumption.");
+  const second = way(0x200, "The second way's assumption.");
+  const description = { parts: [{ type: 18, effects: [first, second] }] } as unknown as BehaviourDescription;
+  const report = {
+    layout: { fields: fields.map((f) => ({ ...f, confidence: "checked", evidence: [], assumptions: [] })) },
+    parts: [{ type: 18, routines: [] }],
+  } as unknown as BehaviourReport;
+
+  it("keeps the assumptions and evidence of every way, and leaves the description's own lists alone", () => {
+    const [line] = summariseDoings(report, description)[18]!;
+    expect(line).toMatchObject({ ways: 2 });
+    expect(line!.assumptions).toEqual(["The first way's assumption.", "The second way's assumption."]);
+    expect(line!.evidence.map((e) => e.address)).toEqual([0x100, 0x200]);
+    expect(first.assumptions).toEqual(["The first way's assumption."]);
+  });
+});

@@ -950,11 +950,17 @@ export function summariseDoings(report: BehaviourReport, description: BehaviourD
             for (const c of conditions) if (!line.conditions.includes(c)) line.conditions.push(c);
             if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
               line.confidence = e.confidence;
+            // The line stands on every way, so it keeps what each way assumes and the instructions that show it.
+            for (const a of e.assumptions) if (!line.assumptions.includes(a)) line.assumptions.push(a);
+            for (const i of instructions(e.evidence))
+              if (line.evidence.length < MAX_EVIDENCE && !line.evidence.some((x) => x.address === i.address))
+                line.evidence.push(i);
             continue;
           }
           lines.set(sentence, {
             confidence: e.confidence,
-            assumptions: e.assumptions,
+            // A copy, so adding another way's assumptions leaves the report as it is.
+            assumptions: [...e.assumptions],
             evidence: instructions(e.evidence),
             on,
             description: sentence,
