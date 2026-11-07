@@ -225,14 +225,19 @@ function outlinePoints(list: readonly Write[]): string[] | undefined {
 
 /**
  * The outline a part's reset copies from a table for this frame and flip, or undefined. A flip the copy doesn't test
- * gives nothing: the reset doesn't say the outline stays the same then.
+ * gives nothing: the reset doesn't say the outline stays the same then. So does a test of a drawing flag other than the
+ * flips, as the lab doesn't know that flag.
  */
 function tableShape(part: PartSummary, frame: number | undefined, flipX: boolean, flipY: boolean) {
   const copy = part.outlineTables;
   if (!copy) return undefined;
   const tests = copy.tables.flatMap((t) => t.when.flat());
-  const tested = (bit: number | undefined) =>
-    bit !== undefined && tests.some((test) => test.startsWith(`flags & 0x${bit.toString(16)} `));
+  const testedBits = tests.flatMap((test) => {
+    const bit = /^flags & 0x([0-9a-f]+) /.exec(test)?.[1];
+    return bit === undefined ? [] : [parseInt(bit, 16)];
+  });
+  if (testedBits.some((bit) => bit !== copy.flips.horizontal && bit !== copy.flips.vertical)) return undefined;
+  const tested = (bit: number | undefined) => bit !== undefined && testedBits.includes(bit);
   if ((flipX && !tested(copy.flips.horizontal)) || (flipY && !tested(copy.flips.vertical))) return undefined;
   const flags = (flipX ? copy.flips.horizontal! : 0) | (flipY ? copy.flips.vertical! : 0);
   const table = pickOutlineTable(copy, frame ?? Number.NaN, flags);

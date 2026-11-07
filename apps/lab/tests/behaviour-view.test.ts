@@ -382,6 +382,13 @@ describe("outlineShape", () => {
     expect(outlineShape(copying, size)).toBeUndefined();
     expect(outlineShape(copying, size, { frame: 0, flipY: true })).toBeUndefined();
   });
+
+  it("gives nothing when a table is chosen by a drawing flag other than the flips", () => {
+    const other = structuredClone(copying);
+    other.outlineTables!.tables[2]!.when = [["frame == 1", "flags & 0x4 == 0"]];
+    expect(outlineShape(other, size, { frame: 0 })).toBeUndefined();
+    expect(outlineShape(other, size, { frame: 1 })).toBeUndefined();
+  });
 });
 
 describe("walkGroups", () => {
