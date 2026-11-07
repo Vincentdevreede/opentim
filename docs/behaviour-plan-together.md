@@ -81,6 +81,14 @@ Why the missing ones are missing (a pair can have several reasons):
       like the walks). Grouping types by the type record words a loop reads saves little (vacuum cleaner 44 groups,
       teeter-totter 45, of 66 types; the cat 3, the fan 21). Next: keep only the resolved ways per type with their
       evidence trimmed, measure size and time, then make each run cheaper.
+      Done in the patch (updated 2026-11-07): only resolved ways per type, evidence trimmed to 8 instructions; the
+      lines and the pair check use a loop's per-type ways for that type in place of the generic ones, read the overlap
+      in tests too, and take the speed limit read at a known type's record as the part's own. Even More report 775 MB
+      (was 427), 5 minutes per build; pairs 144 missing (was 145), the fan unchanged at 61 described. The vacuum
+      cleaner and the teeter-totter stay missing: their resolved ways test where the found part lies from the source
+      (a test reading both parts), which the pair check allows only for list consumers. Next: allow and word such place
+      tests for overlap searches too (as C3 did for the teeter-totter's ends), then make the per-type reading fast and
+      move it after the rest in the Lab.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
