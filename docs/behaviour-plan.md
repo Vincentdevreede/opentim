@@ -73,8 +73,8 @@ counts as named, not unknown.
       to 52, each with its real reason now. See "Which parts can affect which".
 - [x] **C3. What a teeter-totter's end does to the part lying there.** The helper its ends hand their lists to is read
       path by path, with each call's numbers put in. The bellows, scissors, dynamite plunger and flashlight get 4 walks
-      each, named with where the part must lie ("when its positionX is 0 to 8 pixels left of the teeter totter's
-      positionX + 74"); the mouse motor and fish bowl join their walks. Pairs: Even More 1,090 and 227 described, TIM 1
+      each, named with where the part must lie ("when its positionX is 0 to 8 pixels left of the teeter-totter's
+      right end (positionX + 74)"); the mouse motor and fish bowl join their walks. Pairs: Even More 1,090 and 227 described, TIM 1
       621 and 135, the six all described. See "What a teeter-totter's end does to the part lying there".
 - [ ] **C4. The missing pairs.** 247 pairs in Even More and 124 in TIM 1 stay missing; this plan only lists them.
       128 and 52 of them have a test that depends on where the parts are (sweeps, pulls), and those belong with
