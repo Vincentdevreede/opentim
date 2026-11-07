@@ -104,6 +104,11 @@ export interface Transition extends Finding {
    * or the part a loop found, and nothing else is unknown in them. These are the values it tests.
    */
   runValues?: string[];
+  /**
+   * Set when the path's effects are incomplete (a call kept the part's state without a complete footprint of its other
+   * fields, or a store went through an untracked pointer): a field the rule doesn't list may still have changed.
+   */
+  effectsIncomplete?: true;
 }
 export interface RoutineOutcome extends Finding {
   /** No untracked object write or call can replace these final fields on this path. */
@@ -2579,6 +2584,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       condition,
       routine: entry.address,
       confidence: "unresolved",
+      effectsIncomplete: true,
       assumptions: ["The graph loses information at this boundary; no destination state is asserted."],
       evidence: uniqueEvidence([
         ...s.evidence,
@@ -2706,8 +2712,23 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ...finding(constant(0), condition, s, [...returned.evidence, evidenceOf(i)]),
       returnConfidence: containsUnknown(asExpression(returned.value)) ? "unresolved" : "inferred",
     });
-    const transition = { ...f, from, to, condition, routine: entry.address, updates };
-    const key = JSON.stringify([from, to, condition, updates.map((u) => [u.object, u.offset, u.width, u.value])]);
+    const incomplete = s.uncertain || s.partMemoryHavocAt !== undefined;
+    const transition = {
+      ...f,
+      from,
+      to,
+      condition,
+      routine: entry.address,
+      updates,
+      ...(incomplete ? { effectsIncomplete: true as const } : {}),
+    };
+    const key = JSON.stringify([
+      from,
+      to,
+      condition,
+      updates.map((u) => [u.object, u.offset, u.width, u.value]),
+      incomplete,
+    ]);
     if (!outputs.has(key)) {
       outputs.add(key);
       transitions.push(transition);
@@ -4696,6 +4717,13 @@ function mergeTransitions(input: Transition[], pathsCertain = false): Transition
         const updates: FieldWrite[] = [];
         const leftFields = new Map((left.updates ?? []).map((u) => [`${u.object}:${u.offset}:${u.width}`, u]));
         const rightFields = new Map((right.updates ?? []).map((u) => [`${u.object}:${u.offset}:${u.width}`, u]));
+        // A field one rule leaves out keeps its old value there only when that path's effects are complete; otherwise
+        // the field may have changed on that path too, so the two rules stay apart.
+        if (
+          (left.effectsIncomplete && [...rightFields.keys()].some((key) => !leftFields.has(key))) ||
+          (right.effectsIncomplete && [...leftFields.keys()].some((key) => !rightFields.has(key)))
+        )
+          continue;
         for (const key of new Set([...leftFields.keys(), ...rightFields.keys()])) {
           const l = leftFields.get(key);
           const r = rightFields.get(key);
@@ -4722,6 +4750,7 @@ function mergeTransitions(input: Transition[], pathsCertain = false): Transition
           ...(settled ? { confidence: "inferred" as const } : {}),
           condition,
           ...(left.updates || right.updates ? { updates } : {}),
+          ...(left.effectsIncomplete || right.effectsIncomplete ? { effectsIncomplete: true as const } : {}),
           assumptions: [...new Set([...left.assumptions, ...right.assumptions])],
           evidence: uniqueEvidence([...left.evidence, ...right.evidence]),
         };
