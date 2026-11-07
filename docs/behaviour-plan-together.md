@@ -60,6 +60,11 @@ Why the missing ones are missing (a pair can have several reasons):
       source, like the teeter-totter's ends did in the last plan (C3). Say the box in pixels from the source, named
       by what it is where the code shows it ("in front of the nozzle", "above the left end"). Done when no pair is
       missing for a test of where the part is.
+      Found so far: the vacuum cleaner's 1,148 ways on what it finds are 760 unresolved because their values outgrow
+      the expression size limit, not because the code isn't read. Each way clips velocityY twice (the part's speed
+      limit, then at most 1024 upward) and velocityX up to three times (±512 toward the nozzle, and 0 when it would
+      pass), and a clip written as a choice repeats the whole value about three times. Next: write a clip as signed
+      min and max, so a value grows by one term per clip.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
