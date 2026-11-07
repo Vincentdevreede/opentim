@@ -67,7 +67,10 @@ Why the missing ones are missing (a pair can have several reasons):
       pops, the mouse and every other part go out of play with goal mark 0x0100, the mouse with sound 13). The pull
       is written as a sum over its seven mass tests, so the mass word appears seven times before the multiply, the
       clips and the conditional writes repeat it again. For a known type the mass is a number and all of it folds.
-      Tried and changed nothing: a compact clip for the speed limit, and size limits of 256 and 4096. Next: keep a
+      Tried and changed nothing: a compact clip for the speed limit, size limits of 256, 1024 and 4096, more room for
+      the 32-bit helpers, and keeping the pull as one table read with its ranges (the paths then stopped joining and the
+      report grew past what can be written). Of the 760, 288 have an unknown velocityX and 472 read velocityY after an
+      unresolved write at 0x1e721 (`sub [di+0x38], ax`, the pull times overlapY). Next: keep a
       helper's answer that depends only on the found part's type as one value until the type is known, and fold it
       for each type in the line and the pair check.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
