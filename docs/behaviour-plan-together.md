@@ -52,8 +52,14 @@ Why the missing ones are missing (a pair can have several reasons):
 ## A. What parts do to each other, where it depends on where they are
 
 - [ ] **A1. Tables picked by angle or distance.** Read the fan's, the bellows' and the teapot's tables from TIM.EXE
-      and say what they give: the strength of the blow by distance or direction, as a short table in the line instead
-      of "reads a table word". Done when those 105 and 65 pairs read their tables.
+      and say what they give. Found so far: the word they read is not a table of their own but the found part's
+      speed limit at +0x0a of its type record, which the game works out per level from air pressure and gravity. The
+      push itself went through the compiler's 32-bit multiply and division helpers, which the analysis now reads
+      (b46f08e): the fan adds ±16 × (256 − |overlapX|) ÷ the part's mass to its velocityX, and then keeps both
+      velocities within the part's speed limit. Its search box is 256 pixels long on the side it blows to, and the
+      search writes overlapX (0x7a) as how far the part lies outside the fan's box along X: the gap past the fan's
+      right edge, at least 1, or the gap before its left edge, at most -1. Left: name overlapX and overlapY as run
+      values, say "kept within its speed limit", and let the pair check count these lines as described.
 - [ ] **A2. Where a part must be for the vacuum cleaner and the teeter-totter.** Their searches test a box around the
       source, like the teeter-totter's ends did in the last plan (C3). Say the box in pixels from the source, named
       by what it is where the code shows it ("in front of the nozzle", "above the left end"). Done when no pair is
