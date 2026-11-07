@@ -4380,10 +4380,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             ? engine
             : undefined;
         const finals = new Map<number, { value: Tracked; width: number }>();
+        /** Fields the relation also writes through another argument, which may be the owner when passed twice. */
+        const aliased = new Set<number>();
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
           const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
-          // A write to another argument may land on the owner too, when the caller passes the same part twice.
-          if (exact?.some((w) => (w.argumentOffset ?? relation!.argumentOffset) !== relation!.argumentOffset)) continue;
+          if (exact?.some((w) => (w.argumentOffset ?? relation!.argumentOffset) !== relation!.argumentOffset)) {
+            aliased.add(offset);
+            continue;
+          }
           if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
           const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
           if (!containsUnknown(asExpression(value.value))) finals.set(offset, { value, width: exact[0]!.width });
@@ -4408,6 +4412,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             );
             s.registers.delete("__summary_part");
           } else if (
+            !aliased.has(offset) &&
             effects.length === 1 &&
             effects[0]!.condition.kind === "true" &&
             effects[0]!.value.kind === "constant"
