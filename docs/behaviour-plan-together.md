@@ -127,6 +127,9 @@ Why the missing ones are missing (a pair can have several reasons):
       which A5 is about. No pair says "isn't known to the analysis" now.
 - [ ] **A5. The few left.** The alligator's and jack-in-the-box's values from their own place, the explosion's and
       pinball bumper's direction, the conveyor belt's contact response.
+      Walks read place tests of a search's own list now (2026-11-07, see "Walks within reach of the source"): the
+      electric switch from the jack-in-the-box and the alligator is described, and the vacuum cleaner's candle, cat
+      and mouse are partly described. Missing: Even More 23 → 18, TIM 1 9 → 8.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

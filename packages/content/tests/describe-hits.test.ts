@@ -445,6 +445,47 @@ describe("walks from other parts that change a part's frame", () => {
     expect(scissors[0]!.assumptions.join(" ")).toContain("the walk doesn't follow where parts are");
   });
 
+  it("walks what a search's own list does to a part only within reach of the source, in words", () => {
+    const data = report();
+    data.layout.fields.push(
+      { name: "positionX", offset: 0x1e, ...proof } as never,
+      { name: "frameWidth", offset: 0x44, ...proof } as never,
+    );
+    data.parts.push(
+      part("electric-switch", 21, [rule(c(1), compare(f("part", 0x0c), ">=", c(4)))]) as never,
+      part("jack-in-the-box", 13, [], [901]) as never,
+    );
+    // The jack-in-the-box flips a switch whose positionX - 2 is left of its own centre X.
+    const centre: Expression = {
+      kind: "binary",
+      operator: "+",
+      left: f("part", 0x1e),
+      right: { kind: "binary", operator: ">>", left: f("part", 0x44), right: c(1), width: 16 },
+      width: 16,
+    };
+    const reach: Predicate = {
+      kind: "compare",
+      operator: "<",
+      left: { kind: "binary", operator: "+", left: f(MEMBER, 0x1e), right: c(0xfffe), width: 16 },
+      right: centre,
+      signed: true,
+    };
+    data.routines.push({
+      address: 901,
+      writes: [],
+      ...proof,
+      iterationOutcomes: [outcome(and(isType(21), reach), [write(MEMBER, 0x0c, c(4))])],
+    } as never);
+    const [flip] = hitsFromOthers(data, evaluateBehaviourCondition).get(21)!.hits;
+    expect(flip).toMatchObject({
+      sources: [{ type: 13, part: "jack-in-the-box", routine: 901 }],
+      placeWords: [
+        "its positionX is at most 1 pixel right of the jack-in-the-box's centre X (positionX + frameWidth / 2)",
+      ],
+    });
+    expect(flip!.assumptions.join(" ")).toContain("Two parts' places differ by less than 32,768 pixels");
+  });
+
   it("puts place tests in words by the side the part lies on", () => {
     const name = (offset: number) => (offset === 0x1e ? "positionX" : "?");
     expect(

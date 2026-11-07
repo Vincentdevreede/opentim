@@ -962,6 +962,20 @@ teeter-totter, checked in a browser on the balloon.
 - The lab reads a formula added, a velocity only kept within the speed limit, long conditions as lines, and the
   contact search after a launch, as "The Behaviour tab" says.
 
+### Walks within reach of the source
+
+A walk from what another part does read a test of where the part lies from the source only for a list consumer, like
+the teeter-totter's ends. The lines read such tests for a search's own list since A2, and the walks now do too. The
+jack-in-the-box and the alligator flip an electric switch only when its positionX - 2 is left of their centre X and
+its positionX + 20 is right of it: "its positionX is at most 1 pixel right of the jack-in-the-box's centre X (positionX +
+frameWidth / 2)". The switch's rules read its frame and sockets, which the flip sets, so it is a walk: 8 of them from
+each. The vacuum cleaner's walks of the candle (put out), the cat and the mouse (swallowed at the nozzle) need the
+nozzle's place too, so those pairs are partly described now, with only the velocities from the pull left unsaid. A
+walk with a test comparing two places states, as a line does, that the places differ by less than 32,768 pixels. A
+distance of 1 pixel reads in the singular.
+
+Missing pairs: Even More 23 → 18, TIM 1 9 → 8.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

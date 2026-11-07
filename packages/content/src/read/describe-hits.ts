@@ -337,14 +337,15 @@ export function placeWords(
           : `the ${source}'s ${at}`
         : `the ${source}'s ${centre} (${at})`;
     const [before, after] = axis === "Y" ? ["above", "below"] : ["left of", "right of"];
+    const px = (n: number) => `${n} ${n === 1 ? "pixel" : "pixels"}`;
     if (low !== undefined && high !== undefined && low === -high)
-      return `its ${name} is within ${high} pixels of ${point}`;
+      return `its ${name} is within ${px(high)} of ${point}`;
     if (low !== undefined && high !== undefined && low >= 0)
-      return `its ${name} is ${low} to ${high} pixels ${before} ${point}`;
+      return `its ${name} is ${low} to ${px(high)} ${before} ${point}`;
     if (low !== undefined && high !== undefined && high <= 0)
-      return `its ${name} is ${-high} to ${-low} pixels ${after} ${point}`;
+      return `its ${name} is ${-high} to ${px(-low)} ${after} ${point}`;
     if (low !== undefined && high !== undefined)
-      return `its ${name} is between ${-low} pixels ${after} and ${high} pixels ${before} ${point}`;
+      return `its ${name} is between ${px(-low)} ${after} and ${px(high)} ${before} ${point}`;
     if (low === 0 && high === undefined) return `its ${name} is at or ${before} ${point}`;
     if (high === 0 && low === undefined) return `its ${name} is at or ${after} ${point}`;
     // At least 1 pixel off is strictly to that side.
@@ -352,11 +353,11 @@ export function placeWords(
     if (high === -1 && low === undefined) return `its ${name} is ${after} ${point}`;
     if (low !== undefined)
       return low > 0
-        ? `its ${name} is at least ${low} pixels ${before} ${point}`
-        : `its ${name} is at most ${-low} pixels ${after} ${point}`;
+        ? `its ${name} is at least ${px(low)} ${before} ${point}`
+        : `its ${name} is at most ${px(-low)} ${after} ${point}`;
     return high! < 0
-      ? `its ${name} is at least ${-high!} pixels ${after} ${point}`
-      : `its ${name} is at most ${high} pixels ${before} ${point}`;
+      ? `its ${name} is at least ${px(-high!)} ${after} ${point}`
+      : `its ${name} is at most ${px(high!)} ${before} ${point}`;
   });
 }
 
@@ -447,8 +448,9 @@ interface Candidate {
   returns?: number;
   /** For a touch: the source's tests left out, like those comparing the two parts or a query's answer. */
   dropped: { both: boolean; answer: boolean };
-  /** For a list the source hands to a consumer: the consumer, and the tests of where the part lies from the source. */
+  /** For a list the source hands to a consumer: the consumer. */
   consumer?: number;
+  /** The tests of where the part lies from the source, like the jack-in-the-box's reach or the teeter-totter's ends. */
   place?: PlaceTest[];
 }
 
@@ -514,7 +516,8 @@ export function hitsFromOthers(
         let open = false;
         for (const term of terms(outcome.condition)) {
           const { objects: read, unknown } = objects(term);
-          const placed = consumed ? placeTest(term, member) : undefined;
+          // A test of where the part lies from the source, like the jack-in-the-box's reach or the teeter-totter's ends.
+          const placed = touch ? undefined : placeTest(term, member);
           if (placed) place.push(placed);
           else if (touch && term.kind === "compare" && readsAnswer(term) && ![...read].includes(member))
             dropped.answer = true;
@@ -550,7 +553,8 @@ export function hitsFromOthers(
             ? { returns: outcome.returnValue.value }
             : {}),
           dropped,
-          ...(consumed ? { consumer: outcome.listConsumer!.address, place } : {}),
+          ...(consumed ? { consumer: outcome.listConsumer!.address } : {}),
+          ...(place.length ? { place } : {}),
         });
       }
     }
@@ -688,6 +692,7 @@ export function hitsFromOthers(
         ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),
         ...(c.dropped.answer ? [ANSWER_ASSUMPTION] : []),
         ...(place.length ? [PLACE_ASSUMPTION] : []),
+        ...(c.place?.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
       ];
       const others = c.writes.filter((w) => !readsField(w)).map(asPart);
       const prior = hits.get(key);
