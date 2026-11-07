@@ -209,6 +209,83 @@ describe("state-preserving forwarding wrappers", () => {
     addStatePreservingForwarders(new Map([[0, plain.code]]), plain.summaries);
     expect(plain.summaries.get(0)!.writes.find((write) => write.root === "argument")!.value.kind).toBe("unknown");
   });
+  /**
+   * A wrapper `push bp; mov bp, sp; push si; mov si, [bp+6]; ...; pop si; pop bp; retf` around the given body. Each
+   * `call` entry is `push cs; call` to the given helper, with the part and an optional number pushed before it.
+   */
+  const wrapper = (body: (number[] | { call: number; passes?: number })[]) => {
+    const image = new Uint8Array(0x200);
+    const bytes = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6];
+    for (const item of body) {
+      if (Array.isArray(item)) {
+        bytes.push(...item);
+        continue;
+      }
+      if (item.passes !== undefined) bytes.push(0xb8, item.passes & 255, item.passes >> 8, 0x50);
+      bytes.push(0x56, 0x0e, 0xe8);
+      const delta = item.call - (bytes.length + 2);
+      bytes.push(delta & 255, (delta >> 8) & 255, 0x59, ...(item.passes === undefined ? [] : [0x59]));
+    }
+    image.set([...bytes, 0x5e, 0x5d, 0xcb]);
+    return readRoutineCode(image, { address: 0, segment: 0, offset: 0 }, 0);
+  };
+  /** The helper's write of 1 to `0x14`, exactly when the part's type isn't 49. */
+  const exactWrite = (helper: EngineSummary) => {
+    complete(helper);
+    helper.writes[0] = {
+      ...helper.writes[0]!,
+      exact: true,
+      condition: {
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "field", object: "part", offset: 4, width: 16 },
+        right: { kind: "constant", value: 49, width: 16 },
+        signed: false,
+      },
+    };
+  };
+  const ownerWrite = (summaries: Map<number, EngineSummary>) =>
+    summaries.get(0)!.writes.find((write) => write.root === "argument" && write.offset === 0x14)!;
+  it("carries an exact write only from a call made on every way to the return", () => {
+    // `if (part->flags & 0x10) helper(part, 1)`: the helper's test alone would drop the wrapper's own.
+    const { summaries, helper } = fixture();
+    exactWrite(helper);
+    const skipped = { call: 0x100, passes: 1 };
+    const code = wrapper([[0xf6, 0x44, 0x10, 0x10, 0x74, 11], skipped]);
+    addStatePreservingForwarders(new Map([[0, code]]), summaries);
+    expect(summaries.get(0)?.kind).toBe("state-preserving-forwarder");
+    const owner = ownerWrite(summaries);
+    expect(owner.exact).toBeUndefined();
+    expect(owner.value.kind).toBe("unknown");
+    expect(owner.condition.kind).toBe("unknown");
+    // The same call made on every way carries over.
+    const always = fixture();
+    exactWrite(always.helper);
+    addStatePreservingForwarders(new Map([[0, wrapper([skipped])]]), always.summaries);
+    expect(ownerWrite(always.summaries)).toMatchObject({ exact: true, value: { kind: "constant", value: 1 } });
+  });
+  it("carries no exact write whose test reads a field an earlier call may write", () => {
+    const { summaries, helper } = fixture();
+    exactWrite(helper);
+    // An earlier helper writes the part's type, which the later helper's test reads.
+    const earlier: EngineSummary = structuredClone(helper);
+    earlier.address = 0x140;
+    earlier.writes = [{ ...helper.writes[1]!, root: "argument", argumentOffset: 6, offset: 4, width: 16 }];
+    delete earlier.connected;
+    summaries.set(earlier.address, earlier);
+    addStatePreservingForwarders(new Map([[0, wrapper([{ call: 0x140 }, { call: 0x100, passes: 1 }])]]), summaries);
+    expect(summaries.get(0)?.footprint.partMemoryComplete).toBe(true);
+    expect(ownerWrite(summaries).value.kind).toBe("unknown");
+    // Called after the exact one, the type write doesn't change what the test read.
+    const later = fixture();
+    exactWrite(later.helper);
+    later.summaries.set(earlier.address, earlier);
+    addStatePreservingForwarders(
+      new Map([[0, wrapper([{ call: 0x100, passes: 1 }, { call: 0x140 }])]]),
+      later.summaries,
+    );
+    expect(ownerWrite(later.summaries)).toMatchObject({ exact: true, value: { kind: "constant", value: 1 } });
+  });
   it("composes again once a later proof completes a helper's footprint", () => {
     const { code, summaries, helper } = fixture();
     const codes = new Map([[0, code]]);

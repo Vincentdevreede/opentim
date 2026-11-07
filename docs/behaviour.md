@@ -1207,6 +1207,11 @@ fish bowl's paths test no place, so they join the walks the alligator, boxing gl
 give. The teeter-totter's own tests on the way to the call (which frame it has just come to, the answer along its
 ropes) are its own business and are left out, as for any run's list.
 
+Only the teeter-totter's own field counts as the point of a place test. In its run (Even More `0x1d27a`, TIM 1
+`0x1b99d`) some consumer tests read the owner's positionX as the value its list scan leaves behind (at `0x1d451` in Even More), which
+only the run knows. Such a test is not where the teeter-totter is, so it is not said as a place: it stays an open test
+and that path makes no walk.
+
 Each of the six parts now has walks from the teeter-totter: the bellows, the scissors, the dynamite plunger and the
 flashlight 4 each (two ends, mirrored or not), and the mouse motor and fish bowl through their shared walks.
 `list-other-part-pairs` counts the six as their own way, "list consumer", described, and no longer lists the helper
@@ -1587,6 +1592,14 @@ value and its test instead of becoming "Conditional state-preserving-forwarder e
 `0x14` after the call is 1 unless its type is 49, which it isn't: the relay's byte, as in
 [Found lists and parts reached through ropes](#found-lists-and-parts-reached-through-ropes). That was the last rule
 with an unknown write in both measured builds: Even More, English floppy, goes from 1 to 0, TIM 1, French, from 1 to 0.
+
+Such a write carries over only from a call the wrapper makes on every way to its return, and only once (no way leads
+from the call back to it). A call the wrapper makes behind its own test, like `0x793f` in Even More calling `0x70fb`
+only when the type isn't 0x31, would otherwise give the caller the helper's test without the wrapper's. It also
+carries over only when no other call of the wrapper writes the same field, and no call that may come before it writes
+a field its value or test reads: the helper's test is of the part as the helper gets it, which is then the part as
+the wrapper got it. Every exact write that carries over today comes from a first call made on every way (`0x65c1`,
+`0x58f3`, `0x5924`, `0xec49`, `0x6623`), so nothing changes in the measured builds.
 
 ### The control value's known numbers
 
@@ -2012,6 +2025,32 @@ In Even More, after a hit the mouse motor now runs its 100 runs, rests on its fr
 only splits on whether the list scan finds something, the restart that stays open. Mel's house's walks in Even More
 know more fields the same way. Walk endings don't change (Even More 521 end through branches and 577 end directly, TIM 1 450 and 476),
 nor do the recording comparisons (564 and 476 complete): the mouse motor's recordings stay prefixes for the restart.
+
+### Fields a path may have changed without a store
+
+Some effects leave a field of the part with one value the run gives it, without storing anything the analysis can
+follow: a find-first loop's passes, a list scan, a helper that writes parts reached through ropes. Later reads name
+that value ("part after field effect at ..."). A path's rule used to list only the fields it stored, so a field such
+an effect may have changed, but that the path never stored again, was missing from the rule. When two rules merged
+over one test, a field missing on one side counted as unchanged there, so the merged rule could claim the old value
+on that side. A path's rule now lists every such field of the part with the value a read would give, so the merge
+keeps it as a possible change.
+
+A list scan marks the fields its body may write on the listed parts. Those marks used to count for the owner too,
+though the owner's own memory was already kept: the scan's summary lists every field it may write on the owner as the
+owner's (when the query may list the owner, or for a global list), and otherwise the owner is not on the list (the
+query's checked comparison of each part with the part that asks, or the external list's contract). So a listed part's
+field mark no longer counts for the owner. Most of the merges that left out a marked field came from these marks (the
+teapot's `0x36`, the jack-in-the-box's `0x2a` to `0x46`, in Even More and TIM 1), and those rules keep the value they
+had, now proved.
+
+In Even More, English floppy, the cat's run (`0x19d80`) changes. Its scan at `0x1a01a` writes the cat's own `0x0a`,
+and on 52 of its 120 rules the path forgets that store again later while the field stays marked, so the rule left
+`0x0a` out; it now says "part after field effect at 0x1a01a". Its reads of `0x08` after the scan, which only listed parts' `0x08` can change,
+are now the cat's own field instead of a value of the run, and the same holds for Mel's house (`0x1e29b`) and the
+vacuum cleaner (`0x1e7ee`). The counts don't move (0/925 unresolved, 128 conditional, 0 with unknown writes, 234 with
+named run values), the recordings still match 648 of 648, and every walk still ends (722 through branches, 669
+directly). TIM 1, French, comes out the same (552 of 552).
 
 ### The recorder's normal seed
 
