@@ -1197,6 +1197,11 @@ fish bowl's paths test no place, so they join the walks the alligator, boxing gl
 give. The teeter-totter's own tests on the way to the call (which frame it has just come to, the answer along its
 ropes) are its own business and are left out, as for any run's list.
 
+Only the teeter-totter's own field counts as the point of a place test. In its run (Even More `0x1d27a`, TIM 1
+`0x1b99d`) some consumer tests read the owner's positionX as the value its list scan leaves behind (at `0x1d451` in Even More), which
+only the run knows. Such a test is not where the teeter-totter is, so it is not said as a place: it stays an open test
+and that path makes no walk.
+
 Each of the six parts now has walks from the teeter-totter: the bellows, the scissors, the dynamite plunger and the
 flashlight 4 each (two ends, mirrored or not), and the mouse motor and fish bowl through their shared walks.
 `list-other-part-pairs` counts the six as their own way, "list consumer", described, and no longer lists the helper

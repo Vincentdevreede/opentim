@@ -97,7 +97,10 @@ const signedOf = (value: number, width: number) => {
   const wrapped = value & (2 ** width - 1);
   return wrapped >= 2 ** (width - 1) ? wrapped - 2 ** width : wrapped;
 };
-/** The place test a term makes, or undefined when it isn't one: the source's field must be the member's same field. */
+/**
+ * The place test a term makes, or undefined when it isn't one: the point must be the source part's own field, the same
+ * field as the member's. A value the run gives, like the owner's field after a list scan, is not where the source is.
+ */
 export function placeTest(term: Predicate, member: string): PlaceTest | undefined {
   if (term.kind !== "compare" || !term.signed || term.right.kind !== "constant") return undefined;
   const left = term.left;
@@ -115,7 +118,8 @@ export function placeTest(term: Predicate, member: string): PlaceTest | undefine
   if (
     shift === undefined ||
     theirs.kind !== "field" ||
-    theirs.object === member ||
+    theirs.object !== "part" ||
+    theirs.unresolved ||
     theirs.offset !== mine.offset ||
     theirs.width !== mine.width
   )

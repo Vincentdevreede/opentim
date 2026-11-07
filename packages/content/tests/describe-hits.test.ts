@@ -388,27 +388,32 @@ describe("walks from other parts that change a part's frame", () => {
       part("teeter-totter", 3, [], [900]) as never,
     );
     // The teeter-totter's run hands the list at its right end (its positionX + 74) to the consumer at 0x1d797.
-    const end = (object: string): Expression => ({
+    const end = (point: Expression): Expression => ({
       kind: "binary",
       operator: "+",
-      left: { ...f(object, 0x1e), unresolved: true } as Expression,
+      left: point,
       right: c(74),
       width: 16,
     });
-    const distance: Expression = {
+    const distance = (point: Expression): Expression => ({
       kind: "binary",
       operator: "-",
-      left: end("part after list scan"),
+      left: end(point),
       right: f(MEMBER, 0x1e),
       width: 16,
-    };
-    const within = (operator: string, value: number): Predicate => ({
-      kind: "compare",
-      operator,
-      left: distance,
-      right: c(value),
-      signed: true,
     });
+    const at =
+      (point: Expression) =>
+      (operator: string, value: number): Predicate => ({
+        kind: "compare",
+        operator,
+        left: distance(point),
+        right: c(value),
+        signed: true,
+      });
+    const within = at(f("part", 0x1e));
+    // A value the run gives the owner's field after its list scan is not where the teeter-totter is.
+    const scanned = at({ ...f("part after list scan at 0x1d451", 0x1e), unresolved: true } as Expression);
     const consumed = (condition: Predicate, fields: FieldWrite[]) => ({
       ...outcome(condition, fields),
       confidence: "unresolved" as const,
@@ -421,6 +426,7 @@ describe("walks from other parts that change a part's frame", () => {
       iterationOutcomes: [
         consumed(and(isType(37), notMirrored, within(">=", 0), within("<=", 12)), [write(MEMBER, 0x12, c(1))]),
         consumed(and(isType(37), mirrored, within(">=", 25), within("<=", 37)), [write(MEMBER, 0x12, c(1))]),
+        consumed(and(isType(37), notMirrored, scanned(">=", 50), scanned("<=", 60)), [write(MEMBER, 0x12, c(1))]),
         // A test of something else of the two parts isn't a place, so no walk is made from it.
         consumed(and(isType(37), compare(f("part", 0x20), "<", f(MEMBER, 0x20))), [write(MEMBER, 0x12, c(2))]),
       ],
