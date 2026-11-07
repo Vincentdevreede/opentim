@@ -718,6 +718,8 @@ interface AbstractState {
   observationGuard?: Predicate;
   /** The heads of find-first walks this path follows for any member. */
   findFirst?: Set<number>;
+  /** A search that leaves out its argument ran for something not proved to be the owner, so it may list the owner. */
+  searchedForOther?: true;
   assumptions: string[];
 }
 interface Location {
@@ -2762,7 +2764,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     for (const call of loop.passCalls)
       for (const write of call.callee.writes)
         if (write.root === "argument" && !add(call.register, write.offset, write.width)) return undefined;
-    if (member.length && !loop.excludesOwner) return undefined;
+    // The search only leaves out the owner when the owner asked it.
+    if (member.length && (!loop.excludesOwner || s.searchedForOther)) return undefined;
     return { owner, member };
   };
   while (queue.length && visits++ < maxVisits) {
@@ -3720,6 +3723,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         summary.outcomes.length <= 24 &&
         summary.outcomes.every((outcome) => outcome.fields.every((effect) => composableObject(effect.object)))
       );
+      if (engineBefore?.list?.excludesArgument) {
+        const asking = formalArgument(args, engineBefore.argumentOffset, engineBefore.argumentOffset).value;
+        if (!(asking.kind === "pointer" && asking.object === "part" && asking.displacement === 0))
+          s.searchedForOther = true;
+      }
       let engine = i.target && options.engineSummaries?.get(i.target.address);
       const listScope = listConsumerCalls.get(i.address);
       const listOwner = engine?.listConsumer
@@ -4366,6 +4374,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         const finals = new Map<number, { value: Tracked; width: number }>();
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
           const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
+          // A write to another argument may land on the owner too, when the caller passes the same part twice.
+          if (exact?.some((w) => (w.argumentOffset ?? relation!.argumentOffset) !== relation!.argumentOffset)) continue;
           if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
           const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
           if (!containsUnknown(asExpression(value.value))) finals.set(offset, { value, width: exact[0]!.width });

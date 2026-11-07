@@ -3938,12 +3938,18 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
         ...finding([copy]),
       });
     outlines(routine?.writes ?? []);
+    // A made part's field gets its words from the line of a way that ends; a way that stops early has no such line.
+    const inCreatedLine = (write: FieldWrite) =>
+      !!createdPartOf(report, write.object) &&
+      !!routine?.outcomes?.some((outcome) =>
+        outcome.fields.some((field) => field.object === write.object && field.offset === write.offset),
+      );
     for (const write of routine?.writes ?? [])
       if (
         write.object !== "part" &&
         write.object !== "data" &&
         outlineOwner(report, write.object) === undefined &&
-        !createdPartOf(report, write.object)
+        !inCreatedLine(write)
       )
         effects.push({
           kind: "related-object",
