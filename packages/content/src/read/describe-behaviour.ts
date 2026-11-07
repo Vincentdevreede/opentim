@@ -3938,10 +3938,12 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
         ...finding([copy]),
       });
     outlines(routine?.writes ?? []);
-    // A made part's field gets its words from the line of a way that ends; a way that stops early has no such line.
+    // A made part's field gets its words from the line of a way that ends; a way that stops early has no such line, so
+    // the lines only stand in for the writes when every way through the routine ends.
     const inCreatedLine = (write: FieldWrite) =>
       !!createdPartOf(report, write.object) &&
-      !!routine?.outcomes?.some((outcome) =>
+      routine?.returnPathsComplete === true &&
+      !!routine.outcomes?.some((outcome) =>
         outcome.fields.some((field) => field.object === write.object && field.offset === write.offset),
       );
     for (const write of routine?.writes ?? [])
