@@ -3,7 +3,16 @@ import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
-import { CONSUMER_UNREAD, otherPartPairs, renderOtherPartPairs, SOURCE_VALUE } from "../src/read/other-part-pairs.ts";
+import {
+  CONNECTION_QUERY,
+  CONSUMER_UNREAD,
+  CONTACT_SEARCH,
+  otherPartPairs,
+  renderOtherPartPairs,
+  SOURCE_VALUE,
+  UNRESOLVED_PATH,
+  UNKNOWN_VALUE,
+} from "../src/read/other-part-pairs.ts";
 
 const GLOVE = "overlap candidate at 0x19732";
 const HOUSE = "overlap candidate at 0x1e29b";
@@ -249,6 +258,59 @@ describe("the pairs of other parts", () => {
       { sourceType: 3, sourcePart: "teeter-totter", routine: 0x600, consumer: 0x1d797, calls: [0x650], fields: [0x12] },
     ]);
     expect(renderOtherPartPairs(pairs)).toContain(CONSUMER_UNREAD);
+  });
+
+  it("names the rope pull or the contact search where a loop's way stops", () => {
+    const data = report();
+    const M = "overlap candidate at 0x700";
+    data.helpers!.push(
+      ...([
+        { ...finding, address: 0x1d638, kind: "connection-query", purpose: "rope pull", writes: [] },
+        { ...finding, address: 0x4fd, kind: "contact-search", purpose: "contact search", writes: [] },
+      ] as unknown as NonNullable<BehaviourReport["helpers"]>),
+    );
+    const loop = data.routines.find((r) => r.address === 0x600)!;
+    loop.engineCalls!.push(
+      { ...finding, instruction: 0x610, summary: 0x1d638, purpose: "rope pull" },
+      { ...finding, instruction: 0x680, summary: 0x4fd, purpose: "contact search" },
+      { ...finding, instruction: 0x690, summary: 0x1d797, purpose: "consumer" },
+    );
+    const run = (outcome: ReturnType<typeof member>, confidence: "inferred" | "unresolved") => {
+      loop.iterationOutcomes = [{ ...outcome, confidence }];
+      return otherPartPairs(data, evaluateBehaviourCondition).pairs.find(
+        (p) => p.sourcePart === "teeter-totter" && p.targetPart === "cat",
+      );
+    };
+    const isCat = compare(f(M, 4), "==", c(12));
+    const unresolved = (object: string, offset: number): Expression =>
+      ({ kind: "field", object, offset, width: 16, unresolved: true }) as Expression;
+    const searched: Expression = {
+      kind: "unknown",
+      reason: "Conditional contact-search effect on field 0x20",
+      width: 16,
+    };
+    // Launched, then swept by the contact search: its place after it is the run's, and so is a value read from it.
+    const launch = [write(M, 0x38, c(0x1c00)), write(M, 0x20, searched)];
+    expect(run(member(M, 0x700, isCat, launch), "inferred")).toMatchObject({ reasons: [CONTACT_SEARCH] });
+    expect(
+      run(
+        member(M, 0x700, isCat, [write(M, 0x24, unresolved(`${M} after unresolved write at 0x680`, 0x20))]),
+        "unresolved",
+      ),
+    ).toMatchObject({ reasons: [CONTACT_SEARCH] });
+    // The rope pull's answer, or the tilt after it, decides whether the part is launched.
+    const pulled = and(isCat, compare(unresolved("part after the query at 0x610", 0x12), "==", c(1)));
+    expect(run(member(M, 0x700, pulled, launch), "unresolved")).toMatchObject({ reasons: [CONNECTION_QUERY] });
+    // The same unknowns after another call, or anything else unknown, keep the general reasons.
+    expect(
+      run(
+        member(M, 0x700, isCat, [write(M, 0x24, unresolved(`${M} after unresolved write at 0x690`, 0x20))]),
+        "unresolved",
+      ),
+    ).toMatchObject({ reasons: [UNRESOLVED_PATH] });
+    expect(
+      run(member(M, 0x700, isCat, [write(M, 0x38, { kind: "unknown", reason: "Other", width: 16 })]), "inferred"),
+    ).toMatchObject({ reasons: [UNKNOWN_VALUE] });
   });
 
   it("describes a consumer read path by path apart from the run's own list", () => {

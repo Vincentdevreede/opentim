@@ -104,8 +104,13 @@ Why the missing ones are missing (a pair can have several reasons):
       keeps their pairs missing now is A3 and A4 (the teeter-totter), A5 (the jack-in-the-box's electric switch: its
       search's flag tests aren't read), and for ten vacuum cleaner pairs A4: their test reads the pull left from the
       part before.
-- [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
+- [x] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
+      Done (2026-11-07): the vacuum cleaner's, the fan's and the cat's are read since A1 and A2. The teeter-totter's
+      ways stop at two calls the pair check now names: its rope pull before the loop (`0x1d638`, a connection query:
+      the part at the other end of each rope answers), and the contact search it runs on each part it launches
+      (`0x4fd`, swept from 16 pixels above and below it). No pair is left with "a test or value on it isn't read". Missing pairs are
+      unchanged (Even More 84, TIM 1 59). See "Where the teeter-totter's launch stops being known".
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
       the fan's and the jack-in-the-box's last ones. Name each one, like the run values in the last plan, or give its
       formula from the source's fields.

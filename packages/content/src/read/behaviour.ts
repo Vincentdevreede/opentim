@@ -688,6 +688,58 @@ function readsTypeRecordOf(
 }
 /** The overlap an overlap search stores in a part it finds, read where the loop over its finds reads it. */
 const STORED_OVERLAP = /^overlap[XY] the query at 0x[0-9a-f]+ found for /;
+
+/** What leaves a loop's way open, by the call that makes it so. */
+export interface OpenCalls {
+  /**
+   * The contact search the routine runs on the part (engine summary kind `contact-search`): what it changes there,
+   * like the part's place, contact record and list flags, and a value read from those after it.
+   */
+  contactSearch: boolean;
+  /**
+   * A connection query the routine makes (kind `connection-query`), like the teeter-totter pulling its ropes: what the
+   * part at the other end answers, and a field of the source or the part read after it.
+   */
+  connectionQuery: boolean;
+  /** Anything else the analysis doesn't know. */
+  other: boolean;
+}
+/**
+ * Which calls leave these values open, given the kind of engine summary each call instruction of the routine calls.
+ * A stored overlap is known (see `onlyStoredOverlapsOpen`).
+ */
+export function openCalls(
+  values: readonly (Expression | Predicate)[],
+  kindAt: (instruction: number) => string | undefined,
+): OpenCalls {
+  const open: OpenCalls = { contactSearch: false, connectionQuery: false, other: false };
+  const at = (object: string, pattern: RegExp) => {
+    const match = pattern.exec(object);
+    return match ? kindAt(Number(match[1])) : undefined;
+  };
+  const visit = (v: Expression | Predicate): void => {
+    if (v.kind === "unknown") {
+      if (/^Conditional contact-search effect on field /.test(v.reason)) open.contactSearch = true;
+      else open.other = true;
+    } else if (v.kind === "field") {
+      if (!v.unresolved || STORED_OVERLAP.test(v.object)) return;
+      if (at(v.object, / after unresolved write at (0x[0-9a-f]+)$/) === "contact-search") open.contactSearch = true;
+      else if (
+        at(v.object, /^answer of the query at (0x[0-9a-f]+)$/) === "connection-query" ||
+        at(v.object, /^part after the query at (0x[0-9a-f]+)$/) === "connection-query" ||
+        at(v.object, / after field effect at (0x[0-9a-f]+)$/) === "connection-query"
+      )
+        open.connectionQuery = true;
+      else open.other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  values.forEach(visit);
+  return open;
+}
 /** Whether a value has an unknown other than the overlap a search stored in the part it found. */
 function unknownBesidesOverlaps(e: Expression): boolean {
   return (

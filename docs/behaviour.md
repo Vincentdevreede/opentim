@@ -891,8 +891,32 @@ Reading this took four changes:
   its fields. The words say it: "its velocityX kept within its speed limit is below 512".
 
 The balloon now gets 25 lines from the vacuum cleaner. Even More goes from 145 missing pairs to 84; TIM 1, which has
-no vacuum cleaner, stays at 59. The teeter-totter's search is left missing only for a path that isn't read and a
-value the analysis doesn't know, which are A3 and A4 of the plan.
+no vacuum cleaner, stays at 59. The teeter-totter's search is left missing at its rope pull and its contact search, see
+"Where the teeter-totter's launch stops being known".
+
+### Where the teeter-totter's launch stops being known
+
+When it tilts, the teeter-totter (`0x1d27a` in Even More) launches each part on its plank. Its loop over the parts it
+finds is read: it gives a part a launch speed by the part's mass (`0x1d735`: 0x1C00 below a mass of 2, then 0x1A00,
+0x1800, 0x1600, 0x1400, 0x1200 and 0x1000 from 151 on) as velocityY, with a quarter of it as velocityX, the signs set
+by the side of the plank the part's centre X is on and the way the plank tilts. Two calls leave the rest to the run,
+and the pair check now names them instead of "a test or value on it isn't read":
+
+- Before the loop it pulls its ropes (`0x1d638`, called at `0x1d2af` and `0x1d2d1`): it asks the part at the other
+  end of each rope, through that part's type's rope callback, whether it gives way. The analysis reads it as a
+  connection query, which changes only the part at the other end and its records. Its answer decides whether the plank
+  moves, and the tilt and a found part's width are read after it, so a way through it tests values only the run knows.
+  The pair check says "the path tests what the source's rope pull answers, or reads a field after it".
+- After setting the speeds it runs the contact search (`0x4fd`) on the part twice. The search sweeps a part from its
+  previous place to its place, and the teeter-totter sets the part's previousY 16 pixels above its positionY and then
+  16 below (`0x1d3c2` and `0x1d3d7` for a part launched up; below first, at `0x1d405` and `0x1d41a`, for one launched
+  down). It then sets previousY and the fine positionY to whatever positionY the search leaves. The search may change
+  the part's place, its drawing place and frame size, its list flags and its contact record, but not its speeds. The
+  pair check says "the source runs the contact search on the part".
+
+The analysis takes these from the engine summaries of the calls (`connection-query` and `contact-search`), not from
+the teeter-totter's addresses. Pairs stay where they were: Even More 84 missing and TIM 1 59, now with these two
+reasons for the teeter-totter's 63 and 51.
 
 ### The push's direction
 

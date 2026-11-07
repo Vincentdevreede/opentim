@@ -16,7 +16,7 @@
  * counted apart.
  */
 import type { BehaviourReport, FieldWrite, Predicate, RoutineOutcome } from "./behaviour.ts";
-import { onlyStoredOverlapsOpen } from "./behaviour.ts";
+import { onlyStoredOverlapsOpen, openCalls } from "./behaviour.ts";
 import {
   effectsFromOthers,
   type Evaluate,
@@ -96,6 +96,10 @@ export interface OtherPartPairs {
 
 export const NO_COMPLETE_EFFECTS = "the path's effects aren't complete, so the analysis doesn't know all it writes";
 export const UNRESOLVED_PATH = "the path is unresolved: a test or value on it isn't read";
+export const CONNECTION_QUERY =
+  "the path tests what the source's rope pull answers, or reads a field after it: the source asks the part at the other end of each rope, which only the run knows";
+export const CONTACT_SEARCH =
+  "the source runs the contact search on the part: where that leaves the part, with its contact record and list flags, only the run knows";
 export const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
 export const OPEN_TEST = "a test depends on something besides the two parts' own fields, like where the part is";
 export const DIRECTED_RULE_FIELD =
@@ -147,6 +151,13 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   if (typeOffset === undefined || stateOffset === undefined) return result;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const helpers = new Map((report.helpers ?? []).map((h) => [h.address, h]));
+  /** The kind of engine summary each call instruction of a routine calls, like `contact-search`. */
+  const callKinds = (routine: number) => {
+    const kinds = new Map(
+      (routines.get(routine)?.engineCalls ?? []).map((c) => [c.instruction, helpers.get(c.summary)?.kind]),
+    );
+    return (instruction: number) => kinds.get(instruction);
+  };
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
@@ -290,8 +301,19 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         terms(outcome.condition).every((t) => placed(t) || !objects(t).unknown) &&
         outcome.fields.every((f) => !objects(f.value).unknown)
       )
-    )
+    ) {
+      // A way a loop leaves open only at a call that names it: the source's rope pull before the loop, or the contact
+      // search it runs on the part.
+      if ("scope" in outcome && !outcome.listConsumer) {
+        const open = openCalls(
+          [outcome.condition, ...outcome.fields.flatMap((f) => [f.value, f.condition])],
+          callKinds(path.routine),
+        );
+        if (!open.other && open.connectionQuery) return CONNECTION_QUERY;
+        if (!open.other && open.contactSearch) return CONTACT_SEARCH;
+      }
       return UNRESOLVED_PATH;
+    }
     if (outcome.fields.some((f) => f.object !== member && !(touch && f.object === "part"))) return OTHER_OBJECTS;
     for (const term of terms(outcome.condition).map((t) => withOwnOverlapsIn(t, path.member))) {
       const read = objects(term);
@@ -308,6 +330,8 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
     const read = ruleFields.get(type)!;
     const readsRule = (w: FieldWrite) => bytesOf(w).some((b) => read.has(b));
     const writes = [...path.writes].sort((a, b) => Number(readsRule(b)) - Number(readsRule(a)));
+    // A field the contact search leaves open gives its reason only when no other write has one.
+    let searched = false;
     for (const w of writes) {
       if (w.directedSpeed) {
         if (readsRule(w)) return DIRECTED_RULE_FIELD;
@@ -316,11 +340,19 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       // The value as the line says it: the overlap its search stored, the type's words and the part's speed limit.
       const settled = settleForType(w.value, member, typeOffset!, type, report.typeTable, { table: false }).value;
       const value = objects(settled);
-      if (value.unknown) return UNKNOWN_VALUE;
+      if (value.unknown) {
+        const open = openCalls([w.value], callKinds(path.routine));
+        if (!open.other && !open.connectionQuery && open.contactSearch) {
+          searched = true;
+          continue;
+        }
+        return UNKNOWN_VALUE;
+      }
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
       if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;
     }
+    if (searched) return CONTACT_SEARCH;
     if (
       touch &&
       "returnValue" in outcome &&
