@@ -1556,6 +1556,14 @@ value and its test instead of becoming "Conditional state-preserving-forwarder e
 [Found lists and parts reached through ropes](#found-lists-and-parts-reached-through-ropes). That was the last rule
 with an unknown write in both measured builds: Even More, English floppy, goes from 1 to 0, TIM 1, French, from 1 to 0.
 
+Such a write carries over only from a call the wrapper makes on every way to its return, and only once (no way leads
+from the call back to it). A call the wrapper makes behind its own test, like `0x793f` in Even More calling `0x70fb`
+only when the type isn't 0x31, would otherwise give the caller the helper's test without the wrapper's. It also
+carries over only when no other call of the wrapper writes the same field, and no call that may come before it writes
+a field its value or test reads: the helper's test is of the part as the helper gets it, which is then the part as
+the wrapper got it. Every exact write that carries over today comes from a first call made on every way (`0x65c1`,
+`0x58f3`, `0x5924`, `0xec49`, `0x6623`), so nothing changes in the measured builds.
+
 ### The control value's known numbers
 
 Many parts move their frame by a control value, as in "frame + control value", that other parts and their own

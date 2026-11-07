@@ -163,6 +163,7 @@ export function addStatePreservingForwarders(
       const owner = ownerLoad.operands[0].name;
       const byEnd = new Map(code.instructions.map((i) => [i.address + i.size, i]));
       const callees: EngineSummary[] = [];
+      const sites: number[] = [];
       const arguments_: Map<number, number>[] = [];
       const callDeltas = new Map<number, number>();
       let invalid = false;
@@ -220,6 +221,7 @@ export function addStatePreservingForwarders(
           bound.set(callee.argumentOffset + 2, load.operands[1].value & 0xffff);
         callDeltas.set(call.instruction, !call.far && returned.kind === "far" ? 2 : 0);
         callees.push(callee);
+        sites.push(call.instruction);
         arguments_.push(bound);
       }
       if (invalid) continue;
@@ -257,14 +259,47 @@ export function addStatePreservingForwarders(
       // carries over.
       const complete = callees.every(composable);
       // A part field a callee writes exactly, as a value of the part and of numbers the wrapper passes, carries over
-      // with its value and its condition.
+      // with its value and its condition, but only from a call the wrapper makes on every way to its return, once (no
+      // way leads from the call back to it), and when no other call writes that field and no call that may come
+      // before it writes a field its value or condition reads: then the test is the callee's test alone, and the
+      // fields it reads still hold the wrapper's entry values.
+      const reaches = (from: number, to: number) => {
+        const pending = [...(outgoing.get(from) ?? [])],
+          seen = new Set<number>();
+        while (pending.length) {
+          const at = pending.pop()!;
+          if (at === to) return true;
+          if (seen.has(at)) continue;
+          seen.add(at);
+          pending.push(...(outgoing.get(at) ?? []));
+        }
+        return false;
+      };
+      const touches = (callee: EngineSummary, fields: { offset: number; width: number }[]) =>
+        callee.writes.some(
+          (write) =>
+            write.root !== "global" &&
+            fields.some((f) => write.offset < f.offset + f.width / 8 && f.offset < write.offset + write.width / 8),
+        );
+      const carries = (n: number, write: EngineWrite, read: { offset: number; width: number }[]) =>
+        returns.every((r) => dominates(sites[n]!, r.address)) &&
+        !reaches(sites[n]!, sites[n]!) &&
+        callees.every(
+          (other, m) =>
+            m === n || (!touches(other, [write]) && !(reaches(sites[m]!, sites[n]!) && touches(other, read))),
+        );
       const writes: EngineWrite[] = complete
         ? callees.flatMap((callee, n) =>
-            callee.writes.map((write) => {
+            callee.writes.map(({ exact, ...write }) => {
               const value = bind(write.value, arguments_[n]!),
                 condition = bind(write.condition, arguments_[n]!);
-              return write.root === "argument" && !write.path.length && write.exact && value && condition
-                ? { ...write, argumentOffset: first, value, condition }
+              return write.root === "argument" &&
+                !write.path.length &&
+                exact &&
+                value &&
+                condition &&
+                carries(n, write, [...partReads(value), ...partReads(condition)])
+                ? { ...write, exact, argumentOffset: first, value, condition }
                 : {
                     ...write,
                     ...(write.root === "argument" ? { argumentOffset: first } : {}),
@@ -353,6 +388,21 @@ export function addStatePreservingForwarders(
       changed = true;
     }
     if (!changed) break;
+  }
+}
+
+/** The part fields a bound value or test reads. */
+function partReads(e: Expression | Predicate): { offset: number; width: number }[] {
+  switch (e.kind) {
+    case "field":
+      return e.object === "part" ? [{ offset: e.offset, width: e.width }] : [];
+    case "binary":
+    case "compare":
+      return [...partReads(e.left), ...partReads(e.right)];
+    case "and":
+      return e.terms.flatMap(partReads);
+    default:
+      return [];
   }
 }
 
