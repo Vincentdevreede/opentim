@@ -2529,6 +2529,22 @@ the bytes the program ships with. In Even More (`0x1c83e` and `0x1a64a`) and TIM
 8-corner outline for each of frames 0, 1 and 2 and one for any other frame (its four turns), and the switch a thin
 4-corner lever, at (8, 8) to (15, 9) on a frame below 4 and at (8, 23) to (15, 24) from frame 4 on.
 
+Most other parts copy their outline from tables too, in loops that reader doesn't match: the bellows, dynamite plunger
+and scissors pick a table from a list by their frame and use a second list when flipped left to right, the cat,
+cannon, gun and others pick one of two tables by that flip alone, the teeter-totter chooses between three tables
+inside the loop by its frame, and the balloon, heart and shamrock copy one fixed table. For those,
+`behaviour-outline-run.ts` runs the reset on a small 16-bit processor, once for every frame the part list gives the
+part and for every value of the drawing flag bits the reset tests, and records what it writes through the outline
+pointer. A run gives up at an instruction it doesn't know, a read of a part field other than the frame, the outline
+pointer and a tested flag, a write to the data segment, or a call before the outline is set, and the copy only counts
+when every corner byte was read from the data segment. In Even More each copy has as many corners as the type table's
+outline point count (`0x1e`) makes room for. This finds 27 more parts in Even More and 19 in TIM 1. The wood incline
+is left out: its reset picks the table by its state, but the part list gives it no frames to run it for. The lab draws
+the table for the frame and flip shown.
+
+The parts whose type has no outline points (the pulley, belt, rope, rope end, eye hook, light bulb, magnifying glass,
+solar panel, explosion and Mel's house) have no outline to read.
+
 ### Writes on parts reached through ropes and belts
 
 A callback that calls a rope, belt or pulley helper with a summary (see "The byte relay" above) forgets the fields

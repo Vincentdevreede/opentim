@@ -147,13 +147,18 @@ const choice = computed(() =>
 );
 const colors = computed(() => colorsOf(choice.value?.name));
 
-/** The outline the part's reset routine sets, on the stage: its points, and each edge's number outside it. */
+/**
+ * The outline the part's reset routine sets for the shown frame and flip, on the stage: its points, and each edge's
+ * number outside it.
+ */
 const shape = computed(() => {
   // The points start at the part's position, which only a frame places.
   if (props.behaviour?.status !== "done" || !frame.value) return undefined;
   const summary = props.behaviour.summary.parts[props.part.type];
   const { x, y, width, height } = composition.value.bounds;
-  const points = summary && outlineShape(summary, { width, height });
+  const points =
+    summary &&
+    outlineShape(summary, { width, height }, { frame: frame.value.id, flipX: flipX.value, flipY: flipY.value });
   if (!points) return undefined;
   const z = zoom.value;
   const at = points.map((p) => ({ x: (p.x - x + 0.5) * z, y: (p.y - y + 0.5) * z }));
@@ -268,15 +273,15 @@ const sideTabs = computed(() => [
         >
         <LabToggle
           v-model="outline"
-          :disabled="!shape || flipX || flipY"
+          :disabled="!shape"
           :title="
-            !shape
-              ? frame
-                ? 'The analysis has no outline points for this part: its reset doesn’t write each one as a number'
-                : 'Only a frame places the outline, and this part has no frames'
-              : flipX || flipY
-                ? 'The outline is the one reset sets for the part as placed, not mirrored'
-                : `The outline reset sets, ${shape.source.length} points, with each edge’s number (O)`
+            shape
+              ? `The outline reset sets, ${shape.source.length} points, with each edge’s number (O)`
+              : !frame
+                ? 'Only a frame places the outline, and this part has no frames'
+                : flipX || flipY
+                  ? 'The reset doesn’t say which outline the part has mirrored like this'
+                  : 'The analysis has no outline for this part: its reset neither writes each point as a number nor copies it from a table it can read'
           "
           >Outline</LabToggle
         >
@@ -299,7 +304,7 @@ const sideTabs = computed(() => [
             />
             <div v-if="grid && zoom >= 3" class="pointer-events-none absolute inset-0" :style="gridStyle(zoom)"></div>
             <svg
-              v-if="outline && shape && !flipX && !flipY"
+              v-if="outline && shape"
               class="pointer-events-none absolute top-0 left-0 overflow-visible"
               :width="composition.bounds.width * zoom"
               :height="composition.bounds.height * zoom"

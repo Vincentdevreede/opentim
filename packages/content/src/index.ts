@@ -96,6 +96,7 @@ export { discoverCreationDefaults, type CreationDefault, type CreationField } fr
 export type { GearPropagationRelation, GearAdvanceRelation, GearConflictValue } from "./read/behaviour-gear-model.ts";
 export type { GearRunContract } from "./read/behaviour-gear-run.ts";
 export { describeGear, type GearDescription, type GearDriverDescription } from "./read/describe-gear.ts";
+export { pickOutlineTable, type OutlineTableChoice, type OutlineTables } from "./read/behaviour-outline-tables.ts";
 export type { GearScheduling } from "./read/behaviour-gear-scheduling.ts";
 export type { GearConnections } from "./read/behaviour-gear-connections.ts";
 export type { ContactBounds } from "./read/behaviour-contact-bounds.ts";

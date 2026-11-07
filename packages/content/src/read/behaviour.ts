@@ -4,7 +4,8 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
-import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
+import { dataWrites, readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
+import { runOutlineTables } from "./behaviour-outline-run.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { settleRopeDispatch } from "./behaviour-rope-dispatch.ts";
 import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
@@ -5576,22 +5577,30 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     }
   const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list, engineSummaries);
   const outlineField = layout.fields.find((f) => f.name === "outlinePoints")?.offset;
-  const outlineTables =
-    outlineField === undefined
-      ? []
-      : [...new Set(parts.flatMap((part) => part.routines.map((routine) => routine.address)))].flatMap((address) => {
-          const code = codes.get(address);
-          const tables =
-            code &&
-            readOutlineTables(
-              code,
-              image,
-              list.dataSegment,
-              { outline: outlineField, state: stateOffset },
-              codes.values(),
-            );
-          return tables ? [tables] : [];
-        });
+  const flagsField = layout.fields.find((f) => f.name === "drawingFlags")?.offset;
+  const written = dataWrites(codes.values());
+  const outlineTables: OutlineTables[] = [];
+  if (outlineField !== undefined)
+    for (const part of parts)
+      for (const routine of part.routines) {
+        const code = codes.get(routine.address);
+        if (!code || outlineTables.some((item) => item.routine === routine.address)) continue;
+        const fields = { outline: outlineField, state: stateOffset };
+        const tables =
+          readOutlineTables(code, image, list.dataSegment, fields, codes.values()) ??
+          // A shared routine is run only for a part of its own, as the frames it runs for are that part's.
+          (routine.shared
+            ? undefined
+            : runOutlineTables(
+                code,
+                image,
+                list.dataSegment,
+                { ...fields, ...(flagsField === undefined ? {} : { flags: flagsField }) },
+                part.frameCount ?? 0,
+                written,
+              ));
+        if (tables) outlineTables.push(tables);
+      }
   if (!collisionDispatch.length)
     for (const part of parts)
       part.uncertainties.push(

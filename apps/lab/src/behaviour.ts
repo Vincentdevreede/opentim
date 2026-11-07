@@ -198,6 +198,14 @@ export interface PartSummary {
   effects: Write[];
   uncertainties: string[];
   gear?: GearSummary;
+  /** The tables the reset copies the outline from, when it copies one, and the drawing flag bits for each flip. */
+  outlineTables?: OutlineTablesSummary;
+}
+
+/** The outline tables a part's reset copies from, chosen by its frame and how it is flipped. */
+export interface OutlineTablesSummary extends Finding {
+  tables: { when: string[][]; corners: [number, number][] }[];
+  flips: { horizontal?: number; vertical?: number };
 }
 
 /** How a gear connects to others and passes its turn on, from the analysis of its routines. */
@@ -737,6 +745,27 @@ function summarisePart(
     effects: part.visibleEffects.map(writeOf),
     uncertainties: part.uncertainties,
     gear: summariseGear(part, report),
+    outlineTables: summariseOutlineTables(part, report, finding),
+  };
+}
+
+/** The tables the part's reset copies its outline from, with the flag bits that flip it, from the report's layout. */
+function summariseOutlineTables(
+  part: PartBehaviour,
+  report: BehaviourReport,
+  finding: (f: { confidence: Confidence; assumptions: string[]; evidence: Evidence[] }) => Finding,
+): OutlineTablesSummary | undefined {
+  const reset = part.routines.find((r) => roleOf(r.role) === "reset")?.address;
+  const copy = report.outlineTables?.find((item) => item.routine === reset);
+  if (!copy) return undefined;
+  const masks = report.layout.fields.find((f) => f.name === "drawingFlags")?.masks ?? [];
+  const bit = (name: string) => masks.find((m) => m.name === name)?.value;
+  const horizontal = bit("horizontalFlip");
+  const vertical = bit("verticalFlip");
+  return {
+    ...finding(copy),
+    tables: copy.tables.map(({ when, corners }) => ({ when, corners })),
+    flips: { ...(horizontal === undefined ? {} : { horizontal }), ...(vertical === undefined ? {} : { vertical }) },
   };
 }
 

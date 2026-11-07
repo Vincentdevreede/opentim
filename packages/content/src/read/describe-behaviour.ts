@@ -3933,7 +3933,15 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
     if (copy)
       effects.push({
         kind: "outline",
-        description: outlineTableWords(copy),
+        description: outlineTableWords(
+          copy,
+          Object.fromEntries(
+            (report.layout.fields.find((field) => field.name === "drawingFlags")?.masks ?? []).map((m) => [
+              m.value,
+              m.name,
+            ]),
+          ),
+        ),
         routine: copy.routine,
         ...finding([copy]),
       });
