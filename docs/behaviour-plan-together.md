@@ -97,11 +97,13 @@ Why the missing ones are missing (a pair can have several reasons):
       The vacuum cleaner is read (2026-11-07, see "The vacuum cleaner pulls what lies under its nozzle"): place tests
       that compare two places, ways open only at the stored overlap, a helper's type record reads per type, the
       search's flag test, and the part's own speed limit in tests and values. The per-type step is its own
-      (`readBehaviourInSteps`), which the Lab takes after the walks. Even More 145 → 84 missing pairs, TIM 1 59. The
-      teeter-totter's test (the part's centre X against its positionX plus half the width of its new frame) and the
-      jack-in-the-box's (the part's positionX against its centre X) read as place tests too. What keeps their pairs
-      missing now is A3 and A4 (the teeter-totter), A5 (the jack-in-the-box's electric switch: its search's flag tests
-      aren't read), and for ten vacuum cleaner pairs A4: their test reads the pull left from the part before.
+      (`readBehaviourInSteps`), which the Lab takes after the walks, and reads only the loops whose values outgrew the
+      analysis because of a type record word: the vacuum cleaner's (24 seconds a build). Even More 145 → 84 missing
+      pairs, TIM 1 59. The teeter-totter's test (the part's centre X against its positionX plus half the width of its
+      new frame) and the jack-in-the-box's (the part's positionX against its centre X) read as place tests too. What
+      keeps their pairs missing now is A3 and A4 (the teeter-totter), A5 (the jack-in-the-box's electric switch: its
+      search's flag tests aren't read), and for ten vacuum cleaner pairs A4: their test reads the pull left from the
+      part before.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,

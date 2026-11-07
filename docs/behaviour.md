@@ -861,11 +861,15 @@ Reading this took four changes:
   program's word, also when a helper reads it, like the mass in `0x1e84e`. The ways that type resolves are kept with
   a few instructions as evidence; the rest of a loop's unresolved ways are kept as one way per loop and set of the
   part's own tests, with the fields they write, so a pair they allow still counts as missing and one the part's flags
-  rule out stays ruled out. This is the slow step, about four minutes for Even More, English floppy, against 13
+  rule out stays ruled out. Only a loop whose unresolved ways read a word of the found part's type record and have
+  values the analysis gave up on for their size is read this way: that is what knowing the type fixes. In the eleven
+  builds that is the vacuum cleaner's loop alone. The teeter-totter's also reads the found part's mass, for its launch
+  speed, but its ways stay open at the contact search whatever the type, and reading it for every type changed no
+  pair while it took three minutes a build. The step takes about 24 seconds for Even More, English floppy, against 13
   seconds for the rest: the Lab takes it after the walks are on the page, and adds the lines it gives when it is done.
-  `extract-behaviour` leaves it out of its reports. Written out, the vacuum cleaner's ways alone would be 2.5 GB, as
-  the speed limit's clamp repeats the value inside it; in memory they share it. `list-other-part-pairs`,
-  `list-assumptions` and `check-level-frames` take the step.
+  `extract-behaviour` leaves it out of its reports. Written out, the vacuum cleaner's ways would be far over a
+  gigabyte, as the speed limit's clamp repeats the value inside it; in memory they share it.
+  `list-other-part-pairs`, `list-assumptions` and `check-level-frames` take the step.
 - A way that is unresolved only because it reads the overlap the search stored (`onlyStoredOverlapsOpen`) counts: the
   part holds that overlap in its own fields, as the fan's push already reads it.
 - A test comparing a place of the part with the same place of the source, like the part's positionY against the vacuum

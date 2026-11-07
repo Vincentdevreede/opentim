@@ -309,8 +309,7 @@ export function binary(
   budget = 96,
 ): Expression {
   if (left.kind === "unknown" || right.kind === "unknown") return unknown(`Unresolved operand in ${operator}`, width);
-  if (expressionSize(left) + expressionSize(right) > budget)
-    return unknown("Symbolic expression size budget reached", width);
+  if (expressionSize(left) + expressionSize(right) > budget) return unknown(SIZE_BUDGET_REACHED, width);
   if (left.kind === "constant" && right.kind === "constant") {
     const a = unsigned(left.value, left.width);
     const b = unsigned(right.value, right.width);
@@ -647,6 +646,45 @@ function containsUnknown(expression: Expression): boolean {
     (expression.kind === "binary" && (containsUnknown(expression.left) || containsUnknown(expression.right))) ||
     (expression.kind === "table" && containsUnknown(expression.index))
   );
+}
+/** Why a value the analysis gave up on, because it grew too large, is unknown. */
+const SIZE_BUDGET_REACHED = "Symbolic expression size budget reached";
+/** Whether a value or test has a value the analysis gave up on because it grew too large. */
+const outgrown = (x: Expression | Predicate): boolean =>
+  x.kind === "unknown"
+    ? x.reason === SIZE_BUDGET_REACHED
+    : x.kind === "and"
+      ? x.terms.some(outgrown)
+      : x.kind === "compare" || x.kind === "binary"
+        ? outgrown(x.left) || outgrown(x.right)
+        : x.kind === "table" && outgrown(x.index);
+/**
+ * Whether a loop's way reads a word of the type record of the part it found: a table read in the type table (`table`,
+ * `stride` bytes a record) whose index reads that part's type field.
+ */
+function readsTypeRecordOf(
+  outcome: IterationOutcome,
+  member: string,
+  typeField: number,
+  table: number,
+  stride: number,
+): boolean {
+  const ofType = (e: Expression): boolean =>
+    e.kind === "field"
+      ? e.object === member && e.offset === typeField
+      : e.kind === "binary"
+        ? ofType(e.left) || ofType(e.right)
+        : e.kind === "table" && ofType(e.index);
+  const reads = (e: Expression): boolean => {
+    if (e.kind === "table") {
+      const at = e.segment * 16 + e.offset;
+      return (at >= table && at < table + stride && ofType(e.index)) || reads(e.index);
+    }
+    return e.kind === "binary" && (reads(e.left) || reads(e.right));
+  };
+  const test = (p: Predicate): boolean =>
+    p.kind === "and" ? p.terms.some(test) : p.kind === "compare" && (reads(p.left) || reads(p.right));
+  return test(outcome.condition) || outcome.fields.some((f) => reads(f.value) || test(f.condition));
 }
 /** The overlap an overlap search stores in a part it finds, read where the loop over its finds reads it. */
 const STORED_OVERLAP = /^overlap[XY] the query at 0x[0-9a-f]+ found for /;
@@ -5258,13 +5296,17 @@ export function readBehaviourInSteps(
         : {}),
     };
     const routine = analyseRoutine(image, entry, routineOptions);
-    // A part's loop over the parts it finds whose ways stay unresolved, like the vacuum cleaner's pull picked by the
-    // found part's mass, is read again for each type the found part can have.
+    // A part's loop over the parts it finds is read again for each type the found part can have when its unresolved
+    // ways read a word of the found part's type record and have values the analysis gave up on for their size, like
+    // the vacuum cleaner's pull, picked by the found part's mass. With the type known, that word is a number and such
+    // a value stays small. Only those: that is all the reading per type adds, and it is slow.
     const typeField = layout.fields.find((f) => f.name === "type")?.offset;
+    const ways = routine.iterationOutcomes?.filter((o) => o.confidence === "unresolved") ?? [];
     if (
       counts.has(address) &&
       typeField !== undefined &&
-      routine.iterationOutcomes?.some((o) => o.confidence === "unresolved")
+      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, 58)) &&
+      ways.some((o) => outgrown(o.condition) || o.fields.some((f) => outgrown(f.value) || outgrown(f.condition)))
     )
       loopsPerType.push((only) => {
         const byType: Record<number, IterationOutcome[]> = {};
