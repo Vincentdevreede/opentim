@@ -60,9 +60,15 @@ for (const [game, folders] of [
       if (!/\.(LEV|GKC)$/i.test(name)) continue;
       try {
         levels.push({ name, parts: readLevel(data, { layout: "tim", name }).parts });
-      } catch {
+      } catch (error) {
         unread.push(name);
+        console.error(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+    // A folder without one level read checked nothing, which must not pass as agreement.
+    if (!levels.length) {
+      console.error(`${folder}: no level could be read, so nothing was checked.`);
+      disagreements++;
     }
     const rows = checkLevelFrames(
       description.parts.map((part) => ({
