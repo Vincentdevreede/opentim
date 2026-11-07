@@ -96,6 +96,8 @@ export function createdPartLines(
                 : `${field} of ${owner}`,
       };
       const byOffset = new Map(writes.map((write) => [write.offset, write]));
+      /** The stores whose value a line gives for a field the speed limit wrote last, which that field doesn't carry. */
+      const quoted: FieldWrite[] = [];
       const place: string[] = [];
       const speed: string[] = [];
       const given: string[] = [];
@@ -125,12 +127,14 @@ export function createdPartLines(
           );
           const before = new Set(stores.map((item) => JSON.stringify(item.value)));
           if (stores.some((item) => unknownIn(item.value)) || before.size > 1) other.push(name);
-          else
+          else {
+            quoted.push(...stores);
             into.push(
               before.size
                 ? `${name}${into === given ? " to" : " ="} ${formula(tidy(JSON.parse([...before][0]!) as Expression), wordsOf)}`
                 : `the ${what}'s starting ${name}`,
             );
+          }
           continue;
         }
         const kept = speedLimitOf(write.value);
@@ -168,7 +172,7 @@ export function createdPartLines(
         description,
         condition: outcome.condition,
         routine: routine.address,
-        items: [created, ...[...byOffset.values()]],
+        items: [created, ...byOffset.values(), ...quoted],
       });
     }
   }
