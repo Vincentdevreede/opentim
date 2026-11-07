@@ -373,15 +373,18 @@ export function addStatePreservingForwarders(
             }
           : {}),
       };
-      // Only a different footprint is a change, so proving the same wrappers again comes to rest.
+      // Only a change in what a caller reads from the call is a change, so proving the same wrappers again comes to
+      // rest. The summary's own evidence and assumptions are left out, since through a cycle of wrappers they grow on
+      // every pass.
+      const composed = (s: EngineSummary) => [
+        s.footprint,
+        s.calls,
+        s.writes,
+        s.connected && [s.connected.partFields, s.connected.recordFields, s.connected.recordLinks],
+      ];
       if (
         prior?.kind === "state-preserving-forwarder" &&
-        JSON.stringify([prior.footprint, prior.calls, prior.writes.map((w) => [w.offset, w.value, w.condition])]) ===
-          JSON.stringify([
-            summary.footprint,
-            summary.calls,
-            summary.writes.map((w) => [w.offset, w.value, w.condition]),
-          ])
+        JSON.stringify(composed(prior)) === JSON.stringify(composed(summary))
       )
         continue;
       summaries.set(code.address, summary);
