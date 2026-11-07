@@ -718,8 +718,11 @@ interface AbstractState {
   observationGuard?: Predicate;
   /** The heads of find-first walks this path follows for any member. */
   findFirst?: Set<number>;
-  /** A search that leaves out its argument ran for something not proved to be the owner, so it may list the owner. */
-  searchedForOther?: true;
+  /**
+   * The list heads whose last search may have listed the owner: one that keeps its argument, or one that leaves it out
+   * but was asked by something not proved to be the owner.
+   */
+  ownerMayBeListed?: Set<number>;
   assumptions: string[];
 }
 interface Location {
@@ -776,6 +779,7 @@ const clone = (s: AbstractState): AbstractState => ({
   assumptions: [...s.assumptions],
   fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
   findFirst: s.findFirst && new Set(s.findFirst),
+  ownerMayBeListed: s.ownerMayBeListed && new Set(s.ownerMayBeListed),
 });
 const wordOfByte: Record<string, string> = {
   al: "ax",
@@ -2765,7 +2769,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       for (const write of call.callee.writes)
         if (write.root === "argument" && !add(call.register, write.offset, write.width)) return undefined;
     // The search only leaves out the owner when the owner asked it.
-    if (member.length && (!loop.excludesOwner || s.searchedForOther)) return undefined;
+    if (member.length && (!loop.excludesOwner || s.ownerMayBeListed?.has(loop.nextField))) return undefined;
     return { owner, member };
   };
   while (queue.length && visits++ < maxVisits) {
@@ -3723,10 +3727,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         summary.outcomes.length <= 24 &&
         summary.outcomes.every((outcome) => outcome.fields.every((effect) => composableObject(effect.object)))
       );
-      if (engineBefore?.list?.excludesArgument) {
+      if (engineBefore?.list) {
+        // A later search replaces the head an earlier one filled, so only the last search of a head counts.
         const asking = formalArgument(args, engineBefore.argumentOffset, engineBefore.argumentOffset).value;
-        if (!(asking.kind === "pointer" && asking.object === "part" && asking.displacement === 0))
-          s.searchedForOther = true;
+        const asksOwner = asking.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
+        const heads = new Set(s.ownerMayBeListed);
+        if (engineBefore.list.excludesArgument && asksOwner) heads.delete(engineBefore.list.headField);
+        else heads.add(engineBefore.list.headField);
+        s.ownerMayBeListed = heads.size ? heads : undefined;
       }
       let engine = i.target && options.engineSummaries?.get(i.target.address);
       const listScope = listConsumerCalls.get(i.address);
