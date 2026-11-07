@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { FieldWrite, RoutineAnalysis } from "../src/read/behaviour.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
-import { ROPE_ASSUMPTIONS, ropeCallbackWrites, ropeDispatchSummary } from "../src/read/behaviour-rope-dispatch.ts";
+import {
+  ROPE_ASSUMPTIONS,
+  ropeCallbackWrites,
+  ropeDispatchSummary,
+  settleRopeDispatch,
+} from "../src/read/behaviour-rope-dispatch.ts";
 
 const fact = { confidence: "inferred" as const, assumptions: [], evidence: [] };
 const write = (object: string, offset: number): FieldWrite => ({
@@ -100,5 +105,69 @@ describe("the rope connection query", () => {
     } as unknown as EngineSummary;
     const fields = { partFields: [{ offset: 0x0c, width: 16 }], recordFields: [], globals: false };
     expect(ropeDispatchSummary(query, fields, [], 8).connected?.askingFields).toEqual(fields.partFields);
+  });
+
+  describe("bounded again until it is stable", () => {
+    const query = {
+      ...fact,
+      address: 0x100,
+      kind: "connection-query",
+      purpose: "q",
+      argumentOffset: 6,
+      argumentKind: "object",
+      writes: [],
+      returns: [],
+      calls: [],
+      footprint: { complete: false, partMemoryComplete: false, preservesPartState: false, unknownEffects: ["x"] },
+    } as unknown as EngineSummary;
+    /**
+     * A callback whose helper at 0x200 asks along a rope too. Its analysis records the helper's summary under the
+     * query's bound of that round, and later rounds take the recorded one, as the analysis does for a helper whose
+     * part memory footprint is complete. The callback writes 0x0c, and the field after each one a nested question
+     * reached below 0x10.
+     */
+    const run = (complete: (round: number) => boolean) => {
+      const engineSummaries = new Map([[query.address, query]]);
+      const helpers = [query];
+      let round = -1;
+      const summarise = () => {
+        round++;
+        const helper =
+          engineSummaries.get(0x200) ??
+          ({
+            ...query,
+            address: 0x200,
+            kind: "object-relation",
+            writes: (engineSummaries.get(query.address)!.connected?.partFields ?? []).map((field) => ({
+              ...write("unknown", field.offset),
+              root: "unknown",
+              path: [],
+            })),
+          } as unknown as EngineSummary);
+        engineSummaries.set(0x200, helper);
+        helpers.push(helper);
+        const reached = helper.writes
+          .filter((w) => w.offset + 2 < 0x10)
+          .map((w) => write("a part reached through a rope, belt or pulley at 0x200", w.offset + 2));
+        return analysis([write("part", 0x0c), ...reached], complete(round));
+      };
+      settleRopeDispatch(query, [0x300], undefined, summarise, engineSummaries, helpers, () => {});
+      return { engineSummaries, helpers };
+    };
+
+    it("works each round out from the bound of the round before, not from what an earlier round recorded", () => {
+      const { engineSummaries, helpers } = run(() => true);
+      const bounded = engineSummaries.get(query.address)!;
+      expect(bounded.connected?.partFields.map((field) => field.offset)).toEqual([0x0c, 0x0e]);
+      expect(helpers.filter((helper) => helper.address === 0x200)).toHaveLength(1);
+      expect(helpers.find((helper) => helper.address === query.address)).toBe(bounded);
+    });
+
+    it("keeps nothing a round recorded when no round is accepted", () => {
+      const { engineSummaries, helpers } = run((round) => round === 0);
+      expect(engineSummaries.get(query.address)).toBe(query);
+      expect(engineSummaries.has(0x200)).toBe(false);
+      expect(helpers).toEqual([query]);
+    });
   });
 });

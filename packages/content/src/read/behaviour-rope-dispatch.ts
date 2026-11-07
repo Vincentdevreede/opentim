@@ -115,3 +115,69 @@ export function ropeDispatchSummary(
     },
   };
 }
+
+/**
+ * Bounds the rope connection query by what its rope callbacks at `targets` write, repeating the bound until it is
+ * stable, since a callback that itself asks along a rope makes it recursive. Every round must classify every callback,
+ * or the query keeps its unbounded summary. `asking` are the targets whose callbacks run on the part that asks, when
+ * those are known. An analysis can record engine summaries worked out under the round's bound, so each round starts
+ * from the engine summaries as they were before the first: only the accepted round's are kept, and none when no round
+ * is accepted.
+ */
+export function settleRopeDispatch(
+  query: EngineSummary,
+  targets: number[],
+  asking: number[] | undefined,
+  summarise: (address: number) => RoutineAnalysis,
+  engineSummaries: Map<number, EngineSummary>,
+  helpers: EngineSummary[],
+  /** Forgets the routine analyses of the round before. */
+  clear: () => void,
+): void {
+  const engineBefore = [...engineSummaries],
+    helpersBefore = [...helpers];
+  const restore = (summary: EngineSummary) => {
+    engineSummaries.clear();
+    for (const [address, before] of engineBefore) engineSummaries.set(address, before);
+    engineSummaries.set(query.address, summary);
+    helpers.splice(0, helpers.length, ...helpersBefore);
+  };
+  const fieldsOf = (lists: RopeCallbackWrites[], pick: (fields: RopeCallbackWrites) => Field[]) => [
+    ...new Map(lists.flatMap(pick).map((f) => [`${f.offset}:${f.width}`, f])).values(),
+  ];
+  const merge = (lists: RopeCallbackWrites[]): RopeCallbackWrites => ({
+    partFields: fieldsOf(lists, (l) => l.partFields),
+    ownFields: fieldsOf(lists, (l) => l.ownFields),
+    recordFields: fieldsOf(lists, (l) => l.recordFields),
+    globals: lists.some((l) => l.globals),
+  });
+  const key = (fields: RopeCallbackWrites) =>
+    JSON.stringify(
+      [fields.partFields, fields.ownFields, fields.recordFields].map((items) =>
+        items.map((f) => `${f.offset}:${f.width}`).sort(),
+      ),
+    );
+  // `ownFields` here holds what a question that comes back can change on the part that asks.
+  let fields: RopeCallbackWrites = { partFields: [], ownFields: [], recordFields: [], globals: false };
+  let bound = query,
+    accepted = false;
+  for (let round = 0; round < 5; round++) {
+    restore(bound);
+    clear();
+    const analyses = targets.map((target) => summarise(target));
+    const each = analyses.map((analysis) => ropeCallbackWrites([analysis]));
+    const union = merge([fields, ...each.filter((item): item is RopeCallbackWrites => !!item)]);
+    union.ownFields = asking
+      ? fieldsOf([fields, ...asking.flatMap((at) => each[at] ?? [])], (l) => l.ownFields)
+      : union.partFields;
+    if (round > 0 && each.every(Boolean) && key(union) === key(fields)) {
+      accepted = true;
+      break;
+    }
+    fields = union;
+    bound = ropeDispatchSummary(query, fields, analyses, 8, fields.ownFields);
+  }
+  if (!accepted) restore(query);
+  const at = helpers.findIndex((helper) => helper.address === query.address);
+  if (at >= 0) helpers[at] = engineSummaries.get(query.address)!;
+}
