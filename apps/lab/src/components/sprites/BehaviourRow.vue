@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Confidence } from "@opentim/content";
-import { computed, onBeforeUnmount, onMounted, ref, useId, useSlots, useTemplateRef } from "vue";
+import { onBeforeUnmount, onMounted, onUpdated, ref, useId, useSlots, useTemplateRef } from "vue";
 import { FINDING_TIPS } from "../../kinds.ts";
 import LabInfo from "../LabInfo.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
@@ -29,19 +29,24 @@ function measure() {
       (t) => t.scrollWidth > t.clientWidth || t.scrollHeight > t.clientHeight,
     );
 }
-// Opening and closing, a resize of the panel and new text all change the line's size, so it is measured again then.
-// The observer is made on mount, so the row still renders where there is no ResizeObserver, like on the server.
+// Opening and closing and a resize of the panel change the line's size, so it is measured again then. New text in a
+// reused row can keep the size, so it is measured again after every update too. The observer is made on mount, so the
+// row still renders where there is no ResizeObserver, like on the server.
 let observer: ResizeObserver | undefined;
 onMounted(() => {
   observer = new ResizeObserver(measure);
   if (line.value) observer.observe(line.value);
 });
+onUpdated(measure);
 onBeforeUnmount(() => observer?.disconnect());
-/** Whether opening the row shows more. An open row can always close. */
-const expandable = computed(() => open.value || cut.value || !!slots.detail);
+/**
+ * Whether opening the row shows more. An open row can always close. A function rather than a computed, because the
+ * slots aren't reactive: a reused row can gain or lose its details, and the render asks again each time.
+ */
+const expandable = () => open.value || cut.value || !!slots.detail;
 /** Opens or closes the row, unless the click ends a text selection, like copying an instruction. */
 function toggle() {
-  if (!expandable.value || getSelection()?.toString()) return;
+  if (!expandable() || getSelection()?.toString()) return;
   open.value = !open.value;
 }
 </script>
@@ -49,9 +54,9 @@ function toggle() {
 <template>
   <!-- The line, the condition under it and the opened details all open or close the row, so they light up together. -->
   <div class="relative flex flex-col border-t border-line-soft hover:bg-hover" :class="highlight && 'bg-accent/6'">
-    <div class="relative" :class="expandable && 'cursor-pointer'" @click="toggle">
+    <div class="relative" :class="expandable() && 'cursor-pointer'" @click="toggle">
       <button
-        v-if="expandable"
+        v-if="expandable()"
         type="button"
         class="absolute inset-0 cursor-pointer focus-visible:-outline-offset-2"
         :aria-expanded="open"
@@ -66,7 +71,7 @@ function toggle() {
         -->
         <div class="flex items-start gap-2 py-[5px] text-ui leading-[18px]" :class="indent ? 'pr-3 pl-[30px]' : 'px-3'">
           <span class="flex h-[18px] shrink-0 items-center"
-            ><ConfidenceMark :confidence="confidence" :focusable="!expandable"
+            ><ConfidenceMark :confidence="confidence" :focusable="!expandable()"
           /></span>
           <slot :open="open" />
           <!-- Keeps room for the tip, which sits beside the toggle rather than in it. -->

@@ -228,6 +228,6 @@ onBeforeUnmount(() => (crumb.value = []));
     v-else
     icon="parts"
     title="No parts list for these files"
-    text="The lab has parts lists for TIM 1, Even More and TIM 2, and these files aren’t from one of them."
+    text="The lab has parts lists for TIM 1, Even More and TIM 2, but couldn’t match these files to one of them."
   />
 </template>

@@ -94,6 +94,8 @@ export interface LevelPart {
   offset: number;
   /** How many bytes the part takes. */
   length: number;
+  /** Every field of the part, with where it is in the file, for showing the bytes. Keys follow the properties above. */
+  fields: LevelField[];
 }
 
 export interface Level {
@@ -144,6 +146,7 @@ const PULLEY = { tim: 7, toons: 17 } as const;
 const TOONS_TUNNEL = 46;
 const NONE = 0xffff;
 const MAX_PARTS = 2000;
+const nullable = (value: number) => (value === NONE ? null : value);
 
 class Reader {
   offset = 0;
@@ -178,11 +181,6 @@ class Reader {
     return value;
   }
 
-  index() {
-    const value = this.u16();
-    return value === NONE ? null : value;
-  }
-
   /** A text that ends with a zero byte. The games store their own code page; Latin-1 is close enough to show it. */
   text() {
     const end = this.data.indexOf(0, this.offset);
@@ -195,31 +193,48 @@ class Reader {
 
 function readPart(r: Reader, index: number, group: PartGroup, version: number, layout: LevelLayout): LevelPart {
   const offset = r.offset;
-  const type = r.u16();
-  const flags = [r.u16(), r.u16()];
-  if (version > 0x100) flags.push(r.u16());
-  const state: [number, number] = [r.i16(), r.i16()];
-  const size = { width: r.u16(), height: r.u16() };
-  const size2 = { width: r.u16(), height: r.u16() };
-  const position = { x: r.i16(), y: r.i16() };
-  const extra = r.i16();
+  const fields: LevelField[] = [];
+  const field = <T extends number | string>(key: string, read: () => T): T => {
+    const at = r.offset;
+    const value = read();
+    fields.push({ key, offset: at, size: r.offset - at, value });
+    return value;
+  };
+  const point = (key: string): Point => ({ x: field(`${key}.x`, () => r.u8()), y: field(`${key}.y`, () => r.u8()) });
+  /** Two links to parts by index, stored as FFFF when there is none. */
+  const index2 = (key: string): [number | null, number | null] => [
+    nullable(field(`${key}.0`, () => r.u16())),
+    nullable(field(`${key}.1`, () => r.u16())),
+  ];
 
-  const hasBelt = r.u16() !== 0;
-  const beltAt = { x: r.u8(), y: r.u8() };
-  const belt: LevelPart["belt"] = { at: beltAt, width: r.u16() };
-  if (hasBelt) belt.parts = [r.index(), r.index()];
+  const type = field("type", () => r.u16());
+  const flags = [field("flags.0", () => r.u16()), field("flags.1", () => r.u16())];
+  if (version > 0x100) flags.push(field("flags.2", () => r.u16()));
+  const state: [number, number] = [field("state.0", () => r.i16()), field("state.1", () => r.i16())];
+  const size = { width: field("size.width", () => r.u16()), height: field("size.height", () => r.u16()) };
+  const size2 = { width: field("size2.width", () => r.u16()), height: field("size2.height", () => r.u16()) };
+  const position = { x: field("position.x", () => r.i16()), y: field("position.y", () => r.i16()) };
+  const extra = field("extra", () => r.i16());
 
-  const rope = (): RopeSlot => {
-    const has = r.u16() !== 0;
-    const slot: RopeSlot = { at: { x: r.u8(), y: r.u8() } };
+  const hasBelt = field("belt", () => r.u16()) !== 0;
+  const beltAt = point("belt.at");
+  const belt: LevelPart["belt"] = { at: beltAt, width: field("belt.width", () => r.u16()) };
+  if (hasBelt) belt.parts = index2("belt.parts");
+
+  const rope = (n: number): RopeSlot => {
+    const has = field(`ropes.${n}`, () => r.u16()) !== 0;
+    const slot: RopeSlot = { at: point(`ropes.${n}.at`) };
     if (has) {
-      const parts: [number | null, number | null] = [r.index(), r.index()];
-      slot.rope = { parts, slots: [r.u8(), r.u8()] };
+      const parts = index2(`ropes.${n}.parts`);
+      slot.rope = {
+        parts,
+        slots: [field(`ropes.${n}.slots.0`, () => r.u8()), field(`ropes.${n}.slots.1`, () => r.u8())],
+      };
     }
     return slot;
   };
-  const ropes: [RopeSlot, RopeSlot] = [rope(), rope()];
-  const links: [number | null, number | null] = [r.index(), r.index()];
+  const ropes: [RopeSlot, RopeSlot] = [rope(0), rope(1)];
+  const links = index2("links");
 
   const part: LevelPart = {
     index,
@@ -236,17 +251,18 @@ function readPart(r: Reader, index: number, group: PartGroup, version: number, l
     links,
     offset,
     length: 0,
+    fields,
   };
-  if (version > 0x100) part.plugs = [r.index(), r.index()];
-  if (type === PULLEY[layout]) part.pulley = r.index();
+  if (version > 0x100) part.plugs = index2("plugs");
+  if (type === PULLEY[layout]) part.pulley = nullable(field("pulley", () => r.u16()));
   if (layout === "toons") {
-    if (type === TOONS_TUNNEL) part.tunnel = r.index();
+    if (type === TOONS_TUNNEL) part.tunnel = nullable(field("tunnel", () => r.u16()));
     part.toons = { word: 0 };
-    if (version > 0x105) part.toons.byte = r.u8();
-    part.toons.word = r.u16();
+    if (version > 0x105) part.toons.byte = field("toons.byte", () => r.u8());
+    part.toons.word = field("toons.word", () => r.u16());
   } else if (version < 0x102) {
-    const count = r.u16();
-    part.outline = Array.from({ length: count }, () => ({ x: r.u8(), y: r.u8() }));
+    const count = field("outline", () => r.u16());
+    part.outline = Array.from({ length: count }, (_, i) => point(`outline.${i}`));
   }
   part.length = r.offset - offset;
   return part;

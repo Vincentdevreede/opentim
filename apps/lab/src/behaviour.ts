@@ -1164,24 +1164,30 @@ export function readBehaviourInBackground(
       result: new Promise((resolve) => (resolveResult = resolve)),
       walks: new Promise((resolve) => (resolveWalks = resolve)),
     };
-    const worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
+    let worker: Worker | undefined;
     const stop = (message: string) => {
       resolveResult({ status: "error", message });
       resolveWalks({ status: "error", message });
-      worker.terminate();
+      worker?.terminate();
     };
-    worker.onmessage = ({ data }: MessageEvent<BehaviourMessage>) => {
-      if (data.kind === "behaviour") {
-        resolveResult(data.result);
-        if (data.result.status === "error") stop(data.result.message);
-      } else {
-        resolveWalks(data.result);
-        worker.terminate();
-      }
-    };
-    // Settling a promise again does nothing, so a failure after the behaviour came only fails the walks.
-    worker.onerror = (e) => stop(e.message || "The analysis stopped.");
-    worker.postMessage({ program, parts } satisfies BehaviourRequest);
+    // Starting the worker or sending it the program can throw too, which ends the read like an error in the worker.
+    try {
+      worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
+      worker.onmessage = ({ data }: MessageEvent<BehaviourMessage>) => {
+        if (data.kind === "behaviour") {
+          resolveResult(data.result);
+          if (data.result.status === "error") stop(data.result.message);
+        } else {
+          resolveWalks(data.result);
+          worker?.terminate();
+        }
+      };
+      // Settling a promise again does nothing, so a failure after the behaviour came only fails the walks.
+      worker.onerror = (e) => stop(e.message || "The analysis stopped.");
+      worker.postMessage({ program, parts } satisfies BehaviourRequest);
+    } catch (e) {
+      stop(e instanceof Error ? e.message : "The analysis couldn’t start.");
+    }
     results.set(program, reading);
     // A failed read isn't kept, so a later call tries again.
     const forget = (r: { status: string }) => {
