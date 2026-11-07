@@ -281,6 +281,38 @@ describe("the pairs of other parts", () => {
     expect(read.consumers).toEqual([]);
   });
 
+  it("names a consumer pair's lines only from that way, not from the same run's own list", () => {
+    const data = report();
+    const consumer = data.helpers!.find((h) => h.address === 0x1d797)!;
+    (consumer.listConsumer as { memberOutcomes?: unknown[] }).memberOutcomes = [];
+    const LISTED = "overlap candidate at 0x1d897";
+    const OWN = "overlap candidate at 0x710";
+    const distance = bin("-", bin("+", f("part", 0x1e), c(74)), f(LISTED, 0x1e));
+    const near = (operator: string, value: number): Predicate => ({
+      kind: "compare",
+      operator,
+      left: distance,
+      right: c(value),
+      signed: true,
+    });
+    const run = data.routines.find((r) => r.address === 0x600)!;
+    run.iterationOutcomes!.push(
+      {
+        ...member(LISTED, 0x1d897, and(compare(f(LISTED, 4), "==", c(45)), near(">=", 0), near("<=", 8)), [
+          write(LISTED, 0x12, c(1)),
+        ]),
+        listConsumer: { address: 0x1d797, call: 0x650 },
+      },
+      // The run's own list sets a field of a candle its rules don't read, which is a line of its own.
+      member(OWN, 0x710, compare(f(OWN, 4), "==", c(45)), [write(OWN, 0x38, c(512))]),
+    );
+    const read = otherPartPairs(data, evaluateBehaviourCondition);
+    const find = (way: string) =>
+      read.pairs.find((p) => p.sourcePart === "teeter-totter" && p.targetPart === "candle" && p.way === way);
+    expect(find("overlap list")).toMatchObject({ status: "described", lines: 1 });
+    expect(find("list consumer")).toMatchObject({ status: "described", lines: 0, walks: 1 });
+  });
+
   it("counts the found list's link as bookkeeping no part's rules read", () => {
     expect(pairs.foundLists.find((l) => l.sourcePart === "candle")).toMatchObject({
       queries: [{ call: 0x19ab2, helper: 0x448e, fields: [0x78] }],

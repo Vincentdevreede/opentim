@@ -1200,7 +1200,9 @@ ropes) are its own business and are left out, as for any run's list.
 Each of the six parts now has walks from the teeter-totter: the bellows, the scissors, the dynamite plunger and the
 flashlight 4 each (two ends, mirrored or not), and the mouse motor and fish bowl through their shared walks.
 `list-other-part-pairs` counts the six as their own way, "list consumer", described, and no longer lists the helper
-as read only as a footprint. Walks that end: 28 more in each build (Even More 1,363 to 1,391, TIM 1 1,179 to
+as read only as a footprint. A pair counts only the lines of its own way: a touch's lines for a touch, the run's list
+lines for its list and none for a consumer (lines never come from one), so a line of the run's own list never makes
+its consumer pair described. The counts in both builds stay as they were. Walks that end: 28 more in each build (Even More 1,363 to 1,391, TIM 1 1,179 to
 1,207), and none stays open.
 The recordings stay at 648 complete in Even More and 552 in TIM 1 with none different, no rule writes an unknown
 value and no effect line is vague.
