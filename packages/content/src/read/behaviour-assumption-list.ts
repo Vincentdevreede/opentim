@@ -64,8 +64,11 @@ export function addBuild(table: AssumptionTable, game: Game, uses: Map<string, A
   }
 }
 
-/** A table cell: a backslash or pipe gets a backslash in front, so the text reads back exactly. */
-const cell = (text: string) => text.replace(/[\\|]/g, (c) => `\\${c}`).replace(/\n/g, " ");
+/**
+ * A table cell: a backslash, pipe or `<` gets a backslash in front, so the text reads back exactly and a placeholder
+ * like `<address>` shows as text instead of being taken for HTML.
+ */
+const cell = (text: string) => text.replace(/[\\|<]/g, (c) => `\\${c}`).replace(/\n/g, " ");
 const PARTS_SHOWN = 6;
 function partsText(parts: Set<string>): string {
   const list = [...parts].sort();

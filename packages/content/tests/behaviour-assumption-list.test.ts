@@ -45,6 +45,7 @@ describe("the generated assumptions list", () => {
     const document = renderAssumptions(table, { tim1: 0, evenmore: 1 });
     expect(document).toContain("| Callees preserve SI \\| DI. | – | 1 · 1/1 | none, shared |");
     expect(document).toContain("| A path like C:\\\\\\| reads back. |");
+    expect(document).toContain("| A loop at \\<address> is finite. | – | 2 · 1/1 | cat |");
     expect(document).toContain(`| **decided** ${decided} |`);
     expect(compareAssumptions(table, document)).toEqual({ missing: [], stale: [] });
   });
