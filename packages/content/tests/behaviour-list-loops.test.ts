@@ -16,12 +16,16 @@ function fixture(
     skipAlternative?: boolean;
     volatileOwner?: boolean;
     field?: number;
+    memberField?: number;
+    /** A call before the search to a helper that may change field 0x50 of a part reached through a rope. */
+    connectedCall?: boolean;
   } = {},
 ) {
   const field = options.field ?? 0x70;
   const image = new Uint8Array(0x140).fill(0x66);
   const bytes = [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, options.volatileOwner ? 0x5e : 0x76, 6];
   const pushOwner = options.volatileOwner ? [0xff, 0x76, 6] : [0x56];
+  if (options.connectedCall) bytes.push(0x56, 0x9a, 0x20, 1, 0, 0, 0x59);
   if (options.alternativeQueries) {
     bytes.push(0x85, 0xc0, 0x74, 0);
     const condition = bytes.length - 1;
@@ -35,7 +39,7 @@ function fixture(
   bytes.push(0x8b, options.volatileOwner ? 0x7f : 0x7c, field, 0xeb, 0);
   const firstJump = bytes.length - 1,
     body = bytes.length;
-  bytes.push(...(options.ownerWrite ? [0xc7, 0x44, 12, 1, 0] : [0xc7, 0x45, 12, 1, 0]));
+  bytes.push(...(options.ownerWrite ? [0xc7, 0x44, 12, 1, 0] : [0xc7, 0x45, options.memberField ?? 12, 1, 0]));
   if (options.linkWrite) bytes.push(0xc7, 0x45, field, 0, 0);
   if (options.helperCall) bytes.push(0x57, 0x9a, 0x10, 1, 0, 0, 0x59);
   if (options.unknownCall) bytes.push(0x9a, 0x10, 1, 0, 0);
@@ -72,7 +76,31 @@ function fixture(
     footprint: { complete: true, preservesArgumentMemory: false, preservesPartState: true, unknownEffects: [] },
     list: { ...fact, headField: field, nextField: field, excludesArgument: true },
   };
-  const helpers = new Map([[query.address, query]]);
+  image[0x120] = 0xcb;
+  const connected: EngineSummary = {
+    ...fact,
+    address: 0x120,
+    argumentOffset: 6,
+    argumentKind: "object",
+    kind: "read-only",
+    purpose: "Changes a field of a part reached through a rope.",
+    writes: [],
+    returns: [],
+    calls: [],
+    returnConvention: { kind: "far", stackBytes: 0 },
+    footprint: {
+      complete: true,
+      partMemoryComplete: true,
+      preservesArgumentMemory: true,
+      preservesPartState: true,
+      unknownEffects: [],
+    },
+    connected: { ...fact, partFields: [{ offset: 0x50, width: 16 }], recordFields: [], recordLinks: [0x66] },
+  };
+  const helpers = new Map([
+    [query.address, query],
+    [connected.address, connected],
+  ]);
   return { image, helpers, query, header, body };
 }
 
@@ -97,10 +125,52 @@ describe("overlap-list invariants", () => {
     expect(result.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(false);
   });
 
-  it("requires the overlap query to exclude its owner", () => {
+  it("refuses a state write on listed parts when the query may list the owner", () => {
     const { image, helpers, query } = fixture();
     query.list!.excludesArgument = false;
     expect(discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12)).toEqual([]);
+  });
+
+  it("lets a query that may list the owner change other fields of listed parts, as possible owner fields too", () => {
+    const { image, helpers, query } = fixture({ memberField: 0x24 });
+    query.list!.excludesArgument = false;
+    const [loop] = discoverListLoops(readRoutineCode(image, entry, 0), helpers, 12);
+    expect(loop?.possibleFields).toContainEqual(expect.objectContaining({ object: "other", offset: 0x24 }));
+    expect(loop?.possibleFields).toContainEqual(expect.objectContaining({ object: "part", offset: 0x24 }));
+    expect(loop?.assumptions.join(" ")).toContain("may list the owner");
+  });
+
+  it("names a field of the owner that the scan may change as one value after the scan", () => {
+    const { image, helpers, query } = fixture({ memberField: 0x24 });
+    query.list!.excludesArgument = false;
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    const header = routine.listLoops![0]!.header;
+    const writes = routine.transitions.flatMap((t) => t.updates ?? []).filter((u) => u.object === "part");
+    expect(writes.find((u) => u.offset === 0x24)?.value).toEqual({
+      kind: "field",
+      object: `part after list scan at 0x${header.toString(16)}`,
+      offset: 0x24,
+      width: 16,
+      unresolved: true,
+    });
+  });
+
+  it("keeps the owner's field when only listed parts' same field may change and the query skips the owner", () => {
+    const owner = (excludesArgument: boolean) => {
+      const { image, helpers, query } = fixture({ memberField: 0x24, connectedCall: true });
+      query.list!.excludesArgument = excludesArgument;
+      // The query leaves the owner's fields as they were.
+      query.footprint.preservesArgumentMemory = true;
+      const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+      expect(routine.listLoops).toHaveLength(1);
+      const updates = routine.transitions.flatMap((t) => t.updates ?? []).filter((u) => u.object === "part");
+      // The rope helper's field stays a value after its call either way.
+      expect(updates.find((u) => u.offset === 0x50)?.value).toMatchObject({ unresolved: true });
+      return updates.find((u) => u.offset === 0x24)?.value;
+    };
+    // The query's checked test against the part that asks keeps the owner off the list.
+    expect(owner(true)).toBeUndefined();
+    expect(owner(false)).toMatchObject({ object: expect.stringMatching(/^part after list scan at 0x/) });
   });
 
   it.each([{ ownerWrite: true }, { linkWrite: true }, { missingProgress: true }, { unknownCall: true }])(
@@ -380,6 +450,15 @@ describe("selected list-member locals", () => {
     );
     expect(routine.uncertainties).toEqual([]);
     expect(routine.iterationOutcomes?.some((outcome) => outcome.effectsComplete)).toBe(true);
+  });
+  it("names an unproved local the scan leaves behind, so a later condition on it can be decided as one value", () => {
+    const { image, helpers } = selectionFixture({ unknownInitial: true });
+    const routine = analyseRoutine(image, entry, { engineSummaries: helpers, stateCount: 4 });
+    const tested = routine.outcomes!.flatMap(
+      (outcome) => JSON.stringify(outcome.condition).match(/"object":"[^"]*"/g) ?? [],
+    );
+    expect(tested).toContain(`"object":"local after list scan at 0x${routine.listLoops![0]!.header.toString(16)}"`);
+    expect(JSON.stringify(routine.outcomes)).toContain('"unresolved":true');
   });
   it.each([{ unknownInitial: true }, { scalarOverwrite: true }, { byteOverwrite: true }])(
     "does not promote an unproved pointer local %s",

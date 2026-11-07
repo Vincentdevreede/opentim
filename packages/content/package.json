@@ -14,7 +14,10 @@
     "extract-parts": "node scripts/extract-parts.ts",
     "extract-behaviour": "node scripts/extract-behaviour.ts",
     "validate-behaviour": "node scripts/validate-behaviour.ts",
-    "compare-behaviour": "node scripts/compare-behaviour.ts"
+    "compare-behaviour": "node scripts/compare-behaviour.ts",
+    "list-assumptions": "node scripts/list-assumptions.ts",
+    "check-level-frames": "node scripts/check-level-frames.ts",
+    "list-other-part-pairs": "node scripts/list-other-part-pairs.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"

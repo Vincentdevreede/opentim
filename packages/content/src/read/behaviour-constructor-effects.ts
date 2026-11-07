@@ -275,6 +275,7 @@ export function discoverConstructorEffects(
         code = readRoutineCode(image, { address, segment: targetSegment, offset: targetOffset }, dataSegment);
         codes.set(address, code);
       }
+      for (const flag of entryFlags(code)) (metadata.constructorFlags ??= []).push({ ...flag, type });
       const proof = prove(code, 0);
       if (proof)
         metadata.constructors.push({
@@ -292,4 +293,77 @@ export function discoverConstructorEffects(
         });
     }
   }
+}
+
+/**
+ * The flags a constructor ORs into its part's words in its first straight run of code, before any branch, call or
+ * return, so on every call: `mov si, [bp+0x06]` and then `or word [si+X], mask`. Only stores into other fields of
+ * the part and pushes may come between.
+ */
+function entryFlags(code: RoutineCode): (Finding & { field: number; mask: number })[] {
+  const found: (Finding & { field: number; mask: number })[] = [];
+  const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  const part = new Set<string>();
+  let framed = false;
+  for (let at = code.address, i = byAddress.get(at); i?.flow === "next"; at += i.size, i = byAddress.get(at)) {
+    const [to, from] = i.operands;
+    if (i.mnemonic === "push") continue;
+    if (
+      i.mnemonic === "mov" &&
+      to?.kind === "memory" &&
+      to.base.length === 1 &&
+      part.has(to.base[0]!) &&
+      from?.kind === "immediate"
+    ) {
+      // A store over a flags word replaces the bits set before it.
+      const end = to.displacement + to.width / 8;
+      for (let n = found.length - 1; n >= 0; n--)
+        if (found[n]!.field < end && to.displacement < found[n]!.field + 2) found.splice(n, 1);
+      continue;
+    }
+    if (
+      i.mnemonic === "mov" &&
+      to?.kind === "register" &&
+      to.name === "bp" &&
+      from?.kind === "register" &&
+      from.name === "sp"
+    ) {
+      framed = true;
+      continue;
+    }
+    if (
+      framed &&
+      i.mnemonic === "mov" &&
+      to?.kind === "register" &&
+      ["si", "di", "bx"].includes(to.name) &&
+      from?.kind === "memory" &&
+      from.base.join() === "bp" &&
+      from.displacement === 6 &&
+      from.width === 16
+    ) {
+      part.add(to.name);
+      continue;
+    }
+    if (
+      i.mnemonic === "or" &&
+      to?.kind === "memory" &&
+      to.width === 16 &&
+      to.base.length === 1 &&
+      part.has(to.base[0]!) &&
+      to.segment === "ds" &&
+      from?.kind === "immediate"
+    ) {
+      // A later OR into the same word keeps these bits, so each one is kept.
+      found.push({
+        confidence: "checked",
+        assumptions: [],
+        evidence: [{ address: i.address, bytes: i.bytes, text: i.text }],
+        field: to.displacement,
+        mask: from.value & 0xffff,
+      });
+      continue;
+    }
+    break;
+  }
+  return found;
 }

@@ -9,6 +9,7 @@ export {
   readProgramParts,
   readTim2Parts,
   type SpriteCount,
+  type SheetData,
   type ListId,
   type ProgramParts,
   type TypeRecord,
@@ -28,6 +29,7 @@ export { readRoutineCode, type RoutineCode } from "./read/behaviour-code.ts";
 export {
   readBehaviour,
   analyseRoutine,
+  choiceOf,
   type BehaviourReport,
   type PartBehaviour,
   type RoutineAnalysis,
@@ -58,6 +60,7 @@ export {
   type FrameVisit,
   type DescribedEffect,
 } from "./read/describe-behaviour.ts";
+export { type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
 export {
   discoverEngineSummaries,
   type EngineSummary,

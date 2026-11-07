@@ -4,7 +4,17 @@
  */
 
 import type { Confidence } from "@opentim/content";
-import { statesText, type Change, type PartSummary, type Write } from "./behaviour.ts";
+import {
+  NAMED_TERMS,
+  rangeText,
+  statesText,
+  type Change,
+  type PartSummary,
+  type Walk,
+  type WalkPath,
+  type WalkStart,
+  type Write,
+} from "./behaviour.ts";
 
 /** The least sure of a few findings. */
 export const weakest = (list: readonly Confidence[]): Confidence =>
@@ -17,21 +27,25 @@ export function tidyTerm(term: string): string {
       .replace(/\(\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)\)/g, "|$1|")
       .replace(/\(\((.+?)\) \^ \(\(\1\) >> 15\)\) - \(\(\1\) >> 15\)/g, "|$1|")
       .replace(
-        /\(\((\w+)\) \^ \(\1 >> 15\)\) - \(\1 >> 15\)|\((\w+) \^ \(\2 >> 15\)\) - \(\2 >> 15\)/g,
+        /\(\(([\w.]+)\) \^ \(\1 >> 15\)\) - \(\1 >> 15\)|\(([\w.]+) \^ \(\2 >> 15\)\) - \(\2 >> 15\)/g,
         (_, a, b) => `|${a ?? b}|`,
       )
       .replace(/ \+ 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` - ${0x10000 - parseInt(n, 16)}`)
       .replace(/ - 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` + ${0x10000 - parseInt(n, 16)}`)
-      // Equal or not equal to a 16-bit word is the same test with its signed value.
-      .replace(/ (==|!=) 0x([89a-f][0-9a-f]{3})$/, (_, op: string, n: string) => ` ${op} ${parseInt(n, 16) - 0x10000}`)
+      // Equal or not equal to a 16-bit word is the same test with its signed value; masked bits stay hex like the mask.
+      .replace(/^(.+) (==|!=) 0x([89a-f][0-9a-f]{3})$/, (whole, left: string, op: string, n: string) =>
+        / [&|^] 0x[0-9a-f]+\)*$/.test(left) ? whole : `${left} ${op} ${parseInt(n, 16) - 0x10000}`,
+      )
   );
 }
 
-const COMPARE = /^(.+) (==|!=|<|<=|>|>=) (-?\d+)$/;
+const COMPARE = /^(.+) (==|!=|<|<=|>|>=) (-?\d+|0x[0-9a-f]+)$/;
 
 /** The terms of a condition, tidied, without repeats, comparisons of two numbers, or terms another one implies. */
 export function tidyTerms(terms: readonly string[]): string[] {
-  const list = [...new Set(terms.map(tidyTerm))].filter((t) => !/^-?\d+ (==|!=|<|<=|>|>=) -?\d+$/.test(t));
+  const number = "(-?\\d+|0x[0-9a-f]+)";
+  const numbers = new RegExp(`^${number} (==|!=|<|<=|>|>=) ${number}$`);
+  const list = [...new Set(terms.map(tidyTerm))].filter((t) => !numbers.test(t));
   const has = (t: string) => list.includes(t);
   return list.filter((t) => {
     const m = COMPARE.exec(t);
@@ -96,8 +110,25 @@ export function readTerm(term: string, sides?: readonly string[]): string {
   return `hit on edge ${op} ${n}`;
 }
 
+/**
+ * What the lab's own names in some conditions stand for, a line each for the tips: the name, the analysis's raw form
+ * and what it is, like "ropeKind is argument+0x0c: the kind of pull, with 0x8000 when it only asks."
+ */
+export function namedTermLines(texts: readonly string[]): string[] {
+  const all = texts.join(" ");
+  return NAMED_TERMS.filter(({ name }) => new RegExp(`\\b${name}\\b`).test(all)).map(
+    ({ name, raw, meaning }) => `${name} is ${raw}: ${meaning}.`,
+  );
+}
+
 /** The terms of a condition as the lab writes it, like `a != 0 and b == 4`. */
 export const termsOf = (condition: string): string[] => (condition === "always" ? [] : condition.split(" and "));
+
+/** A condition as the tab reads it: its terms tidied, read in words where the code shows what they test, joined. */
+export const conditionText = (condition: string, sides?: readonly string[]): string =>
+  tidyTerms(termsOf(condition))
+    .map((t) => readTerm(t, sides))
+    .join(" and ");
 
 /** The targets of a change as short text: one number, or up to three runs like `0–3→0 · 4–7→4`. */
 export function targetsText(from: readonly number[], targets: readonly number[]): string | number | undefined {
@@ -110,7 +141,7 @@ export function targetsText(from: readonly number[], targets: readonly number[])
     else runs.push({ start: state, end: state, to: targets[i]! });
   });
   if (runs.length > 3) return undefined;
-  return runs.map((r) => `${r.start === r.end ? r.start : `${r.start}–${r.end}`}→${r.to}`).join(" · ");
+  return runs.map((r) => `${r.start === r.end ? r.start : rangeText(r.start, r.end)}→${r.to}`).join(" · ");
 }
 
 /** The paths of a routine that change the state from the same states to the same value. */
@@ -291,4 +322,152 @@ export function stateGroups(part: PartSummary): { fromText: string; from: number
   }
   const order = (from: number[] | null) => (from === null ? -1 : from.length ? from[0]! : Infinity);
   return [...groups.values()].sort((a, b) => order(a.from) - order(b.from));
+}
+
+/** Walks from the same trigger and start that follow the same path, as one row. */
+export interface WalkRow {
+  key: string;
+  trigger: string;
+  start: WalkStart;
+  /** The path, with the conditions of its branches tidied. */
+  path: WalkPath;
+  confidence: Confidence;
+  /** The terms every walk of the row needs, tidied. */
+  shared: string[];
+  /** What each walk adds to them, when there is more than one. */
+  variants: string[][];
+  /** The trigger and the walk in the analysis's own words, without repeats. */
+  about: string[];
+  descriptions: string[];
+}
+
+/** The order walks start in: from how the part was placed, after it is created, from rest, then while it runs. */
+const STARTS: WalkStart[] = ["reset", "creation", "documented-rest", "run-guard"];
+
+const tidyPath = (path: WalkPath): WalkPath => ({
+  ...path,
+  branches: path.branches.map((b) => ({ condition: tidyTerms(b.condition), path: tidyPath(b.path) })),
+});
+
+/** The walks of a part by trigger, `run` first, each with its rows in the order they start. */
+export function walkGroups(walks: readonly Walk[]): { trigger: string; rows: WalkRow[] }[] {
+  const rows = new Map<string, { walks: Walk[]; path: WalkPath }>();
+  for (const w of walks) {
+    const path = tidyPath(w);
+    const { confidence, frames, end, loopFrom, cycle, reason, branches, settled, ways } = path;
+    const shape = { confidence, frames, end, loopFrom, cycle, reason, branches, settled, ways };
+    const key = `${w.trigger}|${w.start}|${JSON.stringify(shape)}`;
+    const row = rows.get(key) ?? { walks: [], path: shape };
+    row.walks.push(w);
+    rows.set(key, row);
+  }
+  const groups = new Map<string, WalkRow[]>();
+  for (const [key, { walks: list, path }] of rows) {
+    const terms = list.map((w) => tidyTerms(w.condition));
+    const shared = terms[0]!.filter((t) => terms.every((x) => x.includes(t)));
+    const variants = list.length > 1 ? terms.map((x) => x.filter((t) => !shared.includes(t))) : [];
+    const first = list[0]!;
+    const row: WalkRow = {
+      key,
+      trigger: first.trigger,
+      start: first.start,
+      path,
+      confidence: weakest(list.map((w) => w.confidence)),
+      shared,
+      // Walks that differ in nothing the tab shows are one case.
+      variants: variants.some((v) => v.length) ? variants : [],
+      about: [...new Set(list.map((w) => w.about))],
+      descriptions: [...new Set(list.flatMap((w) => (w.description ? [w.description] : [])))],
+    };
+    groups.set(row.trigger, [...(groups.get(row.trigger) ?? []), row]);
+  }
+  return [...groups]
+    .map(([trigger, list]) => ({
+      trigger,
+      rows: list.sort((a, b) => STARTS.indexOf(a.start) - STARTS.indexOf(b.start)),
+    }))
+    .sort((a, b) => Number(b.trigger === "run") - Number(a.trigger === "run"));
+}
+
+/** How a path ends, in a few words. */
+export function endText(path: WalkPath): string {
+  switch (path.end) {
+    case "rest":
+      return path.frames.length ? "rests" : "rests as it is";
+    case "loop":
+      return `loops to ${path.frames[path.loopFrom ?? 0] ?? "the start"}`;
+    case "limit":
+      return "goes on";
+    case "hold":
+      return "keeps its frame";
+    case "cycle":
+      return `cycles ${path.cycle?.period ?? ""} frames ${path.cycle?.direction === -1 ? "down" : "up"}`.replace(
+        "  ",
+        " ",
+      );
+    case "joins":
+      return "continues like another way";
+    case "branches": {
+      const ways = path.ways ?? path.branches.length;
+      if (ways === 1) return path.settled ? "1 way, it ends" : "1 way";
+      return path.settled ? `${ways} ways, all end` : `${ways} ways`;
+    }
+    case "stop":
+      return "stops";
+  }
+}
+
+/** Where a walk starts, in a word. */
+export const START_WORDS: Record<WalkStart, string> = {
+  reset: "placed",
+  creation: "created",
+  "documented-rest": "at rest",
+  "run-guard": "running",
+};
+
+/** How the reset leaves a part's frame, in a few words, when it isn't one frame. */
+export const RESET_WORDS: Record<"saved" | "sockets" | "unresolved", string> = {
+  saved: "keeps the saved frame",
+  sockets: "from its plugs",
+  unresolved: "unresolved",
+};
+
+/** Why a part rests on a frame, in a few words: how many walks end there, or a run that keeps it. */
+export const restingWords = (frame: { walks?: number }) =>
+  frame.walks ? `${frame.walks} ${frame.walks === 1 ? "walk ends" : "walks end"} here` : "a run keeps it";
+
+/**
+ * What follows the first way's condition to a resting frame: how many more ways rest there, or "and others" when the
+ * analysis keeps the conditions of only the first few, so whether one of the others needs no test isn't known.
+ */
+export const restingMore = (frame: { ways: number; capped?: true }) =>
+  frame.capped ? "and others" : frame.ways > 1 ? `${frame.ways - 1} more ${frame.ways === 2 ? "way" : "ways"}` : "";
+
+/** A trigger with more walk rows than this folds them by where they start. */
+export const FOLD_ROWS = 12;
+
+/**
+ * The rows of a trigger by where they start: how the part was, then the frame it starts on, like "running from 3".
+ * Placed and created first, then rows without a first frame, then by frame.
+ */
+export function startGroups(
+  rows: readonly WalkRow[],
+): { key: string; label: string; first?: number; rows: WalkRow[] }[] {
+  const groups = new Map<string, { key: string; label: string; first?: number; start: WalkStart; rows: WalkRow[] }>();
+  for (const row of rows) {
+    const first = row.path.frames[0];
+    const key = `${row.start} ${first ?? ""}`;
+    const group = groups.get(key) ?? {
+      key,
+      label: `${START_WORDS[row.start]}${first === undefined ? "" : ` from ${first}`}`,
+      first,
+      start: row.start,
+      rows: [],
+    };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .sort((a, b) => STARTS.indexOf(a.start) - STARTS.indexOf(b.start) || (a.first ?? -1) - (b.first ?? -1))
+    .map(({ key, label, first, rows: list }) => ({ key, label, first, rows: list }));
 }

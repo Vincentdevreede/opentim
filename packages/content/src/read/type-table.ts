@@ -279,7 +279,7 @@ export const RECORD_FIELDS: RecordField[] = [
   callback(0x22, "bounce"),
   callback(0x26, "run"),
   callback(0x2a, "reset"),
-  callback(0x2e, "resize"),
-  callback(0x32, "flip"),
+  callback(0x2e, "flip"),
+  callback(0x32, "resize"),
   callback(0x36, "rope"),
 ];

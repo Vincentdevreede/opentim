@@ -126,6 +126,33 @@ describe("creation defaults", () => {
     }
   });
 
+  it("starts the constructor from every word the cleared allocation leaves zero, named or not", () => {
+    const f = fixture([...prefix, 0xb8, 28, 0, 0x89, 0x44, 0x70, ...suffix]);
+    f.engine.factory!.noConstructor.zeroWords = [0x12, 0x30, 0x54, 0x70];
+    const [created, zeroed] = discoverCreationDefaults(f.image, f.helpers, f.layout, 0);
+    expect(created?.fields.map((field) => [field.name, field.value])).toEqual([
+      ["state", 0],
+      ["savedState", 28],
+      ["stateDelta", 0],
+      ["+0x54", 0],
+    ]);
+    expect(created?.assumptions.some((a) => a.includes("leaves unwritten is supplied"))).toBe(true);
+    expect(zeroed?.source).toBe("zeroed-allocation");
+    expect(zeroed?.fields.map((field) => [field.name, field.value])).toEqual([
+      ["state", 0],
+      ["savedState", 0],
+      ["stateDelta", 0],
+      ["+0x54", 0],
+    ]);
+  });
+
+  it("drops the zero words an unknown call may replace", () => {
+    const f = fixture([...prefix, 0x9a, 0, 6, 0, 0, ...suffix]);
+    f.engine.factory!.noConstructor.zeroWords = [0x12, 0x30, 0x54];
+    const [created] = discoverCreationDefaults(f.image, f.helpers, f.layout, 0);
+    expect(created?.fields).toEqual([]);
+  });
+
   it("requires a literal on every return path and does not invent a constructor default", () => {
     const f = fixture([...prefix, 0x83, 0x7e, 8, 0, 0x74, 5, 0xc7, 0x44, 0x30, 1, 0, ...suffix]);
     expect(discoverCreationDefaults(f.image, f.helpers, f.layout, 0)[0]?.fields).toEqual([]);

@@ -13,6 +13,61 @@ const stores = (i: Instruction) =>
   mem(i.operands[0]) && !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
 const contiguous = (sequence: Instruction[]) =>
   sequence.every((i, n) => n === 0 || sequence[n - 1]!.address + sequence[n - 1]!.size === i.address);
+/**
+ * The new node pushed on a free list right after its allocation: `mov r,ax; mov ax,[head]; mov [r],ax; mov [head],r`,
+ * or the same through a local as TIM 1 compiles it, `mov [bp-n],ax; mov r,[bp-n]; mov ax,[head]; mov [r],ax;
+ * mov ax,[bp-n]; mov [head],ax`. Returns how many instructions it takes and the head's address.
+ */
+function freeListPush(code: Instruction[]): { length: number; head: number } | undefined {
+  const headLoad = (i: Instruction | undefined) =>
+    i?.mnemonic === "mov" &&
+    reg(i.operands[0], "ax") &&
+    mem(i.operands[1]) &&
+    i.operands[1].segment === "ds" &&
+    i.operands[1].direct &&
+    i.operands[1].width === 16
+      ? i.operands[1].displacement
+      : undefined;
+  const headStore = (i: Instruction | undefined, head: number, source: string) =>
+    i?.mnemonic === "mov" &&
+    mem(i.operands[0]) &&
+    i.operands[0].direct &&
+    i.operands[0].segment === "ds" &&
+    i.operands[0].displacement === head &&
+    reg(i.operands[1], source);
+  const link = (i: Instruction | undefined, base: string) =>
+    i?.mnemonic === "mov" &&
+    mem(i.operands[0]) &&
+    i.operands[0].segment === "ds" &&
+    i.operands[0].base.join() === base &&
+    i.operands[0].displacement === 0 &&
+    i.operands[0].width === 16 &&
+    reg(i.operands[1], "ax");
+  const local = (o: Operand | undefined) =>
+    mem(o) && o.segment === "ss" && o.base.join() === "bp" && o.displacement < 0 && o.width === 16 ? o : undefined;
+  const [first, second, third, fourth, fifth, sixth] = code;
+  if (first?.mnemonic === "mov" && reg(first.operands[0]) && reg(first.operands[1], "ax")) {
+    const r = first.operands[0].name,
+      head = headLoad(second);
+    if (r !== "ax" && head !== undefined && link(third, r) && headStore(fourth, head, r)) return { length: 4, head };
+  }
+  const slot = first?.mnemonic === "mov" && reg(first.operands[1], "ax") ? local(first.operands[0]) : undefined;
+  if (!slot || second?.mnemonic !== "mov" || !reg(second.operands[0]) || second.operands[0].name === "ax") return;
+  const r = second.operands[0].name,
+    head = headLoad(third),
+    reload = local(fifth?.operands[1]);
+  if (
+    local(second.operands[1])?.displacement === slot.displacement &&
+    head !== undefined &&
+    link(fourth, r) &&
+    fifth?.mnemonic === "mov" &&
+    reg(fifth.operands[0], "ax") &&
+    reload?.displacement === slot.displacement &&
+    headStore(sixth, head, "ax")
+  )
+    return { length: 6, head };
+  return undefined;
+}
 interface Pool extends Finding {
   heads: number[];
   size: number;
@@ -44,35 +99,13 @@ function pools(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSum
         continue;
       const size = before[0]!.operands[1].value;
       if (size < 4 || size > 32) continue;
-      const after = code.instructions.filter((i) => i.address > call.instruction).slice(0, 6);
-      if (after.length !== 6 || after[0]!.mnemonic !== "pop" || after[1]!.mnemonic !== "pop") continue;
+      const following = code.instructions.filter((i) => i.address > call.instruction).slice(0, 8);
+      if (following[0]?.mnemonic !== "pop" || following[1]?.mnemonic !== "pop") continue;
+      const push = freeListPush(following.slice(2));
+      if (!push) continue;
+      const after = following.slice(0, 2 + push.length);
       const callInstruction = code.instructions.find((i) => i.address === call.instruction);
       if (!callInstruction || !contiguous([...before, callInstruction, ...after])) continue;
-      const [capture, load, link, head] = after.slice(2);
-      if (
-        capture?.mnemonic !== "mov" ||
-        !reg(capture.operands[0]) ||
-        !reg(capture.operands[1], "ax") ||
-        load?.mnemonic !== "mov" ||
-        !reg(load.operands[0], "ax") ||
-        !mem(load.operands[1]) ||
-        load.operands[1].segment !== "ds" ||
-        !load.operands[1].direct ||
-        link?.mnemonic !== "mov" ||
-        !mem(link.operands[0]) ||
-        link.operands[0].segment !== "ds" ||
-        link.operands[0].base.join() !== capture.operands[0].name ||
-        link.operands[0].displacement !== 0 ||
-        link.operands[0].width !== 16 ||
-        !reg(link.operands[1], "ax") ||
-        head?.mnemonic !== "mov" ||
-        !mem(head.operands[0]) ||
-        !head.operands[0].direct ||
-        head.operands[0].segment !== "ds" ||
-        head.operands[0].displacement !== load.operands[1].displacement ||
-        !reg(head.operands[1], capture.operands[0].name)
-      )
-        continue;
       const cleared = code.instructions.filter(
         (i, index) =>
           i.address < before[0]!.address &&
@@ -97,7 +130,7 @@ function pools(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSum
         )
           continue;
         const heads = initial.map((i) => (i.operands[0] as Extract<Operand, { kind: "memory" }>).displacement);
-        if (new Set(heads).size !== 2 || !heads.includes(load.operands[1].displacement)) continue;
+        if (new Set(heads).size !== 2 || !heads.includes(push.head)) continue;
         const protectedEntries = new Set([...before, callInstruction, ...after].slice(1).map((i) => i.address));
         if (
           code.edges.some(
@@ -296,6 +329,7 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
         calls: [],
         writes: [],
         returns: [],
+        nodePool: { nodeSize: pool.size },
         confidence: "inferred",
         assumptions,
         evidence: [...pool.evidence, ...code.instructions.map(ev)],

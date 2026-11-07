@@ -4,7 +4,10 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
+import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
+import { settleRopeDispatch } from "./behaviour-rope-dispatch.ts";
+import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
 import { discoverGearConnections, type GearConnections } from "./behaviour-gear-connections.ts";
 import { discoverGearRun, type GearRunContract } from "./behaviour-gear-run.ts";
 import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-scheduling.ts";
@@ -17,6 +20,9 @@ import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findBehaviourTiming } from "./behaviour-timing.ts";
 import { discoverBehaviourLayout } from "./behaviour-layout.ts";
 import { discoverEngineSummaries, type EngineSummary, type EnginePointer } from "./behaviour-helpers.ts";
+import { frameDrawingForType, proveFrameDrawing } from "./behaviour-frame-drawing.ts";
+import { TYPE_TABLE_ASSUMPTION } from "./describe-effects.ts";
+import { frameListWord, proveSheetFrameList, sheetFrameSizeForType } from "./behaviour-sheet-frames.ts";
 import {
   discoverBehaviourLifecycle,
   discoverLifecycleFieldRoles,
@@ -25,7 +31,9 @@ import {
 import { discoverExternalListConsumers } from "./behaviour-list-consumers.ts";
 import { discoverListConsumerCalls, type ListConsumerCall } from "./behaviour-list-calls.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
+import { discoverFindFirstLoops, FIND_FIRST_ASSUMPTION } from "./behaviour-find-first-loops.ts";
 import { discoverCreationDefaults, type CreationDefault } from "./behaviour-creation.ts";
+import { findCreatedParts, type CreatedPart } from "./behaviour-created-parts.ts";
 import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour-scalars.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
@@ -60,6 +68,27 @@ export interface FieldWrite extends Finding {
   value: Expression;
   condition: Predicate;
   routine: number;
+  /** When the speed setter wrote the field: the speed it was given, which the field's value doesn't show. */
+  directedSpeed?: DirectedSpeed;
+}
+/** A velocity field the speed setter wrote, with the speed the caller passed it. */
+export interface DirectedSpeed {
+  /** The speed setter, and the call that reached it. */
+  routine: number;
+  call: number;
+  /** The length of the new velocity, before each part is rounded by the shift. */
+  speed: Expression;
+  axis: "horizontal" | "vertical";
+  /** When the angle the setter was given is the centre angle's answer: the velocity points along that line. */
+  direction?: CentreLine;
+}
+/** The line from one part's centre to another's, as the centre angle was given it, by the parts' names. */
+export interface CentreLine {
+  /** The centre angle, and the call that reached it. */
+  routine: number;
+  call: number;
+  from: string;
+  to: string;
 }
 export interface Transition extends Finding {
   /** Candidate states at entry. Null means that the source state was not bounded by the available states. */
@@ -70,10 +99,25 @@ export interface Transition extends Finding {
   routine: number;
   /** Final object fields, expressed in terms of the invocation inputs. */
   updates?: FieldWrite[];
+  /**
+   * Set on a conditional rule: its condition or next frame tests values found during the run, like a query's answer
+   * or the part a loop found, and nothing else is unknown in them. These are the values it tests.
+   */
+  runValues?: string[];
+  /**
+   * Set when the path's effects are incomplete (a call kept the part's state without a complete footprint of its other
+   * fields, or a store went through an untracked pointer): a field the rule doesn't list may still have changed.
+   */
+  effectsIncomplete?: true;
 }
 export interface RoutineOutcome extends Finding {
   /** No untracked object write or call can replace these final fields on this path. */
   effectsComplete?: boolean;
+  /**
+   * The effects are incomplete only because a helper kept the part's state without a complete footprint of its other
+   * fields: the final state is exact, and every other part field may have changed.
+   */
+  keepsState?: true;
   condition: Predicate;
   fields: FieldWrite[];
   returnValue: Expression;
@@ -87,6 +131,8 @@ export interface IterationOutcome extends Finding {
   condition: Predicate;
   fields: FieldWrite[];
   effectsComplete: boolean;
+  /** A member of a list this routine hands to a consumer at `call`, which does this to it. */
+  listConsumer?: { address: number; call: number };
 }
 
 export interface Counter extends Finding {
@@ -148,6 +194,8 @@ export interface PartBehaviour {
 }
 export interface BehaviourReport {
   collisionDispatch?: CollisionDispatch[];
+  /** Callbacks that copy their outline from tables in the data segment, by routine. */
+  outlineTables?: OutlineTables[];
   gearScheduling?: GearScheduling[];
   listId: string;
   imageLength: number;
@@ -157,6 +205,8 @@ export interface BehaviourReport {
   helpers?: EngineSummary[];
   lifecycle?: BehaviourLifecycle;
   creation?: CreationDefault[];
+  /** The parts a routine makes with the part factory, where the type it passes is a number. */
+  createdParts?: CreatedPart[];
   parts: PartBehaviour[];
   relatedObjectEffects: (Finding & {
     sourceType: number;
@@ -166,9 +216,16 @@ export interface BehaviourReport {
   })[];
   routines: RoutineAnalysis[];
   assumptions: string[];
+  /**
+   * The words of each type record as the program holds them, at `address` in the unpacked image, `stride` bytes per
+   * type. A table read the analysis keeps, like a type's mass, can be looked up here for a known type.
+   */
+  typeTable?: { address: number; stride: number; words: number[][] };
 }
 
 const hex = (n: number) => `0x${n.toString(16)}`;
+/** How large a proved frame drawing value may grow when a caller puts its own fields in. */
+const FRAME_DRAWING_BUDGET = 1024;
 const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
 const unknown = (reason: string, width = 16): Expression => ({ kind: "unknown", reason, width });
 const field = (object: string, offset: number, width = 16): Expression => ({ kind: "field", object, offset, width });
@@ -182,6 +239,38 @@ const textOf = (value: unknown) => {
 };
 const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
 const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
+/** The named part fields the asking part keeps: those its own rope callback can't write when a question comes back. */
+const askingKeeps = (connected: NonNullable<EngineSummary["connected"]>) =>
+  connected.partFields
+    .filter(
+      (field) =>
+        !(connected.askingFields ?? []).some(
+          (asking) => field.offset < asking.offset + asking.width / 8 && asking.offset < field.offset + field.width / 8,
+        ),
+    )
+    .map((field) => field.offset);
+/**
+ * A private local or register a list scan or find-first loop left behind, or a pure query's answer. It is one value for
+ * conditions, but it may point to any part, the owner included, so it never becomes the address of an object of its own.
+ */
+const scanLocal = (object: string) =>
+  /^(local after (list scan|find-first loop)|answer of the query|part after the query) at /.test(object);
+/**
+ * The owner's field after a call that writes parts it selects while the game runs, when the owner may be one of them:
+ * unchanged unless the call selected the owner. It names the call, so within one run it is one value, the same an
+ * uncached read after that call gives.
+ */
+const afterEffect = (effect: { offset: number; width: number }, i: Instruction): Expression =>
+  ({
+    ...field(`part after field effect at ${hex(i.address)}`, effect.offset, effect.width),
+    unresolved: true,
+  }) as Expression;
+/** The value a call writes in a field of a part it selects while the game runs, when its summary doesn't give it. */
+const selectedWrite = (effect: { offset: number; width: number }, i: Instruction): Expression =>
+  ({
+    ...field(`value the call at ${hex(i.address)} writes to a selected part`, effect.offset, effect.width),
+    unresolved: true,
+  }) as Expression;
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
 const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
 const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
@@ -205,9 +294,15 @@ function expressionSize(expression: Expression): number {
   expressionSizes.set(expression, size);
   return size;
 }
-export function binary(operator: string, left: Expression, right: Expression, width = left.width): Expression {
+export function binary(
+  operator: string,
+  left: Expression,
+  right: Expression,
+  width = left.width,
+  budget = 96,
+): Expression {
   if (left.kind === "unknown" || right.kind === "unknown") return unknown(`Unresolved operand in ${operator}`, width);
-  if (expressionSize(left) + expressionSize(right) > 96)
+  if (expressionSize(left) + expressionSize(right) > budget)
     return unknown("Symbolic expression size budget reached", width);
   if (left.kind === "constant" && right.kind === "constant") {
     const a = unsigned(left.value, left.width);
@@ -266,6 +361,134 @@ export function binary(operator: string, left: Expression, right: Expression, wi
   if (operator === "-" && same(left, right)) return constant(0, width);
   if (operator === "^" && same(left, right)) return constant(0, width);
   return { kind: "binary", operator, left, right, width };
+}
+
+type Comparison = Extract<Predicate, { kind: "compare" }>;
+export const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
+const ORDER = ["<", "<=", ">", ">="];
+/**
+ * A test as a value, 1 when it holds and 0 when it doesn't. The value operators compare as unsigned numbers, so a
+ * signed order test compares both sides with their sign bit turned round, which orders them the same way.
+ */
+function testValue(test: Comparison, width: number, budget: number): Expression {
+  const bits = test.left.width;
+  const side = (e: Expression) =>
+    test.signed && ORDER.includes(test.operator) ? binary("^", e, constant(2 ** (bits - 1), bits), bits, budget) : e;
+  return binary(test.operator, side(test.left), side(test.right), width, budget);
+}
+/**
+ * The value `then` where the test holds and `otherwise` where it doesn't, as `(test) * then + (opposite) * otherwise`
+ * with each test 0 or 1. Exactly one of the two tests holds, so the value is exact. When a value or a side of the test
+ * is unknown, the choice is that unknown, with its own reason.
+ */
+export function choose(
+  test: Comparison,
+  then: Expression,
+  otherwise: Expression,
+  width = then.width,
+  budget = FRAME_DRAWING_BUDGET,
+): Expression {
+  if (same(then, otherwise)) return then;
+  for (const value of [then, otherwise, test.left, test.right])
+    if (value.kind === "unknown") return { ...value, width };
+  const opposite = { ...test, operator: OPPOSITE[test.operator]! };
+  return binary(
+    "+",
+    binary("*", testValue(test, width, budget), then, width, budget),
+    binary("*", testValue(opposite, width, budget), otherwise, width, budget),
+    width,
+    budget,
+  );
+}
+/**
+ * The test and the two values of a value `choose` made, or undefined for any other value. A signed order test is
+ * given back with its sides as they were.
+ */
+export function choiceOf(e: Expression): { test: Comparison; then: Expression; otherwise: Expression } | undefined {
+  if (e.kind !== "binary" || e.operator !== "+" || e.left.kind !== "binary" || e.right.kind !== "binary") return;
+  const [a, b] = [e.left, e.right];
+  if (a.operator !== "*" || b.operator !== "*" || a.left.kind !== "binary" || b.left.kind !== "binary") return;
+  const [x, y] = [a.left, b.left];
+  if (OPPOSITE[x.operator] === undefined || OPPOSITE[x.operator] !== y.operator) return;
+  if (!same(x.left, y.left) || !same(x.right, y.right)) return;
+  const sign = (side: Expression) => 2 ** (side.width - 1);
+  // A side of a signed order test: the value with its sign bit turned round, or a constant that was folded so.
+  const unflip = (side: Expression) =>
+    side.kind === "binary" && side.operator === "^" && side.right.kind === "constant" && side.right.value === sign(side)
+      ? side.left
+      : side.kind === "constant"
+        ? constant(unsigned(side.value ^ sign(side), side.width), side.width)
+        : undefined;
+  const [left, right] = [unflip(x.left), unflip(x.right)];
+  const signed =
+    ORDER.includes(x.operator) && !!left && !!right && (x.left.kind !== "constant" || x.right.kind !== "constant");
+  const test: Comparison = signed
+    ? { kind: "compare", operator: x.operator, left: left!, right: right!, signed: true }
+    : { kind: "compare", operator: x.operator, left: x.left, right: x.right, signed: false };
+  return { test, then: a.right, otherwise: b.right };
+}
+/**
+ * One value from the ways through a routine, each with its tests and its value, when the ways split like a tree: some
+ * test is on every way, as itself or as its opposite, and so on down to one way. Undefined when they don't, when a
+ * side is empty, or when a test isn't a comparison: then a way the tests allow may be missing.
+ */
+export function chooseByTests(
+  ways: { tests: Predicate[]; value: Expression }[],
+  width: number,
+): Expression | undefined {
+  if (!ways.length || ways.some((way) => way.tests.some((test) => test.kind !== "compare"))) return undefined;
+  if (ways.length === 1) return ways[0]!.tests.length ? undefined : ways[0]!.value;
+  const test = ways[0]!.tests[0] as Comparison | undefined;
+  if (!test) return undefined;
+  const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
+  const holds = ways.filter((way) => way.tests.some((t) => same(t, test)));
+  const fails = ways.filter((way) => way.tests.some((t) => same(t, opposite)));
+  if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) return undefined;
+  const without = (list: typeof ways, drop: Predicate) =>
+    list.map((way) => ({ ...way, tests: way.tests.filter((t) => !same(t, drop)) }));
+  const then = chooseByTests(without(holds, test), width);
+  const otherwise = then && chooseByTests(without(fails, opposite), width);
+  return otherwise && choose(test, then, otherwise, width);
+}
+/**
+ * The speed and the limit of a value the speed limit made: `limit if speed > limit, else -limit if speed < -limit,
+ * else speed`, signed. Undefined for any other value.
+ */
+export function speedLimitOf(e: Expression): { speed: Expression; limit: Expression } | undefined {
+  const upper = choiceOf(e);
+  if (!upper || upper.test.operator !== ">" || !upper.test.signed || !same(upper.test.right, upper.then)) return;
+  const lower = choiceOf(upper.otherwise);
+  const [speed, limit] = [upper.test.left, upper.then];
+  if (!lower || lower.test.operator !== "<" || !lower.test.signed || !same(lower.test.left, speed)) return;
+  if (!same(lower.test.right, lower.then) || !same(lower.otherwise, speed)) return;
+  const negative = lower.then;
+  if (negative.kind !== "binary" || negative.operator !== "-" || !same(negative.right, limit)) return;
+  if (negative.left.kind !== "constant" || negative.left.value !== 0) return;
+  return { speed, limit };
+}
+
+/**
+ * A value with the owner's type put in for its type field, folded where a test or a product becomes a number. A part's
+ * own rules run on a part of its type.
+ */
+export function withOwnType(e: Expression, type: number, typeOffset: number): Expression {
+  if (e.kind === "field")
+    return e.object === "part" && e.offset === typeOffset && e.width === 16 && !e.unresolved ? constant(type) : e;
+  if (e.kind === "table") {
+    const index = withOwnType(e.index, type, typeOffset);
+    return index === e.index ? e : { ...e, index };
+  }
+  if (e.kind !== "binary") return e;
+  const left = withOwnType(e.left, type, typeOffset),
+    right = withOwnType(e.right, type, typeOffset);
+  if (left === e.left && right === e.right) return e;
+  const zero = (x: Expression) => x.kind === "constant" && unsigned(x.value, x.width) === 0;
+  const one = (x: Expression) => x.kind === "constant" && unsigned(x.value, x.width) === 1;
+  if (e.operator === "*" && (zero(left) || zero(right))) return constant(0, e.width);
+  if (e.operator === "*" && one(left) && right.width === e.width) return right;
+  if (e.operator === "*" && one(right) && left.width === e.width) return left;
+  if (e.operator === "+" && zero(left) && right.width === e.width) return right;
+  return binary(e.operator, left, right, e.width, Infinity);
 }
 
 function substitute(expression: Expression, state: number, stateOffset = 0x0c): Expression {
@@ -437,6 +660,32 @@ interface Tracked {
   value: Value;
   evidence: Evidence[];
   writtenAt?: number;
+  /** Kept with a field the speed setter wrote, until something else writes it. */
+  directedSpeed?: DirectedSpeed;
+  /** Kept with the answer of the centre angle: the parts whose centres it is of. */
+  centreAngle?: CentreLine;
+}
+/** The object, offset and width of a memory key `object:offset:width`; the object name may itself contain colons. */
+function keyParts(key: string) {
+  const parts = key.split(":"),
+    width = Number(parts.pop()),
+    offset = Number(parts.pop());
+  return { object: parts.join(":"), offset, width };
+}
+/**
+ * The pool a node pool update changes, when the caller can keep everything but the node's bytes on objects other than
+ * its own part. A field of another object written before the call might be in a node, and the update could change it
+ * where the caller can't see, so then the update keeps its general summary.
+ */
+function poolNodeEffect(engine: EngineSummary, memory: Map<string, Tracked>) {
+  if (engine.kind !== "owned-node-pool-update" || !engine.nodePool) return undefined;
+  const { nodeSize } = engine.nodePool;
+  for (const [key, cell] of memory) {
+    const { object, offset } = keyParts(key);
+    if (cell.writtenAt !== undefined && !["stack", "data", "part"].includes(object) && offset < nodeSize)
+      return undefined;
+  }
+  return engine.nodePool;
 }
 interface Flags {
   carryOverridden?: boolean;
@@ -467,6 +716,8 @@ interface AbstractState {
   observationExit?: number;
   observationObject?: string;
   observationGuard?: Predicate;
+  /** The heads of find-first walks this path follows for any member. */
+  findFirst?: Set<number>;
   assumptions: string[];
 }
 interface Location {
@@ -491,6 +742,13 @@ export interface RoutineOptions {
   ownerLink?: number;
   /** Summaries of callees already found by following code references. */
   summaries?: Map<number, RoutineAnalysis>;
+  /**
+   * Reads through a far pointer kept on the stack whose segment word is a constant, and through a word read from a
+   * table, as table reads at that address, like the code does. Used for helpers that only read such tables.
+   */
+  tableReads?: boolean;
+  /** A list the caller hands in, read like the routine's own list: its members' outcomes become iteration outcomes. */
+  externalList?: ListLoopSummary;
 }
 const memoryKey = (l: Location) => `${l.object}:${l.offset}:${l.width}`;
 const tracked = (value: Value, evidence: Evidence[] = [], writtenAt?: number): Tracked => ({
@@ -515,6 +773,7 @@ const clone = (s: AbstractState): AbstractState => ({
   visited: new Set(s.visited),
   assumptions: [...s.assumptions],
   fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
+  findFirst: s.findFirst && new Set(s.findFirst),
 });
 const wordOfByte: Record<string, string> = {
   al: "ax",
@@ -704,6 +963,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const controlFlowJoins: NonNullable<RoutineAnalysis["controlFlowJoins"]> = [];
   const provenLoops = discoverCountedLoops(code, options.engineSummaries ?? new Map(), stateOffset);
   const loopsByHeader = new Map(provenLoops.map((loop) => [loop.header, loop]));
+  const findFirstLoops = discoverFindFirstLoops(code, options.engineSummaries ?? new Map());
   const usedLoops: LoopSummary[] = [];
   const firstArgumentOffset = code.instructions.some((instruction) => instruction.mnemonic === "retf") ? 6 : 4;
   const listLoopsByHeader = new Map(
@@ -715,6 +975,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   if (options.objectArgument !== "collider" && argumentOffset === firstArgumentOffset)
     for (const loop of discoverListLoops(code, options.engineSummaries ?? new Map(), stateOffset, true))
       if (!listLoopsByHeader.has(loop.header)) listLoopsByHeader.set(loop.header, loop);
+  if (options.externalList && !listLoopsByHeader.has(options.externalList.header))
+    listLoopsByHeader.set(options.externalList.header, options.externalList);
   const usedListLoops: ListLoopSummary[] = [];
   const listConsumerCalls = new Map(
     discoverListConsumerCalls(code, options.engineSummaries ?? new Map()).map((c) => [c.instruction, c]),
@@ -831,7 +1093,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       };
     const addressView = (value: Value): Pointer | undefined => {
       if (value.kind === "pointer") return value;
-      if (value.kind === "table")
+      if (value.kind === "table" && !options.tableReads)
         return {
           kind: "pointer",
           object: `pointer loaded from table ${hex(value.segment)}+${hex(value.offset)} indexed by ${textOf(value.index)}`,
@@ -839,7 +1101,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           width: 16,
           addressValue: value,
         };
-      if (value.kind === "field" && value.object !== "stack")
+      if (value.kind === "field" && value.object !== "stack" && !scanLocal(value.object))
         return {
           kind: "pointer",
           object: `referenced-by(${value.object}+${hex(value.offset)})`,
@@ -896,7 +1158,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       currentSegment.value === (options.dataSegment ?? 0);
     if (normalData && base.length === 1 && base[0]?.value.kind === "field") {
       const ref = base[0].value;
-      if (ref.object !== "stack")
+      if (ref.object !== "stack" && !scanLocal(ref.object))
         return {
           object: `referenced-by(${ref.object}+${hex(ref.offset)})`,
           offset: operand.displacement,
@@ -1050,6 +1312,24 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       base.flatMap((v) => v.evidence),
     );
   };
+  /**
+   * A path's evidence without repeats, kept per path list and extended as the path grows, so the findings along a long
+   * path don't each go through the whole list again. A path only ever appends to its list.
+   */
+  const pathEvidence = new WeakMap<Evidence[], { length: number; byAddress: Map<number, Evidence> }>();
+  const evidenceOfPath = (list: Evidence[], extra: Evidence[]): Evidence[] => {
+    let cached = pathEvidence.get(list);
+    if (!cached || cached.length > list.length) {
+      cached = { length: 0, byAddress: new Map() };
+      pathEvidence.set(list, cached);
+    }
+    for (let n = cached.length; n < list.length; n++) cached.byAddress.set(list[n]!.address, list[n]!);
+    cached.length = list.length;
+    if (!extra.length) return [...cached.byAddress.values()];
+    const byAddress = new Map(cached.byAddress);
+    for (const item of extra) byAddress.set(item.address, item);
+    return [...byAddress.values()];
+  };
   const finding = (value: Expression, condition: Predicate, s: AbstractState, extra: Evidence[]): Finding => ({
     confidence: containsUnknown(value) || uncertainPredicate(condition) || s.uncertain ? "unresolved" : "inferred",
     assumptions: [
@@ -1057,7 +1337,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       "Memory not written on this path retains its input value.",
       ...s.assumptions,
     ],
-    evidence: uniqueEvidence([...s.evidence, ...extra]),
+    evidence: evidenceOfPath(s.evidence, extra),
   });
   const equalities = new WeakMap<Predicate[], { length: number; values: Map<string, Expression> }>();
   const fieldIdentity = (value: Extract<Expression, { kind: "field" }>) =>
@@ -1110,8 +1390,18 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const write = (operand: Operand | undefined, value: Tracked, s: AbstractState, i: Instruction) => {
     if (!operand) return;
     const e = uniqueEvidence([...value.evidence, evidenceOf(i)]);
+    // What a value is known to be beyond its expression goes with it when it is copied whole.
+    const kept = {
+      ...(value.directedSpeed ? { directedSpeed: value.directedSpeed } : {}),
+      ...(value.centreAngle ? { centreAngle: value.centreAngle } : {}),
+    };
     if (operand.kind === "register") {
-      registerWrite(operand.name, tracked(value.value, e), s);
+      // A velocity copied out of a field is no longer the field the setter wrote.
+      registerWrite(
+        operand.name,
+        { ...tracked(value.value, e), ...(kept.centreAngle ? { centreAngle: kept.centreAngle } : {}) },
+        s,
+      );
       return;
     }
     if (operand.kind !== "memory") return;
@@ -1160,7 +1450,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         width = Number(key.slice(split + 1));
       if (object === l.object && at < l.offset + l.width / 8 && l.offset < at + width / 8) s.memory.delete(key);
     }
-    s.memory.set(memoryKey(l), tracked(value.value, uniqueEvidence([...e, ...l.evidence]), i.address));
+    s.memory.set(memoryKey(l), { ...tracked(value.value, uniqueEvidence([...e, ...l.evidence]), i.address), ...kept });
     if (l.object === "part" && l.offset === stateOffset) {
       s.stateWritten = true;
       s.evidence.push(...e);
@@ -1203,6 +1493,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   };
   const formalArgument = (args: Tracked[], base: number, offset: number): Tracked =>
     args.at(-1 - (offset - base) / 2) ?? tracked(unknown(`Argument at frame offset ${offset} was not passed`));
+  /** While a list consumer's member outcomes are mapped into this routine: the member, which keeps its name. */
+  let consumerMember: string | undefined;
   const formalObject = (
     object: string,
     args: Tracked[],
@@ -1211,6 +1503,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     ownerOffset = base,
   ): Tracked => {
     if (object === "part") return formalArgument(args, base, ownerOffset);
+    if (object === consumerMember) return tracked({ kind: "pointer", object, displacement: 0, width: 16 });
     const nested = /^referenced-by\((.*)\+0x([0-9a-f]+)\)$/.exec(object);
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
@@ -1221,6 +1514,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     base: number,
     s: AbstractState,
     ownerOffset = base,
+    budget = 96,
   ): Tracked => {
     if (expression.kind === "constant" || expression.kind === "unknown") return tracked(expression);
     const stepHint = scalarSteps.get(expression);
@@ -1278,6 +1572,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         return tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
+      // A consumer's member is read as it is when the consumer gets it.
+      if (expression.object === consumerMember) return tracked(expression);
       if (expression.object === "data")
         return read(
           {
@@ -1298,14 +1594,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
     }
     if (expression.kind === "binary") {
-      const left = formalValue(expression.left, args, base, s, ownerOffset);
-      const right = formalValue(expression.right, args, base, s, ownerOffset);
+      const left = formalValue(expression.left, args, base, s, ownerOffset, budget);
+      const right = formalValue(expression.right, args, base, s, ownerOffset, budget);
       return tracked(
-        binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width),
+        binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width, budget),
         uniqueEvidence([...left.evidence, ...right.evidence]),
       );
     }
-    const index = formalValue(expression.index, args, base, s, ownerOffset);
+    const index = formalValue(expression.index, args, base, s, ownerOffset, budget);
     return tracked({ ...expression, index: asExpression(index.value) }, index.evidence);
   };
   const formalPredicate = (
@@ -1324,6 +1620,52 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (predicate.kind === "and")
       return conjunction(predicate.terms.map((p) => formalPredicate(p, args, base, s, ownerOffset)));
     return predicate;
+  };
+  /**
+   * The speed limit's writes as one exact value per speed. Its two cases for a speed never both hold: above the limit
+   * the speed becomes the limit, else below minus the limit it becomes minus the limit, else it stays. Undefined for
+   * any other helper, or when a test can't be put as a comparison.
+   */
+  const speedLimitWrites = (engine: EngineSummary, args: Tracked[], s: AbstractState) => {
+    const limiter = engine.contactResponse;
+    if (limiter?.kind !== "velocity-limit") return undefined;
+    const pointer = formalArgument(args, engine.argumentOffset, limiter.ownerArgument);
+    const pick = (test: Predicate, then: Expression, otherwise: Expression) =>
+      entails(test, s)
+        ? then
+        : !possible(conjunction([...s.conditions, test]))
+          ? otherwise
+          : test.kind === "compare"
+            ? choose(test, then, otherwise, 16)
+            : undefined;
+    const out = [];
+    for (const offset of limiter.fields) {
+      const [upper, lower] = limiter.cases.filter((item) => item.field === offset);
+      const below = lower?.condition.kind === "and" ? lower.condition.terms[1] : undefined;
+      if (!upper || !lower || !below) return undefined;
+      const before = memoryAt(pointer, offset, 16, s);
+      const high = formalValue(upper.value, args, engine.argumentOffset, s),
+        low = formalValue(lower.value, args, engine.argumentOffset, s);
+      const kept = pick(
+        formalPredicate(below, args, engine.argumentOffset, s),
+        asExpression(low.value),
+        asExpression(before.value),
+      );
+      const value =
+        kept && pick(formalPredicate(upper.condition, args, engine.argumentOffset, s), asExpression(high.value), kept);
+      if (!value) return undefined;
+      const evidence = uniqueEvidence([...before.evidence, ...high.evidence, ...low.evidence, ...engine.evidence]);
+      out.push({
+        pointer,
+        offset,
+        width: 16,
+        value: tracked(value, evidence),
+        evidence: engine.evidence,
+        condition: { kind: "true" } as Predicate,
+        certain: true,
+      });
+    }
+    return out;
   };
   const pointerResult = (
     pointer: EnginePointer,
@@ -1387,6 +1729,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     preserveOwner: Set<number> = new Set(),
     selectedObject = "a connected part",
     selectedCondition?: Predicate,
+    /** What the helper writes in a field of the parts it selects, when its summary names it. */
+    selectedValue?: (effect: { offset: number; width: number }) => Expression | undefined,
   ) => {
     for (const effect of fields) {
       const exceptOwner = preserveOwner.has(effect.offset);
@@ -1404,20 +1748,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         )
           s.memory.delete(key);
       }
+      // The owner may be one of the selected parts: its field holds one value after the call, unchanged unless the call
+      // selected the owner too. An uncached read after the call names the same value.
       if (!exceptOwner)
-        s.memory.set(
-          `part:${effect.offset}:${effect.width}`,
-          tracked(
-            unknown(
-              selectedObject === "a connected part"
-                ? "A connected part may alias the owner"
-                : "A selected related object may alias the owner",
-              effect.width,
-            ),
-            proof,
-            i.address,
-          ),
-        );
+        s.memory.set(`part:${effect.offset}:${effect.width}`, tracked(afterEffect(effect, i), proof, i.address));
       const name = selectedObject;
       s.registers.set("__graph_pointer", tracked({ kind: "pointer", object: name, displacement: 0, width: 16 }, proof));
       if (selectedCondition) s.conditions.push(selectedCondition);
@@ -1430,16 +1764,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           direct: false,
           width: effect.width === 8 ? 8 : 16,
         },
-        tracked(
-          unknown(
-            selectedObject === "a connected part"
-              ? "A connected part may change this field"
-              : "A selected related object may change this field",
-            effect.width,
-          ),
-          proof,
-          i.address,
-        ),
+        tracked(selectedValue?.(effect) ?? selectedWrite(effect, i), proof, i.address),
         s,
         i,
       );
@@ -1590,6 +1915,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: Evidence[];
       condition: Predicate;
       certain: boolean;
+      exact?: true;
     }[] = [];
     for (const effect of privateOutput ? [] : engine.writes) {
       if (effect.root !== "argument" || effect.path.some((offset) => offset < 0) || effect.repeated) continue;
@@ -1597,7 +1923,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       for (const offset of effect.path) pointer = memoryAt(pointer, offset, 16, s);
       const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
       if (!possible(conjunction([...s.conditions, condition]))) continue;
-      const value = formalValue(effect.value, args, engine.argumentOffset, s);
+      // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound.
+      const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : undefined;
+      const links = engine.orderedLinks;
+      const link =
+        links && !effect.path.length && effect.width === 16
+          ? effect.offset === links.next
+            ? "next"
+            : effect.offset === links.previous
+              ? "previous"
+              : undefined
+          : undefined;
+      // The ordered insertion links its part between neighbours its comparisons pick: only the run knows which.
+      const value = link
+        ? tracked(
+            {
+              ...field(`${link} in the ordered list after the insertion at ${hex(i.address)}`, effect.offset, 16),
+              unresolved: true,
+            } as Expression,
+            effect.evidence,
+          )
+        : formalValue(effect.value, args, engine.argumentOffset, s, engine.argumentOffset, budget);
       pending.push({
         pointer,
         offset: effect.offset,
@@ -1606,8 +1952,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         evidence: effect.evidence,
         condition,
         certain: entails(condition, s),
+        ...(effect.exact ? { exact: true } : {}),
       });
     }
+    const limited = speedLimitWrites(engine, args, s);
+    if (limited) pending.splice(0, pending.length, ...limited);
     if ((engine.contactResponseFirst || engine.contactResponsePair) && engine.footprint.partMemoryComplete) {
       // Either participant can alias an already tracked part. Invalidate the complete possible footprint first.
       const fields = new Map(
@@ -1645,6 +1994,71 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         preserve.add(offset);
       invalidateSelectedPartFields(engine.partGraph.fields, s, i, engine.evidence, preserve);
     }
+    if (engine.connected) {
+      // Parts reached through ropes, belts or pulleys may be the owner itself, so their fields are forgotten everywhere.
+      // A part that passed itself as the asking argument keeps the fields a question that comes back can't change.
+      const asking =
+        engine.connected.exceptArgument === undefined
+          ? undefined
+          : formalArgument(args, engine.argumentOffset, engine.connected.exceptArgument).value;
+      const askingIsOwner = asking?.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
+      // The owner keeps the fields a decided assumption about the routine's callers gives it, when it is the argument.
+      const argument = formalArgument(args, engine.argumentOffset, engine.argumentOffset).value;
+      const ownerKeeps =
+        argument.kind === "pointer" && argument.object === "part" && argument.displacement === 0
+          ? (engine.connected.ownerKeeps ?? []).filter((field) => field.callers.includes(code.address))
+          : [];
+      if (ownerKeeps.length)
+        s.assumptions = [...new Set([...s.assumptions, ...ownerKeeps.map((field) => field.assumption)])];
+      invalidateSelectedPartFields(
+        engine.connected.partFields,
+        s,
+        i,
+        engine.connected.evidence,
+        new Set([...(askingIsOwner ? askingKeeps(engine.connected) : []), ...ownerKeeps.map((field) => field.offset)]),
+        `a part reached through a rope, belt or pulley at ${hex(i.address)}`,
+        undefined,
+        // A field whose new value the summary fixes, like the byte the relay passes along, gets that value.
+        (effect) => {
+          const fixed = engine.connected!.values?.find(
+            (item) => item.offset === effect.offset && item.width === effect.width,
+          );
+          return fixed && asExpression(formalValue(fixed.value, args, engine.argumentOffset, s).value);
+        },
+      );
+      // A field a question that comes back may change holds one value after the call, which the walks can name.
+      if (askingIsOwner)
+        for (const asked of engine.connected.askingFields ?? [])
+          s.memory.set(
+            `part:${asked.offset}:${asked.width}`,
+            tracked(
+              {
+                ...field(`part after the query at ${hex(i.address)}`, asked.offset, asked.width),
+                unresolved: true,
+              } as Expression,
+              [evidenceOf(i)],
+              i.address,
+            ),
+          );
+      // Rope, belt and pulley records are separate allocations; only objects reached through those links can be one.
+      const link = new RegExp(
+        `\\+0x(${engine.connected.recordLinks.map((offset) => offset.toString(16)).join("|")})\\)$`,
+      );
+      for (const key of [...s.memory.keys()]) {
+        const parts = key.split(":"),
+          width = Number(parts.pop()),
+          offset = Number(parts.pop()),
+          object = parts.join(":");
+        if (
+          link.test(object) &&
+          engine.connected.recordFields.some(
+            (field) => offset < field.offset + field.width / 8 && field.offset < offset + width / 8,
+          )
+        )
+          s.memory.delete(key);
+      }
+      s.assumptions = [...new Set([...s.assumptions, ...engine.connected.assumptions])];
+    }
     if (engine.globalObjectWrites?.length) {
       invalidateSelectedPartFields(
         engine.globalObjectWrites,
@@ -1655,7 +2069,23 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         `the contact subject selected through engine globals at ${hex(i.address)}`,
       );
     }
-    if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
+    const poolNode = poolNodeEffect(engine, s.memory);
+    if (poolNode) {
+      // The pool's nodes are separate storage, so they are never the owner. Any other object the caller holds might be
+      // a node, and forgets the node's bytes: the pool update can change nothing else.
+      for (const key of [...s.memory.keys()]) {
+        const { object, offset } = keyParts(key);
+        if (!["stack", "data", "part"].includes(object) && offset < poolNode.nodeSize) s.memory.delete(key);
+      }
+      for (let offset = 0; offset < poolNode.nodeSize; offset += 2)
+        s.fieldHavoc = [...(s.fieldHavoc ?? []), { offset, width: 16, address: i.address, exceptOwner: true }];
+      s.assumptions = [
+        ...new Set([
+          ...s.assumptions,
+          "The owner is a live part, never a node of the pool, and every pointer to a node points to its start.",
+        ]),
+      ];
+    } else if (!engine.footprint.preservesArgumentMemory && engine.footprint.partMemoryComplete !== true) {
       for (const key of s.memory.keys()) {
         const split = key.lastIndexOf(":"),
           before = key.slice(0, split),
@@ -1681,17 +2111,61 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         ]),
       ];
     }
+    // The speed setter's velocity keeps the speed the caller passed, which its value can't show.
+    const directed = engine.directedVelocity;
+    const speed = directed && formalArgument(args, engine.argumentOffset, directed.arguments.speed);
+    const angle = directed && formalArgument(args, engine.argumentOffset, directed.arguments.angle);
+    // An overlap query starts its found list empty and puts each part it finds at the head: after the query the head
+    // field holds the part it found last, or 0 when it found none. Which part that is, only the run knows.
+    const foundHead = (effect: (typeof pending)[number]) =>
+      engine.kind === "overlap-list" &&
+      !!engine.list &&
+      engine.list.confidence === "checked" &&
+      effect.offset === engine.list.headField &&
+      effect.width === 16;
     for (const effect of pending) {
       const temporary = "__engine_pointer";
       s.registers.set(temporary, effect.pointer);
       const before = memoryAt(effect.pointer, effect.offset, effect.width, s);
+      const store = directed?.stores.find((item) => item.field === effect.offset && effect.width === 16);
       const value =
         effect.certain || same(before.value, effect.value.value)
-          ? effect.value
-          : tracked(
-              unknown(`Conditional ${engine.kind} effect on field ${hex(effect.offset)}`, effect.width),
-              effect.evidence,
-            );
+          ? store && speed && effect.certain
+            ? {
+                ...effect.value,
+                directedSpeed: {
+                  routine: engine.address,
+                  call: i.address,
+                  speed: asExpression(speed.value),
+                  axis: store.coefficient,
+                  ...(angle?.centreAngle ? { direction: angle.centreAngle } : {}),
+                },
+              }
+            : effect.value
+          : effect.exact &&
+              !uncertainPredicate(effect.condition) &&
+              (effect.condition.kind === "compare" ||
+                (effect.condition.kind === "and" && effect.condition.terms.every((term) => term.kind === "compare")))
+            ? // A write made exactly when its tests hold: the new value then, the old one otherwise.
+              tracked(
+                (effect.condition.kind === "and" ? effect.condition.terms : [effect.condition]).reduceRight(
+                  (then, test) => choose(test as Comparison, then, asExpression(before.value), effect.width),
+                  asExpression(effect.value.value),
+                ),
+                uniqueEvidence([...effect.value.evidence, ...before.evidence]),
+              )
+            : foundHead(effect)
+              ? tracked(
+                  {
+                    ...field(`found list after the query at ${hex(i.address)}`, effect.offset, effect.width),
+                    unresolved: true,
+                  } as Expression,
+                  uniqueEvidence([...effect.evidence, ...engine.list!.evidence]),
+                )
+              : tracked(
+                  unknown(`Conditional ${engine.kind} effect on field ${hex(effect.offset)}`, effect.width),
+                  effect.evidence,
+                );
       write(
         {
           kind: "memory",
@@ -1701,7 +2175,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           direct: false,
           width: effect.width === 8 ? 8 : 16,
         },
-        tracked(value.value, uniqueEvidence([...value.evidence, ...effect.evidence, evidenceOf(i)])),
+        {
+          ...tracked(value.value, uniqueEvidence([...value.evidence, ...effect.evidence, evidenceOf(i)])),
+          ...(value.directedSpeed ? { directedSpeed: value.directedSpeed } : {}),
+        },
         s,
         i,
       );
@@ -1709,6 +2186,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     // Candidate stores address newly selected list members, never the argument's incoming head.
     if (engine.kind === "overlap-list" && engine.list) {
+      // A query that skips its argument never selects the owner when the owner asks, so the owner keeps those fields.
+      const asking = formalArgument(args, engine.argumentOffset, engine.argumentOffset).value;
+      const asksOwner = asking.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
+      const skipsOwner = engine.list.excludesArgument && asksOwner;
+      // A query that may list the owner links it first and then makes it the head, so the head stays the head.
+      const keepsHead = asksOwner && engine.list.confidence === "checked";
       for (const effect of engine.writes) {
         if (effect.root !== "unknown" || effect.selection !== "overlap-candidate" || effect.path.length) continue;
         const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
@@ -1717,10 +2200,23 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           [effect],
           s,
           i,
-          effect.evidence,
-          new Set(),
+          skipsOwner ? uniqueEvidence([...effect.evidence, ...engine.list.evidence]) : effect.evidence,
+          new Set(skipsOwner || (keepsHead && effect.offset === engine.list.headField) ? [effect.offset] : []),
           `a candidate selected by the overlap query at ${hex(i.address)}`,
           condition,
+          // A found part's link gets the head it pushed down: the next part in the found list, or 0 for the first
+          // part found. The query's other stores fill in a value it works out for that part.
+          ({ offset, width }) =>
+            ({
+              ...field(
+                offset === engine.list!.nextField && width === 16 && engine.list!.confidence === "checked"
+                  ? `next in the found list of the query at ${hex(i.address)}`
+                  : `value the query at ${hex(i.address)} writes to a found part`,
+                offset,
+                width,
+              ),
+              unresolved: true,
+            }) as Expression,
         );
       }
     }
@@ -1842,6 +2338,21 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s,
         );
     }
+    if (
+      (["private-buffer-query", "connection-query"].includes(engine.kind) || poolNode) &&
+      registerRead("ax", s).value.kind === "unknown"
+    )
+      // A query that changes nothing but its own stack answers with one value, like whether a spot is blocked. It is
+      // unknown, but one value: a condition on it can be decided as a run value. The rope connection query's answer,
+      // what the parts at the other end of the ropes said, is one value in the same way, whatever those parts change,
+      // and so is a pool update's answer, like whether it added a node.
+      registerWrite(
+        "ax",
+        tracked({ ...field(`answer of the query at ${hex(i.address)}`, 0, 16), unresolved: true } as Expression, [
+          evidenceOf(i),
+        ]),
+        s,
+      );
     if (
       ["list-head", "list-next"].includes(engine.kind) &&
       registerRead("ax", s).value.kind === "unknown" &&
@@ -2073,6 +2584,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       condition,
       routine: entry.address,
       confidence: "unresolved",
+      effectsIncomplete: true,
       assumptions: ["The graph loses information at this boundary; no destination state is asserted."],
       evidence: uniqueEvidence([
         ...s.evidence,
@@ -2101,7 +2613,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const object = before.slice(0, separator),
         offset = Number(before.slice(separator + 1)),
         width = Number(key.slice(split + 1));
-      if (["stack", "data"].includes(object)) continue;
+      // An iteration outcome says what happens to the listed member; the owner's fields are in the routine's outcomes.
+      if (object !== s.observationObject) continue;
       const value = asExpression(final.value);
       fields.push({
         object,
@@ -2112,6 +2625,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         routine: entry.address,
         ...finding(value, condition, s, uniqueEvidence([...final.evidence, evidenceOf(i)])),
         ...(object === "unknown" ? { confidence: "unresolved" as const } : {}),
+        ...(final.directedSpeed ? { directedSpeed: final.directedSpeed } : {}),
       });
     }
     iterationOutcomes.push({
@@ -2156,11 +2670,39 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         condition,
         routine: entry.address,
         ...finding(expression, condition, s, [...final.evidence, evidenceOf(i)]),
+        ...(final.directedSpeed ? { directedSpeed: final.directedSpeed } : {}),
+      });
+    }
+    // A field of the part an effect may have changed, with no store after it, ends with the one value the run gives it
+    // after that effect, as a read would name it: a path that leaves it out would claim it unchanged.
+    for (const effect of [...(s.fieldHavoc ?? [])].reverse()) {
+      if (
+        effect.exceptOwner ||
+        effect.ownerOnly ||
+        (effect.offset < stateOffset + 2 && stateOffset < effect.offset + effect.width / 8) ||
+        Array.from({ length: effect.width / 8 }, (_, n) => effect.offset + n).every((byte) =>
+          updates.some((u) => u.object === "part" && u.offset <= byte && byte < u.offset + u.width / 8),
+        )
+      )
+        continue;
+      const value = {
+        ...field(`part after field effect at ${hex(effect.address)}`, effect.offset, effect.width),
+        unresolved: true,
+      } as Expression;
+      updates.unshift({
+        object: "part",
+        offset: effect.offset,
+        width: effect.width,
+        value,
+        condition,
+        routine: entry.address,
+        ...finding(value, condition, s, [evidenceOf(i)]),
       });
     }
     const returned = registerRead("ax", s);
     outcomes.push({
       effectsComplete: !s.uncertain && s.partMemoryHavocAt === undefined,
+      ...(!s.uncertain && s.partMemoryHavocAt !== undefined ? { keepsState: true as const } : {}),
       condition,
       fields: updates,
       returnValue: asExpression(returned.value),
@@ -2170,12 +2712,58 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ...finding(constant(0), condition, s, [...returned.evidence, evidenceOf(i)]),
       returnConfidence: containsUnknown(asExpression(returned.value)) ? "unresolved" : "inferred",
     });
-    const transition = { ...f, from, to, condition, routine: entry.address, updates };
-    const key = JSON.stringify([from, to, condition, updates.map((u) => [u.object, u.offset, u.width, u.value])]);
+    const incomplete = s.uncertain || s.partMemoryHavocAt !== undefined;
+    const transition = {
+      ...f,
+      from,
+      to,
+      condition,
+      routine: entry.address,
+      updates,
+      ...(incomplete ? { effectsIncomplete: true as const } : {}),
+    };
+    const key = JSON.stringify([
+      from,
+      to,
+      condition,
+      updates.map((u) => [u.object, u.offset, u.width, u.value]),
+      incomplete,
+    ]);
     if (!outputs.has(key)) {
       outputs.add(key);
       transitions.push(transition);
     }
+  };
+  const splitKey = (key: string): [string, number, number] => {
+    const parts = key.split(":"),
+      width = Number(parts.pop()),
+      offset = Number(parts.pop());
+    return [parts.join(":"), offset, width];
+  };
+  /**
+   * The fields a pass that goes on may change, split into the owner's and the member's, or undefined when one could be
+   * the owner's state, or the member could be the owner.
+   */
+  const findFirstFields = (loop: NonNullable<ReturnType<typeof findFirstLoops.get>>, s: AbstractState) => {
+    const owner: { offset: number; width: number }[] = [],
+      member: { offset: number; width: number }[] = [];
+    const isOwner = (register: string) => {
+      const value = registerRead(register, s).value;
+      return value.kind === "pointer" && value.object === "part" && value.displacement === 0;
+    };
+    const add = (register: string, offset: number, width: number) => {
+      if (register === loop.node) member.push({ offset, width });
+      else if (isOwner(register) && (offset + width / 8 <= stateOffset || offset >= stateOffset + 2))
+        owner.push({ offset, width });
+      else return false;
+      return true;
+    };
+    for (const write of loop.passWrites) if (!add(write.register, write.offset, write.width)) return undefined;
+    for (const call of loop.passCalls)
+      for (const write of call.callee.writes)
+        if (write.root === "argument" && !add(call.register, write.offset, write.width)) return undefined;
+    if (member.length && !loop.excludesOwner) return undefined;
+    return { owner, member };
   };
   while (queue.length && visits++ < maxVisits) {
     const readyTail = visits > maxVisits * 0.75 ? queue.findIndex((item) => tails.has(item.at)) : -1;
@@ -2191,6 +2779,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (s.observationOnly && i.address === s.observationExit) {
       recordIteration(s, i);
       continue;
+    }
+    const findFirst = findFirstLoops.get(i.address);
+    if (findFirst && s.visited.has(i.address) && s.findFirst?.has(i.address) && !s.observationOnly) {
+      const node = registerRead(findFirst.node, s).value;
+      // A pass that moved on changed nothing; the walk for any member already covers what follows.
+      if (!(node.kind === "constant" && node.value === 0)) continue;
+      // A pass that stops cleared the pointer: the test at the head now leaves the loop.
+      s.visited.delete(findFirst.header);
+      s.visited.delete(findFirst.branch);
     }
     if (s.visited.has(i.address)) {
       if (s.observationOnly) {
@@ -2262,8 +2859,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.assumptions = [...new Set([...s.assumptions, ...list.assumptions])];
       s.evidence.push(...list.evidence);
       for (const effect of list.possibleFields) {
+        // A listed member's field is never the owner's: the scan's summary lists every field it may write on the owner
+        // as the owner's own (a query that may list the owner, or a global list), and otherwise the owner is not on the
+        // list (the query's checked test against the part that asks, or the external list's contract).
         if (s.fieldHavoc?.length && !["stack", "data", "buffer"].includes(effect.object))
-          s.fieldHavoc.push({ offset: effect.offset, width: effect.width, address: i.address, exceptOwner: false });
+          s.fieldHavoc.push({
+            offset: effect.offset,
+            width: effect.width,
+            address: i.address,
+            exceptOwner: effect.object !== "part",
+          });
         if (effect.object === "stack" && effect.operand) {
           if (
             list.possibleFields.indexOf(effect) !==
@@ -2298,7 +2903,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                       width: 16,
                       addressValue: field(`nullable list selection at ${hex(list.header)}`, effect.offset),
                     }
-                  : unknown("The complete list scan may update this private field", effect.width),
+                  : // One value the scan leaves behind, like the nearest part it found: unknown, but the same on
+                    // every later read until the routine writes it again, so a condition can be decided on it.
+                    ({
+                      ...field(`local after list scan at ${hex(list.header)}`, effect.offset, effect.width),
+                      unresolved: true,
+                    } as Expression),
                 list.evidence,
                 i.address,
               ),
@@ -2323,7 +2933,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             s.memory.set(
               key,
               tracked(
-                unknown(`The complete list scan may change field ${hex(effect.offset)}`, width),
+                object === "data"
+                  ? unknown(`The complete list scan may change field ${hex(effect.offset)}`, width)
+                  : // Another part's field holds one value after the scan, which the run gives it.
+                    ({
+                      ...field(`value after the list scan at ${hex(list.header)} in ${object}`, offset, width),
+                      unresolved: true,
+                    } as Expression),
                 list.evidence,
                 i.address,
               ),
@@ -2333,7 +2949,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s.memory.set(
             `${effect.object}:${effect.offset}:${effect.width}`,
             tracked(
-              unknown(`The complete list scan may change field ${hex(effect.offset)}`, effect.width),
+              effect.object === "part"
+                ? // The owner's field holds one value after the scan, like a local the scan leaves behind.
+                  ({
+                    ...field(`part after list scan at ${hex(list.header)}`, effect.offset, effect.width),
+                    unresolved: true,
+                  } as Expression)
+                : unknown(`The complete list scan may change field ${hex(effect.offset)}`, effect.width),
               list.evidence,
               i.address,
             ),
@@ -2357,6 +2979,83 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.carry = undefined;
       usedListLoops.push(list);
       enqueue({ at: list.exit, state: s });
+      continue;
+    }
+    const passFields =
+      findFirst && !s.observationOnly && !s.findFirst?.has(i.address) ? findFirstFields(findFirst, s) : undefined;
+    if (findFirst && passFields) {
+      // Either the passes that go on change only these fields and no member is acted on, or one member, any of them,
+      // is acted on once after them.
+      const forget = (target: AbstractState) => {
+        // The owner's fields a pass may change: later reads give the one value they have after the loop.
+        for (const field of passFields.owner) {
+          for (const key of [...target.memory.keys()]) {
+            const [object, offset, width] = splitKey(key);
+            if (object === "part" && offset < field.offset + field.width / 8 && field.offset < offset + width / 8)
+              target.memory.delete(key);
+          }
+          target.fieldHavoc = [
+            ...(target.fieldHavoc ?? []),
+            { offset: field.offset, width: field.width, address: i.address, exceptOwner: false },
+          ];
+        }
+        for (const field of passFields.member) {
+          for (const key of [...target.memory.keys()]) {
+            const [object, offset, width] = splitKey(key);
+            if (
+              !["part", "stack", "data"].includes(object) &&
+              offset < field.offset + field.width / 8 &&
+              field.offset < offset + width / 8
+            )
+              target.memory.delete(key);
+          }
+          target.fieldHavoc = [
+            ...(target.fieldHavoc ?? []),
+            { offset: field.offset, width: field.width, address: i.address, exceptOwner: true },
+          ];
+        }
+        // Registers and locals a pass may change hold one value each after the loop, never used as an address.
+        const loopValue = (what: string, offset: number, width: number) =>
+          tracked({
+            ...field(`local after find-first loop at ${hex(i.address)}: ${what}`, offset, width),
+            unresolved: true,
+          } as Expression);
+        for (const name of findFirst.registers) registerWrite(name, loopValue(`register ${name}`, 0, 16), target);
+        for (const operand of findFirst.locals)
+          write(operand, loopValue("local", operand.displacement, operand.width), target, i);
+        if (findFirst.globals) {
+          for (const key of [...target.memory.keys()]) if (key.startsWith("data:")) target.memory.delete(key);
+          target.globalHavocAt = i.address;
+        }
+        target.flags = undefined;
+        target.carry = undefined;
+        target.assumptions = [...new Set([...target.assumptions, FIND_FIRST_ASSUMPTION])];
+        target.evidence.push(...findFirst.evidence);
+      };
+      const none = clone(s);
+      forget(none);
+      registerWrite(findFirst.node, tracked(constant(0), findFirst.evidence), none);
+      enqueue({ at: findFirst.exit, state: none });
+      const member = clone(s);
+      forget(member);
+      const name = `member found by the loop at ${hex(i.address)}`;
+      registerWrite(
+        findFirst.node,
+        tracked(
+          {
+            kind: "pointer",
+            object: name,
+            displacement: 0,
+            width: 16,
+            addressValue: { ...field(`${name} link`, 0), unresolved: true } as Expression,
+          },
+          findFirst.evidence,
+        ),
+        member,
+      );
+      member.visited.delete(i.address);
+      member.findFirst = new Set([...(member.findFirst ?? []), i.address]);
+      enqueue({ at: i.address, state: member });
       continue;
     }
     const counted = loopsByHeader.get(i.address);
@@ -2670,19 +3369,27 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
     } else if (["les", "lds"].includes(i.mnemonic) && source?.kind === "memory") {
       const l = location(source, s);
+      const segmentWord =
+        options.tableReads && l?.object === "stack"
+          ? read({ ...source, displacement: source.displacement + 2, width: 16 }, s)
+          : undefined;
       const object =
         l?.object === "stack" && l.offset + 2 === argumentOffset
           ? "part"
           : l
             ? `referenced-by(${l.object}+${hex(l.offset)})`
             : undefined;
-      const ptr = object
-        ? tracked({ kind: "pointer", object, displacement: 0, width: 16 } as Pointer, [
-            ...(l?.evidence ?? []),
-            evidenceOf(i),
-          ])
-        : tracked(unknown("Far object pointer is not established"));
-      write(dest, ptr, s, i);
+      // A far pointer with a constant segment addresses a table there: the register gets its offset word.
+      const ptr =
+        segmentWord?.value.kind === "constant"
+          ? segmentWord
+          : object
+            ? tracked({ kind: "pointer", object, displacement: 0, width: 16 } as Pointer, [
+                ...(l?.evidence ?? []),
+                evidenceOf(i),
+              ])
+            : tracked(unknown("Far object pointer is not established"));
+      write(dest, segmentWord?.value.kind === "constant" ? read({ ...source, width: 16 }, s) : ptr, s, i);
       registerWrite(i.mnemonic === "les" ? "es" : "ds", ptr, s);
     } else if (i.mnemonic === "push") {
       s.stack.push(a);
@@ -2992,6 +3699,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         argument.object === s.observationObject &&
         argument.displacement === 0
       );
+      // A bounce callback's argument, the part that touched it (`collider`).
+      const passesCollider =
+        options.objectArgument === "collider" &&
+        argument?.kind === "pointer" &&
+        argument.object === "collider" &&
+        argument.displacement === 0;
       const engineBefore = i.target && options.engineSummaries?.get(i.target.address);
       const composableObject = (object: string) =>
         object === "part" ||
@@ -3062,6 +3775,43 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               : [],
           },
         };
+        // What the consumer does to each member, read path by path from the consumer itself, with this call's
+        // arguments and this part's fields put in.
+        if (!s.observationOnly)
+          for (const member of contract.memberOutcomes ?? []) {
+            consumerMember = member.object;
+            const mapped = formalPredicate(member.condition, args, contract.argumentOffset, s);
+            const fields = member.fields.map((f) => ({
+              ...f,
+              value: asExpression(formalValue(f.value, args, contract.argumentOffset, s).value),
+            }));
+            consumerMember = undefined;
+            const kept: Predicate[] = [];
+            let reached = true;
+            for (const term of mapped.kind === "and" ? mapped.terms : [mapped]) {
+              const decided = term.kind === "compare" ? compareConstants(term) : undefined;
+              if (decided === false) reached = false;
+              else if (decided === undefined) kept.push(term);
+            }
+            // The member's tests and values are of its fields as the consumer gets it. This part's own tests on the way
+            // to the call are the source's business, as for its own list, and are left out.
+            const condition = conjunction(kept);
+            if (!fields.length || !reached || !possible(conjunction([...s.conditions, condition]))) continue;
+            const proof = finding(constant(0), condition, { ...s, uncertain: false }, [
+              evidenceOf(i),
+              ...member.evidence,
+            ]);
+            iterationOutcomes.push({
+              ...member,
+              condition,
+              fields: fields.map((f) => ({ ...f, condition, routine: entry.address })),
+              listConsumer: { address: contract.address, call: i.address },
+              ...proof,
+              confidence:
+                member.confidence === "unresolved" || proof.confidence === "unresolved" ? "unresolved" : "inferred",
+              assumptions: [...new Set([...proof.assumptions, ...member.assumptions, ...listScope.assumptions])],
+            });
+          }
       }
       if (engine?.factory) {
         const type = args.at(-1 - (engine.factory.typeArgument - engine.argumentOffset) / 2)?.value;
@@ -3429,6 +4179,46 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           continue;
         }
       }
+      // A helper that picks what it stores by tests of its part's fields, like the mouse motor's start, splits the pass
+      // on a member the loop observes by those tests, so each outcome knows the values stored on the member. A bounce
+      // splits the same way on the part that touched it, like the gear's pushes.
+      if (engine?.kind === "owner-field-update" && (passesObservedMember || passesCollider) && !pureReturnRelations) {
+        const splits = new Map<string, Extract<Predicate, { kind: "compare" }>>();
+        for (const effect of engine.writes) {
+          if (effect.root !== "argument" || effect.path.length || effect.argumentOffset !== engine.argumentOffset)
+            continue;
+          for (const term of effect.condition.kind === "and" ? effect.condition.terms : [effect.condition]) {
+            if (term.kind !== "compare") continue;
+            const mapped = formalPredicate(term, args, engine.argumentOffset, s) as Extract<
+              Predicate,
+              { kind: "compare" }
+            >;
+            if (entails(mapped, s) || !possible(conjunction([...s.conditions, mapped]))) continue;
+            const other = negate(mapped) as Extract<Predicate, { kind: "compare" }>;
+            const [a, b] = [JSON.stringify(mapped), JSON.stringify(other)];
+            splits.set(a < b ? a : b, a < b ? mapped : other);
+          }
+        }
+        if (splits.size && splits.size <= 2) {
+          const branches: AbstractState[] = [];
+          let declined = false;
+          for (let choice = 0; choice < 2 ** splits.size && !declined; choice++) {
+            const branch = clone(s);
+            [...splits.values()].forEach((test, n) => branch.conditions.push(choice & (2 ** n) ? negate(test) : test));
+            if (!possible(conjunction(branch.conditions))) continue;
+            if (!applyEngine(engine, args, branch, i)) declined = true;
+            else {
+              returnedStack(branch);
+              branches.push(branch);
+            }
+          }
+          if (!declined) {
+            for (const branch of branches)
+              enqueue({ at: i.segment * 16 + ((i.offset + i.size) & 0xffff), state: branch });
+            continue;
+          }
+        }
+      }
       if (engine && !pureReturnRelations && !preciseMemberRelations && applyEngine(engine, args, s, i)) {
         returnedStack(s);
         const next = i.segment * 16 + ((i.offset + i.size) & 0xffff);
@@ -3463,12 +4253,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               s,
               summary.objectPointer.argumentOffset,
             ),
+            // A drawing field the helper set through the frame drawing helper is as large as that helper's value.
             value: formalValue(
               effect.value,
               args,
               summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset,
               s,
               summary.objectPointer.argumentOffset,
+              FRAME_DRAWING_BUDGET,
             ),
           }));
           const returned = outcomeReturn(outcome);
@@ -3503,6 +4295,31 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               branch,
             );
           registerWrite("ax", tracked(returned.value, uniqueEvidence([...returned.evidence, evidenceOf(i)])), branch);
+          // The centre angle's answer keeps which parts' centres it is of, when both are parts the caller names.
+          const centre = engine?.centreAngle;
+          const from = centre && formalArgument(args, 6, centre.arguments.from).value,
+            to = centre && formalArgument(args, 6, centre.arguments.to).value;
+          if (from?.kind === "pointer" && to?.kind === "pointer" && !from.displacement && !to.displacement) {
+            // An angle the summary can't give as a formula is named after the call: one value of the run, which the
+            // centre angle works out from the two parts' centres.
+            const answer = registerRead("ax", branch);
+            registerWrite(
+              "ax",
+              {
+                ...answer,
+                ...(containsUnknown(asExpression(answer.value))
+                  ? {
+                      value: {
+                        ...field(`centre angle answer at ${hex(i.address)}`, 0, 16),
+                        unresolved: true,
+                      } as Expression,
+                    }
+                  : {}),
+                centreAngle: { routine: centre!.routine, call: i.address, from: from.object, to: to.object },
+              },
+              branch,
+            );
+          }
           branch.flags = undefined;
           branch.carry = undefined;
           returnedStack(branch);
@@ -3540,9 +4357,43 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       if (summary && passesPart) {
         const possibleWrites = summary.writes.filter((w) => w.object === "part");
+        // The helper's relation may give a field the one value every way through the helper leaves in it, as a value of
+        // the part's fields when the helper starts: worked out before any of the helper's writes go in.
+        const relation =
+          engine && /relation$/.test(engine.kind) && engine.argumentOffset === summary.objectPointer.argumentOffset
+            ? engine
+            : undefined;
+        const finals = new Map<number, { value: Tracked; width: number }>();
+        for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
+          const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
+          if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
+          const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
+          if (!containsUnknown(asExpression(value.value))) finals.set(offset, { value, width: exact[0]!.width });
+        }
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
           const effects = possibleWrites.filter((w) => w.offset === offset);
-          if (effects.length === 1 && effects[0]!.condition.kind === "true" && effects[0]!.value.kind === "constant") {
+          const final = finals.get(offset);
+          if (final) {
+            s.registers.set("__summary_part", tracked({ kind: "pointer", object: "part", displacement: 0, width: 16 }));
+            write(
+              {
+                kind: "memory",
+                segment: "ds",
+                base: ["__summary_part"],
+                displacement: offset,
+                direct: false,
+                width: final.width === 8 ? 8 : 16,
+              },
+              tracked(final.value.value, uniqueEvidence([...final.value.evidence, evidenceOf(i)])),
+              s,
+              i,
+            );
+            s.registers.delete("__summary_part");
+          } else if (
+            effects.length === 1 &&
+            effects[0]!.condition.kind === "true" &&
+            effects[0]!.value.kind === "constant"
+          ) {
             const w = effects[0]!;
             const op: Operand = {
               kind: "memory",
@@ -3735,7 +4586,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         "Symbolic path budget reached; remaining path conditions are unresolved",
       );
   }
-  const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [JSON.stringify(item), item])).values()];
+  // Findings that say the same thing are duplicates whichever path proved them; one path's evidence is enough.
+  const key = (item: unknown) =>
+    JSON.stringify(item, (name, value: unknown) => (name === "evidence" ? undefined : value));
+  const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [key(item), item])).values()];
   return {
     ...code,
     ...(gearRun ? { gearRun } : {}),
@@ -3754,7 +4608,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       evidence: uniqueEvidence(pointerEvidence),
     },
     writes: dedup(writes),
-    transitions: mergeTransitions(dedup(transitions)),
+    transitions: markConditional(mergeTransitions(dedup(transitions), !uncertainEffects), !uncertainEffects),
     comparisons: dedup(comparisons),
     outcomes: dedup(outcomes),
     iterationOutcomes: dedup(iterationOutcomes),
@@ -3772,10 +4626,85 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   };
 }
 
-/** Eliminates a branch only when both complementary outcomes have exactly the same final state expression. */
-function mergeTransitions(input: Transition[]): Transition[] {
+/**
+ * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
+ * found list, what a call writes to parts it selects, the part's own field after such a call, the neighbours an
+ * ordered insertion links a part between, or the angle between two parts' centres.
+ */
+const RUN_VALUE =
+  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
+/** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
+function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
+  switch (value.kind) {
+    case "unknown":
+      return undefined;
+    case "field":
+      if (!value.unresolved) return found;
+      if (!RUN_VALUE.test(value.object)) return undefined;
+      found.add(value.object);
+      return found;
+    case "binary":
+      return runValuesIn(value.left, found) && runValuesIn(value.right, found);
+    case "table":
+      return runValuesIn(value.index, found);
+    case "compare":
+      return runValuesIn(value.left, found) && runValuesIn(value.right, found);
+    case "and":
+      return value.terms.every((term) => runValuesIn(term, found)) ? found : undefined;
+    default:
+      return found;
+  }
+}
+/**
+ * A rule that is unresolved only because it tests values found during the run is conditional: for each value the run
+ * finds, it says what happens. That needs every path of the routine to have kept track of its effects.
+ */
+function markConditional(transitions: Transition[], pathsCertain: boolean): Transition[] {
+  if (!pathsCertain) return transitions;
+  return transitions.map((transition) => {
+    if (transition.confidence !== "unresolved") return transition;
+    const values = runValuesIn(transition.condition);
+    if (!values || !runValuesIn(transition.to, values) || !values.size) return transition;
+    return { ...transition, runValues: [...values].sort() };
+  });
+}
+
+/**
+ * Run values that only say a call, a query or a list scan may have written the field: the value it writes isn't
+ * followed, so such a name tells no more than an unknown would, only where the write comes from.
+ */
+const CALL_WRITTEN =
+  /^(value the (query|call)|part after field effect|part after list scan|value after the list scan|part after the query) at /;
+/**
+ * Counts a part's rules: unresolved ones, conditional ones (they test only values found during the run) and, apart from
+ * both, three groups by what they write. Rules with unknown writes write a value nobody named (an unknown, or a value
+ * read again after one). Rules with call-written values write no such value, but at least one value only says that a
+ * call may have written the field (`CALL_WRITTEN`), which is no more than an unknown. Rules with named run values write
+ * only known values and run values whose identity is known, like a search's answer or found list, and at least one.
+ */
+export function transitionCounts(transitions: Transition[]) {
+  const anonymous = (t: Transition) => t.updates?.some((update) => !runValuesIn(update.value)) ?? false;
+  const written = (t: Transition) =>
+    t.updates?.flatMap((update) => [...(runValuesIn(update.value) ?? [])]) ?? ([] as string[]);
+  return {
+    unresolved: transitions.filter((t) => t.confidence === "unresolved" && !t.runValues).length,
+    conditional: transitions.filter((t) => t.runValues).length,
+    unknownWrites: transitions.filter(anonymous).length,
+    callWritten: transitions.filter((t) => !anonymous(t) && written(t).some((name) => CALL_WRITTEN.test(name))).length,
+    namedRunValues: transitions.filter(
+      (t) => !anonymous(t) && written(t).length > 0 && !written(t).some((name) => CALL_WRITTEN.test(name)),
+    ).length,
+  };
+}
+
+/**
+ * Eliminates a branch only when both complementary outcomes have exactly the same final state expression. When no path
+ * of the routine lost track of its effects, a pair that was unresolved only through the dropped test, like a query's
+ * answer, has a resolved state path once merged: both answers lead to the same state. A field the two set differently
+ * keeps both values, chosen by the dropped test.
+ */
+function mergeTransitions(input: Transition[], pathsCertain = false): Transition[] {
   const result = [...input];
-  const inverse: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
   const terms = (p: Predicate) => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]);
   let changed = true;
   while (changed) {
@@ -3793,20 +4722,27 @@ function mergeTransitions(input: Transition[]): Transition[] {
         if (onlyLeft.length !== 1 || onlyRight.length !== 1) continue;
         const x = onlyLeft[0]!;
         const y = onlyRight[0]!;
-        if (x.kind !== "compare" || y.kind !== "compare" || !same({ ...x, operator: inverse[x.operator] }, y)) continue;
+        if (x.kind !== "compare" || y.kind !== "compare" || !same({ ...x, operator: OPPOSITE[x.operator] }, y))
+          continue;
         const condition = conjunction(lt.filter((p) => p !== x));
         const updates: FieldWrite[] = [];
         const leftFields = new Map((left.updates ?? []).map((u) => [`${u.object}:${u.offset}:${u.width}`, u]));
         const rightFields = new Map((right.updates ?? []).map((u) => [`${u.object}:${u.offset}:${u.width}`, u]));
+        // A field one rule leaves out keeps its old value there only when that path's effects are complete; otherwise
+        // the field may have changed on that path too, so the two rules stay apart.
+        if (
+          (left.effectsIncomplete && [...rightFields.keys()].some((key) => !leftFields.has(key))) ||
+          (right.effectsIncomplete && [...leftFields.keys()].some((key) => !rightFields.has(key)))
+        )
+          continue;
         for (const key of new Set([...leftFields.keys(), ...rightFields.keys()])) {
           const l = leftFields.get(key);
           const r = rightFields.get(key);
           const exemplar = l ?? r!;
           const lv = l?.value ?? field(exemplar.object, exemplar.offset, exemplar.width);
           const rv = r?.value ?? field(exemplar.object, exemplar.offset, exemplar.width);
-          const value = same(lv, rv)
-            ? lv
-            : unknown(`Field ${hex(exemplar.offset)} differs on complementary paths`, exemplar.width);
+          // A field the two paths set differently keeps both values, with the test that picks one.
+          const value = choose(x, lv, rv, exemplar.width);
           updates.push({
             ...exemplar,
             condition,
@@ -3815,10 +4751,17 @@ function mergeTransitions(input: Transition[]): Transition[] {
             evidence: uniqueEvidence([...(l?.evidence ?? []), ...(r?.evidence ?? [])]),
           });
         }
+        const settled =
+          pathsCertain &&
+          left.confidence === "unresolved" &&
+          !containsUnknown(left.to) &&
+          !uncertainPredicate(condition);
         result[a] = {
           ...left,
+          ...(settled ? { confidence: "inferred" as const } : {}),
           condition,
           ...(left.updates || right.updates ? { updates } : {}),
+          ...(left.effectsIncomplete || right.effectsIncomplete ? { effectsIncomplete: true as const } : {}),
           assumptions: [...new Set([...left.assumptions, ...right.assumptions])],
           evidence: uniqueEvidence([...left.evidence, ...right.evidence]),
         };
@@ -4077,6 +5020,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       : returnKinds.size === 1 && returnKinds.has("ret")
         ? 4
         : 6;
+    let externalList: ListLoopSummary | undefined;
     if (code && !counts.has(address)) {
       const consumers = discoverExternalListConsumers(code, engineSummaries, stateOffset);
       if (consumers.length === 1) {
@@ -4105,6 +5049,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
           },
         };
         engineSummaries.set(address, conditional);
+        externalList = contract.loop;
         const at = helpers.findIndex((h) => h.address === address);
         if (at < 0) helpers.push(conditional);
         else helpers[at] = conditional;
@@ -4115,11 +5060,12 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       stateOffset,
       argumentOffset,
       summaries,
-      maxVisits: counts.has(address) ? 4000 : 800,
+      maxVisits: counts.has(address) ? 12_000 : 800,
       code,
       engineSummaries,
       codes,
       layout,
+      ...(externalList ? { externalList } : {}),
       ...(callbackSlots.get(address)?.size === 1 &&
       callbackSlots.get(address)!.has(0) &&
       layout.callbacks[0]?.objectSource?.path.length === 1
@@ -4127,6 +5073,19 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         : {}),
     });
     summaries.set(address, routine);
+    // A consumer's member outcomes count only when its analysis went over every path within its budget, and they
+    // write every member field its footprint has: a member path the analysis lost would leave one out.
+    const consumer = externalList && engineSummaries.get(address)?.listConsumer;
+    const members = (routine.iterationOutcomes ?? []).filter((o) => o.header === externalList?.header);
+    const written = new Set(members.flatMap((o) => o.fields.map((f) => f.offset)));
+    if (
+      consumer &&
+      routine.analysisWork &&
+      routine.analysisWork.visits < routine.analysisWork.limit &&
+      !routine.analysisWork.pendingPaths &&
+      consumer.fields.every((f) => f.root !== "member" || written.has(f.offset))
+    )
+      consumer.memberOutcomes = members;
     if (!engineSummaries.get(address)?.footprint.partMemoryComplete) {
       const relation = engineFromObjectRelation(routine, layout, engineSummaries);
       if (relation) {
@@ -4138,7 +5097,155 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     }
     return routine;
   };
+  const frameFields = Object.fromEntries(
+    ["drawX", "drawY", "frameWidth", "frameHeight"].map((name) => [
+      name,
+      layout.fields.find((f) => f.name === name)?.offset,
+    ]),
+  );
+  if (Object.values(frameFields).every((offset) => offset !== undefined))
+    proveFrameDrawing(
+      engineSummaries,
+      frameFields as { drawX: number; drawY: number; frameWidth: number; frameHeight: number },
+      (engine) =>
+        analyseRoutine(image, entries.get(engine.address)!, {
+          dataSegment: list.dataSegment,
+          stateOffset,
+          argumentOffset: engine.argumentOffset,
+          summaries: new Map(),
+          maxVisits: 800,
+          code: codes.get(engine.address),
+          engineSummaries,
+          codes,
+          layout,
+          tableReads: true,
+        }),
+      (operator, left, right, width) => binary(operator, left, right, width, Infinity),
+    );
+  addRelayOwnerKeeps();
+  addRopeDispatch();
   for (const callbacks of references.values()) for (const callback of callbacks) summarise(callback.address);
+
+  /**
+   * The fields the byte relay's owner keeps, by decided assumptions about the parts that call it. A routine that calls
+   * the relay, is named directly by the type table and is called by nothing else runs on a part of the types that name
+   * it. When none of those is a rope piece or a pulley, the owner never holds a rope record, so the rope geometry update
+   * never writes its rope ends (decided assumption 19). When it is named only as a flip callback, the editor never flips
+   * the part while its belt has a loose end, so the belt end check changes no links (decided assumption 20). Other
+   * callers keep nothing.
+   */
+  function addRelayOwnerKeeps() {
+    const ids = new Map(list.list.parts.map((part) => [part.type, part.id]));
+    const ropeTypes = [...ids].filter(([, id]) => id === "rope" || id === "pulley").map(([type]) => type);
+    const flipField = layout.callbacks.find((callback) => callback.role === "flip")?.field;
+    const calledDirectly = (address: number) =>
+      [...codes.values()].some((caller) => caller.calls.some((call) => call.target?.address === address));
+    for (const relay of [...engineSummaries.values()].filter(
+      (summary) => summary.kind === "related-byte-propagation" && summary.connected,
+    )) {
+      const callers = [...codes.values()]
+        .filter((caller) => caller.calls.some((call) => call.target?.address === relay.address))
+        .filter((caller) => counts.has(caller.address) && !calledDirectly(caller.address));
+      const holderCallers: number[] = [];
+      const flipCallers: number[] = [];
+      for (const caller of callers) {
+        const naming = list.records.filter((record) =>
+          references.get(record.type)!.some((callback) => callback.address === caller.address),
+        );
+        if (
+          ropeTypes.length === 2 &&
+          naming.every((record) => ids.has(record.type) && !ropeTypes.includes(record.type))
+        )
+          holderCallers.push(caller.address);
+        if (
+          flipField !== undefined &&
+          naming.every((record) =>
+            references
+              .get(record.type)!
+              .every((callback) => callback.address !== caller.address || callback.field === flipField),
+          )
+        )
+          flipCallers.push(caller.address);
+      }
+      const keeps = [
+        ...(holderCallers.length ? (relay.connected!.ropeHolderFields ?? []) : []).map((field) => ({
+          ...field,
+          assumption: ROPE_HOLDER_ASSUMPTION,
+          callers: holderCallers,
+        })),
+        ...(flipCallers.length ? (relay.connected!.beltEndFields ?? []) : []).map((field) => ({
+          ...field,
+          assumption: FLIP_BELT_ASSUMPTION,
+          callers: flipCallers,
+        })),
+      ];
+      if (!keeps.length) continue;
+      const kept: EngineSummary = { ...relay, connected: { ...relay.connected!, ownerKeeps: keeps } };
+      engineSummaries.set(relay.address, kept);
+      const at = helpers.findIndex((helper) => helper.address === relay.address);
+      if (at >= 0) helpers[at] = kept;
+    }
+  }
+
+  /**
+   * Bounds the rope connection query by what the rope callbacks it can reach write, read from the type table slot it
+   * calls. A callback that itself asks along a rope makes this recursive, so the bound is repeated until it is stable;
+   * every round must classify every callback, or the query keeps its unbounded summary.
+   */
+  function addRopeDispatch() {
+    for (const query of [...engineSummaries.values()].filter((summary) => summary.kind === "connection-query")) {
+      const code = codes.get(query.address);
+      const dispatch = code?.instructions.find((i) => i.flow === "call" && !i.target && i.far);
+      const operand = dispatch?.operands[0];
+      // The table is in the segment the call uses: one loaded into ES just before it, or the data segment. Either way
+      // its start, the displacement less the rope slot's field, must be the program's type table.
+      const before = code?.instructions.filter((i) => dispatch && i.address < dispatch.address) ?? [];
+      const loadEs = before.findLast(
+        (i) => i.mnemonic === "mov" && i.operands[0]?.kind === "register" && i.operands[0].name === "es",
+      );
+      const loadDx =
+        loadEs &&
+        before
+          .filter((i) => i.address < loadEs.address)
+          .findLast((i) => i.mnemonic === "mov" && i.operands[0]?.kind === "register" && i.operands[0].name === "dx");
+      const ropeField = layout.callbacks.find((callback) => callback.role === "rope")?.field;
+      if (!code || operand?.kind !== "memory" || ropeField === undefined) continue;
+      const base =
+        operand.segment === "ds"
+          ? list.dataSegment * 16
+          : operand.segment === "es" && loadEs?.operands[1]?.kind === "register" && loadEs.operands[1].name === "dx"
+            ? loadDx?.operands[1]?.kind === "immediate"
+              ? loadDx.operands[1].value * 16
+              : undefined
+            : undefined;
+      if (base === undefined || base + operand.displacement - ropeField !== list.table) continue;
+      const word = (at: number) => image[at]! | (image[at + 1]! << 8);
+      const ropeCallbackAt = (type: number) => {
+        const at = list.table + type * 58 + ropeField;
+        return word(at + 2) * 16 + word(at);
+      };
+      const targets = [...new Set(list.records.map((record) => ropeCallbackAt(record.type)))];
+      if (!targets.every((target) => entries.has(target))) continue;
+      // A question can come back to the part that asked, and then that part's own rope callback runs on it. The parts
+      // that ask are the parts of the routines that call the query. When each is named directly by the type table and
+      // called by nothing else, its part is of the types that name it, so only their rope callbacks can change it.
+      // Otherwise every callback can.
+      const callers = [...codes.values()].filter((caller) =>
+        caller.calls.some((call) => call.target?.address === query.address),
+      );
+      const calledDirectly = (address: number) =>
+        [...codes.values()].some((caller) => caller.calls.some((call) => call.target?.address === address));
+      const asking = callers.every((caller) => counts.has(caller.address) && !calledDirectly(caller.address))
+        ? list.records
+            .filter((record) =>
+              references.get(record.type)!.some((callback) => callers.some((c) => c.address === callback.address)),
+            )
+            .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
+        : undefined;
+      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, () => summaries.clear());
+    }
+    summaries.clear();
+  }
   for (const [address, code] of codes)
     if (!summaries.has(address))
       summaries.set(address, {
@@ -4162,6 +5269,62 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         engineCalls: [],
         uncertainEffects: true,
       });
+  const typeTable = {
+    address: list.table,
+    stride: 58,
+    words: list.records.map((record) =>
+      Array.from(
+        { length: record.bytes.length >> 1 },
+        (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
+      ),
+    ),
+  };
+  // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
+  const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
+  const frameOffsets = Object.values(frameFields) as number[];
+  const sheetList = list.sheetFrames?.size ? proveSheetFrameList(image, list.dataSegment, list.table) : undefined;
+  const frameWriteForType = (write: FieldWrite, type: number): FieldWrite => {
+    if (typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset)) return write;
+    const used = { table: false };
+    const value = frameDrawingForType(
+      write.value,
+      type,
+      typeOffset,
+      typeTable,
+      (operator, left, right, width) => binary(operator, left, right, width, Infinity),
+      used,
+    );
+    // With the part's sheet, a frame's size from the list the game loaded from it is the sheet's.
+    const frames = sheetList && list.sheetFrames?.get(type);
+    const sheet = { sheet: false };
+    const sized = frames
+      ? sheetFrameSizeForType(
+          value,
+          frameListWord(list.table, type),
+          list.dataSegment,
+          frames,
+          (operator, left, right, width) => binary(operator, left, right, width, Infinity),
+          sheet,
+        )
+      : value;
+    if (sized === write.value) return write;
+    const assumptions = [
+      ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+      ...(sheet.sheet ? sheetList!.assumptions : []),
+    ];
+    return {
+      ...write,
+      value: sized,
+      ...(assumptions.length ? { assumptions: [...new Set([...write.assumptions, ...assumptions])] } : {}),
+      ...(sheet.sheet ? { evidence: [...write.evidence, ...sheetList!.evidence] } : {}),
+    };
+  };
+  // A value that tests the owner's type, like whether the relay gives the owner its byte, is decided for the type.
+  const ownTypeWrite = (write: FieldWrite, type: number): FieldWrite => {
+    if (typeOffset === undefined) return write;
+    const value = withOwnType(write.value, type, typeOffset);
+    return value === write.value ? write : { ...write, value };
+  };
   const parts = list.list.parts.map((part): PartBehaviour => {
     const callbacks = references.get(part.type)!;
     const routines = callbacks.map((callback) => {
@@ -4191,7 +5354,17 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         from: stateCountOf(part)
           ? Array.from({ length: stateCountOf(part) }, (_, n) => n).filter((n) => possible(t.condition, n, stateOffset))
           : t.from,
-      }));
+      }))
+      .map((t) => {
+        const updates = t.updates?.map((write) => ownTypeWrite(frameWriteForType(write, part.type), part.type));
+        return updates?.some((write, n) => write !== t.updates![n])
+          ? {
+              ...t,
+              updates,
+              assumptions: [...new Set([...t.assumptions, ...updates.flatMap((write) => write.assumptions)])],
+            }
+          : t;
+      });
     const counterOffsets = new Set(
       allWrites
         .filter(
@@ -4285,14 +5458,16 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       stateWrites,
       transitions,
       counters,
-      reset: allWrites.filter((w) => w.routine === resetAddress),
-      visibleEffects: allWrites.filter(
-        (w) =>
-          w.object === "part" &&
-          layout.fields
-            .filter((f) => !["previousState", "stateDelta"].includes(f.name))
-            .some((f) => f.offset === w.offset),
-      ),
+      reset: allWrites.filter((w) => w.routine === resetAddress).map((w) => frameWriteForType(w, part.type)),
+      visibleEffects: allWrites
+        .filter(
+          (w) =>
+            w.object === "part" &&
+            layout.fields
+              .filter((f) => !["previousState", "stateDelta"].includes(f.name))
+              .some((f) => f.offset === w.offset),
+        )
+        .map((w) => frameWriteForType(w, part.type)),
       triggers,
       uncertainties: [
         ...new Set([
@@ -4362,6 +5537,23 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       }
     }
   const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list, engineSummaries);
+  const outlineField = layout.fields.find((f) => f.name === "outlinePoints")?.offset;
+  const outlineTables =
+    outlineField === undefined
+      ? []
+      : [...new Set(parts.flatMap((part) => part.routines.map((routine) => routine.address)))].flatMap((address) => {
+          const code = codes.get(address);
+          const tables =
+            code &&
+            readOutlineTables(
+              code,
+              image,
+              list.dataSegment,
+              { outline: outlineField, state: stateOffset },
+              codes.values(),
+            );
+          return tables ? [tables] : [];
+        });
   if (!collisionDispatch.length)
     for (const part of parts)
       part.uncertainties.push(
@@ -4371,6 +5563,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     listId: list.list.id,
     ...(gearScheduling.length ? { gearScheduling } : {}),
     collisionDispatch,
+    ...(outlineTables.length ? { outlineTables } : {}),
     imageLength: image.length,
     dataSegment: list.dataSegment,
     layout,
@@ -4381,6 +5574,12 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),
+    createdParts: findCreatedParts(
+      [...summaries.values()],
+      helpers,
+      layout.fields.find((field) => field.name === "type")?.offset ?? 4,
+    ),
+    typeTable,
     assumptions: [
       "All addresses are relative to the unpacked load image, with the DOS relocation load base removed.",
       "Slot names, object field meanings and callback frequency have separate evidence and must not be promoted from a v25 lead alone.",

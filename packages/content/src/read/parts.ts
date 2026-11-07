@@ -9,6 +9,7 @@ import { NOT_IN_TIM1, TIM2_IDS, TIM_IDS } from "../part-ids.ts";
 import { unpackLzexe } from "./lzexe.ts";
 import { animationSheets, readPartNames } from "./tim2.ts";
 import { RECORD_SIZE, findDataSegment, findTypeTable, readOffsets, readTypes, type ExeType } from "./type-table.ts";
+import { sheetFrameSizes, type FrameSize } from "./behaviour-sheet-frames.ts";
 
 export const GAMES = {
   tim1: { game: "The Incredible Machine", types: 58 },
@@ -19,6 +20,8 @@ export type ListId = keyof typeof GAMES;
 
 /** The number of sprites in a sheet, like `PART18`, or undefined when the game has no such sheet. */
 export type SpriteCount = (sheet: string) => number | undefined;
+/** The file of a sheet, like `PART18`, as it ships, or undefined when the game has no such sheet. */
+export type SheetData = (sheet: string) => Uint8Array | undefined;
 
 /** A record of the type table, as it is in the program. */
 export interface TypeRecord {
@@ -35,6 +38,11 @@ export interface ProgramParts {
   /** Where the table starts in the unpacked program image. */
   table: number;
   dataSegment: number;
+  /**
+   * The size of each frame of a part's sheet, by type, as the game's frame list gets it when it loads the sheet. Only
+   * when the sheets were given, and only for a sheet the game's loader reads the way the analysis proved.
+   */
+  sheetFrames?: Map<number, FrameSize[]>;
 }
 
 /**
@@ -68,11 +76,15 @@ function framesOf(
   }));
 }
 
-/** Reads the parts of TIM 1 or Even More from `TIM.EXE`, packed as it ships, and the sprite counts of its sheets. */
+/**
+ * Reads the parts of TIM 1 or Even More from `TIM.EXE`, packed as it ships, and the sprite counts of its sheets. With
+ * the sheets' files, it also reads the frame sizes the game keeps for each part.
+ */
 export function readProgramParts(
   list: "tim1" | "evenmore",
   program: Uint8Array,
   spriteCount: SpriteCount,
+  sheetData?: SheetData,
 ): ProgramParts {
   const counts = new Map<string, number | undefined>();
   const spritesIn = (sheet: string) => {
@@ -99,7 +111,16 @@ export function readProgramParts(
     ];
   });
   const records = exeTypes.map(({ at }, type) => ({ type, at, bytes: image.slice(at, at + RECORD_SIZE) }));
-  return { list: { id: list, game: GAMES[list].game, parts }, records, table, dataSegment: ds };
+  const result: ProgramParts = { list: { id: list, game: GAMES[list].game, parts }, records, table, dataSegment: ds };
+  if (sheetData) {
+    result.sheetFrames = new Map();
+    for (const part of parts) {
+      const data = sheetData(`PART${part.type}`);
+      const sizes = data && sheetFrameSizes(data);
+      if (sizes) result.sheetFrames.set(part.type, sizes);
+    }
+  }
+  return result;
 }
 
 /**

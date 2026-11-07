@@ -1,6 +1,28 @@
 /** Builds descriptions and frame walks from extracted rules. No instruction stream is interpreted here. */
 import { describeCollisionDispatch } from "./behaviour-collision-dispatch.ts";
+import {
+  CONTROL_VALUES,
+  IMPOSSIBLE_STATES,
+  LEVEL_FRAMES,
+  ONE_FRAME_ASSUMPTION,
+  REACTION_FIELDS,
+} from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
+import {
+  CONTACT_RECORD,
+  FINE_POSITION,
+  changedBits,
+  effectsFromOthers,
+  flagWords,
+  nameOf as partWords,
+  partFields,
+  type OtherPartEffect,
+} from "./describe-effects.ts";
+import { compareWords, type Names } from "./describe-touch.ts";
+import { hitsFromOthers } from "./describe-hits.ts";
+import { createdPartLines, createdPartOf } from "./describe-created.ts";
+import { outlineOwner, outlineTableWords, outlineWords } from "./describe-outline.ts";
+import { choiceOf } from "./behaviour.ts";
 import type {
   BehaviourReport,
   Confidence,
@@ -33,8 +55,26 @@ export interface FrameVisit extends Finding {
 }
 
 export interface BehaviourWalk extends Finding {
-  status: "rest" | "loop" | "unresolved" | "limit";
+  /** `joins` ends a branch that reaches a state another branch of the same walk already follows from there on. */
+  status: "rest" | "loop" | "unresolved" | "limit" | "joins";
   states: number[];
+  /**
+   * For a walk that joins: where the branch it continues like is at that moment. `path` gives the branch numbers from
+   * the first walk of the tree and `index` the position in that branch's states. With `sameTests`, the walk knew the
+   * same tests there; otherwise it knew more, so the other branch may also go ways this one can't.
+   */
+  joined?: {
+    path: number[];
+    index: number;
+    sameTests: boolean;
+    /**
+     * When the other branch was there with its countdowns at other numbers: by how much each countdown of this walk is
+     * ahead. That branch's tests of a starting value then hold for this walk's starting value plus that much.
+     */
+    shift?: { offset: number; by: number }[];
+    /** When this walk knew more tests and all of them test starting values of countdowns: those fields. */
+    startTests?: number[];
+  };
   /** A proved identity rule can hold an unspecified input frame without selecting a number for it. */
   parameterised?:
     | { kind: "hold"; state: Expression; allowedStates?: number[] }
@@ -56,15 +96,43 @@ export interface BehaviourWalk extends Finding {
     description: string;
     evidence: Evidence[];
     fields?: { object: string; offset: number; width: number }[];
+    /**
+     * When an unknown input decides between rules, the walk that follows each of them, under that rule's own
+     * condition. The input is not chosen: every branch stays conditional, and the walk itself stays unresolved.
+     */
+    branches?: {
+      condition: Predicate;
+      /** When several rules lead to the same next fields: what else each of them tests, of which one holds. */
+      alternatives?: Predicate[];
+      walk: BehaviourWalk;
+    }[];
+    /**
+     * For a stop on a field's value: the writes to that field the analysis found, with their routines and values.
+     * They say where the value can come from; they are not proved to be every writer.
+     */
+    producers?: (Finding & {
+      source: string;
+      routine?: number;
+      offset: number;
+      value: Expression;
+      condition?: Predicate;
+    })[];
   };
   timingReason: string;
 }
 
 export interface RestDescription extends Finding {
-  status: "known" | "unresolved";
+  /**
+   * `saved`: every reset path is read and keeps the frame the level saved, so the level gives it (`frames` lists the
+   * ones it can be, when known). `sockets`: the paths set the frame from whether plugs are in the part's sockets, with
+   * the bits they keep from the saved frame. `unresolved`: the reset can't be read, or it depends on other fields.
+   */
+  status: "known" | "saved" | "sockets" | "unresolved";
   description: string;
   state?: number;
   frame?: number;
+  /** The frames the reset can leave, when its paths set the frame from bits it keeps and tests of other fields. */
+  frames?: number[];
   fields: KnownField[];
   reason?: string;
 }
@@ -86,6 +154,11 @@ export interface StableStateDescription extends Finding {
   frame?: number;
   fields: KnownField[];
   origins: { condition: Predicate; evidence: Evidence[] }[];
+  /**
+   * For a frame the walks rest on, rather than one a run outcome gives: how many walk branches rest there. `origins`
+   * then gives the conditions on the way of the first few. No walk starts from these, since the walks reach them.
+   */
+  walks?: number;
 }
 
 export interface AnimationDescription extends Finding {
@@ -101,9 +174,11 @@ export interface AnimationDescription extends Finding {
 }
 
 export interface DescribedEffect extends Finding {
-  kind: "drawing" | "counter" | "related-object" | "helper";
+  kind: "drawing" | "counter" | "related-object" | "helper" | "outline";
   description: string;
   condition?: Predicate;
+  /** When paths with different conditions do the same, each of their conditions, in place of `condition`. */
+  conditions?: Predicate[];
   field?: number;
   routine?: number;
 }
@@ -122,6 +197,8 @@ export interface PartBehaviourDescription extends Finding {
   animations: AnimationDescription[];
   triggers: { name: string; condition?: Predicate; evidence: Evidence[]; confidence: Confidence }[];
   uncertainties: string[];
+  /** What other parts do to this part without changing its frame, like the explosion's push. */
+  effectsFromOthers: OtherPartEffect[];
 }
 
 export interface BehaviourDescription extends Finding {
@@ -189,6 +266,25 @@ function bindingsOf(fields: Pick<KnownField, "object" | "offset" | "width" | "va
   return bindings;
 }
 
+const opaqueValues = new WeakMap<Expression, boolean>();
+/**
+ * True when no bit of the value can be known, whatever the fields are: it reads a table or an unknown value, and the
+ * operators on the way keep it unknown, as `valueOf` does. A drawing value of a frame is one; checking it once saves a
+ * walk from going through it at every step.
+ */
+function opaque(expression: Expression): boolean {
+  if (expression.kind === "constant") return false;
+  if (expression.kind === "field") return expression.unresolved === true;
+  if (expression.kind !== "binary") return true;
+  let known = opaqueValues.get(expression);
+  if (known === undefined) {
+    known = ["&", "|"].includes(expression.operator)
+      ? opaque(expression.left) && opaque(expression.right)
+      : opaque(expression.left) || opaque(expression.right);
+    opaqueValues.set(expression, known);
+  }
+  return known;
+}
 /** Partial bits allow a proved flag clear or set without inventing the remaining flags. */
 function valueOf(expression: Expression, bindings: Bindings): Bits {
   const width = expression.width;
@@ -197,7 +293,7 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
     return expression.unresolved
       ? unknownBits(width)
       : readField(bindings, expression.object, expression.offset, width);
-  if (expression.kind !== "binary") return unknownBits(width);
+  if (expression.kind !== "binary" || opaque(expression)) return unknownBits(width);
   const left = valueOf(expression.left, bindings);
   const right = valueOf(expression.right, bindings);
   if (expression.operator === "&") {
@@ -211,7 +307,8 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
     return bits(one, zero | one, width);
   }
   if (expression.operator === "^") return bits(left.value ^ right.value, left.mask & right.mask, width);
-  if (!known(left) || !known(right)) return unknownBits(width);
+  if (!known(left) || !known(right))
+    return expression.operator === "+" ? choiceBits(expression, bindings) : unknownBits(width);
   if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
     const a = wrap(left.value, expression.left.width),
       b = wrap(right.value, expression.left.width),
@@ -275,6 +372,28 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
   }
   return bits(value, full(width), width);
 }
+const choices = new WeakMap<Expression, ReturnType<typeof choiceOf> | null>();
+/**
+ * A value two paths set differently, `(test) * a + (opposite) * b` (see `choose`), that the walk can't work out the
+ * plain way. Exactly one of the two tests holds, so the value is `a` or `b`: the one the test picks when the walk can
+ * decide the test, and otherwise the bits both agree on. The monkey bike's control value after its reaction on frames 9
+ * to 12 is -1 or 1 by a drawing flag the walk doesn't know; either way bit 0 is set, so it isn't 0.
+ */
+function choiceBits(expression: Expression, bindings: Bindings): Bits {
+  const width = expression.width;
+  let choice = choices.get(expression);
+  if (choice === undefined) choices.set(expression, (choice = choiceOf(expression) ?? null));
+  if (!choice) return unknownBits(width);
+  const test = predicateWithoutConstraints(choice.test, bindings);
+  if (test !== undefined) {
+    const value = valueOf(test ? choice.then : choice.otherwise, bindings);
+    return bits(value.value, value.mask, width);
+  }
+  const then = valueOf(choice.then, bindings),
+    otherwise = valueOf(choice.otherwise, bindings);
+  const mask = then.mask & otherwise.mask & ~(then.value ^ otherwise.value) & full(width);
+  return bits(then.value & mask, mask, width);
+}
 function predicateWithoutConstraints(predicate: Predicate, bindings: Bindings): boolean | undefined {
   if (predicate.kind === "true") return true;
   if (predicate.kind === "unknown") return undefined;
@@ -310,7 +429,14 @@ function predicateWithoutConstraints(predicate: Predicate, bindings: Bindings): 
 
 const predicateTerms = (predicate: Predicate): Predicate[] =>
   predicate.kind === "and" ? predicate.terms.flatMap(predicateTerms) : predicate.kind === "true" ? [] : [predicate];
-const sameExpression = (left: Expression, right: Expression) => JSON.stringify(left) === JSON.stringify(right);
+/** The text of an expression or condition, kept per object: the walks compare the same ones many times. */
+const texts = new WeakMap<object, string>();
+const textOf = (value: Expression | Predicate): string => {
+  let text = texts.get(value);
+  if (text === undefined) texts.set(value, (text = JSON.stringify(value)));
+  return text;
+};
+const sameExpression = (left: Expression, right: Expression) => left === right || textOf(left) === textOf(right);
 const inverseComparison: Record<string, string> = {
   "==": "!=",
   "!=": "==",
@@ -390,7 +516,7 @@ function expressionFields(expression: Expression): { object: string; offset: num
 function inputPredicate(predicate: Predicate): boolean {
   if (predicate.kind !== "compare") return false;
   const stableObject = (object: string): boolean => {
-    if (object === "part") return true;
+    if (object === "part" || object === START) return true;
     if (object.startsWith("address of ")) return stableObject(object.slice(11));
     const match = /^referenced-by\((.*)\+0x[0-9a-f]+\)$/.exec(object);
     return !!match && stableObject(match[1]!);
@@ -443,10 +569,50 @@ export function evaluateBehaviourCondition(
   return predicateOf(condition, bindingsOf(fields));
 }
 
+/** A rule with numbers for its values after a query: the rule it was made from, and those numbers as text. */
+const originalRule = new WeakMap<object, WithUpdates>();
+const runValueKey = new WeakMap<object, string>();
+/** By part: its rules with numbers for their values after a query, made once per set of numbers. */
+const runRuleSets = new WeakMap<PartBehaviour, Map<string, WithUpdates[]>>();
+/** The rules with these numbers for their values after a query. */
+function rulesWithRunValues(part: PartBehaviour, rules: WithUpdates[], values: ReadonlyMap<string, number>) {
+  const text = JSON.stringify([...values]);
+  let sets = runRuleSets.get(part);
+  if (!sets) runRuleSets.set(part, (sets = new Map()));
+  const key = `${rules[0]?.routine}:${text}`;
+  let list = sets.get(key);
+  if (!list) {
+    list = rules.map((rule) => {
+      const updates = rule.updates?.map((write) =>
+        afterQueryFields(write.value).size ? { ...write, value: withRunValues(write.value, values) } : write,
+      );
+      const changed =
+        afterQueryFields([rule.to, rule.condition]).size || updates?.some((w, n) => w !== rule.updates![n]);
+      if (!changed) return rule;
+      const copy: WithUpdates = {
+        ...rule,
+        to: withRunValues(rule.to, values),
+        condition: withRunValues(rule.condition, values),
+        ...(updates ? { updates } : {}),
+      };
+      originalRule.set(copy, rule);
+      runValueKey.set(copy, text);
+      return copy;
+    });
+    sets.set(key, list);
+  }
+  return list;
+}
+/** The finding of each set of rules a part's walks take a step under, by the rules' places in its transitions. */
+const stepFindings = new WeakMap<PartBehaviour, { index: Map<unknown, number>; steps: Map<string, Finding> }>();
+/** The fields each part's walks track, worked out once per part; callers get their own copy to add to. */
+const definitionsOf = new WeakMap<PartBehaviour, { object: string; offset: number; width: number }[]>();
 function fieldDefinitions(
   report: BehaviourReport,
   part: PartBehaviour,
 ): { object: string; offset: number; width: number }[] {
+  const cached = definitionsOf.get(part);
+  if (cached) return [...cached];
   const fields = new Map<string, { object: string; offset: number; width: number }>();
   const add = (object: string, offset: number, width: number) =>
     fields.set(`${object}:${offset}:${width}`, { object, offset, width });
@@ -460,7 +626,54 @@ function fieldDefinitions(
   for (const item of report.layout.fields) add("part", item.offset, 16);
   for (const transition of part.transitions as WithUpdates[])
     for (const item of transition.updates ?? []) add(item.object, item.offset, item.width);
+  definitionsOf.set(part, [...fields.values()]);
   return [...fields.values()];
+}
+/**
+ * The bindings with each part field a condition tests for one number set to that number, or the same bindings when it
+ * sets none. Only plain fields of the part count, whose value the walk doesn't know yet.
+ */
+function withEqualities(bindings: Bindings, condition: Predicate): Bindings {
+  let result = bindings;
+  for (const term of predicateTerms(condition)) {
+    if (term.kind !== "compare" || term.operator !== "==") continue;
+    const [field, number] =
+      term.left.kind === "field" && term.right.kind === "constant"
+        ? [term.left, term.right]
+        : term.right.kind === "field" && term.left.kind === "constant"
+          ? [term.right, term.left]
+          : [];
+    if (!field || !number || field.kind !== "field" || number.kind !== "constant") continue;
+    if ((field.object !== "part" && field.object !== START) || field.unresolved || ![8, 16].includes(field.width))
+      continue;
+    if (known(readField(result, field.object, field.offset, field.width))) continue;
+    if (result === bindings) result = new Map(bindings);
+    writeField(
+      result,
+      field.object,
+      field.offset,
+      bits(number.value & full(field.width), full(field.width), field.width),
+    );
+  }
+  return result;
+}
+/** The terms every list has. */
+const shared = (lists: Predicate[][]) =>
+  lists[0]!.filter((term) => lists.every((list) => list.some((other) => textOf(other) === textOf(term))));
+/** The field bits several bindings agree on; a field they set differently is left out. */
+function agreedBindings(list: Bindings[]): Bindings {
+  const [first, ...rest] = list;
+  const agreed: Bindings = new Map();
+  for (const [key, bits] of first!) {
+    let mask = bits.mask;
+    for (const other of rest) {
+      const item = other.get(key);
+      mask = item && item.width === bits.width ? mask & item.mask & ~(item.value ^ bits.value) : 0;
+      if (!mask) break;
+    }
+    if (mask) agreed.set(key, { value: bits.value & mask, mask, width: bits.width });
+  }
+  return agreed;
 }
 function fieldsOf(
   bindings: Bindings,
@@ -477,26 +690,204 @@ function applyWrites(bindings: Bindings, writes: FieldWrite[]): Bindings {
   for (const write of writes) writeField(next, write.object, write.offset, valueOf(write.value, bindings));
   return next;
 }
+/**
+ * True when an expression or predicate contains an unknown value, or, unless `fields` is false, a reference to a field
+ * whose value an earlier unresolved write in the same routine replaced.
+ */
+function containsUnknown(value: Expression | Predicate, fields = true): boolean {
+  switch (value.kind) {
+    case "unknown":
+      return true;
+    case "field":
+      return fields && !!value.unresolved;
+    case "binary":
+      return containsUnknown(value.left, fields) || containsUnknown(value.right, fields);
+    case "table":
+      return containsUnknown(value.index, fields);
+    case "compare":
+      return containsUnknown(value.left, fields) || containsUnknown(value.right, fields);
+    case "and":
+      return value.terms.some((term) => containsUnknown(term, fields));
+    default:
+      return false;
+  }
+}
+/**
+ * A part the run found itself, like the member a find-first loop stopped at, or a value the run worked out from other
+ * parts, like whether a gear's train is blocked. Its fields are read during that run.
+ */
+const runObject = (object: string) =>
+  /^(member found by the loop|part returned by list-(head|next)|gear connection conflict) at /.test(object);
+const mentionsRunObject = (value: Expression): boolean =>
+  (value.kind === "field" && runObject(value.object)) ||
+  (value.kind === "binary" && (mentionsRunObject(value.left) || mentionsRunObject(value.right)));
+/**
+ * A comparison whose only unknowns are values of the same run: fields it rewrote, like the result of a contact scan, a
+ * query's answer, or fields of a part it found, like the type of the part a cat looks at.
+ */
+const runValuePredicate = (predicate: Predicate) =>
+  predicate.kind === "compare" &&
+  !containsUnknown(predicate, false) &&
+  (containsUnknown(predicate) || mentionsRunObject(predicate.left) || mentionsRunObject(predicate.right));
 function completeRuleEffects(rule: WithUpdates, routine?: RoutineAnalysis): boolean {
   if (routine?.uncertainEffects !== true) return true;
-  const matching =
-    routine?.outcomes?.filter((outcome) => JSON.stringify(outcome.condition) === JSON.stringify(rule.condition)) ?? [];
+  const matching = routine?.outcomes?.filter((outcome) => textOf(outcome.condition) === textOf(rule.condition)) ?? [];
   return (
     (matching.length > 0 && matching.every((outcome) => outcome.effectsComplete === true)) ||
     (!!routine?.outcomes?.length && routine.outcomes.every((outcome) => outcome.effectsComplete === true))
   );
 }
+/**
+ * Values a list scan, find-first loop or query of the run left behind. Each one names the loop or call by its address,
+ * so within one run the same name is the same value.
+ */
+const SCAN_VALUE =
+  /^(part after list scan|local after (list scan|find-first loop)|answer of the query|part after the query) at /;
+/**
+ * The number a rule's condition gives a value the run left behind, by the value's text. The rule's writes may store
+ * that same value, like the mouse motor's control value after its list scan at `0x1bff5`.
+ */
+function scanValueNumbers(condition: Predicate): Map<string, Expression> {
+  const numbers = new Map<string, Expression>();
+  for (const term of predicateTerms(condition)) {
+    if (term.kind !== "compare" || term.operator !== "==") continue;
+    const [field, number] =
+      term.left.kind === "field" && term.right.kind === "constant"
+        ? [term.left, term.right]
+        : term.right.kind === "field" && term.left.kind === "constant"
+          ? [term.right, term.left]
+          : [];
+    if (field?.kind === "field" && number?.kind === "constant" && field.unresolved && SCAN_VALUE.test(field.object))
+      numbers.set(textOf(field), number);
+  }
+  return numbers;
+}
 function ruleBindings(rule: WithUpdates, initial: Bindings, routine?: RoutineAnalysis): Bindings {
   const complete = completeRuleEffects(rule, routine);
   if (rule.updates) {
     const next = complete ? new Map(initial) : new Map<string, Bits>();
-    for (const write of rule.updates) writeField(next, write.object, write.offset, valueOf(write.value, initial));
+    const numbers = scanValueNumbers(rule.condition);
+    for (const write of rule.updates) {
+      const value = valueOf(numbers.get(textOf(write.value)) ?? write.value, initial);
+      writeField(next, write.object, write.offset, value);
+      if (write.object === "part") countdownWrite(next, write, value);
+    }
     return next;
   }
   const next = new Map(initial);
   for (const write of routine?.writes ?? [])
-    if (write.object === "part") writeField(next, write.object, write.offset, unknownBits(write.width));
+    if (write.object === "part") {
+      writeField(next, write.object, write.offset, unknownBits(write.width));
+      countdownWrite(next, write, unknownBits(write.width));
+    }
   return next;
+}
+/**
+ * The fields two states agree on, by field: a field whose known bits differ anywhere is forgotten whole, like a counter
+ * at another number; of the others, the bits both know are kept.
+ */
+function widenedBindings(
+  bindings: Bindings,
+  other: Bindings,
+  definitions: { object: string; offset: number; width: number }[],
+): Bindings {
+  const agreed = agreedBindings([bindings, other]);
+  for (const { object, offset, width } of definitions) {
+    const mine = readField(bindings, object, offset, width);
+    const theirs = readField(other, object, offset, width);
+    if ((mine.value ^ theirs.value) & mine.mask & theirs.mask)
+      for (let byte = 0; byte < width / 8; byte++) agreed.delete(key(object, offset + byte));
+  }
+  return agreed;
+}
+const knownBits = (bindings: Bindings) =>
+  [...bindings.values()].reduce((count, item) => count + item.mask.toString(2).replaceAll("0", "").length, 0);
+export const WIDENING_ASSUMPTION =
+  "At the branch depth limit, the fields in which this state differs from a state the same walk followed at this frame are forgotten, with the tests that state did not know; the walk goes on from what both agree on.";
+/** What the branches of one walk have followed: by known fields, the frame, the tests known there and the fields. */
+interface ExploredState {
+  frame: number;
+  tests: Set<string>;
+  bindings: Bindings;
+  path: number[];
+  index: number;
+  /** For a state with countdowns: the tests themselves and how far each countdown moved. */
+  testList?: Predicate[];
+  change?: Map<number, number>;
+}
+interface Explored {
+  states: Map<string, ExploredState[]>;
+  /** States with countdowns, by their fields without the countdowns' changes. */
+  counted?: Map<string, ExploredState[]>;
+  /** How many states the tree has followed: once it reaches the budget, no further branch is opened. */
+  size: number;
+}
+/**
+ * How deep branches may nest, and how many states one tree of branches may follow. A branch that reaches a state the
+ * tree already follows ends there, so most trees close by themselves; these only bound the ones that don't. A walk that
+ * reaches the depth limit may widen once and go on with a fresh depth (see `widen`), but only within the budget.
+ */
+const BRANCH_DEPTH = 24;
+const BRANCH_BUDGET = 400;
+/**
+ * How many ways one step may split into. Nine lets a step choose between three rules in each of three ways, like the
+ * teeter-totter's run after a rope question that may have come back: a flag it may have set, the answer, and the frame
+ * it came from.
+ */
+const BRANCH_WAYS = 9;
+/** The decided assumption that rules out a part's state with these fields, when one does. */
+function impossibleState(part: PartBehaviour, stateOffset: number, bindings: Bindings): string | undefined {
+  const state = readField(bindings, "part", stateOffset, 16);
+  if (!known(state)) return undefined;
+  return IMPOSSIBLE_STATES.get(part.id)?.find((rule) => {
+    const field = readField(bindings, "part", rule.field.offset, rule.field.width);
+    return rule.frames.includes(state.value) && known(field) && field.value === rule.field.value;
+  })?.assumption;
+}
+/** The only numbers a decided assumption allows this unknown field, like a jack-in-the-box's control value. */
+function decidedValues(part: PartBehaviour, field: { object: string; offset: number; width: number }) {
+  const decided = CONTROL_VALUES.get(part.id);
+  return decided && field.object === "part" && field.offset === decided.offset && field.width === decided.width
+    ? decided
+    : undefined;
+}
+/**
+ * The value a field of the part holds right after a rope query, when a question that comes back could change it. It is
+ * one value of that run, and still the part's own field, so a decided assumption about the field holds for it too.
+ */
+const afterQuery = (expression: Expression) =>
+  expression.kind === "field" && !!expression.unresolved && /^part after the query at /.test(expression.object);
+/** Every such value an expression or predicate mentions. */
+function afterQueryFields(value: unknown, found = new Map<string, Expression & { kind: "field" }>()) {
+  if (Array.isArray(value)) value.forEach((item) => afterQueryFields(item, found));
+  else if (value && typeof value === "object") {
+    if (afterQuery(value as Expression)) {
+      const field = value as Expression & { kind: "field" };
+      found.set(`${field.object}:${field.offset}:${field.width}`, field);
+    } else Object.values(value).forEach((item) => afterQueryFields(item, found));
+  }
+  return found;
+}
+/** A copy of a value with each value after a query that `values` names replaced by its number. */
+function withRunValues<T>(value: T, values: ReadonlyMap<string, number>): T {
+  if (Array.isArray(value)) return value.map((item) => withRunValues(item, values)) as T;
+  if (!value || typeof value !== "object") return value;
+  if (afterQuery(value as unknown as Expression)) {
+    const field = value as unknown as Expression & { kind: "field" };
+    const number = values.get(`${field.object}:${field.offset}:${field.width}`);
+    if (number !== undefined) return { kind: "constant", value: number, width: field.width } as T;
+    return value;
+  }
+  return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, withRunValues(item, values)])) as T;
+}
+/** These fields know every bit the others know, with the same value. */
+function knowsAll(fields: Bindings, others: Bindings): boolean {
+  return [...others].every(([name, value]) => {
+    const other = fields.get(name);
+    return (
+      !value.mask || (!!other && (value.mask & ~other.mask) === 0 && ((value.value ^ other.value) & value.mask) === 0)
+    );
+  });
 }
 function signature(bindings: Bindings) {
   return JSON.stringify([...bindings].filter(([, value]) => value.mask).sort(([a], [b]) => a.localeCompare(b)));
@@ -533,6 +924,129 @@ function metadataFields(report: BehaviourReport, part: PartBehaviour): KnownFiel
     : [];
 }
 
+/**
+ * A frame written as `(frame & kept) | set`, the way a reset keeps some bits of the frame it starts from and sets the
+ * others. Only plain `&` and `|` with numbers count, so the result is exact for every starting frame.
+ */
+function frameBits(expression: Expression, stateOffset: number): { kept: number; set: number } | undefined {
+  if (expression.kind === "constant") return { kept: 0, set: expression.value & 0xffff };
+  if (expression.kind === "field")
+    return expression.object === "part" && expression.offset === stateOffset && expression.width === 16
+      ? { kept: 0xffff, set: 0 }
+      : undefined;
+  if (expression.kind !== "binary" || (expression.operator !== "&" && expression.operator !== "|")) return undefined;
+  const [inner, number] =
+    expression.right.kind === "constant"
+      ? [expression.left, expression.right.value & 0xffff]
+      : expression.left.kind === "constant"
+        ? [expression.right, expression.left.value & 0xffff]
+        : [undefined, 0];
+  const bits = inner && frameBits(inner, stateOffset);
+  if (!bits) return undefined;
+  return expression.operator === "&"
+    ? { kept: bits.kept & number, set: bits.set & number }
+    : { kept: bits.kept & ~number, set: bits.set | number };
+}
+const bitList = (mask: number) => [...Array(16).keys()].filter((bit) => mask & (1 << bit));
+const listWords = (items: string[]) =>
+  items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+const bitWords = (mask: number) =>
+  `bit${bitList(mask).length === 1 ? "" : "s"} ${listWords(bitList(mask).map(String))}`;
+const framesWords = (frames: number[]) =>
+  frames.length > 2 && frames.every((frame, index) => index === 0 || frame === frames[index - 1]! + 1)
+    ? `one of frames ${frames[0]} to ${frames.at(-1)}`
+    : frames.length === 1
+      ? `frame ${frames[0]}`
+      : `one of frames ${listWords(frames.map(String))}`;
+/**
+ * The words where a part's two plugs are: the level loader reads the plugged parts into them (`0x13941` in Even More),
+ * and plugging a plug in (`0x5d14`) takes `0x62` when it is free and `0x64` otherwise. A word that isn't 0 holds a part.
+ */
+const SOCKETS = new Map([
+  [0x62, "a plug is in its first socket (+0x62)"],
+  [0x64, "a plug is in its second socket (+0x64)"],
+]);
+/**
+ * The frames a reset can leave when every path writes the frame as `(frame & kept) | set`. A set bit that a zero test
+ * of one field decides on every path is named with that field. The frames are those a path can give from any frame the
+ * reset starts from, so no saved frame is assumed.
+ */
+function resetFrames(
+  outcomes: RuleOutcome[],
+  part: WithFrameCount,
+  stateOffset: number,
+  saved: boolean,
+  savedFrames?: number[],
+): { frames: number[]; description: string; sockets: boolean } | undefined {
+  if (!part.frameCount) return undefined;
+  const bits: { kept: number; set: number }[] = [];
+  for (const outcome of outcomes) {
+    // One 16-bit write of the frame, and no other write that overlaps it.
+    const writes = outcome.fields.filter(
+      (item) => item.object === "part" && item.offset < stateOffset + 2 && item.offset + item.width / 8 > stateOffset,
+    );
+    const write = writes.length === 1 && writes[0]!.offset === stateOffset ? writes[0] : undefined;
+    const rule = write?.width === 16 ? frameBits(write.value, stateOffset) : undefined;
+    if (!rule) return undefined;
+    bits.push(rule);
+  }
+  // Every path must give a frame the part has, whatever it starts from, and keep the same bits.
+  const kept = bits[0]?.kept;
+  if (kept === undefined || bits.some((rule) => rule.kept !== kept || (rule.kept | rule.set) >= part.frameCount!))
+    return undefined;
+  // With the frames a level can save, each path leaves exactly its kept bits of them plus the bits it sets.
+  const frames = savedFrames
+    ? [...new Set(bits.flatMap((rule) => savedFrames.map((frame) => (frame & rule.kept) | rule.set)))].sort(
+        (a, b) => a - b,
+      )
+    : [...Array(part.frameCount).keys()].filter((frame) =>
+        bits.some((rule) => (frame & rule.set) === rule.set && (frame & ~(rule.kept | rule.set)) === 0),
+      );
+  const always = bits.reduce((mask, rule) => mask & rule.set, 0xffff);
+  const varying = bits.reduce((mask, rule) => mask | rule.set, 0) & ~always;
+  type ZeroTest = Predicate & { kind: "compare"; left: Expression & { kind: "field" } };
+  const zeroTests = outcomes.map((outcome) =>
+    predicateTerms(outcome.condition).filter(
+      (term): term is ZeroTest =>
+        term.kind === "compare" &&
+        (term.operator === "==" || term.operator === "!=") &&
+        term.left.kind === "field" &&
+        term.left.object === "part" &&
+        term.right.kind === "constant" &&
+        term.right.value === 0,
+    ),
+  );
+  const decided = bitList(varying).map((bit) => {
+    const decider = zeroTests[0]?.find((candidate) =>
+      outcomes.every((_, index) => {
+        const terms = zeroTests[index]!.filter(
+          (term) => term.left.offset === candidate.left.offset && term.left.width === candidate.left.width,
+        );
+        return terms.length === 1 && (terms[0]!.operator === "!=") === !!(bits[index]!.set & (1 << bit));
+      }),
+    );
+    return decider?.left.width === 16 && SOCKETS.has(decider.left.offset)
+      ? { offset: decider.left.offset, words: `bit ${bit} when ${SOCKETS.get(decider.left.offset)}` }
+      : decider && { words: `bit ${bit} when the word at +0x${decider.left.offset.toString(16)} is not 0` };
+  });
+  const start = saved ? "the frame saved in the level" : "the frame it starts from";
+  const steps = [
+    ...(kept ? [`keeps ${bitWords(kept)} of ${start}`] : []),
+    ...(always ? [`sets ${bitWords(always)}`] : []),
+    ...(varying
+      ? decided.every(Boolean)
+        ? [`sets ${listWords(decided.map((item) => item!.words))}`]
+        : [`sets ${bitWords(varying)} by tests of other fields`]
+      : []),
+  ];
+  return {
+    frames,
+    description: `The reset ${listWords(steps)}, so it leaves ${framesWords(frames)}${kept ? "" : `, whatever ${start}`}.`,
+    // Every bit the paths set differently is set by whether a plug is in a socket, which the level gives.
+    sockets: !!varying && decided.every((item) => item?.offset !== undefined),
+  };
+}
+
 function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   const callback = part.routines.find((item) => item.slot === 2);
   const routine = report.routines.find((item) => item.address === callback?.address) as WithOutcomes | undefined;
@@ -561,7 +1075,92 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   const bindings = intersect(outcomes.map((outcome) => applyWrites(initial, outcome.fields)));
   const state = readField(bindings, "part", stateOffset, 16);
   const fields = fieldsOf(bindings, fieldDefinitions(report, part), proof);
-  if (!known(state) || outcomes.some((outcome) => outcome.confidence === "unresolved"))
+  // With every reset path resolved and none writing the state, the frame is the one the level saved.
+  const levelFrame =
+    !!savedRest &&
+    outcomes.every(
+      (outcome) =>
+        outcome.confidence !== "unresolved" &&
+        !outcome.fields.some((write) => write.object === "part" && write.offset === stateOffset),
+    );
+  // A part with one frame can only have been saved on it, so keeping the saved frame starts it on frame 0.
+  // So does a part the program draws itself when a decided assumption gives it one starting frame, like a wall.
+  const onlyFrame = (part as WithFrameCount).frameCount
+    ? undefined
+    : LEVEL_FRAMES.get(part.id)?.frames.length === 1
+      ? LEVEL_FRAMES.get(part.id)
+      : undefined;
+  if (levelFrame && !known(state) && ((part as WithFrameCount).frameCount === 1 || onlyFrame)) {
+    const only = onlyFrame?.frames[0] ?? 0;
+    writeField(bindings, "part", stateOffset, bits(only, 0xffff, 16));
+    const single = finding([proof], [onlyFrame?.assumption ?? ONE_FRAME_ASSUMPTION]);
+    return {
+      status: "known",
+      description: onlyFrame
+        ? `The reset keeps the frame the level saved, and a level starts it on frame ${only}.`
+        : "The reset keeps the frame the level saved, and the part has only frame 0.",
+      state: only,
+      frame: frameOf(part, only),
+      fields: fieldsOf(bindings, fieldDefinitions(report, part), single),
+      ...single,
+    };
+  }
+  const resolved = !outcomes.some((outcome) => outcome.confidence === "unresolved");
+  const levelEntry = LEVEL_FRAMES.get(part.id);
+  const savedFrames = savedRest && levelEntry?.framed ? levelEntry.frames : undefined;
+  const bitFrames =
+    !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest, savedFrames) : undefined;
+  if (bitFrames?.sockets)
+    return {
+      status: "sockets",
+      description: bitFrames.description,
+      frames: bitFrames.frames,
+      fields,
+      ...(savedFrames ? finding([proof], [levelEntry!.assumption]) : proof),
+    };
+  if (bitFrames)
+    return {
+      status: "unresolved",
+      description: bitFrames.description,
+      frames: bitFrames.frames,
+      fields,
+      ...(savedFrames ? finding([proof], [levelEntry!.assumption]) : proof),
+      confidence: "unresolved",
+      reason: "The reset paths are resolved; which of these frames they leave depends on fields the reset doesn't fix.",
+    };
+  // When the reset keeps the saved frame, the frames a level can save are the ones it can start on: its own frames,
+  // or those a decided assumption gives a part the program draws itself.
+  const frameCount = (part as WithFrameCount).frameCount ?? 0;
+  const startFrames =
+    levelFrame && resolved && !known(state)
+      ? frameCount > 1 && frameCount <= 32
+        ? { frames: [...Array(frameCount).keys()], assumption: ONE_FRAME_ASSUMPTION }
+        : !frameCount
+          ? LEVEL_FRAMES.get(part.id)
+          : undefined
+      : undefined;
+  if (startFrames)
+    return {
+      status: "saved",
+      description: `The reset keeps the frame the level saved: ${framesWords(startFrames.frames)}${"rule" in startFrames && startFrames.rule ? `, ${startFrames.rule}` : ""}.`,
+      frames: startFrames.frames,
+      fields,
+      ...finding([proof], [startFrames.assumption]),
+    };
+  // Keeping the saved frame is what the game does; only which frames a level can save isn't counted here.
+  if (levelFrame && resolved && !known(state))
+    return {
+      status: "saved",
+      description: frameCount
+        ? `The reset keeps the frame the level saved, one of the part's ${frameCount} frames.`
+        : "The reset keeps the frame the level saved.",
+      fields,
+      ...proof,
+      reason: frameCount
+        ? `The reset keeps the frame the level saved; the part has ${frameCount} frames, more than the 32 a walk starts from.`
+        : "The reset keeps the frame the level saved; the part has no frame list to count, and no decided assumption gives the frames a level saves it on.",
+    };
+  if (!known(state) || !resolved)
     return {
       status: "unresolved",
       description: savedRest
@@ -570,7 +1169,9 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
       fields,
       ...proof,
       confidence: "unresolved",
-      reason: "The reset paths do not establish one rest state with resolved effects.",
+      reason: outcomes.some((outcome) => outcome.confidence === "unresolved")
+        ? "The reset paths do not establish one rest state with resolved effects."
+        : "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
     };
   return {
     status: "known",
@@ -632,6 +1233,61 @@ function guardCoverage(
       }),
   );
 }
+/** Plain names of a part's fields in a walk note, by their layout name. */
+const PLAIN_FIELDS: Record<string, string> = {
+  state: "the frame",
+  stateDelta: "the control value",
+  previousState: "the previous frame",
+  olderState: "the frame before that",
+  drawingFlags: "the drawing flags",
+  contactPart: "the touching part",
+};
+/**
+ * The tests the walk doesn't know that decide between rules, in words: "whether the word at +0x9c is 0". A test and its
+ * opposite are said once, as the same question. At most four are named.
+ */
+function guardWords(guards: Transition[], report: BehaviourReport, bindings: Bindings, constraints: Predicate[]) {
+  const opposite: Record<string, string> = { "!=": "==", ">=": "<", ">": "<=" };
+  const names: Names = {
+    field: (offset) => {
+      const name = report.layout.fields.find((field) => field.offset === offset)?.name;
+      const at = `${offset < 0 ? "-" : "+"}0x${Math.abs(offset).toString(16)}`;
+      return (
+        (name && PLAIN_FIELDS[name]) ??
+        (name === "contextCounter" ? `the counter at ${at}` : name ? `${name} (${at})` : `the word at ${at}`)
+      );
+    },
+    of: (object, what) => {
+      const linked = /^referenced-by\(part\+0x([0-9a-f]+)\)$/.exec(object);
+      return object === "part"
+        ? what
+        : object === START
+          ? `${what} when the walk started`
+          : object === "address of part"
+            ? "the part's own address"
+            : linked
+              ? `${what} of the part linked at +0x${linked[1]}`
+              : /^(member found by the loop|part after (the )?list scan) at /.test(object)
+                ? `${what} of the part a search found`
+                : /^local after list scan at /.test(object)
+                  ? `${what} a list scan left`
+                  : `${what} of the ${object}`;
+    },
+  };
+  const tests = [
+    ...new Set(
+      guards
+        .flatMap((rule) => predicateTerms(rule.condition))
+        .filter((term) => predicateOf(term, bindings, constraints) === undefined)
+        .map((term) =>
+          term.kind === "compare"
+            ? `whether ${compareWords({ ...term, operator: (opposite[term.operator] ?? term.operator) as typeof term.operator }, names)}`
+            : "another test",
+        ),
+    ),
+  ];
+  return tests.length > 4 ? `${tests.slice(0, 4).join(", ")} and other tests` : listWords(tests) || "a test";
+}
 function unknownWords(
   expression: Expression,
   report: BehaviourReport,
@@ -664,6 +1320,64 @@ function unknownWords(
     if (name && /width|height|extent|position|draw/i.test(name)) return "a position or size value";
   }
   return "a part-specific field";
+}
+/**
+ * The writes the analysis found to a part's own fields: by its routines, at creation, and by other parts through a
+ * link. Each keeps its routine, value, condition and proof. This lists sources; it does not prove there are no others.
+ */
+function producersOf(
+  report: BehaviourReport,
+  part: PartBehaviour,
+  fields: { object: string; offset: number; width: number }[],
+): NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]> {
+  const offsets = new Set(fields.filter((field) => field.object === "part").map((field) => field.offset));
+  const found = new Map<string, NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>[number]>();
+  const add = (item: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>[number]) => {
+    const key = JSON.stringify([item.source, item.offset, item.value, item.condition]);
+    if (!found.has(key)) found.set(key, item);
+  };
+  for (const callback of part.routines) {
+    const routine = report.routines.find((item) => item.address === callback.address);
+    const role = callback.role.replace(/ callback candidate$/, "");
+    for (const outcome of routine?.outcomes ?? [])
+      for (const write of outcome.fields)
+        if (write.object === "part" && offsets.has(write.offset))
+          add({
+            source: role,
+            routine: callback.address,
+            offset: write.offset,
+            value: write.value,
+            condition: outcome.condition,
+            confidence: write.confidence,
+            evidence: write.evidence,
+            assumptions: write.assumptions,
+          });
+  }
+  for (const creation of (report.creation ?? []).filter((item) => item.partType === part.type))
+    for (const field of creation.fields)
+      if (offsets.has(field.offset))
+        add({
+          source: "creation",
+          routine: creation.routine,
+          offset: field.offset,
+          value: { kind: "constant", value: field.value, width: field.width },
+          confidence: field.confidence,
+          evidence: field.evidence,
+          assumptions: field.assumptions,
+        });
+  for (const effect of report.relatedObjectEffects ?? [])
+    if ((effect.targetType === undefined || effect.targetType === part.type) && offsets.has(effect.write.offset))
+      add({
+        source: effect.sourcePart,
+        routine: effect.write.routine,
+        offset: effect.write.offset,
+        value: effect.write.value,
+        condition: effect.write.condition,
+        confidence: effect.confidence,
+        evidence: effect.evidence,
+        assumptions: effect.assumptions,
+      });
+  return [...found.values()];
 }
 function unknownFields(
   expressions: Expression[],
@@ -698,6 +1412,446 @@ function stoppingEvidence(rules: Transition[], expressions: Expression[] = []): 
 }
 
 /**
+ * Countdowns. A part field the run counts up or down by a fixed number and also tests, like the windmill's heat or the
+ * mouse motor's counter, is followed as the value it had where the walk tree started (the field of `START`) plus how
+ * far it moved since (the field of `CHANGE`), while its own value isn't known. A test of the field then becomes a test
+ * of that starting value, which never changes: what a branch learns about it holds for the rest of the tree, and once a
+ * branch knows it, the field is known again. No value is chosen; this is exact arithmetic on what the walk knows.
+ */
+export const START = "part at the walk's start";
+const CHANGE = "change since the walk's start";
+/** The countdown fields of a part: 16-bit part fields a run rule moves by a constant and some run rule tests. */
+const countdownsOf = new WeakMap<PartBehaviour, number[]>();
+export function countdowns(part: PartBehaviour, rules: WithUpdates[], stateOffset?: number): number[] {
+  let list = countdownsOf.get(part);
+  if (list) return list;
+  const found = countdownFields(rules, stateOffset);
+  list = found.offsets;
+  countdownsOf.set(part, list);
+  for (const offset of list) countdownValues.set(`${part.type}:${offset}`, found.values.get(offset)!);
+  return list;
+}
+function countdownFields(
+  rules: WithUpdates[],
+  stateOffset?: number,
+): { offsets: number[]; values: Map<number, Set<number>> } {
+  const moved = new Set<number>();
+  for (const rule of rules)
+    for (const write of rule.updates ?? []) {
+      const value = write.value;
+      if (
+        write.object === "part" &&
+        write.width === 16 &&
+        value.kind === "binary" &&
+        (value.operator === "+" || value.operator === "-") &&
+        value.left.kind === "field" &&
+        value.left.object === "part" &&
+        !value.left.unresolved &&
+        value.left.offset === write.offset &&
+        value.left.width === 16 &&
+        value.right.kind === "constant" &&
+        write.offset !== stateOffset
+      )
+        moved.add(write.offset);
+    }
+  // Only a field every test compares for equality with a number, after adding numbers to it, is followed: such a test
+  // stays a test of one starting value.
+  const tested = new Set<number>();
+  const other = new Set<number>();
+  const testedValues = new Map<number, Set<number>>();
+  for (const rule of rules)
+    for (const term of predicateTerms(rule.condition)) {
+      if (term.kind !== "compare") continue;
+      const fields = expressionFields(term.left)
+        .concat(expressionFields(term.right))
+        .filter((field) => field.object === "part" && moved.has(field.offset));
+      if (!fields.length) continue;
+      const counted: Bindings = new Map();
+      writeField(counted, CHANGE, fields[0]!.offset, bits(0, 0xffff, 16));
+      const left = linearOf(term.left, counted);
+      const right = linearOf(term.right, counted);
+      const equality =
+        (term.operator === "==" || term.operator === "!=") &&
+        fields.every((field) => field.offset === fields[0]!.offset && field.width === 16) &&
+        !!left &&
+        !!right &&
+        (left.offset === undefined) !== (right.offset === undefined);
+      for (const field of fields) (equality ? tested : other).add(field.offset);
+      if (equality) {
+        const [start, number] = left!.offset !== undefined ? [left!, right!] : [right!, left!];
+        const values = testedValues.get(start.offset!) ?? new Set<number>();
+        values.add(wrap(number.add - start.add, 16));
+        testedValues.set(start.offset!, values);
+      }
+    }
+  const offsets = [...moved].filter((offset) => tested.has(offset) && !other.has(offset)).sort((a, b) => a - b);
+  return { offsets, values: testedValues };
+}
+/** By part type and offset: the numbers the run tests a countdown for. */
+const countdownValues = new Map<string, Set<number>>();
+/** The numbers the rules test a 16-bit part field for being equal or not equal to. */
+function testedNumbers(rules: WithUpdates[], offset: number): Set<number> {
+  const numbers = new Set<number>();
+  for (const rule of rules)
+    for (const term of predicateTerms(rule.condition))
+      if (
+        term.kind === "compare" &&
+        (term.operator === "==" || term.operator === "!=") &&
+        term.left.kind === "field" &&
+        term.left.object === "part" &&
+        term.left.offset === offset &&
+        term.left.width === 16 &&
+        term.right.kind === "constant"
+      )
+        numbers.add(term.right.value);
+  return numbers;
+}
+/**
+ * A rule stands for the return paths that lead to its frame, joined two at a time where they differ in one test. A
+ * field those paths set differently is unknown in the rule, or one of the two values chosen by that test, like the
+ * mouse motor's control value, which its run clears only when the counter runs out. When the paths split on a test of a field the rule counts up or down, the rule is
+ * taken apart into its paths again, so a walk can follow the countdown. The paths' extra tests must cover every case
+ * between them, so together they stand for exactly what the rule did.
+ */
+const splitRulesOf = new WeakMap<PartBehaviour, WithUpdates[]>();
+export function splitRules(
+  part: PartBehaviour,
+  rules: WithUpdates[],
+  routine: RoutineAnalysis | undefined,
+  stateOffset: number,
+): WithUpdates[] {
+  const cached = splitRulesOf.get(part);
+  if (cached) return cached;
+  const outcomes = (routine as WithOutcomes | undefined)?.outcomes;
+  // The fields the run tests, and the countdowns its paths would have.
+  const testedFields = new Set(
+    rules.flatMap((rule) =>
+      predicateTerms(rule.condition).flatMap((term) =>
+        term.kind === "compare"
+          ? expressionFields(term.left)
+              .concat(expressionFields(term.right))
+              .filter((field) => field.object === "part")
+              .map((field) => field.offset)
+          : [],
+      ),
+    ),
+  );
+  const pathCounters = new Set(
+    countdownFields(
+      [...rules, ...(outcomes ?? []).map((outcome) => ({ ...rules[0]!, condition: outcome.condition, updates: [] }))],
+      stateOffset,
+    ).offsets,
+  );
+  const result = rules.flatMap((rule) => {
+    if (!outcomes?.length || routine!.returnPathsComplete !== true || routine!.uncertainEffects === true) return [rule];
+    // A field the paths set differently: unknown, or one of two values chosen by the test that tells the paths apart.
+    const unknown = (rule.updates ?? []).filter(
+      (write) => write.object === "part" && (write.value.kind === "unknown" || !!choiceOf(write.value)),
+    );
+    const counted = (rule.updates ?? []).flatMap((write) =>
+      pathCounters.has(write.offset) &&
+      write.object === "part" &&
+      write.value.kind === "binary" &&
+      (write.value.operator === "+" || write.value.operator === "-") &&
+      write.value.left.kind === "field" &&
+      write.value.left.object === "part" &&
+      write.value.left.offset === write.offset &&
+      write.value.right.kind === "constant"
+        ? [write.offset]
+        : [],
+    );
+    if (!unknown.some((write) => testedFields.has(write.offset)) || !counted.length) return [rule];
+    const own = new Set(predicateTerms(rule.condition).map(textOf));
+    const sameFrame = (outcome: RuleOutcome) => {
+      const write = outcome.fields.find((item) => item.object === "part" && item.offset === stateOffset);
+      return write
+        ? sameExpression(write.value, rule.to)
+        : rule.to.kind === "field" && rule.to.object === "part" && rule.to.offset === stateOffset;
+    };
+    const paths = outcomes.filter(
+      (outcome) =>
+        outcome.effectsComplete === true &&
+        sameFrame(outcome) &&
+        [...own].every((text) => predicateTerms(outcome.condition).some((term) => textOf(term) === text)),
+    );
+    const extras = paths.map((outcome) => predicateTerms(outcome.condition).filter((term) => !own.has(textOf(term))));
+    const tested = extras.some((terms) =>
+      terms.some(
+        (term) =>
+          term.kind === "compare" &&
+          expressionFields(term.left)
+            .concat(expressionFields(term.right))
+            .some((field) => field.object === "part" && counted.includes(field.offset)),
+      ),
+    );
+    if (!paths.length || !tested || !coversAll(extras)) return [rule];
+    return paths.map((outcome): WithUpdates => {
+      const updates = rule.updates!.map((write) => {
+        if (!unknown.includes(write)) return write;
+        const writes = outcome.fields.filter(
+          (item) =>
+            item.object === "part" &&
+            item.offset < write.offset + write.width / 8 &&
+            write.offset < item.offset + item.width / 8,
+        );
+        if (writes.length > 1 || (writes[0] && (writes[0].offset !== write.offset || writes[0].width !== write.width)))
+          return write;
+        const value: Expression = writes[0]
+          ? writes[0].value
+          : { kind: "field", object: "part", offset: write.offset, width: write.width };
+        return { ...write, value };
+      });
+      const path: WithUpdates = {
+        ...rule,
+        condition: outcome.condition,
+        updates,
+        evidence: evidence(rule.evidence, outcome.evidence),
+      };
+      originalRule.set(path, rule);
+      return path;
+    });
+  });
+  splitRulesOf.set(part, result);
+  return result;
+}
+/** Whether some list of tests holds in every case: split on a test and its opposite until a list has none left. */
+function coversAll(lists: Predicate[][], depth = 0): boolean {
+  if (lists.some((terms) => !terms.length)) return true;
+  if (depth > 12 || !lists.length) return false;
+  for (const term of lists[0]!) {
+    if (term.kind !== "compare" || !inverseComparison[term.operator]) continue;
+    const opposite = textOf({ ...term, operator: inverseComparison[term.operator]! });
+    if (!lists.some((terms) => terms.some((other) => textOf(other) === opposite))) continue;
+    const text = textOf(term);
+    const side = (drop: string, avoid: string) =>
+      lists
+        .filter((terms) => !terms.some((other) => textOf(other) === avoid))
+        .map((terms) => terms.filter((other) => textOf(other) !== drop));
+    return coversAll(side(text, opposite), depth + 1) && coversAll(side(opposite, text), depth + 1);
+  }
+  return false;
+}
+/** How far a countdown moved since the walk's start, while the field itself isn't known. */
+function countdownChange(bindings: Bindings, offset: number): number | undefined {
+  if (readField(bindings, "part", offset, 16).mask) return undefined;
+  const change = readField(bindings, CHANGE, offset, 16);
+  return known(change) ? change.value : undefined;
+}
+/** An expression as a starting value plus a number, or as a plain number. */
+function linearOf(expression: Expression, bindings: Bindings): { offset?: number; add: number } | undefined {
+  if (expression.kind === "constant") return { add: expression.value };
+  if (expression.kind === "field" && !expression.unresolved && expression.width === 16) {
+    if (expression.object === START) return { offset: expression.offset, add: 0 };
+    if (expression.object === "part") {
+      const change = countdownChange(bindings, expression.offset);
+      return change === undefined ? undefined : { offset: expression.offset, add: change };
+    }
+  }
+  if (expression.kind !== "binary" || (expression.operator !== "+" && expression.operator !== "-")) return undefined;
+  if (expression.width !== 16) return undefined;
+  const left = linearOf(expression.left, bindings);
+  const right = linearOf(expression.right, bindings);
+  if (!left || !right || (right.offset !== undefined && (left.offset !== undefined || expression.operator === "-")))
+    return undefined;
+  return {
+    ...((left.offset ?? right.offset) !== undefined ? { offset: (left.offset ?? right.offset)! } : {}),
+    add: wrap(expression.operator === "+" ? left.add + right.add : left.add - right.add, 16),
+  };
+}
+const startField = (offset: number): Expression => ({ kind: "field", object: START, offset, width: 16 });
+function linearExpression(linear: { offset?: number; add: number }): Expression {
+  const constant: Expression = { kind: "constant", value: wrap(linear.add, 16), width: 16 };
+  if (linear.offset === undefined) return constant;
+  if (!wrap(linear.add, 16)) return startField(linear.offset);
+  return { kind: "binary", operator: "+", left: startField(linear.offset), right: constant, width: 16 };
+}
+/** Whether a countdown moved in these bindings, each field worked out once while they don't change. */
+function countdownsMoved(bindings: Bindings): (offset: number) => boolean {
+  const moved = new Map<number, boolean>();
+  return (offset) => {
+    let result = moved.get(offset);
+    if (result === undefined) moved.set(offset, (result = countdownChange(bindings, offset) !== undefined));
+    return result;
+  };
+}
+const fieldLists = new WeakMap<Expression, Extract<Expression, { kind: "field" }>[]>();
+/** The fields an expression reads, each once, kept with it, so a large value is gone through once. */
+function fieldsRead(expression: Expression): Extract<Expression, { kind: "field" }>[] {
+  if (expression.kind === "field") return [expression];
+  if (expression.kind !== "binary" && expression.kind !== "table") return [];
+  let fields = fieldLists.get(expression);
+  if (!fields) {
+    const all =
+      expression.kind === "table"
+        ? fieldsRead(expression.index)
+        : [...fieldsRead(expression.left), ...fieldsRead(expression.right)];
+    fields = [...new Map(all.map((f) => [`${f.object}:${f.offset}:${f.width}:${f.unresolved === true}`, f])).values()];
+    fieldLists.set(expression, fields);
+  }
+  return fields;
+}
+/** An expression with each countdown written as its starting value plus how far it moved. */
+function countdownExpression(
+  expression: Expression,
+  bindings: Bindings,
+  moved = countdownsMoved(bindings),
+): Expression {
+  // Only a starting value or a field whose countdown moved is written another way.
+  if (
+    !fieldsRead(expression).some(
+      (f) => f.object === START || (f.object === "part" && !f.unresolved && f.width === 16 && moved(f.offset)),
+    )
+  )
+    return expression;
+  const linear = linearOf(expression, bindings);
+  if (linear?.offset !== undefined) return linearExpression(linear);
+  if (expression.kind !== "binary") return expression;
+  const left = countdownExpression(expression.left, bindings, moved);
+  const right = countdownExpression(expression.right, bindings, moved);
+  return left === expression.left && right === expression.right ? expression : { ...expression, left, right };
+}
+/** A test with each countdown written the same way; an equality with a number becomes one of the starting value. */
+function countdownPredicate(predicate: Predicate, bindings: Bindings, moved = countdownsMoved(bindings)): Predicate {
+  if (predicate.kind === "and") {
+    const terms = predicate.terms.map((term) => countdownPredicate(term, bindings, moved));
+    return terms.every((term, n) => term === predicate.terms[n]) ? predicate : { ...predicate, terms };
+  }
+  if (predicate.kind !== "compare") return predicate;
+  if (predicate.operator === "==" || predicate.operator === "!=") {
+    const left = linearOf(predicate.left, bindings);
+    const right = linearOf(predicate.right, bindings);
+    if (left && right && (left.offset === undefined) !== (right.offset === undefined)) {
+      const [start, number] = left.offset !== undefined ? [left, right] : [right, left];
+      return {
+        ...predicate,
+        left: startField(start.offset!),
+        right: { kind: "constant", value: wrap(number.add - start.add, 16), width: 16 },
+      };
+    }
+  }
+  const left = countdownExpression(predicate.left, bindings, moved);
+  const right = countdownExpression(predicate.right, bindings, moved);
+  return left === predicate.left && right === predicate.right ? predicate : { ...predicate, left, right };
+}
+/** The rules with each countdown the walk follows written as its starting value plus how far it moved. */
+function countdownRules(rules: WithUpdates[], bindings: Bindings, offsets: number[]): WithUpdates[] {
+  if (!offsets.some((offset) => countdownChange(bindings, offset) !== undefined)) return rules;
+  const moved = countdownsMoved(bindings);
+  return rules.map((rule) => {
+    const condition = countdownPredicate(rule.condition, bindings, moved);
+    const to = countdownExpression(rule.to, bindings, moved);
+    const updates = rule.updates?.map((write) => {
+      const value = countdownExpression(write.value, bindings, moved);
+      return value === write.value ? write : { ...write, value };
+    });
+    if (condition === rule.condition && to === rule.to && updates?.every((write, n) => write === rule.updates![n]))
+      return rule;
+    const result: WithUpdates = { ...rule, condition, to, ...(updates ? { updates } : {}) };
+    originalRule.set(result, originalRule.get(rule) ?? rule);
+    const runKey = runValueKey.get(rule);
+    if (runKey !== undefined) runValueKey.set(result, runKey);
+    return result;
+  });
+}
+/** After a write to a part field: how far a countdown moved, or that it is no longer followed. */
+function countdownWrite(bindings: Bindings, write: FieldWrite, value: Bits) {
+  if (write.width !== 16) {
+    for (const offset of [write.offset - 1, write.offset])
+      if (bindings.has(key(CHANGE, offset))) writeField(bindings, CHANGE, offset, unknownBits(16));
+    return;
+  }
+  const linear = known(value) ? undefined : linearOf(write.value, new Map());
+  if (linear?.offset === write.offset) writeField(bindings, CHANGE, write.offset, bits(linear.add, 0xffff, 16));
+  else if (bindings.has(key(CHANGE, write.offset)) || bindings.has(key(CHANGE, write.offset + 1)))
+    writeField(bindings, CHANGE, write.offset, unknownBits(16));
+}
+/** Each countdown whose starting value is known, with its own value too. */
+function countdownValuesKnown(bindings: Bindings, offsets: number[]): Bindings {
+  let result = bindings;
+  for (const offset of offsets) {
+    const start = readField(result, START, offset, 16);
+    const change = readField(result, CHANGE, offset, 16);
+    if (!known(start) || !known(change) || readField(result, "part", offset, 16).mask) continue;
+    if (result === bindings) result = new Map(bindings);
+    writeField(result, "part", offset, bits(start.value + change.value, 0xffff, 16));
+  }
+  return result;
+}
+/** A countdown whose starting value a branch learnt is known again; one whose field is known needs no change. */
+function settleCountdowns(bindings: Bindings, offsets: number[]): Bindings {
+  let result = bindings;
+  for (const offset of offsets) {
+    const change = readField(result, CHANGE, offset, 16);
+    if (!change.mask) continue;
+    const start = readField(result, START, offset, 16);
+    const own = readField(result, "part", offset, 16);
+    if (!known(start) && !own.mask && known(change)) continue;
+    if (result === bindings) result = new Map(bindings);
+    if (known(start) && known(change) && !own.mask)
+      writeField(result, "part", offset, bits(start.value + change.value, 0xffff, 16));
+    writeField(result, CHANGE, offset, unknownBits(16));
+  }
+  // A starting value only matters while its countdown is followed: after that the walk forgets it, so it can join
+  // states that never knew it.
+  for (const offset of offsets)
+    if (!readField(result, CHANGE, offset, 16).mask && readField(result, START, offset, 16).mask) {
+      if (result === bindings) result = new Map(bindings);
+      writeField(result, START, offset, unknownBits(16));
+    }
+  return result;
+}
+/**
+ * The tests of starting values that still matter: those of a countdown the walk follows, for a number the run tests
+ * the countdown for at its value now. A test the countdown moved past is forgotten, so states that differ only in how
+ * far they counted can join; forgetting a test only drops knowledge.
+ */
+function countdownTests(tests: Predicate[], bindings: Bindings, type: number): Predicate[] {
+  return tests.filter((test) => {
+    const offset = startTestOffset(test);
+    if (offset === undefined)
+      return !(
+        test.kind === "compare" &&
+        expressionFields(test.left)
+          .concat(expressionFields(test.right))
+          .some((field) => field.object === START)
+      );
+    const change = readField(bindings, CHANGE, offset, 16);
+    return (
+      known(change) &&
+      test.kind === "compare" &&
+      test.right.kind === "constant" &&
+      !!countdownValues.get(`${type}:${offset}`)?.has(wrap(test.right.value + change.value, 16))
+    );
+  });
+}
+/**
+ * A test of another walk whose countdowns are behind this one's by `shift`: the same test for this walk. A test of a
+ * starting value moves by the shift; a test that uses a countdown some other way can't be moved.
+ */
+function shiftedTest(test: Predicate, shift: Map<number, number>): Predicate | undefined {
+  if (test.kind !== "compare") return test;
+  const fields = expressionFields(test.left).concat(expressionFields(test.right));
+  if (!fields.some((field) => field.object === START)) return test;
+  const offset = startTestOffset(test);
+  if (offset === undefined || !shift.has(offset) || test.right.kind !== "constant") return undefined;
+  return { ...test, right: { ...test.right, value: wrap(test.right.value - shift.get(offset)!, 16) } };
+}
+/** The countdown a test is about, when it compares a starting value with a number. */
+function startTestOffset(test: Predicate): number | undefined {
+  return test.kind === "compare" &&
+    test.left.kind === "field" &&
+    test.left.object === START &&
+    test.left.width === 16 &&
+    test.right.kind === "constant"
+    ? test.left.offset
+    : undefined;
+}
+/** The fields without the countdowns' changes: what a walk compares to notice it goes round with only a count moving. */
+function withoutCountdowns(bindings: Bindings): Bindings {
+  return new Map([...bindings].filter(([name]) => !name.startsWith(`${CHANGE}:`)));
+}
+
+/**
  * Applies only the extracted return rules to known field expressions. Inputs must be backed by their own
  * findings. Unknown guards, unknown destinations and incompatible outcomes stop the walk immediately.
  */
@@ -705,16 +1859,56 @@ export function walkBehaviourRules(
   report: BehaviourReport,
   partType: number,
   seed: KnownField[],
-  options: { maxRunCalls?: number; condition?: Predicate } = {},
+  options: {
+    maxRunCalls?: number;
+    condition?: Predicate;
+    branchDepth?: number;
+    /**
+     * The states the walks of one tree have followed, shared by its branches: by known fields, the frame each was at
+     * and the tests it knew there.
+     */
+    explored?: Explored;
+    /** Where this walk is in its tree: the branch numbers from the first walk. */
+    path?: number[];
+    /** A starting frame a level can save: it shows its own path, so it doesn't join another branch at its start. */
+    levelStart?: boolean;
+    /** A case in the middle of a run, like an input case: it can start on any frame the part shows, not only a level's. */
+    midRun?: boolean;
+    /**
+     * Numbers for values after a rope query in the first run only, by field: the walk follows that run with them. Later
+     * runs work out their own values again.
+     */
+    runValues?: ReadonlyMap<string, number>;
+    /**
+     * Whether a field a decided assumption keeps during the part's reaction (`REACTION_FIELDS`) is kept here as the
+     * value it had at the walk's start. Not when one of the part's own callbacks that change that field starts the walk.
+     */
+    reaction?: boolean;
+  } = {},
 ): BehaviourWalk {
+  const explored: Explored = options.explored ?? { states: new Map(), size: 0 };
+  const path = options.path ?? [];
   const part = report.parts.find((item) => item.type === partType);
   if (!part) throw new Error(`No behaviour for part type ${partType}`);
   const stateOffset = stateOffsetOf(report);
   const callback = part.routines.find((item) => item.slot === 1);
   const routine = report.routines.find((item) => item.address === callback?.address);
-  const rules = (part.transitions as WithUpdates[]).filter((item) => item.routine === callback?.address);
+  const rules = splitRules(
+    part,
+    (part.transitions as WithUpdates[]).filter((item) => item.routine === callback?.address),
+    routine,
+    stateOffset ?? -1,
+  );
+  const counted = countdowns(part, rules, stateOffset);
+  // A field kept through a reaction is followed like a countdown that never moves, while the walk keeps it.
+  const reaction = REACTION_FIELDS.get(part.id);
+  if (reaction) countdownValues.set(`${part.type}:${reaction.offset}`, testedNumbers(rules, reaction.offset));
+  const counters = reaction ? [...counted, reaction.offset] : counted;
   const definitions = fieldDefinitions(report, part);
-  for (const field of seed)
+  for (const field of [
+    ...seed,
+    ...counters.flatMap((offset) => [CHANGE, START].map((object) => ({ object, offset, width: 16 }))),
+  ])
     if (
       !definitions.some(
         (item) => item.object === field.object && item.offset === field.offset && item.width === field.width,
@@ -722,7 +1916,55 @@ export function walkBehaviourRules(
     )
       definitions.push(field);
   let bindings = bindingsOf(seed);
+  // The first walk of a tree follows each countdown it doesn't know from the value it starts with.
+  if (!options.explored)
+    for (const offset of counted)
+      if (!readField(bindings, "part", offset, 16).mask) writeField(bindings, CHANGE, offset, bits(0, 0xffff, 16));
+  // The first walk of a tree that may keep the field through a reaction keeps it from the value it starts with.
+  if (reaction && options.reaction && !options.explored && !readField(bindings, "part", reaction.offset, 16).mask)
+    writeField(bindings, CHANGE, reaction.offset, bits(0, 0xffff, 16));
+  bindings = settleCountdowns(bindings, counters);
   let constraints = options.condition ? predicateTerms(options.condition).filter(inputPredicate) : [];
+  /** Whether the walk keeps the field through a reaction in these fields. */
+  const keepsReaction = (fields: Bindings) => !!reaction && known(readField(fields, CHANGE, reaction.offset, 16));
+  /**
+   * After a run that began on a frame outside the reaction, or with that frame unknown, the field is no longer kept:
+   * the reaction ended and its next run read it. Tests of its starting value become tests of the field itself, which
+   * holds that value as long as the walk keeps it.
+   */
+  const leaveReaction = (fields: Bindings, tests: Predicate[], from: number | undefined) => {
+    if (!reaction || !keepsReaction(fields) || (from !== undefined && reaction.frames.includes(from)))
+      return { fields, tests };
+    const unmoved = readField(fields, CHANGE, reaction.offset, 16).value === 0;
+    const left = new Map(fields);
+    writeField(left, CHANGE, reaction.offset, unknownBits(16));
+    writeField(left, START, reaction.offset, unknownBits(16));
+    return {
+      fields: left,
+      tests: tests.flatMap((test): Predicate[] =>
+        startTestOffset(test) !== reaction.offset
+          ? [test]
+          : unmoved && test.kind === "compare"
+            ? [{ ...test, left: { kind: "field", object: "part", offset: reaction.offset, width: 16 } }]
+            : [],
+      ),
+    };
+  };
+  // A tree's first walk, or a starting frame a level saves, outside the reaction doesn't keep the field.
+  if ((!options.explored || options.levelStart) && stateOffset !== undefined) {
+    const frame = readField(bindings, "part", stateOffset, 16);
+    if (known(frame)) ({ fields: bindings, tests: constraints } = leaveReaction(bindings, constraints, frame.value));
+  }
+  if (counters.length) constraints = countdownTests(constraints, bindings, part.type);
+  // How deep this walk's branches may still nest. Widening at the limit gives the walk a fresh depth once.
+  let branchDepth = options.branchDepth ?? BRANCH_DEPTH;
+  const depthLeft = () => (explored.size >= BRANCH_BUDGET ? 0 : branchDepth);
+  // Set when a step could have branched but the depth was used up; see `widen`.
+  let atDepthLimit = false;
+  const depthUsedUp = () => {
+    atDepthLimit = true;
+    return undefined;
+  };
   const states: number[] = [];
   const proofs: Finding[] = [finding(seed)];
   let proof = finding(seed, ["No external field write or other callback occurs between these run invocations."]);
@@ -740,73 +1982,724 @@ export function walkBehaviourRules(
   });
   if (stateOffset === undefined)
     return { ...base("unresolved", "The state field was not established."), confidence: "unresolved" };
-  const state = readField(bindings, "part", stateOffset, 16);
-  if (!known(state)) {
-    const candidates = rules.filter((rule) => predicateOf(rule.condition, bindings, constraints) !== false);
-    const identity = (expression: Expression) =>
-      expression.kind === "field" &&
-      expression.object === "part" &&
-      expression.offset === stateOffset &&
-      !expression.unresolved;
+  /**
+   * The starting states a seed allows, each walked as its own case; no value is preferred. When the seed fixes all
+   * but at most three bits, they are those bits' combinations that have a frame. When it fixes none, and the part
+   * shows its state as one of at most 32 frames, they are its frames. When it fixes some bits of such a part's
+   * state, they are the frames whose number has those bits.
+   */
+  const possibleStates = (partial: Bits): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
+    const depth = depthLeft();
+    const open = ~partial.mask & 0xffff;
+    const openBits = [...Array(16).keys()].filter((bit) => open & (1 << bit));
+    const frameCount = (part as WithFrameCount).frameCount;
+    if (!openBits.length || depth <= 0) return undefined;
+    // A part drawn by its own code has no frame list; a decided assumption can give the frames a level starts it on.
+    const entry = LEVEL_FRAMES.get(part.id);
+    const levelFrames =
+      !partial.mask && entry && (!frameCount || (entry.framed && !options.midRun)) ? entry : undefined;
+    // A part with a few frames can only be on one of them: each one whose number has the known bits is followed.
+    const framed = frameCount !== undefined && frameCount > 1 && frameCount <= 32;
+    if (!framed && !levelFrames && (!partial.mask || openBits.length > 3)) return undefined;
+    const values = levelFrames
+      ? options.midRun
+        ? (levelFrames.shown ?? levelFrames.frames)
+        : levelFrames.frames
+      : framed
+        ? [...Array(frameCount).keys()].filter((value) => (value & partial.mask) === (partial.value & partial.mask))
+        : [...Array(1 << openBits.length).keys()]
+            .map((choice) =>
+              openBits.reduce(
+                (value, bit, n) => (choice & (1 << n) ? value | (1 << bit) : value),
+                partial.value & partial.mask,
+              ),
+            )
+            .filter((value) => frameCount === undefined || frameCount === 0 || value < frameCount);
+    // A decided assumption can rule out some starting states, like the monkey bike's pedalling frames.
+    const seededWith = (value: number) => {
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", stateOffset, bits(value, 0xffff, 16));
+      return seeded;
+    };
+    const excluded = [
+      ...new Set(values.flatMap((value) => impossibleState(part, stateOffset, seededWith(value)) ?? [])),
+    ];
+    // A frame the walk's own condition rules out, like a callback's test of the frame, isn't followed either. When
+    // that leaves one frame, it is still followed as the one way.
+    const possible = values.filter(
+      (value) => predicateOf({ kind: "and", terms: constraints }, seededWith(value)) !== false,
+    );
+    const allowed = possible.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
+    if (allowed.length < (possible.length < values.length ? 1 : 2)) return undefined;
+    if (excluded.length || levelFrames)
+      proof = finding([proof], [...excluded, ...(levelFrames ? [levelFrames.assumption] : [])]);
+    return allowed.map((value, n) => {
+      const condition: Predicate = {
+        kind: "compare",
+        operator: "==",
+        left: { kind: "field", object: "part", offset: stateOffset, width: 16 },
+        right: { kind: "constant", value, width: 16 },
+        signed: false,
+      };
+      const seeded = seededWith(value);
+      const walk = walkBehaviourRules(report, partType, fieldsOf(seeded, definitions, proof), {
+        maxRunCalls: options.maxRunCalls,
+        condition: { kind: "and", terms: [...constraints, condition] },
+        branchDepth: depth - 1,
+        explored,
+        path: [...path, n],
+        levelStart: true,
+      });
+      return { condition, walk };
+    });
+  };
+  /** The plain numbers the writers found give the one unknown part field, when there are a few. */
+  const producedValues = (
+    fields: { object: string; offset: number; width: number }[],
+    producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
+  ): number[] | undefined => {
+    const [field] = fields;
+    if (fields.length !== 1 || field!.object !== "part") return undefined;
+    const mask = field!.width === 8 ? 0xff : 0xffff;
+    const values = [
+      ...new Set(
+        producers.flatMap((producer) =>
+          producer.offset === field!.offset && producer.value.kind === "constant" ? [producer.value.value & mask] : [],
+        ),
+      ),
+    ].sort((a, b) => a - b);
+    return values.length >= 1 && values.length <= 6 ? values : undefined;
+  };
+  /**
+   * When the next state depends on a part field the walk doesn't know, but the writers found give it a few plain
+   * numbers, each number is followed as its own conditional walk from this frame. The writers aren't proved to be all
+   * of them, so a last branch keeps the stop for any other value.
+   */
+  const valueBranches = (
+    fields: { object: string; offset: number; width: number }[],
+    producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
+    run: number,
+  ): { condition: Predicate; walk: BehaviourWalk }[] | undefined => {
+    const depth = depthLeft();
+    const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
+    const values = decided?.values ?? producedValues(fields, producers);
+    if (!values) return undefined;
+    const field = fields[0]!;
+    const seededWith = (value: number) => {
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", field.offset, bits(value, field.width === 8 ? 0xff : 0xffff, field.width));
+      return seeded;
+    };
+    // A value the walk's own tests rule out isn't followed, nor one a decided assumption rules out, like tipping the
+    // teeter-totter past an end.
+    const possible = values.filter(
+      (value) => predicateOf({ kind: "and", terms: constraints }, seededWith(value)) !== false,
+    );
+    const excluded = [
+      ...new Set(possible.flatMap((value) => impossibleState(part, stateOffset, seededWith(value)) ?? [])),
+    ];
+    const allowed = possible.filter((value) => !impossibleState(part, stateOffset, seededWith(value)));
+    if (!allowed.length) return undefined;
+    if (depth <= 0) return depthUsedUp();
+    if (excluded.length || decided) proof = finding([proof], [...excluded, ...(decided ? [decided.assumption] : [])]);
+    return allowed.map((value, n) => {
+      const condition: Predicate = {
+        kind: "compare",
+        operator: "==",
+        left: { kind: "field", object: "part", offset: field.offset, width: field.width },
+        right: { kind: "constant", value, width: field.width },
+        signed: false,
+      };
+      const seeded = seededWith(value);
+      // The branch carries the field it sets, also when the walk doesn't track it otherwise.
+      const carried = definitions.some(
+        (d) => d.object === "part" && d.offset === field.offset && d.width === field.width,
+      )
+        ? definitions
+        : [...definitions, { object: "part", offset: field.offset, width: field.width }];
+      const walk = walkBehaviourRules(report, partType, fieldsOf(seeded, carried, proof), {
+        maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
+        condition: { kind: "and", terms: [...constraints, condition] },
+        branchDepth: depth - 1,
+        explored,
+        path: [...path, n],
+      });
+      return { condition, walk };
+    });
+  };
+  /**
+   * When the next frame depends on what a field of the part holds right after a rope query, like the teeter-totter's
+   * control value when a question can come back to it, and a decided assumption gives every number that field takes,
+   * each number is followed as its own walk of this same run. The value belongs to this run only: the branch uses it
+   * for this run and works out later runs again. When the run adds that value to the frame it had at the start, the
+   * part is on that frame with that value, so a value a decided assumption rules out there, like tipping the
+   * teeter-totter past an end, isn't followed.
+   */
+  const runValueBranches = (candidates: WithUpdates[], current: number, run: number): BehaviourWalk | undefined => {
+    const unsettled = candidates.filter((rule) => rule.confidence === "unresolved" && !settledPath(rule));
+    const fields = afterQueryFields(unsettled.map((rule) => rule.to));
+    if (fields.size !== 1) return undefined;
+    const [[name, field]] = [...fields] as [[string, Expression & { kind: "field" }]];
+    const decided = decidedValues(part, { object: "part", offset: field.offset, width: field.width });
+    const depth = depthLeft();
+    if (!decided) return undefined;
+    const startFrame: Expression = { kind: "field", object: "part", offset: stateOffset!, width: 16 };
+    const addsToFrame = unsettled
+      .filter((rule) => afterQueryFields(rule.to).size)
+      .every(
+        (rule) =>
+          rule.to.kind === "binary" &&
+          rule.to.operator === "+" &&
+          [rule.to.left, rule.to.right].some((side) => sameExpression(side, startFrame)) &&
+          [rule.to.left, rule.to.right].some((side) => sameExpression(side, field)),
+      );
+    const seededWith = (value: number) => {
+      const seeded = new Map(bindings);
+      writeField(seeded, "part", field.offset, bits(value, full(field.width), field.width));
+      return seeded;
+    };
+    const ruledOut = (value: number) =>
+      addsToFrame ? impossibleState(part, stateOffset!, seededWith(value)) : undefined;
+    const excluded = [...new Set(decided.values.flatMap((value) => ruledOut(value) ?? []))];
+    const allowed = decided.values.filter((value) => !ruledOut(value));
+    if (!allowed.length) return undefined;
+    if (depth <= 0) return depthUsedUp();
+    proof = finding([proof], [...excluded, decided.assumption]);
+    const branches = allowed.map((value, n) => ({
+      condition: {
+        kind: "compare",
+        operator: "==",
+        left: field,
+        right: { kind: "constant", value, width: field.width },
+        signed: false,
+      } as Predicate,
+      walk: walkBehaviourRules(report, partType, fieldsOf(bindings, definitions, proof), {
+        maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run),
+        condition: { kind: "and", terms: constraints },
+        branchDepth: depth - 1,
+        explored,
+        path: [...path, n],
+        runValues: new Map([[name, value]]),
+      }),
+    }));
+    const description = `At frame ${current}, the next state depends on ${unknownWords(field, report, part, bindings)}, which a decided assumption limits to a few numbers.`;
+    return {
+      ...base("unresolved", description),
+      confidence: "unresolved",
+      stop: { kind: "state", description, evidence: stoppingEvidence(unsettled, [field]), fields: [field], branches },
+      evidence: evidence(proof.evidence, ...unsettled.map((rule) => rule.evidence)),
+    };
+  };
+  /** The branch for any value the writers found don't give: the walk stops there as before. */
+  const otherValue = (
+    field: { object: string; offset: number; width: number },
+    producers: NonNullable<NonNullable<BehaviourWalk["stop"]>["producers"]>,
+    stopped: BehaviourWalk,
+  ): { condition: Predicate; walk: BehaviourWalk } => ({
+    condition: {
+      kind: "and",
+      terms: producedValues([field], producers)!.map((value) => ({
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "field", object: "part", offset: field.offset, width: field.width },
+        right: { kind: "constant", value, width: field.width },
+        signed: false,
+      })),
+    },
+    walk: stopped,
+  });
+  /**
+   * Follows each way an unknown input chooses between, as its own conditional walk. Only plain comparisons of input
+   * fields may decide; the deciding terms then hold for the rest of that branch, as far as its own writes keep them.
+   * Rules that lead to the same next fields are one way: its condition is what they all test, and any one of their own
+   * remaining tests may hold. When a value the walk can't name, like whether the game could make a new part, also
+   * decides, it may only choose between rules that lead to the same frame: then rules that lead to the same frame are
+   * one way, with the fields they agree on, as long as what they all test is plain and rules out every other way.
+   */
+  const branchesAt = (
+    outcomes: { rule: WithUpdates; next: Bindings; destination: ReturnType<typeof valueOf> }[],
+    guards: WithUpdates[],
+    run: number,
+  ): { condition: Predicate; alternatives?: Predicate[]; walk: BehaviourWalk }[] | undefined => {
+    const depth = depthLeft();
+    if (!guards.length) return undefined;
+    const deciding = guards
+      .flatMap((rule) => predicateTerms(rule.condition))
+      .filter((term) => predicateOf(term, bindings, constraints) === undefined);
+    // Input fields and values the run itself computed may decide. Only input tests carry over into later runs; the
+    // next run computes its own values again.
+    const plain = (term: Predicate) => inputPredicate(term) || runValuePredicate(term);
+    if (!deciding.length) return undefined;
+    const byFrame = !deciding.every(plain);
+    const ways = new Map<string, { rules: WithUpdates[]; next: Bindings; nexts: Bindings[]; kept: Predicate[][] }>();
+    const excluded = new Set<string>();
+    for (const outcome of outcomes) {
+      const { rule } = outcome;
+      // Within this branch the rule's condition holds, so a part field it tests for one number has that number before
+      // the step; the step and the next frame are worked out again with it, like a counter that counts down.
+      const pre = countdownValuesKnown(withEqualities(bindings, rule.condition), counters);
+      // A way that starts from a state a decided assumption rules out isn't followed.
+      const ruledOut = impossibleState(part, stateOffset, pre);
+      if (ruledOut) {
+        excluded.add(ruledOut);
+        continue;
+      }
+      let next = outcome.next;
+      if (pre !== bindings) {
+        next = ruleBindings(rule, pre, routine);
+        writeField(next, "part", stateOffset, valueOf(rule.to, pre));
+      }
+      const kept = retainConstraints(
+        completeRuleEffects(rule, routine)
+          ? [...constraints, ...predicateTerms(rule.condition).filter(inputPredicate)]
+          : [],
+        rule.updates ?? routine?.writes ?? [],
+        stateOffset,
+        rule.to,
+      );
+      const frame = readField(next, "part", stateOffset, 16);
+      if (byFrame && !known(frame)) return undefined;
+      const key = byFrame ? String(frame.value) : signature(next);
+      const way = ways.get(key);
+      if (way) {
+        way.rules.push(rule);
+        way.nexts.push(next);
+        way.kept.push(kept);
+      } else ways.set(key, { rules: [rule], next, nexts: [next], kept: [kept] });
+    }
+    // With ways ruled out, the one left is still followed as a branch of its own.
+    if (ways.size < (excluded.size ? 1 : 2) || ways.size > BRANCH_WAYS) return undefined;
+    if (byFrame) {
+      // What the rules of one frame all test must be plain, and must rule out every other frame's rules; the value
+      // the walk can't name then only chooses between rules that lead to that frame.
+      const tests = [...ways.values()].map(({ rules }) => shared(rules.map((rule) => predicateTerms(rule.condition))));
+      if (
+        tests.some(
+          (terms) => !terms.every((term) => predicateOf(term, bindings, constraints) !== undefined || plain(term)),
+        )
+      )
+        return undefined;
+      const separated = tests.every((terms, n) =>
+        tests.every(
+          (others, m) =>
+            m === n || terms.some((term) => predicateOf(term, bindings, [...constraints, ...others]) === false),
+        ),
+      );
+      if (!separated) return undefined;
+      for (const way of ways.values()) way.next = agreedBindings(way.nexts);
+    }
+    if (depth <= 0) return depthUsedUp();
+    if (excluded.size) proof = finding([proof], [...excluded]);
+    return [...ways.values()].map(({ rules, next, kept }, n) => {
+      const after = leaveReaction(next, shared(kept), states.at(-1));
+      const wayProof = finding(
+        [proof, ...rules],
+        [
+          ...(byFrame && rules.length > 1
+            ? ["The rules that apply here lead to the same next frame; the fields they set differently are forgotten."]
+            : []),
+          ...(keepsReaction(settleCountdowns(after.fields, counters)) ? [reaction!.assumption] : []),
+        ],
+      );
+      const walk = walkBehaviourRules(report, partType, fieldsOf(after.fields, definitions, wayProof), {
+        maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - run - 1),
+        condition: { kind: "and", terms: after.tests },
+        branchDepth: depth - 1,
+        explored,
+        path: [...path, n],
+      });
+      if (rules.length === 1) return { condition: rules[0]!.condition, walk };
+      const common = shared(rules.map((rule) => predicateTerms(rule.condition)));
+      const commonText = new Set(common.map(textOf));
+      const alternatives = rules.map((rule): Predicate => ({
+        kind: "and",
+        terms: predicateTerms(rule.condition).filter((term) => !commonText.has(textOf(term))),
+      }));
+      const unique = [...new Map(alternatives.map((item) => [textOf(item), item])).values()];
+      return { condition: { kind: "and", terms: common }, alternatives: unique, walk };
+    });
+  };
+  /**
+   * Without a known starting frame, the rules can still decide the next one: when every rule that can apply covers all
+   * of the run's paths, starts from any frame, and gives a known next frame under its own condition, each way is
+   * followed like a branch. Like the pinball bumper, which goes to frame 1 when hit and to frame 0 otherwise.
+   */
+  const nextFromAnyFrame = () => {
+    const candidates = countdownRules(rules, bindings, counters).filter(
+      (rule) => predicateOf(rule.condition, bindings, constraints) !== false,
+    );
+    if (
+      !candidates.length ||
+      candidates.some((rule) => rule.from !== null || rule.confidence === "unresolved") ||
+      !guardCoverage(candidates, bindings, constraints, routine)
+    )
+      return undefined;
+    const outcomes = candidates.map((rule) => {
+      const pre = countdownValuesKnown(withEqualities(bindings, rule.condition), counters);
+      const next = ruleBindings(rule, pre, routine);
+      const destination = valueOf(rule.to, pre);
+      writeField(next, "part", stateOffset, destination);
+      return { rule, next, destination };
+    });
+    if (outcomes.some((outcome) => !known(outcome.destination))) return undefined;
+    if (outcomes.length > 1) return branchesAt(outcomes, candidates, 0);
+    // One rule covers every path, like a bumper that was hit: the walk goes on from the frame it gives.
+    const [{ rule, next }] = outcomes as [(typeof outcomes)[number]];
+    const depth = depthLeft();
+    if (depth <= 0) return undefined;
+    const kept = retainConstraints(
+      completeRuleEffects(rule, routine)
+        ? [...constraints, ...predicateTerms(rule.condition).filter(inputPredicate)]
+        : [],
+      rule.updates ?? routine?.writes ?? [],
+      stateOffset,
+      rule.to,
+    );
+    // The frame this run began on isn't known, so a field kept through a reaction isn't kept past it.
+    const after = leaveReaction(next, kept, undefined);
+    const walk = walkBehaviourRules(report, partType, fieldsOf(after.fields, definitions, finding([proof, rule])), {
+      maxRunCalls: Math.max(1, (options.maxRunCalls ?? 256) - 1),
+      condition: { kind: "and", terms: after.tests },
+      branchDepth: depth - 1,
+      explored,
+      path: [...path, 0],
+    });
+    return [{ condition: rule.condition, walk }];
+  };
+  /**
+   * A rule whose only unresolved parts are written field values still fixes the state path when the routine's analysis
+   * covers every path with complete effects: those fields are forgotten, and its destination and guard are exact.
+   */
+  const settledRoutine =
+    !!routine &&
+    (routine.uncertainties ?? []).length === 0 &&
+    !!routine.outcomes?.length &&
+    ((routine.uncertainEffects !== true && routine.outcomes.every((outcome) => outcome.effectsComplete === true)) ||
+      // A helper that keeps the state but not the other fields still fixes the state path. Such a rule's effects are
+      // incomplete, so the walk forgets every other field after it.
+      (routine.returnPathsComplete === true &&
+        routine.outcomes.every((outcome) => outcome.effectsComplete === true || outcome.keepsState === true)));
+  // A guard may test a field the same run rewrote, like the result of a contact scan: that decides between exact
+  // rules. An opaque unknown in a guard, or anything unknown in the destination, still stops the walk.
+  const settledPath = (rule: WithUpdates) =>
+    settledRoutine && !containsUnknown(rule.to) && !containsUnknown(rule.condition, false);
+  const pathFinding = (rule: WithUpdates): Finding =>
+    rule.confidence === "unresolved" && settledPath(rule)
+      ? {
+          confidence: "inferred",
+          evidence: rule.evidence,
+          assumptions: [
+            ...rule.assumptions,
+            "Fields this rule writes with unresolved values are forgotten; its destination and guard do not depend on them.",
+          ],
+        }
+      : rule;
+  const identity = (expression: Expression) =>
+    expression.kind === "field" &&
+    expression.object === "part" &&
+    expression.offset === stateOffset &&
+    !expression.unresolved;
+  /**
+   * While the state is unknown: the rules that may apply, when every one keeps the state, with what the walk knows
+   * after one run. It is stable when each rule keeps at least what the walk knows, so every later run has these rules
+   * or fewer to choose from.
+   */
+  const keptState = (fields: Bindings, tests: Predicate[]) => {
+    const candidates = countdownRules(rules, fields, counters).filter(
+      (rule) => predicateOf(rule.condition, fields, tests) !== false,
+    );
     const domains = new Set(
       candidates.map((rule) =>
         rule.from === null ? "all" : JSON.stringify([...rule.from].sort((left, right) => left - right)),
       ),
     );
     if (
-      candidates.length &&
-      domains.size === 1 &&
-      guardCoverage(candidates, bindings, constraints, routine) &&
-      candidates.every((rule) => rule.confidence !== "unresolved" && identity(rule.to))
-    ) {
-      const starts = JSON.stringify([signature(bindings), constraints]);
-      const stable = candidates.every((rule) => {
-        const next = ruleBindings(rule, bindings, routine);
-        return (
-          JSON.stringify([
-            signature(next),
-            retainConstraints(
-              completeRuleEffects(rule, routine) ? constraints : [],
-              rule.updates ?? routine?.writes ?? [],
-              stateOffset,
-              rule.to,
-            ),
-          ]) === starts
-        );
-      });
-      if (stable) {
-        proof = finding(
-          [proof, ...candidates],
-          [
-            "The rule preserves any initial state in its stated source domain; no numeric starting state has been chosen.",
-          ],
-        );
-        const allowedStates = candidates.some((rule) => rule.from === null)
-          ? undefined
-          : [...new Set(candidates.flatMap((rule) => rule.from ?? []))];
-        return {
-          ...base("rest"),
-          runCalls: 1,
-          parameterised: {
-            kind: "hold",
-            state: { kind: "field", object: "part", offset: stateOffset, width: 16 },
-            ...(allowedStates ? { allowedStates } : {}),
-          },
-        };
+      !candidates.length ||
+      domains.size !== 1 ||
+      !guardCoverage(candidates, fields, tests, routine) ||
+      !candidates.every((rule) => (rule.confidence !== "unresolved" || settledPath(rule)) && identity(rule.to))
+    )
+      return undefined;
+    const nexts = candidates.map((rule) => ({
+      next: ruleBindings(rule, fields, routine),
+      kept: retainConstraints(
+        completeRuleEffects(rule, routine) ? tests : [],
+        rule.updates ?? routine?.writes ?? [],
+        stateOffset,
+        rule.to,
+      ),
+    }));
+    const texts = tests.map(textOf);
+    const stable = nexts.every(
+      ({ next, kept }) => knowsAll(next, fields) && texts.every((text) => kept.some((term) => textOf(term) === text)),
+    );
+    const later = intersect(nexts.map(({ next }) => next));
+    const kept = nexts[0]!.kept.filter((term) =>
+      nexts.every(({ kept }) => kept.some((other) => textOf(other) === textOf(term))),
+    );
+    return { candidates, stable, later, kept };
+  };
+  const state = readField(bindings, "part", stateOffset, 16);
+  if (!known(state)) {
+    let held = keptState(bindings, constraints);
+    let runCalls = 1;
+    // A rule with incomplete effects forgets the other fields first. The walk then knows at most what every rule
+    // leaves known, with the same state, so a hold from there one run later holds from here too.
+    if (held && !held.stable && knowsAll(bindings, held.later) && signature(held.later) !== signature(bindings)) {
+      const after = keptState(held.later, held.kept);
+      if (after?.stable) {
+        proof = finding([proof, ...held.candidates.map(pathFinding)]);
+        bindings = held.later;
+        constraints = held.kept;
+        held = after;
+        runCalls = 2;
       }
     }
+    if (held?.stable) {
+      const { candidates } = held;
+      proof = finding(
+        [proof, ...candidates.map(pathFinding)],
+        [
+          "The rule preserves any initial state in its stated source domain; no numeric starting state has been chosen.",
+        ],
+      );
+      const allowedStates = candidates.some((rule) => rule.from === null)
+        ? undefined
+        : [...new Set(candidates.flatMap((rule) => rule.from ?? []))];
+      return {
+        ...base("rest"),
+        runCalls,
+        parameterised: {
+          kind: "hold",
+          state: { kind: "field", object: "part", offset: stateOffset, width: 16 },
+          ...(allowedStates ? { allowedStates } : {}),
+        },
+      };
+    }
+    const levelStates = possibleStates(state);
+    /** Why the walk follows no frame of an unknown start, as `possibleStates` decides. */
+    const noStartFrames = () => {
+      const frameCount = (part as WithFrameCount).frameCount ?? 0;
+      return depthLeft() <= 0
+        ? "the walk has no branch depth left to follow each frame it can be"
+        : frameCount > 32
+          ? `the part has ${frameCount} frames, more than the 32 a walk follows one by one`
+          : frameCount > 1
+            ? "the tests on the walk's way leave no frame it can be on"
+            : frameCount === 1
+              ? "the walk doesn't assume the part's one frame"
+              : "the part has no frame list to follow it on";
+    };
+    // The frames each branch starts on, from its test of the frame.
+    const startFrames = (branches: { condition: Predicate }[]) =>
+      framesWords(
+        branches.flatMap(({ condition }) =>
+          condition.kind === "compare" && condition.right.kind === "constant" ? [condition.right.value] : [],
+        ),
+      );
+    if (levelStates)
+      return {
+        ...base(
+          "unresolved",
+          `${state.mask ? `Only bits ${listWords(bitList(state.mask).map(String))} of the frame it starts on are known` : "The frame it starts on isn't known"}, so the walk follows ${levelStates.length === 1 ? "the one frame it can be" : "each frame it can be"}: ${startFrames(levelStates).replace(/^one of /, "")}.`,
+        ),
+        confidence: "unresolved",
+        stop: {
+          kind: "state",
+          description:
+            "The seed fixes only some bits of the state, as when the level saves the starting frame. Each value those bits allow is followed separately.",
+          evidence: [],
+          branches: levelStates,
+        },
+      };
+    const fromAnyFrame = nextFromAnyFrame();
     return {
-      ...base("unresolved", "The seed does not establish the state. No state zero is assumed."),
+      ...base(
+        "unresolved",
+        fromAnyFrame
+          ? "The frame it starts on isn't known, but every rule that can apply gives a known next frame, so the walk follows each of them."
+          : `The frame it starts on isn't known, and ${noStartFrames()}, so the walk stops.`,
+      ),
       confidence: "unresolved",
+      ...(fromAnyFrame
+        ? {
+            stop: {
+              kind: "state" as const,
+              description:
+                "The starting frame isn't known, but every rule that can apply gives a known next frame. Each way is followed separately.",
+              evidence: [],
+              branches: fromAnyFrame,
+            },
+          }
+        : {}),
     };
   }
   states.push(state.value);
-  const walkSignature = () => JSON.stringify([signature(bindings), constraints]);
-  const seen = new Map([[walkSignature(), 0]]);
+  /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
+  const stepFinding = (candidates: WithUpdates[]): Finding => {
+    let cache = stepFindings.get(part);
+    if (!cache)
+      stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
+    const id =
+      candidates.map((rule) => cache.index.get(originalRule.get(rule) ?? rule)).join() +
+      candidates.map((rule) => runValueKey.get(rule) ?? "").join();
+    let step = cache.steps.get(id);
+    if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
+    return step;
+  };
+
+  const walkSignature = () => JSON.stringify([signature(bindings), constraints.map(textOf)]);
+  /**
+   * A state another branch of the same tree already follows, with the same known fields and no test this one doesn't
+   * know too. That branch covers every way this one can go on, so this one ends there.
+   */
+  const joined = (): BehaviourWalk | undefined => {
+    const known = new Set(constraints.map(textOf));
+    const other = explored.states
+      .get(signature(bindings))
+      ?.find((item) => [...item.tests].every((test) => known.has(test)));
+    return other
+      ? {
+          ...base(
+            "joins",
+            `From frame ${other.frame} on, it continues like another branch of the same walk, which follows it from there.`,
+          ),
+          joined: { path: other.path, index: other.index, sameTests: other.tests.size === known.size },
+        }
+      : countedJoin(known);
+  };
+  /** How far each countdown moved, for those the walk follows here. */
+  const changes = () =>
+    new Map(
+      counters.flatMap((offset) => {
+        const change = countdownChange(bindings, offset);
+        return change === undefined ? [] : [[offset, change] as [number, number]];
+      }),
+    );
+  /**
+   * A state another branch followed with the same fields, but with its countdowns at other numbers. Each countdown
+   * here is that branch's countdown moved by a fixed amount, so this walk goes on like that branch would for a
+   * starting value that much larger. That branch's tests of starting values, moved the same way, and its other tests,
+   * must all be tests this walk knows.
+   */
+  const countedJoin = (known: Set<string>): BehaviourWalk | undefined => {
+    const mine = changes();
+    if (!mine.size || !explored.counted) return undefined;
+    for (const other of explored.counted.get(signature(withoutCountdowns(bindings))) ?? []) {
+      if (other.change!.size !== mine.size || [...mine.keys()].some((offset) => !other.change!.has(offset))) continue;
+      const shift = new Map(
+        [...mine].map(([offset, change]) => [offset, wrap(change - other.change!.get(offset)!, 16)]),
+      );
+      if ([...shift.values()].every((by) => !by)) continue;
+      const moved = other.testList!.map((test) => shiftedTest(test, shift));
+      if (moved.some((test) => !test)) continue;
+      // A test the fields here decide, like the frame the other branch started on, holds here too.
+      const texts = new Set(moved.map((test) => textOf(test!)));
+      if (!moved.every((test) => known.has(textOf(test!)) || predicateOf(test!, bindings) === true)) continue;
+      const more = constraints.filter((test) => !texts.has(textOf(test)));
+      const starts = more.map(startTestOffset);
+      // Only tests of starting values may differ: those a recording that gives the starting values decides.
+      if (starts.some((offset) => offset === undefined)) continue;
+      return {
+        ...base(
+          "joins",
+          `From frame ${other.frame} on, it continues like another branch of the same walk, with its countdown further on.`,
+        ),
+        joined: {
+          path: other.path,
+          index: other.index,
+          sameTests: !more.length,
+          shift: [...shift].map(([offset, by]) => ({ offset, by })),
+          ...(more.length ? { startTests: [...new Set(starts as number[])].sort((a, b) => a - b) } : {}),
+        },
+      };
+    }
+    return undefined;
+  };
+  const explore = () => {
+    const id = signature(bindings);
+    explored.size++;
+    const state: ExploredState = {
+      frame: states.at(-1)!,
+      tests: new Set(constraints.map(textOf)),
+      bindings,
+      path,
+      index: states.length - 1,
+    };
+    explored.states.set(id, [...(explored.states.get(id) ?? []), state]);
+    const change = changes();
+    if (change.size) {
+      state.change = change;
+      state.testList = [...constraints];
+      const plain = signature(withoutCountdowns(bindings));
+      explored.counted ??= new Map();
+      explored.counted.set(plain, [...(explored.counted.get(plain) ?? []), state]);
+    }
+  };
+  /**
+   * Widening. A step that could branch but has no branch depth left would stop the walk. Like the mouse motor in TIM 1,
+   * whose counter counts down through every number while it runs, so no state it reaches was followed before. When the
+   * tree already followed this frame with fields that differ from this state's only in some of them, the walk forgets
+   * those fields, and the tests that earlier state didn't know, and goes on from there with a fresh branch depth.
+   * Forgetting only drops knowledge, so it claims nothing false. The earlier state that keeps the most fields, and then
+   * the most tests, is chosen.
+   *
+   * It ends: a walk widens at most once, since it then has depth left, and only while the tree's budget lasts. The
+   * widened state is either one the tree already follows, so the walk joins it and ends, or it is a new state and
+   * counts against the budget. So at most `BRANCH_BUDGET` widenings go on, and a tree still opens branches only while
+   * its budget lasts, so it stays bounded as before. Each widening also strictly drops knowledge, and the states it
+   * reaches end later branches that know as much or more (`joined`), so a tree usually closes soon after it widens.
+   * Applied only at the depth limit, it leaves every walk that ends without it unchanged.
+   *
+   * Returns `true` when the walk takes the step again from the widened state, a walk that joins when that state is
+   * already followed, and nothing when it can't widen.
+   */
+  let widened = false;
+  const widen = (runValues?: ReadonlyMap<string, number>): BehaviourWalk | true | undefined => {
+    if (!atDepthLimit || widened || runValues?.size || explored.size >= BRANCH_BUDGET) return undefined;
+    const frame = states.at(-1)!;
+    const before = signature(bindings);
+    let best: { bindings: Bindings; tests: Predicate[]; known: number } | undefined;
+    for (const list of explored.states.values())
+      for (const item of list) {
+        if (item.frame !== frame) continue;
+        const next = widenedBindings(bindings, item.bindings, definitions);
+        if (signature(next) === before) continue;
+        const tests = constraints.filter((term) => item.tests.has(textOf(term)));
+        const count = knownBits(next);
+        if (!best || count > best.known || (count === best.known && tests.length > best.tests.length))
+          best = { bindings: next, tests, known: count };
+      }
+    if (!best) return undefined;
+    widened = true;
+    branchDepth = BRANCH_DEPTH;
+    bindings = best.bindings;
+    constraints = best.tests;
+    proof = finding([proof], [WIDENING_ASSUMPTION]);
+    const join = joined();
+    if (join) return join;
+    explore();
+    seen.set(walkSignature(), states.length - 1);
+    return true;
+  };
+  // A branch for a value after a query follows the same run as the walk that opened it, so it neither joins that walk
+  // nor stands for its state; its start only counts as seen with that value.
+  const runValueText = options.runValues?.size ? JSON.stringify([...options.runValues]) : "";
+  const startId = walkSignature() + runValueText;
+  const joinedAtStart = options.explored && !options.levelStart && !runValueText ? joined() : undefined;
+  if (joinedAtStart) return joinedAtStart;
+  if (!runValueText) explore();
+  const seen = new Map([[startId, 0]]);
+  const plainSeen = new Set([JSON.stringify([signature(withoutCountdowns(bindings)), constraints.map(textOf)])]);
   const max = options.maxRunCalls ?? 256;
   for (let run = 0; run < max; run++) {
     const current = states.at(-1)!;
-    const candidates = rules.filter(
+    const runValues = run === 0 ? options.runValues : undefined;
+    const candidates = countdownRules(
+      runValues?.size ? rulesWithRunValues(part, rules, runValues) : rules,
+      bindings,
+      counters,
+    ).filter(
       (rule) =>
         (rule.from === null || rule.from.includes(current)) &&
         predicateOf(rule.condition, bindings, constraints) !== false,
@@ -836,7 +2729,17 @@ export function walkBehaviourRules(
         evidence: evidence(proof.evidence, ...unknownGuards.map((rule) => rule.evidence)),
       };
     }
-    if (candidates.some((rule) => rule.confidence === "unresolved")) {
+    atDepthLimit = false;
+    const byRunValue = runValueBranches(candidates, current, run);
+    if (byRunValue) return byRunValue;
+    // With no branch depth left, the walk may widen and take this step again.
+    const widening = widen(runValues);
+    if (widening === true) {
+      run--;
+      continue;
+    }
+    if (widening) return widening;
+    if (candidates.some((rule) => rule.confidence === "unresolved" && !settledPath(rule))) {
       const description = `Frame ${current} reaches a call or other operation whose field effects remain unresolved.`;
       const expressions = candidates.flatMap((rule) => [
         rule.to,
@@ -863,25 +2766,75 @@ export function walkBehaviourRules(
     if (outcomes.some((outcome) => !known(outcome.destination))) {
       const expression = outcomes.find((outcome) => !known(outcome.destination))!.rule.to;
       const description = `At frame ${current}, the next state depends on ${unknownWords(expression, report, part, bindings)} that is not established.`;
-      return {
+      const fields = unknownFields([expression], bindings);
+      const producers = producersOf(report, part, fields);
+      const stopped: BehaviourWalk = {
         ...base("unresolved", description),
         confidence: "unresolved",
         stop: {
           kind: "state",
           description,
           evidence: stoppingEvidence(candidates, [expression]),
-          fields: unknownFields([expression], bindings),
+          fields,
+          ...(producers.length ? { producers } : {}),
         },
         evidence: evidence(proof.evidence, ...candidates.map((rule) => rule.evidence)),
       };
+      const byValue = valueBranches(fields, producers, run);
+      const widening = widen(runValues);
+      if (widening === true) {
+        run--;
+        continue;
+      }
+      if (widening) return widening;
+      // When a decided assumption gives every number the field takes, there is no other value to stop at.
+      const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
+      return byValue
+        ? {
+            ...stopped,
+            ...(decided ? { assumptions: finding([proof]).assumptions } : {}),
+            stop: {
+              ...stopped.stop!,
+              branches: decided ? byValue : [...byValue, otherValue(fields[0]!, producers, stopped)],
+            },
+          }
+        : stopped;
     }
-    const next = outcomes[0]!;
-    if (outcomes.some((outcome) => signature(outcome.next) !== signature(next.next)))
+    let next = outcomes[0]!;
+    // Rules that all lead to the same frame need no branch: the walk goes on with what they agree on. Unless only tests
+    // of a countdown's starting value tell them apart, like the mouse motor's last count, which also clears its control
+    // value: then each is followed, so what it sets isn't forgotten.
+    const onlyStartTests =
+      unknownGuards.length > 0 &&
+      unknownGuards.every((rule) =>
+        predicateTerms(rule.condition)
+          .filter((term) => predicateOf(term, bindings, constraints) === undefined)
+          .every((term) => startTestOffset(term) !== undefined),
+      );
+    const sameFrame =
+      outcomes.length > 1 &&
+      !onlyStartTests &&
+      outcomes.every((outcome) => known(outcome.destination) && outcome.destination.value === next.destination.value);
+    if (sameFrame && outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
+      next = { ...next, next: agreedBindings(outcomes.map((outcome) => outcome.next)) };
+      proof = finding(
+        [proof],
+        ["The rules that apply here lead to the same next frame; the fields they set differently are forgotten."],
+      );
+    }
+    if (!sameFrame && outcomes.some((outcome) => signature(outcome.next) !== signature(next.next))) {
+      const branches = branchesAt(outcomes, unknownGuards, run);
+      const widening = widen(runValues);
+      if (widening === true) {
+        run--;
+        continue;
+      }
+      if (widening) return widening;
       return {
         ...base(
           "unresolved",
           unknownGuards.length
-            ? "The unknown condition selects different next fields, so no branch is chosen."
+            ? `At frame ${current}, the rules that apply set different fields, and which one does depends on ${guardWords(unknownGuards, report, bindings, constraints)}, which the walk doesn't know${branches ? ", so each way is followed" : ""}.`
             : "Applicable rules disagree on the next fields.",
         ),
         confidence: "unresolved",
@@ -897,11 +2850,14 @@ export function walkBehaviourRules(
             ),
             bindings,
           ),
+          ...(branches ? { branches } : {}),
         },
       };
+    }
     if ((part as WithFrameCount).frameCount && next.destination.value >= (part as WithFrameCount).frameCount!)
       return { ...base("unresolved", "The next state has no known visible frame."), confidence: "unresolved" };
-    proof = finding([proof, ...candidates]);
+    const step = stepFinding(candidates);
+    proof = finding([proof, step]);
     constraints = retainConstraints(
       candidates.every((rule) => completeRuleEffects(rule, routine)) ? constraints : [],
       candidates.flatMap((rule) => rule.updates ?? routine?.writes ?? []),
@@ -910,13 +2866,84 @@ export function walkBehaviourRules(
     );
     bindings = next.next;
     states.push(next.destination.value);
-    proofs.push(finding(candidates));
+    proofs.push(step);
+    ({ fields: bindings, tests: constraints } = leaveReaction(bindings, constraints, current));
+    // A walk that comes round to the same fields with only a countdown moved, and no test of it on the way, forgets
+    // how far it moved, so it can notice the loop.
+    if (counters.length) {
+      bindings = settleCountdowns(bindings, counters);
+      constraints = countdownTests(constraints, bindings, part.type);
+      const plain = JSON.stringify([signature(withoutCountdowns(bindings)), constraints.map(textOf)]);
+      if (plainSeen.has(plain) && bindings.size !== withoutCountdowns(bindings).size)
+        bindings = withoutCountdowns(bindings);
+      plainSeen.add(plain);
+    }
+    // Keeping the field into the next run rests on the decided assumption.
+    if (keepsReaction(bindings)) proof = finding([proof], [reaction!.assumption]);
     const id = walkSignature();
     const prior = seen.get(id);
     if (prior !== undefined) return base(prior === states.length - 2 ? "rest" : "loop", undefined, prior);
+    const join = joined();
+    if (join) return join;
+    explore();
     seen.set(id, states.length - 1);
   }
   return { ...base("limit", `The walk reached its limit of ${max} run invocations.`), confidence: "unresolved" };
+}
+
+/** At most this many walks resting on a frame keep their conditions in its `origins`; `walks` counts all of them. */
+const RESTING_ORIGINS = 8;
+/**
+ * The frames the walks come to rest on that the run's own outcomes don't give. A walk rests when one more run leaves
+ * its frame and every field it knows as they were, under the tests on its way, so the part stays there. A walk that
+ * holds an unknown frame proves the same for each frame its rules keep. Each frame is listed once, with the fields
+ * every walk resting there agrees on.
+ */
+function walkRestsOf(
+  report: BehaviourReport,
+  part: PartBehaviour,
+  animations: AnimationDescription[],
+  listed: StableStateDescription[],
+): StableStateDescription[] {
+  const stateOffset = stateOffsetOf(report);
+  if (stateOffset === undefined) return [];
+  const frameCount = (part as WithFrameCount).frameCount;
+  const rests = new Map<number, { walk: BehaviourWalk; conditions: Predicate[]; bindings: Bindings }[]>();
+  const visit = (walk: BehaviourWalk, conditions: Predicate[]) => {
+    for (const branch of walk.stop?.branches ?? []) visit(branch.walk, [...conditions, branch.condition]);
+    if (walk.status !== "rest") return;
+    const hold = walk.parameterised?.kind === "hold" ? walk.parameterised : undefined;
+    const states = walk.parameterised ? (hold?.allowedStates ?? []) : walk.states.slice(-1);
+    for (const state of states) {
+      if (listed.some((item) => item.state === state) || (frameCount && state >= frameCount)) continue;
+      const bindings = bindingsOf(walk.fields);
+      if (hold) writeField(bindings, "part", stateOffset, bits(state, 0xffff, 16));
+      rests.set(state, [...(rests.get(state) ?? []), { walk, conditions, bindings }]);
+    }
+  };
+  for (const animation of animations)
+    visit(animation.walk, animation.trigger.condition.kind === "true" ? [] : [animation.trigger.condition]);
+  return [...rests]
+    .sort(([a], [b]) => a - b)
+    .map(([state, walks]) => {
+      const proof = finding(
+        walks.map((item) => item.walk),
+        ["A walk that rests here proves it under the tests on its way; the frame isn't claimed to be the reset's."],
+      );
+      const shown = walks.slice(0, RESTING_ORIGINS);
+      return {
+        state,
+        frame: frameOf(part, state),
+        fields: fieldsOf(agreedBindings(walks.map((item) => item.bindings)), fieldDefinitions(report, part), proof),
+        origins: shown.map(({ walk, conditions }) => ({
+          condition: conditions.length > 1 ? { kind: "and", terms: conditions } : (conditions[0] ?? { kind: "true" }),
+          evidence: walk.evidence,
+        })),
+        walks: walks.length,
+        ...proof,
+        evidence: evidence(...shown.map((item) => item.walk.evidence)),
+      };
+    });
 }
 
 function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableStateDescription[] {
@@ -925,7 +2952,44 @@ function stableStatesOf(report: BehaviourReport, part: PartBehaviour): StableSta
   if (!run || stateOffset === undefined) return [];
   const initial = bindingsOf(metadataFields(report, part));
   const candidates = new Map<string, StableStateDescription>();
-  for (const rule of (part.transitions as WithUpdates[]).filter((item) => item.routine === run.address)) {
+  const runRules = (part.transitions as WithUpdates[]).filter((item) => item.routine === run.address);
+  // A run that always keeps the frame and every other field, like the empty run the balls share, rests on each of the
+  // part's frames (up to 32 of them).
+  const keeps =
+    runRules.length > 0 &&
+    runRules.every(
+      (rule) =>
+        rule.confidence !== "unresolved" &&
+        rule.condition.kind === "true" &&
+        rule.to.kind === "field" &&
+        rule.to.object === "part" &&
+        rule.to.offset === stateOffset &&
+        !rule.updates?.length,
+    );
+  const frameCount = (part as WithFrameCount).frameCount ?? 0;
+  // A part the program draws itself has no frames to count; a decided assumption can give the ones it starts on.
+  const drawn = frameCount ? undefined : LEVEL_FRAMES.get(part.id);
+  if (keeps && frameCount <= 32)
+    for (const frame of drawn ? drawn.frames : Array(frameCount).keys()) {
+      const bindings = new Map(initial);
+      writeField(bindings, "part", stateOffset, bits(frame, 0xffff, 16));
+      const proof = finding(runRules, [
+        "These fields follow a stated run outcome; they are not claimed to be the level's reset values.",
+        ...(drawn ? [drawn.assumption] : []),
+      ]);
+      const fields = fieldsOf(bindings, fieldDefinitions(report, part), proof);
+      const walk = walkBehaviourRules(report, part.type, fields, { maxRunCalls: 1 });
+      if (walk.status !== "rest") continue;
+      // A frame is a word, as the rules read it: the wood incline's frame -1 rests as 65535.
+      candidates.set(signature(bindings), {
+        state: frame & 0xffff,
+        frame: frameOf(part, frame & 0xffff),
+        fields,
+        origins: runRules.map((rule) => ({ condition: rule.condition, evidence: rule.evidence })),
+        ...finding([...runRules, walk], proof.assumptions),
+      });
+    }
+  for (const rule of runRules) {
     if (rule.confidence === "unresolved" || !rule.updates) continue;
     const state = valueOf(rule.to, initial);
     if (!known(state)) continue;
@@ -974,6 +3038,12 @@ function affineState(expression: Expression, offset: number): { scale: number; a
   const sign = expression.operator === "+" ? 1 : -1;
   return { scale: left.scale + sign * right.scale, amount: left.amount + sign * right.amount };
 }
+/**
+ * A safety bound on a part's conditional input cases. The cases come from the run's own tests and the plain numbers
+ * the writers found, and each input is expanded at most 64 times, so the list is finite; in Even More the jack-in-the-box
+ * has the most, 156. A part past the bound keeps a note that more cases remain.
+ */
+const MAX_INPUT_CASES = 1024;
 function producerPartitions(
   report: BehaviourReport,
   part: PartBehaviour,
@@ -1006,9 +3076,12 @@ function producerPartitions(
     }
   for (const transition of part.transitions as WithUpdates[])
     for (const write of transition.updates ?? []) remember(write);
+  // Only the state-related fields a constructor sets take part in input cases; the zero words of a fresh part would
+  // otherwise crowd the bounded case list without saying anything about the run guards' inputs.
+  const creationRoles = new Set(["previousState", "savedState", "stateDelta", "savedStateDelta", "control", "trigger"]);
   for (const source of report.creation ?? [])
     if (source.partType === part.type)
-      for (const field of source.fields)
+      for (const field of source.fields.filter((item) => creationRoles.has(item.name)))
         remember({
           ...field,
           object: "part",
@@ -1057,7 +3130,7 @@ function producerPartitions(
         .sort(),
     ]);
     if (result.has(id)) return;
-    if (result.size >= 64) {
+    if (result.size >= MAX_INPUT_CASES) {
       truncated = true;
       return;
     }
@@ -1166,6 +3239,7 @@ function conditionalInputCases(
         .map((rule) => (rule.to as Extract<Expression, { kind: "constant" }>).value),
     ]),
   ];
+  // A bounded test of the frame gives a case per frame when it allows fewer than this many.
   const maxCases = 64;
   for (const rule of part.transitions.filter((rule) => rule.routine === run.address)) {
     const terms = predicateTerms(rule.condition).filter(inputPredicate);
@@ -1247,7 +3321,7 @@ function conditionalInputCases(
       if (predicateOf(condition, bindings) !== false) {
         const id = JSON.stringify([signature(bindings), terms.map((term) => JSON.stringify(term)).sort()]);
         if (!cases.has(id)) {
-          if (cases.size >= maxCases) return producerPartitions(report, part, [...cases.values()], true);
+          if (cases.size >= MAX_INPUT_CASES) return producerPartitions(report, part, [...cases.values()], true);
           cases.set(id, { fields, condition, ...proof });
         }
       }
@@ -1277,7 +3351,7 @@ function conditionalInputCases(
         prior.evidence = evidence(prior.evidence, rule.evidence);
         continue;
       }
-      if (cases.size >= maxCases) return producerPartitions(report, part, [...cases.values()], true);
+      if (cases.size >= MAX_INPUT_CASES) return producerPartitions(report, part, [...cases.values()], true);
       cases.set(id, { fields, condition: caseCondition, ...proof });
     }
   }
@@ -1317,21 +3391,251 @@ function remapPredicate(predicate: Predicate, target: string, sourceType: number
   return predicate;
 }
 
+/**
+ * The instructions of helpers' stores to a write's field that the write's evidence holds: what a helper call that left
+ * the value unknown may have stored there.
+ */
+function helperStores(report: BehaviourReport, write: FieldWrite): string[] {
+  const at = new Set(write.evidence.map((item) => item.address));
+  const texts = new Map<number, string>();
+  // An instruction that stores to the field: its first operand is the field.
+  const destination = new RegExp(`^\\w+ (word|byte) \\[\\w+\\+0x${write.offset.toString(16).padStart(2, "0")}\\]`);
+  for (const helper of report.helpers ?? [])
+    for (const store of (helper as { writes?: { root: string; offset: number; evidence: Evidence[] }[] }).writes ?? [])
+      if (store.root === "argument" && store.offset === write.offset)
+        for (const item of store.evidence)
+          if (at.has(item.address) && item.text && destination.test(item.text)) texts.set(item.address, item.text);
+  return [...texts.values()];
+}
 function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = false): string {
   if (write.object.startsWith("outline storage of a listed part at "))
     return "May update the outline coordinates of a part in the overlap list.";
+  // A rope, belt or pulley helper's summary names the fields it may change on the parts it reaches, the owner included.
+  if (write.object.startsWith("a part reached through a rope, belt or pulley at ")) {
+    const reached = "a part its ropes, belt or pulleys reach (this part too)";
+    if (write.offset === 0x14) return `May change field 0x14 of ${reached}: the value the relay passes along.`;
+    if ([0x5a, 0x5c, 0x5e, 0x60, 0x6a, 0x6c].includes(write.offset))
+      return `May change the rope links of ${reached}, turning a rope round.`;
+    if (write.offset === 0x96 || write.offset === 0x9c) return `May move the rope ends of ${reached}.`;
+    return `May change a field of ${reached}.`;
+  }
+  // The records a part's belt (0x54) and ropes (0x66, 0x68) link to are records, not parts.
+  const record = /^referenced-by\(part\+0x(54|66|68)\)$/.exec(write.object);
+  if (record) {
+    const what = record[1] === "54" ? "its belt's record" : `the record of its rope at 0x${record[1]}`;
+    const self =
+      write.value.kind === "binary" &&
+      write.value.left.kind === "field" &&
+      write.value.left.object === write.object &&
+      write.value.left.offset === write.offset &&
+      write.value.right.kind === "constant";
+    const field = `field 0x${write.offset.toString(16).padStart(2, "0")}`;
+    return self &&
+      write.value.kind === "binary" &&
+      write.value.operator === "+" &&
+      write.value.right.kind === "constant"
+      ? `Adds ${write.value.right.value} to ${field} of ${what}.`
+      : `Updates ${field} of ${what}.`;
+  }
+  // The rope record a rope callback is asked about: the part's rope link at 0x66 or 0x68, picked by the callback's rope
+  // number, like the teeter-totter's at 0x1d53d (`mov ax, [bx+si+0x66]` with bx the number times 2).
+  if (/^pointer loaded from table 0x[0-9a-f]+\+0x66 indexed by .*"object":"address of part"/.test(write.object)) {
+    const field = `field 0x${write.offset.toString(16).padStart(2, "0")}`;
+    const step =
+      write.value.kind === "binary" &&
+      write.value.left.kind === "field" &&
+      write.value.left.object === write.object &&
+      write.value.left.offset === write.offset &&
+      write.value.right.kind === "constant" &&
+      ["+", "-"].includes(write.value.operator)
+        ? { operator: write.value.operator, amount: write.value.right.value }
+        : undefined;
+    const what = "the record of the rope it is asked about (its rope link at 0x66 or 0x68)";
+    return step
+      ? `${step.operator === "+" ? "Adds" : "Takes"} ${step.amount} ${step.operator === "+" ? "to" : "from"} ${field} of ${what}.`
+      : `Updates ${field} of ${what}.`;
+  }
+  // A part tied to this one by a rope (its rope links at 0x5a to 0x60) gets one of its own rope links set, like the
+  // balloon's: when it pops, the part tied to it is tied to the rope end it makes instead.
+  const tied = /^referenced-by\(part\+0x(5a|5c|5e|60)\)$/.exec(write.object);
+  if (tied && [0x5a, 0x5c, 0x5e, 0x60].includes(write.offset)) {
+    const link = `rope link 0x${write.offset.toString(16)}`;
+    const source = write.value.kind === "field" && write.value.offset === 0 ? write.value.object : "";
+    const made = createdPartOf(report, source.replace("allocation result at", "allocation returned at"));
+    const target = made
+      ? `the ${partWords(report.parts.find((part) => part.type === made.type)?.id ?? `part of type ${made.type}`)} it makes`
+      : "another part";
+    return `Sets ${link} of the part tied to its rope link 0x${tied[1]} to ${target}.`;
+  }
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
+  // A bounce callback's argument is the part that touched its owner.
+  // An object the routine allocates itself, like the bullet the gun creates: whether it is a part isn't claimed here.
+  const created = /^nullable allocation returned at (0x[0-9a-f]+)$/.exec(write.object);
+  if (created)
+    return `Sets field 0x${write.offset.toString(16).padStart(2, "0")} of the object it creates at ${created[1]}.`;
+  // An overlap query's summary writes the parts it finds: the found list's link at 0x78 and the fields it fills in.
+  const found = write.object.startsWith("a candidate selected by the overlap query at ");
+  if (found && write.offset === 0x78) return "Links a part its search finds into its found list (field 0x78).";
   const subject = write.object.startsWith("a listed part at ")
     ? "a listed part's"
-    : other
-      ? "another part's"
-      : "the part's";
+    : found
+      ? "a found part's"
+      : write.object === "collider"
+        ? "the touching part's"
+        : other
+          ? "another part's"
+          : "the part's";
+  const offsetText = `0x${write.offset.toString(16).padStart(2, "0")}`;
+  // A contact search the routine runs on the part fills in its contact record and flags by what it finds there, which only
+  // the run knows: like the teeter-totter sweeping each part on its plank 16 pixels up and down (0x1d3c2, 0x1d3d7).
+  if (write.value.kind === "unknown" && /^Conditional contact-search effect on field /.test(write.value.reason)) {
+    const what =
+      CONTACT_RECORD[write.offset] ??
+      (name === "contactPart" || name === "contactAngle" || name === "contactEdge"
+        ? `contact record (${name})`
+        : (FINE_POSITION[write.offset] ?? (name ? name : `field ${offsetText}`)));
+    return `May change ${subject} ${what} through the contact search it runs on it; what that search finds there, only the run knows.`;
+  }
+  if (FINE_POSITION[write.offset]) {
+    // The trampoline and the teeter-totter set the long from the whole position: `(positionY << 9)` in its two words.
+    const whole =
+      write.value.kind === "binary" &&
+      JSON.stringify(write.value).includes(
+        `"object":${JSON.stringify(write.object)},"offset":${write.offset < 0x1a ? 0x1e : 0x20}`,
+      );
+    return `${whole ? "Puts" : "Updates"} ${subject} ${FINE_POSITION[write.offset]}${whole ? ` on its whole ${write.offset < 0x1a ? "positionX" : "positionY"}, in 1/512 pixels` : ", in 1/512 pixels"}.`;
+  }
+  if (name === "previousX" || name === "previousY")
+    return `Updates ${subject} previous position, which the contact search sweeps from to the position.`;
+  // Bits with a proved meaning outside the drawing flags, like the goal marks in field 0x0a.
+  if (name !== "drawingFlags") {
+    const bits = changedBits(write.value, write);
+    const whose = subject;
+    const said = bits && [
+      ...[...Array(16).keys()]
+        .filter((b) => bits.set & (1 << b))
+        .map((b) => flagWords(write.offset, 1 << b, true, whose)),
+      ...[...Array(16).keys()]
+        .filter((b) => bits.clear & (1 << b))
+        .map((b) => flagWords(write.offset, 1 << b, false, whose)),
+    ];
+    if (said?.length && said.every((words) => words)) {
+      const text = said.join(", and ");
+      return `${text[0]!.toUpperCase()}${text.slice(1)}.`;
+    }
+  }
   if (name === "state")
     return write.value.kind === "constant"
-      ? `Selects state ${write.value.value}${other ? " on another part" : ""}.`
+      ? `Selects state ${write.value.value}${write.object === "collider" ? " on the touching part" : other ? " on another part" : ""}.`
       : `Updates ${subject} selected state.`;
   if (name === "stateDelta") return `Updates ${subject} value that advances the animation state.`;
+  // The level reset copies this field into the state before it calls the part's reset.
+  if (name === "savedState" && write.object === "part" && !other)
+    return write.value.kind === "constant"
+      ? `Saves state ${write.value.value} as the one the next level reset starts from.`
+      : "Updates the state the next level reset starts from.";
   if (name === "drawingFlags") {
+    // An exclusive or of the field with a number turns those flags round, whatever they were.
+    const value = write.value;
+    if (
+      value.kind === "binary" &&
+      value.operator === "^" &&
+      value.left.kind === "field" &&
+      value.left.object === write.object &&
+      value.left.offset === write.offset &&
+      value.right.kind === "constant"
+    ) {
+      const toggled = value.right.value;
+      const masks = report.layout.fields.find((field) => field.offset === write.offset)?.masks ?? [];
+      const named = masks.filter((mask) => (toggled & mask.value) === mask.value);
+      const words = named.flatMap((mask) =>
+        mask.name === "horizontalFlip"
+          ? [`Turns ${subject} horizontal reflection round.`]
+          : mask.name === "verticalFlip"
+            ? [`Turns ${subject} vertical reflection round.`]
+            : mask.name === "hidden"
+              ? [`Turns hiding ${subject.replace(/'s$/, "")} round.`]
+              : [],
+      );
+      const rest = named.reduce((bits, mask) => bits & ~mask.value, toggled);
+      if (rest) words.push(`Turns flag 0x${rest.toString(16)} of ${subject} drawing flags round.`);
+      return words.join(" ");
+    }
+    // An or sets bits and an and with a mask clears them, whatever the others were: say which.
+    const bitsOf = (expression: Expression): { set: number; clear: number } | undefined => {
+      if (expression.kind === "field" && expression.offset === write.offset) return { set: 0, clear: 0 };
+      if (expression.kind !== "binary" || expression.right.kind !== "constant") return undefined;
+      const inner = bitsOf(expression.left);
+      const mask = expression.right.value & 0xffff;
+      if (!inner) return undefined;
+      if (expression.operator === "|") return { set: inner.set | mask, clear: inner.clear & ~mask };
+      if (expression.operator === "&") return { set: inner.set & mask, clear: inner.clear | (~mask & 0xffff) };
+      return undefined;
+    };
+    // The gear propagation a gear's run calls marks the gears it reaches with its visited bit, and changes no other.
+    const propagation = (report.helpers ?? []).find(
+      (helper) => (helper as { partGraph?: { propagation?: { fields: { flags: number } } } }).partGraph?.propagation,
+    ) as { partGraph: { propagation: { fields: { flags: number }; visitedMask: number } } } | undefined;
+    if (
+      write.object === "a connected part" &&
+      propagation?.partGraph.propagation.fields.flags === write.offset &&
+      write.value.kind === "field" &&
+      /^value the call at 0x[0-9a-f]+ writes to a selected part$/.test(write.value.object)
+    ) {
+      const words = flagWords(write.offset, propagation.partGraph.propagation.visitedMask, true, "its");
+      if (words) return `May change the drawing flags of a part its gear connections reach: the propagation ${words}.`;
+    }
+    // A helper whose only store to the flags on this path is an `or` with a number may set those bits, or leave them.
+    if (write.value.kind === "unknown") {
+      const stores = helperStores(report, write);
+      const masks = stores.map((text) => /^or word \[\w+\+0x08\], 0x([0-9a-f]{4})$/.exec(text)?.[1]);
+      if (stores.length && masks.every((mask) => mask)) {
+        const bits = masks.reduce((all, mask) => all | parseInt(mask!, 16), 0);
+        const each = [...Array(16).keys()].filter((b) => bits & (1 << b)).map((b) => 1 << b);
+        const words = each.map(
+          (bit) =>
+            flagWords(write.offset, bit, true, subject) ??
+            `sets flag 0x${bit.toString(16)} of ${subject} drawing flags`,
+        );
+        const may = words.map((w) => w.replace(/^sets /, "set "));
+        return `May ${may.join(", and may ")}, through a helper that does nothing else to them.`;
+      }
+    }
+    const changed = bitsOf(write.value);
+    if (changed && (changed.set || changed.clear)) {
+      const masks = report.layout.fields.find((field) => field.offset === write.offset)?.masks ?? [];
+      const words = (bits: number, set: boolean) => {
+        const named = masks.filter((mask) => (bits & mask.value) === mask.value);
+        const list = named.map((mask) =>
+          mask.name === "horizontalFlip"
+            ? set
+              ? `Reflects ${subject} frame horizontally on this path.`
+              : `Clears ${subject} horizontal reflection on this path.`
+            : mask.name === "verticalFlip"
+              ? set
+                ? `Reflects ${subject} frame vertically on this path.`
+                : `Clears ${subject} vertical reflection on this path.`
+              : `${set ? "Sets" : "Clears"} ${subject} ${mask.name} flag (0x${mask.value.toString(16)}).`,
+        );
+        let rest = named.reduce((value, mask) => value & ~mask.value, bits);
+        // Bits whose meaning the code proves, like the out-of-play flag 0x2000.
+        for (const bit of [...Array(16).keys()].map((b) => 1 << b).filter((b) => rest & b)) {
+          const words = flagWords(write.offset, bit, set, subject);
+          if (!words) continue;
+          list.push(`${words[0]!.toUpperCase()}${words.slice(1)}.`);
+          rest &= ~bit;
+        }
+        const each = [...Array(16).keys()]
+          .filter((bit) => rest & (1 << bit))
+          .map((bit) => `0x${(1 << bit).toString(16)}`);
+        if (each.length)
+          list.push(
+            `${set ? "Sets" : "Clears"} ${each.length > 1 ? `flags ${each.slice(0, -1).join(", ")} and ${each.at(-1)}` : `flag ${each[0]}`} of ${subject} drawing flags.`,
+          );
+        return list;
+      };
+      return [...words(changed.set, true), ...words(changed.clear, false)].join(" ");
+    }
     const flags = valueOf(write.value, new Map());
     const changes =
       report.layout.fields
@@ -1362,13 +3666,23 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   if (name === "frameWidth" || name === "frameHeight") return `Updates ${subject} current frame dimensions.`;
   if (name === "horizontalExtent" || name === "verticalExtent" || name === "baseWidth" || name === "baseHeight")
     return `Updates ${subject} stored dimensions.`;
-  if (name === "drawX" || name === "drawY") return `Updates where ${other ? "another part's" : "the"} frame is drawn.`;
+  if (name === "drawX" || name === "drawY")
+    return `Updates where ${subject === "the part's" ? "the" : subject} frame is drawn.`;
   if (name === "positionX" || name === "positionY") return `Updates ${subject} position.`;
   if (name === "velocityX" || name === "velocityY") return `Updates ${subject} motion.`;
   if (name === "contactPart" || name === "contactAngle" || name === "contactEdge")
     return `Updates ${subject} contact information.`;
-  return `Updates ${subject} part-specific field; its complete meaning remains unresolved.`;
+  const offset = `0x${write.offset.toString(16).padStart(2, "0")}`;
+  if (found) return `May change field ${offset} of a part its search finds.`;
+  if (name === "contextCounter") return `Updates ${subject} counter at ${offset}.`;
+  if (name === "outlinePointCount")
+    return write.value.kind === "constant"
+      ? `Sets the number of ${subject} outline corners to ${write.value.value}.`
+      : `Updates the number of ${subject} outline corners.`;
+  return `Updates ${subject} field ${offset}; what it means isn't established.`;
 }
+/** The fields whose words the sentences read as signed numbers: the frames, the speeds and the control value. */
+const SIGNED_WORDS = /^(state|previousState|olderState|stateDelta|velocityX|velocityY)$/;
 function inputConditionWords(predicate: Predicate, report: BehaviourReport, part: PartBehaviour): string {
   const nameOf = (expression: Expression) =>
     expression.kind === "field" && expression.object === "part"
@@ -1437,8 +3751,9 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
       ">": "is above",
       ">=": "is at least",
     };
+    // A frame, a speed or the control value is a signed word, so 0xd000 reads -12288 as in the lab's conditions.
     const right =
-      term.right.kind === "constant" && (term.signed || leftName === "stateDelta")
+      term.right.kind === "constant" && (term.signed || (leftName !== undefined && SIGNED_WORDS.test(leftName)))
         ? String(signed(wrap(term.right.value, term.left.width), term.left.width))
         : fieldName(term.right);
     if (
@@ -1500,15 +3815,15 @@ function walkWords(walk: BehaviourWalk): string {
   if (walk.parameterised?.kind === "hold")
     return "Keeps the supplied frame unchanged while the stated condition holds; no numeric starting frame is assumed.";
   if (!walk.states.length) return walk.reason ?? "The initial frame has not been established.";
-  const labels = walk.frames
-    .slice(0, 12)
-    .map(
-      (frame) =>
-        `${frame.frame === undefined ? "state" : "frame"} ${frame.state}${frame.runCalls > 1 ? ` for ${frame.runCalls} run invocations` : ""}`,
-    );
+  const labels = walk.frames.slice(0, 12).map(
+    (frame) =>
+      // A frame is a signed word, like the wood incline's -1.
+      `${frame.frame === undefined ? "state" : "frame"} ${signed(wrap(frame.state, 16), 16)}${frame.runCalls > 1 ? ` for ${frame.runCalls} run invocations` : ""}`,
+  );
   const prefix = labels.join(", ") + (walk.frames.length > 12 ? ", followed by the remaining recorded frames" : "");
   if (walk.status === "rest") return `Shows ${prefix}, then holds the last frame.`;
   if (walk.status === "loop") return `Shows ${prefix}, then repeats its proved cycle.`;
+  if (walk.status === "joins") return `Shows ${prefix}, then continues like another branch of the same walk.`;
   return `Known prefix: ${prefix}. ${walk.reason ?? "The continuation remains unresolved."}`;
 }
 function triggerWords(trigger: AnimationTrigger, report: BehaviourReport): string {
@@ -1549,11 +3864,35 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   for (const counter of part.counters)
     effects.push({
       kind: "counter",
-      description: `Updates a part-specific counter${counter.comparisons.length ? "; the recorded comparisons gate later behaviour" : ""}.`,
+      description: `Counts with field 0x${counter.offset.toString(16).padStart(2, "0")}${counter.comparisons.length ? ", which later tests read" : ""}.`,
       field: counter.offset,
       ...finding([counter]),
     });
-  for (const effect of report.relatedObjectEffects.filter((effect) => effect.sourceType === part.type))
+  // Writes through an outline pointer change an outline: one effect per object and path.
+  const outlines = (writes: FieldWrite[]) => {
+    const groups = new Map<string, FieldWrite[]>();
+    for (const write of writes)
+      if (outlineOwner(report, write.object) !== undefined) {
+        const key = JSON.stringify([write.object, write.condition]);
+        groups.set(key, [...(groups.get(key) ?? []), write]);
+      }
+    for (const group of groups.values()) {
+      const description = outlineWords(group, report, group[0]!.object);
+      if (description)
+        effects.push({
+          kind: "outline",
+          description,
+          condition: group[0]!.condition,
+          routine: group[0]!.routine,
+          ...finding(group),
+        });
+    }
+  };
+  const related = report.relatedObjectEffects.filter((effect) => effect.sourceType === part.type);
+  outlines(related.map((effect) => effect.write));
+  for (const effect of related.filter(
+    (effect) => outlineOwner(report, effect.write.object) === undefined && !createdPartOf(report, effect.write.object),
+  ))
     effects.push({
       kind: "related-object",
       description: fieldEffectWords(effect.write, report, true),
@@ -1590,8 +3929,22 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   for (const callback of part.routines) {
     const routine = report.routines.find((routine) => routine.address === callback.address);
     for (const call of routine?.calls ?? []) if (call.target) visit(call.target.address, call.evidence, 0);
+    const copy = report.outlineTables?.find((item) => item.routine === callback.address);
+    if (copy)
+      effects.push({
+        kind: "outline",
+        description: outlineTableWords(copy),
+        routine: copy.routine,
+        ...finding([copy]),
+      });
+    outlines(routine?.writes ?? []);
     for (const write of routine?.writes ?? [])
-      if (write.object !== "part" && write.object !== "data")
+      if (
+        write.object !== "part" &&
+        write.object !== "data" &&
+        outlineOwner(report, write.object) === undefined &&
+        !createdPartOf(report, write.object)
+      )
         effects.push({
           kind: "related-object",
           description: fieldEffectWords(write, report, true),
@@ -1600,15 +3953,36 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
           routine: write.routine,
           ...finding([write]),
         });
+    // A part the routine makes gets one line per way, with the fields that way leaves on it.
+    if (routine)
+      for (const line of createdPartLines(report, routine))
+        effects.push({
+          kind: "related-object",
+          description: line.description,
+          condition: line.condition,
+          routine: line.routine,
+          ...finding(line.items),
+        });
   }
+  // The same effect of one routine on several paths is one line; when the paths' conditions differ, it keeps them all.
   const unique = new Map<string, DescribedEffect>();
   for (const effect of effects) {
-    const id = JSON.stringify([effect.kind, effect.description, effect.field, effect.condition]);
+    const id = JSON.stringify([effect.kind, effect.description, effect.field, effect.routine]);
     const prior = unique.get(id);
-    if (prior) {
-      prior.evidence = evidence(prior.evidence, effect.evidence);
-      prior.confidence = confidence(prior.confidence, effect.confidence);
-    } else unique.set(id, effect);
+    if (!prior) {
+      unique.set(id, effect);
+      continue;
+    }
+    prior.evidence = evidence(prior.evidence, effect.evidence);
+    prior.confidence = confidence(prior.confidence, effect.confidence);
+    const conditions = prior.conditions ?? (prior.condition ? [prior.condition] : []);
+    const next = effect.conditions ?? (effect.condition ? [effect.condition] : []);
+    for (const condition of next)
+      if (!conditions.some((known) => JSON.stringify(known) === JSON.stringify(condition))) conditions.push(condition);
+    if (conditions.length > 1) {
+      prior.conditions = conditions;
+      delete prior.condition;
+    }
   }
   return [...unique.values()];
 }
@@ -1678,6 +4052,21 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
         const period = periodOf(term.left) ?? periodOf(term.right);
         if (period) periods.add(period);
       }
+  // Where the part is drawn and how large its frame is depend on the frame, but a drawing field no rule reads can't
+  // change which frames follow.
+  const drawing = new Set(
+    report.layout.fields
+      .filter((f) => ["drawX", "drawY", "frameWidth", "frameHeight"].includes(f.name))
+      .map((f) => f.offset),
+  );
+  const read = new Set<number>();
+  for (const rule of rules) {
+    partFields(rule.condition, read);
+    partFields(rule.to, read);
+    for (const write of (rule as WithUpdates).updates ?? [])
+      if (!(write.object === "part" && drawing.has(write.offset))) partFields(write.value, read);
+  }
+  const unread = (write: FieldWrite) => write.object === "part" && drawing.has(write.offset) && !read.has(write.offset);
   const results: AnimationDescription[] = [];
   for (const period of periods) {
     const invariant = (e: Expression): boolean => !contains(e) || periodOf(e) === period;
@@ -1691,6 +4080,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
           (rule as WithUpdates).updates?.some(
             (write) =>
               contains(write.value) &&
+              !unread(write) &&
               !(write.object === "part" && write.offset === stateOffset && affine(write.value) !== undefined),
           ),
       )
@@ -1704,9 +4094,18 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
       const condition: Predicate = { kind: "and", terms };
       contexts.set(JSON.stringify(terms), { condition, proof: finding([rule]) });
     }
+    // The phase walk counts frames from 0, so a drawing value of the frame itself is left unknown there.
+    const phaseWrite = (write: FieldWrite): FieldWrite =>
+      unread(write) && contains(write.value)
+        ? { ...write, value: { kind: "unknown", reason: "A drawing value of the frame", width: write.width } }
+        : write;
     const phasePart = {
       ...part,
-      transitions: part.transitions.map((rule) => (rule.routine === run.address ? { ...rule, from: null } : rule)),
+      transitions: part.transitions.map((rule) =>
+        rule.routine === run.address
+          ? { ...rule, from: null, ...(rule.updates ? { updates: rule.updates.map(phaseWrite) } : {}) }
+          : rule,
+      ),
     };
     const phaseReport = { ...report, parts: [phasePart] };
     let tried = 0;
@@ -1830,12 +4229,15 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
 }
 
 export function describeBehaviour(report: BehaviourReport): BehaviourDescription {
+  const fromOthers = effectsFromOthers(report, evaluateBehaviourCondition);
+  const hits = hitsFromOthers(report, evaluateBehaviourCondition);
   const parts = report.parts.map((part): PartBehaviourDescription => {
     const rest = restOf(report, part);
     const creation = creationOf(report, part);
-    if (rest.status === "unresolved" && report.lifecycle?.reset.length) {
-      rest.description =
-        "The level reset restores the frame saved in the level; TIM.EXE alone does not supply that value.";
+    if (rest.status !== "known" && report.lifecycle?.reset.length) {
+      if (rest.status === "unresolved" && !rest.frames)
+        rest.description =
+          "The level reset restores the frame saved in the level; TIM.EXE alone does not supply that value.";
       rest.evidence = evidence(rest.evidence, ...report.lifecycle.reset.map((context) => context.evidence));
       rest.assumptions.push(
         "This describes the proved level-reset context; other callers of the type reset callback can differ.",
@@ -1906,6 +4308,18 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         ],
       };
       const seed = fieldsOf(seedBindings, [...fieldDefinitions(report, part), ...trigger.writes], seedProof);
+      // The trigger's tests on the part's own fields still hold when the walk starts, as far as its writes leave those
+      // fields alone, so a starting frame they rule out isn't followed.
+      const stateOffset = stateOffsetOf(report);
+      const held =
+        trigger.kind === "run" || stateOffset === undefined
+          ? []
+          : retainConstraints(predicateTerms(trigger.condition).filter(inputPredicate), trigger.writes, stateOffset, {
+              kind: "field",
+              object: "part",
+              offset: stateOffset,
+              width: 16,
+            });
       const walk: BehaviourWalk =
         trigger.effectsComplete === false
           ? {
@@ -1920,7 +4334,13 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
               reason: "The trigger has untracked object effects, so its final starting fields are not established.",
               timingReason: "No run invocation can be established from this trigger.",
             }
-          : walkBehaviourRules(report, part.type, seed);
+          : walkBehaviourRules(report, part.type, seed, {
+              ...(held.length ? { condition: { kind: "and", terms: held } } : {}),
+              // The part's own callbacks that change a field kept through its reaction start it from their value.
+              reaction: !(
+                trigger.kind === "callback" && REACTION_FIELDS.get(part.id)?.changedBy.includes(trigger.name)
+              ),
+            });
       animations.push({
         id,
         initial: created ? "creation" : stable ? "documented-rest" : "reset",
@@ -2071,9 +4491,46 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         );
       }
     }
+    // Other parts that change a field this part's rules read, like an explosion setting a balloon's control value.
+    for (const [index, hit] of (hits.get(part.type)?.hits ?? []).entries()) {
+      const trigger: AnimationTrigger = {
+        kind: "related-write",
+        name: hit.name,
+        scope: "one overlap-list member",
+        routine: hit.sources[0]!.routine,
+        condition: hit.condition,
+        writes: hit.writes,
+        sourceType: hit.sources[0]!.type,
+        effectsComplete: true,
+        ...finding([hit]),
+      };
+      add(`hit-${index}`, trigger);
+      stableStates.forEach((stable, stableIndex) => add(`stable-${stableIndex}-hit-${index}`, trigger, stable));
+    }
     const inputCases = conditionalInputCases(report, part);
     if (run)
       inputCases.cases.forEach((input, index) => {
+        // A case a decided assumption rules out, like the monkey bike pedalling with its counter at 0, isn't walked.
+        const offset = stateOffsetOf(report);
+        if (offset !== undefined && impossibleState(part, offset, bindingsOf(input.fields))) return;
+        // Nor is a case that needs a frame the part doesn't have, like a frame above the fish bowl's last. A part the
+        // program draws itself has the frames a decided assumption gives it in the middle of a run, as in the walks:
+        // the gear's run tests its frame for -1, but its frame is always 0 to 3 when a run starts.
+        const frameCount = (part as WithFrameCount).frameCount;
+        const drawn = frameCount ? undefined : LEVEL_FRAMES.get(part.id);
+        const frames =
+          frameCount && frameCount <= 32 ? [...Array(frameCount).keys()] : drawn && (drawn.shown ?? drawn.frames);
+        if (offset !== undefined && frames) {
+          const seeded = bindingsOf(input.fields);
+          const anyFrame = frames.some((frame) => {
+            const fields = new Map(seeded);
+            const before = readField(fields, "part", offset, 16);
+            if (known(before) && before.value !== (frame & 0xffff)) return false;
+            writeField(fields, "part", offset, bits(frame, 0xffff, 16));
+            return predicateOf(input.condition, fields) !== false;
+          });
+          if (!anyFrame) return;
+        }
         const trigger: AnimationTrigger = {
           kind: "input-case",
           name: inputConditionWords(input.condition, report, part),
@@ -2083,7 +4540,11 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           writes: [],
           ...finding([input]),
         };
-        const walk = walkBehaviourRules(report, part.type, input.fields, { condition: input.condition });
+        const walk = walkBehaviourRules(report, part.type, input.fields, {
+          condition: input.condition,
+          midRun: true,
+          reaction: true,
+        });
         animations.push({
           id: `run-guard-${index}`,
           initial: "run-guard",
@@ -2096,13 +4557,69 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
           ...finding([trigger, walk]),
         });
       });
+    // A hit that works a field out from the part's own value, like an electric switch taking 1 from a bullet's
+    // velocityX, says nothing new where that value isn't known. It is walked too from each input case that knows every
+    // field it reads: like a flying bullet, frame 0 with velocityX 12288.
+    const ruleFields = new Set<number>([stateOffsetOf(report) ?? -1]);
+    for (const rule of part.transitions) {
+      partFields(rule.condition, ruleFields);
+      partFields(rule.to, ruleFields);
+    }
+    for (const [index, hit] of (hits.get(part.type)?.hits ?? []).entries()) {
+      // The fields the values of the fields the rules read are worked out from.
+      const reads = new Set<number>();
+      for (const write of hit.writes)
+        if (write.value.kind !== "constant" && ruleFields.has(write.offset)) partFields(write.value, reads);
+      if (!reads.size) continue;
+      inputCases.cases.forEach((input, caseIndex) => {
+        const before = bindingsOf(input.fields);
+        if (predicateOf(hit.condition, before) === false) return;
+        const read = [...reads].map((offset) => readField(before, "part", offset, 16));
+        if (!read.every(known)) return;
+        const proof = finding(
+          [hit, input],
+          [
+            "The part is as the input case says when the other part does this; the case is a condition, not a proved event.",
+          ],
+        );
+        const seed = fieldsOf(
+          applyWrites(before, hit.writes),
+          [...fieldDefinitions(report, part), ...hit.writes],
+          proof,
+        );
+        const trigger: AnimationTrigger = {
+          kind: "related-write",
+          name: `${hit.name}, ${inputConditionWords(input.condition, report, part).replace(/^If /, "if ")}`,
+          scope: "one overlap-list member",
+          routine: hit.sources[0]!.routine,
+          condition: { kind: "and", terms: [input.condition, hit.condition] },
+          writes: hit.writes,
+          sourceType: hit.sources[0]!.type,
+          effectsComplete: true,
+          ...proof,
+        };
+        const walk = walkBehaviourRules(report, part.type, seed, { midRun: true, reaction: true });
+        animations.push({
+          id: `hit-${index}-case-${caseIndex}`,
+          initial: "run-guard",
+          inputCondition: input.condition,
+          initialFields: seed,
+          description: walkWords(walk),
+          prerequisites: [],
+          trigger: { ...trigger, description: triggerWords(trigger, report) },
+          walk,
+          ...finding([trigger, walk]),
+        });
+      });
+    }
     animations.push(...periodicAnimations(report, part));
+    stableStates.push(...walkRestsOf(report, part, animations, stableStates));
     const uncertainties = [
       ...new Set([
         ...part.uncertainties,
         ...(inputCases.truncated
           ? [
-              "The description retained at most 64 conditional input cases with bounded producer-value partitions; further cases remain in the extracted report.",
+              `The description retained at most ${MAX_INPUT_CASES} conditional input cases with bounded producer-value partitions; further cases remain in the extracted report.`,
             ]
           : []),
         ...(rest.reason ? [rest.reason] : []),
@@ -2115,7 +4632,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
       type: part.type,
       ...(gear ? { gear } : {}),
       ...(contact ? { contact } : {}),
-      summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
+      summary: `${rest.status === "known" ? `The reset paths establish state ${rest.state}.` : rest.status === "saved" ? "The reset keeps the frame the level saved." : rest.status === "sockets" ? "The reset sets the frame from the part's sockets." : "The reset state is unresolved."} ${stableStates.length} stable ending${stableStates.length === 1 ? " is" : "s are"} proved from run outcomes and walks. ${animations.filter((animation) => animation.walk.status === "rest" || animation.walk.status === "loop").length} conditional frame walks have a proved ending.`,
       rest,
       ...(creation ? { creation } : {}),
       stableStates,
@@ -2143,7 +4660,11 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         confidence,
       })),
       uncertainties,
-      ...finding([rest, ...animations]),
+      effectsFromOthers: fromOthers.get(part.type)?.effects ?? [],
+      ...finding(
+        [rest, ...animations],
+        [...(fromOthers.get(part.type)?.assumptions ?? []), ...(hits.get(part.type)?.assumptions ?? [])],
+      ),
     };
   });
   return {

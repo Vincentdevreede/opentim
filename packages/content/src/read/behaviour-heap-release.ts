@@ -80,7 +80,27 @@ function matchSequence(code: RoutineCode, pattern: string, bindings: Bindings, e
     if (prefixes.length) row = row.slice(4);
     if (i.prefixes.join() !== prefixes.join()) return;
     const [mnemonic, target] = row.split(" ");
-    if (mnemonic === "call" || mnemonic === "callf") {
+    if ((mnemonic === "call" || mnemonic === "callf") && target?.startsWith("*")) {
+      // A call through a word of the data segment, like `callf *32:ds[{hook}]`: its operand is matched, whatever the
+      // word holds while the game runs.
+      const call = code.calls.find((c) => c.instruction === i.address);
+      const memory = i.operands[0];
+      const [, name] = /^\*32:ds\[\{([A-Za-z]+)\}\]$/.exec(target) ?? [];
+      if (
+        i.flow !== "call" ||
+        i.mnemonic !== "call" ||
+        i.target ||
+        !call ||
+        call.far !== (mnemonic === "callf") ||
+        memory?.kind !== "memory" ||
+        memory.width !== 32 ||
+        memory.segment !== "ds" ||
+        memory.base.length ||
+        !name ||
+        !bind(name, memory.displacement)
+      )
+        return;
+    } else if (mnemonic === "call" || mnemonic === "callf") {
       const call = code.calls.find((c) => c.instruction === i.address);
       if (
         i.flow !== "call" ||
@@ -411,6 +431,29 @@ call $validate
 pop bp
 retf`;
 
+/**
+ * The same checked wrapper with its release made as a real far call. A far call pushes the same return CS:IP as the
+ * linker's `nop`, `push cs`, near `call` form, so the wrapper still finds its argument at [bp+6] and returns by retf.
+ */
+const farCheckedWrapper = `push bp
+mov bp,sp
+nop
+push cs
+call $validate
+push 16:ss[bp+6]
+callf $wrapper
+pop cx
+nop
+push cs
+call $validate
+pop bp
+retf`;
+
+/** Binds the validation helper and the release wrapper in either call form; every other instruction and edge matches. */
+export function matchCheckedReleaseWrapper(code: RoutineCode): Bindings | undefined {
+  return matchHeapRoutine(code, checkedWrapper, new Map()) ?? matchHeapRoutine(code, farCheckedWrapper, new Map());
+}
+
 export interface OwnedHeapRelease extends Finding {
   address: number;
   allocator: number;
@@ -425,7 +468,7 @@ export function proveOwnedHeapRelease(
   summaries: Map<number, EngineSummary>,
   allocationEvidence: Set<number>,
 ): OwnedHeapRelease | undefined {
-  let bindings = matchHeapRoutine(code, checkedWrapper, new Map());
+  let bindings = matchCheckedReleaseWrapper(code);
   const matched = [code];
   const match = (role: string, pattern: string) => {
     const target = bindings?.get(role),

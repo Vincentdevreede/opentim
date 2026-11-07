@@ -18,7 +18,8 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
-import { readBehaviour, type BehaviourReport } from "../src/read/behaviour.ts";
+import { readBehaviour, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
+import { partSemantics } from "../src/read/behaviour-build-comparison.ts";
 import { readProgramParts } from "../src/read/parts.ts";
 
 function readResources(folder: string): Map<string, Uint8Array> {
@@ -28,77 +29,6 @@ function readResources(folder: string): Map<string, Uint8Array> {
   for (const name of readdirSync(at).filter(isArchiveName).sort())
     for (const entry of readArchive(readFileSync(join(at, name)), name)) files.set(entry.name, entry.data);
   return files;
-}
-
-/** Removes evidence locations from semantic comparisons while keeping part field offsets. */
-function semantic(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    const items = value.map(semantic);
-    return [...new Map(items.map((item) => [JSON.stringify(item), item])).entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([, item]) => item);
-  }
-  if (value === null || typeof value !== "object") return value;
-  const item = value as Record<string, unknown>;
-  return Object.fromEntries(
-    Object.entries(item)
-      .filter(
-        ([key]) =>
-          !["evidence", "routine", "address", "segment", "assumptions", "uncertainties"].includes(key) &&
-          !(item.kind === "table" && key === "offset"),
-      )
-      .map(([key, child]) => [
-        key,
-        ["reason", "object"].includes(key) && typeof child === "string"
-          ? child.replace(/\b(at|helper|destination) 0x[0-9a-f]+/gi, "$1 <address>")
-          : semantic(child),
-      ]),
-  );
-}
-
-function unresolved(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(unresolved);
-  if (value === null || typeof value !== "object") return false;
-  const item = value as Record<string, unknown>;
-  if (
-    item.confidence === "unresolved" ||
-    item.kind === "unknown" ||
-    item.kind === "table" ||
-    (item.kind === "field" && item.object === "data")
-  )
-    return true;
-  return Object.entries(item).some(
-    ([key, child]) => !["evidence", "assumptions", "uncertainties"].includes(key) && unresolved(child),
-  );
-}
-
-function partSemantics(part: BehaviourReport["parts"][number], report: BehaviourReport) {
-  const findings: Record<string, unknown[]> = {
-    routines: part.routines.map(({ slot, role, shared, sharedDefault, confidence }) => ({
-      slot,
-      role,
-      shared,
-      sharedDefault,
-      confidence,
-    })),
-    stateWrites: part.stateWrites,
-    transitions: part.transitions,
-    counters: part.counters,
-    reset: part.reset,
-    visibleEffects: part.visibleEffects,
-    triggers: part.triggers,
-    creation: (report.creation ?? [])
-      .filter((source) => source.partType === part.type)
-      .map(({ source, fields, confidence }) => ({ source, fields, confidence })),
-  };
-  return {
-    resolved: Object.fromEntries(
-      Object.entries(findings).map(([key, items]) => [key, semantic(items.filter((item) => !unresolved(item)))]),
-    ),
-    unresolved: Object.fromEntries(
-      Object.entries(findings).map(([key, items]) => [key, semantic(items.filter(unresolved))]),
-    ),
-  };
 }
 
 function timingSemantics(timing: BehaviourReport["timing"]) {
@@ -169,11 +99,11 @@ function partSummary(part: BehaviourReport["parts"][number], report: BehaviourRe
     report.routines.find((routine) => routine.address === callback.address),
   );
   const partial = callbacks.filter((routine) => !routine || routine.status !== "complete").length;
-  const unknown = part.transitions.filter((transition) => transition.confidence === "unresolved").length;
+  const counts = transitionCounts(part.transitions);
   const notes = [
     ...part.uncertainties.slice(0, 2),
     ...(part.uncertainties.length > 2 ? [`${part.uncertainties.length - 2} further uncertainties in JSON`] : []),
-    `${partial} incomplete callbacks; ${unknown} unresolved transition conditions`,
+    `${partial} incomplete callbacks; ${counts.unresolved} unresolved transition conditions; ${counts.conditional} conditional on run values; ${counts.unknownWrites} with unknown writes; ${counts.callWritten} with values a call writes but nobody follows; ${counts.namedRunValues} with named run values`,
   ];
   const row = `| ${part.type}: ${part.id} | ${part.stateWrites.length} | ${part.transitions.length} | ${part.reset.length} | ${part.counters.length} | ${part.visibleEffects.length} | ${notes.join("; ").replaceAll("|", "\\|").replaceAll("\n", " ")} |`;
   return { type: part.type, id: part.id, semantics: hashes, row };
@@ -205,10 +135,15 @@ for (const listId of ["tim1", "evenmore"] as const) {
     try {
       const program = readFileSync(join(folder, "TIM.EXE"));
       const files = readResources(folder);
-      const parts = readProgramParts(listId, program, (sheet) => {
-        const data = files.get(`${sheet}.BMP`);
-        return data && decodeImage(data).frames.length;
-      });
+      const parts = readProgramParts(
+        listId,
+        program,
+        (sheet) => {
+          const data = files.get(`${sheet}.BMP`);
+          return data && decodeImage(data).frames.length;
+        },
+        (sheet) => files.get(`${sheet}.BMP`),
+      );
       const started = performance.now();
       const report = readBehaviour(program, parts);
       const milliseconds = performance.now() - started;

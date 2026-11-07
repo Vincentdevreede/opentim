@@ -95,7 +95,7 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
       `Expected six contiguous far callback fields dispatched through the discovered table; found ${fields.map((f) => `0x${f.toString(16)}`).join(", ") || "none"}.`,
     );
   }
-  const roles = ["bounce", "run", "reset", "resize", "flip", "rope"];
+  const roles = ["bounce", "run", "reset", "flip", "resize", "rope"];
   fields.forEach((field, index) => {
     const sites = dispatches.get(field)!;
     result.callbacks.push({

@@ -302,7 +302,7 @@ function fieldRoleImage(counter = 0xa8, reloadContact = false) {
   return { image, table };
 }
 
-const fieldCallbacks = ["bounce", "run", "reset", "resize", "flip", "rope"].map((role, slot) => ({
+const fieldCallbacks = ["bounce", "run", "reset", "flip", "resize", "rope"].map((role, slot) => ({
   role,
   field: 0x22 + slot * 4,
 }));

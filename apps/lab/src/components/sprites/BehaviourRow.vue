@@ -30,11 +30,15 @@ function measure() {
     );
 }
 // Opening and closing and a resize of the panel change the line's size, so it is measured again then. New text in a
-// reused row can keep the size, so it is measured again after every update too.
-const observer = new ResizeObserver(measure);
-onMounted(() => line.value && observer.observe(line.value));
+// reused row can keep the size, so it is measured again after every update too. The observer is made on mount, so the
+// row still renders where there is no ResizeObserver, like on the server.
+let observer: ResizeObserver | undefined;
+onMounted(() => {
+  observer = new ResizeObserver(measure);
+  if (line.value) observer.observe(line.value);
+});
 onUpdated(measure);
-onBeforeUnmount(() => observer.disconnect());
+onBeforeUnmount(() => observer?.disconnect());
 /**
  * Whether opening the row shows more. An open row can always close. A function rather than a computed, because the
  * slots aren't reactive: a reused row can gain or lose its details, and the render asks again each time.

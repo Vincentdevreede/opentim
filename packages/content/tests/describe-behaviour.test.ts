@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate, Transition } from "../src/read/behaviour.ts";
-import { describeBehaviour, walkBehaviourRules, type KnownField } from "../src/read/describe-behaviour.ts";
+import { choose } from "../src/read/behaviour.ts";
+import {
+  CONTROL_VALUE_ASSUMPTION,
+  CONVEYOR_BELT_ASSUMPTION,
+  ELECTRIC_MOTOR_ASSUMPTION,
+  GEAR_ASSUMPTION,
+  MONKEY_BIKE_ASSUMPTION,
+  MONKEY_BIKE_REACTION_ASSUMPTION,
+  MOUSE_MOTOR_ASSUMPTION,
+  TEETER_TOTTER_END_ASSUMPTION,
+} from "../src/read/behaviour-saved-frames.ts";
+import {
+  START,
+  describeBehaviour,
+  splitRules,
+  walkBehaviourRules,
+  type AnimationDescription,
+  type BehaviourWalk,
+  type KnownField,
+} from "../src/read/describe-behaviour.ts";
+import type { MeasuredClip } from "../src/read/behaviour-validation.ts";
+import { compareMeasuredWalks } from "../src/read/behaviour-walk-validation.ts";
 
 const proof = {
   confidence: "inferred" as const,
@@ -188,7 +209,11 @@ describe("descriptions from extracted behaviour rules", () => {
     ];
     const part = describeBehaviour(data).parts[0]!;
     expect(part.rest.status).toBe("unresolved");
-    expect(part.stableStates.map((state) => state.state)).toEqual([0]);
+    expect(part.stableStates.filter((state) => !state.walks).map((state) => state.state)).toEqual([0]);
+    // With the control value at 0 the run keeps any frame, and the walks from the reset rest on 1 and 2 that way.
+    const rests = part.stableStates.filter((state) => state.walks);
+    expect(rests.map((state) => state.state)).toEqual([1, 2]);
+    expect(rests[0]!.fields).toContainEqual(expect.objectContaining({ offset: 0x12, value: 0 }));
     const animation = part.animations.find(
       (item) => item.initial === "documented-rest" && item.trigger.kind === "callback",
     )!;
@@ -268,6 +293,29 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(cases.some((item) => item.trigger.name.includes("state-control value is 1"))).toBe(true);
   });
 
+  it("leaves out an input case that needs a frame the part doesn't have", () => {
+    const data = report([rule(field(12), test(12, "<=", 2)), rule(constant(0), test(12, ">", 2))]);
+    data.parts[0]!.frameCount = 3;
+    const names = describeBehaviour(data)
+      .parts[0]!.animations.filter((item) => item.trigger.kind === "input-case")
+      .map((item) => item.trigger.name);
+    expect(names.some((name) => name.includes("at most 2"))).toBe(true);
+    expect(names.some((name) => name.includes("above 2"))).toBe(false);
+  });
+
+  it("writes a frame and a speed in its sentences as the signed words they are", () => {
+    const data = report([rule(constant(0xffff), test(0x36, "==", 0xd000)), rule(field(12), test(0x36, "!=", 0xd000))]);
+    data.layout.fields.push({ name: "velocityX", offset: 0x36, ...proof });
+    delete (data.parts[0] as { frameCount?: number }).frameCount;
+    const cases = describeBehaviour(data).parts[0]!.animations.filter((item) => item.trigger.kind === "input-case");
+    const names = cases.map((item) => item.trigger.name);
+    expect(names.some((name) => name.includes("is -12288"))).toBe(true);
+    expect(names.some((name) => name.includes("53248"))).toBe(false);
+    const words = cases.map((item) => item.description ?? "");
+    expect(words.some((text) => /\b(state|frame) -1\b/.test(text))).toBe(true);
+    expect(words.some((text) => text.includes("65535"))).toBe(false);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),
@@ -287,6 +335,813 @@ describe("descriptions from extracted behaviour rules", () => {
       rule(field(12), test(12, "==", 1)),
     ]);
     expect(walkBehaviourRules(data, 39, [known(12, 0)])).toMatchObject({ states: [0, 1, 1], status: "rest" });
+  });
+
+  it("follows each rule an unknown input chooses, as a conditional branch with its own ending", () => {
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), test(8, "==", 0))),
+      rule(constant(2), both(test(12, "==", 0), test(8, "!=", 0))),
+      rule(field(12), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk).toMatchObject({ states: [0], status: "unresolved", stop: { kind: "ambiguity" } });
+    const branches = walk.stop!.branches!;
+    expect(branches.map((branch) => [branch.condition, branch.walk.states, branch.walk.status])).toEqual([
+      [both(test(12, "==", 0), test(8, "==", 0)), [1, 1], "rest"],
+      [both(test(12, "==", 0), test(8, "!=", 0)), [2, 2], "rest"],
+    ]);
+    expect(walkBehaviourRules(data, 39, [known(12, 0)], { branchDepth: 0 }).stop?.branches).toBeUndefined();
+  });
+
+  it("continues past a rule whose only unresolved part is a written value when the run covers every path", () => {
+    const unknownValue: Expression = { kind: "unknown", reason: "A scan result", width: 16 };
+    const step = {
+      ...rule(constant(1), test(12, "==", 0), [write(0x20, unknownValue)]),
+      confidence: "unresolved" as const,
+    };
+    const data = report([step, rule(field(12), test(12, "==", 1))]);
+    const settled = {
+      ...proof,
+      effectsComplete: true,
+      condition: { kind: "true" },
+      fields: [],
+      returnValue: constant(0),
+      confidence: "inferred",
+    };
+    Object.assign(data.routines[0]!, { uncertainties: [], outcomes: [settled] as never });
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x20, 5)]);
+    expect(walk).toMatchObject({ states: [0, 1, 1], status: "rest", confidence: "inferred" });
+    expect(walk.fields.find((field) => field.offset === 0x20)).toBeUndefined();
+    Object.assign(data.routines[0]!, { uncertainties: ["Back edge requires a loop invariant"] });
+    expect(walkBehaviourRules(data, 39, [known(12, 0)]).stop?.kind).toBe("effects");
+  });
+
+  it("branches on a value the same run computed without carrying it into later runs", () => {
+    const scanned: Expression = {
+      kind: "field",
+      object: "part after unresolved write at 0x50",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    const scan = (operator: string): Predicate => ({
+      kind: "compare",
+      left: scanned,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), scan("=="))),
+      rule(constant(2), both(test(12, "==", 0), scan("!="))),
+      rule(field(12), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      outcomes: [
+        { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+      ],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+      [[1, 1], "rest"],
+      [[2, 2], "rest"],
+    ]);
+  });
+
+  it("goes on past a helper that keeps the state, forgetting the other fields", () => {
+    const unresolved = {
+      ...rule(field(12), test(12, "==", 0), [write(0x62, { kind: "unknown", reason: "x", width: 16 } as never)]),
+      confidence: "unresolved" as const,
+    };
+    const data = report([unresolved]);
+    const outcome = (more: object) =>
+      ({ ...proof, condition: test(12, "==", 0), fields: [], returnValue: constant(0), ...more }) as never;
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      uncertainEffects: true,
+      returnPathsComplete: true,
+      outcomes: [outcome({ effectsComplete: false, keepsState: true })],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(4, 39)]);
+    expect([walk.states, walk.status]).toEqual([[0, 0, 0], "rest"]);
+    expect(walk.fields.find((item) => item.offset === 4)?.knownMask ?? 0).toBe(0);
+    // A path whose effects are incomplete for another reason still stops the walk.
+    (data.routines[0] as unknown as { outcomes: unknown[] }).outcomes = [outcome({ effectsComplete: false })];
+    expect(walkBehaviourRules(data, 39, [known(12, 0)]).stop?.kind).toBe("effects");
+  });
+
+  it("ends a branch that reaches a state another branch of the same walk already follows", () => {
+    const scanned: Expression = {
+      kind: "field",
+      object: "part after unresolved write at 0x50",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    const scan = (operator: string): Predicate => ({
+      kind: "compare",
+      left: scanned,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), scan("=="))),
+      rule(constant(2), both(test(12, "==", 0), scan("!="))),
+      rule(constant(2), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      outcomes: [
+        { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+      ],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    // The first branch goes 1 then 2 and holds there; the second starts at 2, which the first already follows.
+    expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+      [[1, 2, 2], "rest"],
+      [[2], "joins"],
+    ]);
+    // It names where it continues: the first branch, at its second state.
+    expect(walk.stop?.branches?.[1]?.walk.joined).toEqual({ path: [0], index: 1, sameTests: true });
+  });
+
+  it("walks each starting state a partly known seed allows, keeping only states with a frame", () => {
+    const data = report(
+      [rule(constant(1), test(12, "==", 0)), rule(field(12), test(12, "==", 1)), rule(field(12), test(12, "==", 2))],
+      [],
+    );
+    const partial = { ...known(12, 0), knownMask: 0xfffc };
+    const walk = walkBehaviourRules(data, 39, [partial]);
+    expect(walk.stop?.kind).toBe("state");
+    expect(walk.stop?.branches?.map((branch) => [branch.condition, branch.walk.states, branch.walk.status])).toEqual([
+      [test(12, "==", 0), [0, 1, 1], "rest"],
+      [test(12, "==", 1), [1, 1], "rest"],
+      [test(12, "==", 2), [2, 2], "rest"],
+    ]);
+    const none = walkBehaviourRules(data, 39, []);
+    expect(none.stop?.branches?.map((branch) => [branch.condition, branch.walk.states])).toEqual([
+      [test(12, "==", 0), [0, 1, 1]],
+      [test(12, "==", 1), [1, 1]],
+      [test(12, "==", 2), [2, 2]],
+    ]);
+    // More than three unknown bits still allow only the frames, like a generator whose reset keeps two bits.
+    const wide = walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]);
+    expect(wide.stop?.branches?.map((branch) => branch.condition)).toEqual([0, 1, 2].map((n) => test(12, "==", n)));
+    data.parts[0]!.frameCount = 16;
+    const low = walkBehaviourRules(data, 39, [{ ...known(12, 3), knownMask: 0x0003 }]);
+    expect(low.stop?.branches?.map((branch) => branch.condition)).toEqual([3, 7, 11, 15].map((n) => test(12, "==", n)));
+    // Up to 32 frames, like the fish bowl's 23, each frame is a starting state.
+    data.parts[0]!.frameCount = 23;
+    expect(walkBehaviourRules(data, 39, []).stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([
+      ...Array(23).keys(),
+    ]);
+    data.parts[0]!.frameCount = 33;
+    expect(walkBehaviourRules(data, 39, []).stop?.branches).toBeUndefined();
+    data.parts[0]!.frameCount = 0;
+    expect(walkBehaviourRules(data, 39, []).stop?.branches).toBeUndefined();
+    expect(walkBehaviourRules(data, 39, [{ ...known(12, 0), knownMask: 0xfff0 }]).stop?.branches).toBeUndefined();
+  });
+
+  it("lists where a stopping field's value comes from without claiming every writer", () => {
+    const sum: Expression = { kind: "binary", operator: "+", left: field(12), right: field(0x12), width: 16 };
+    const data = report([rule(sum, test(0x12, "!=", 0)), rule(field(12), test(0x12, "==", 0))]);
+    data.routines[2]!.outcomes = [
+      { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [write(0x12, constant(1))] },
+    ] as never;
+    data.relatedObjectEffects = [
+      {
+        ...proof,
+        sourceType: 50,
+        sourcePart: "electric-motor",
+        write: { ...write(0x12, constant(0xffff)), object: "referenced-by(part+0x54)" },
+      },
+    ];
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.stop?.kind).toBe("state");
+    expect(walk.stop?.producers?.map((item) => [item.source, item.value])).toEqual([
+      ["bounce", constant(1)],
+      ["electric-motor", constant(0xffff)],
+    ]);
+    // Each number a writer gives is followed on its own; any other value keeps the stop.
+    const branches = walk.stop?.branches ?? [];
+    expect(branches.map((branch) => branch.condition)).toEqual([
+      test(0x12, "==", 1),
+      test(0x12, "==", 0xffff),
+      { kind: "and", terms: [test(0x12, "!=", 1), test(0x12, "!=", 0xffff)] },
+    ]);
+    expect(branches[0]!.walk.states.slice(0, 3)).toEqual([0, 1, 2]);
+    expect(branches[2]!.walk.stop?.kind).toBe("state");
+  });
+
+  describe("ways a run decides by itself", () => {
+    const settled = (data: ReturnType<typeof report>) => {
+      data.routines[0] = {
+        ...data.routines[0]!,
+        uncertainties: [],
+        returnPathsComplete: true,
+        outcomes: [
+          { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+        ],
+      } as never;
+      return data;
+    };
+    const compare = (left: Expression, operator: string, value: number): Predicate => ({
+      kind: "compare",
+      left,
+      operator,
+      right: constant(value),
+      signed: false,
+    });
+    const answer: Expression = {
+      kind: "field",
+      object: "answer of the query at 0x50",
+      offset: 0,
+      width: 16,
+      unresolved: true,
+    };
+    const found: Expression = { kind: "field", object: "member found by the loop at 0x60", offset: 4, width: 16 };
+
+    it("branches on the fields of a part the run found, like the type of the part a cat looks at", () => {
+      const data = settled(
+        report([
+          rule(constant(1), both(test(12, "==", 0), compare(found, "==", 42))),
+          rule(constant(2), both(test(12, "==", 0), compare(found, "!=", 42))),
+          rule(field(12), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[1, 1], "rest"],
+        [[2, 2], "rest"],
+      ]);
+    });
+
+    it("branches on whether a gear's train is blocked, a value the run works out from the other gears", () => {
+      const blocked: Expression = { kind: "field", object: "gear connection conflict at 0x70", offset: 0, width: 16 };
+      const data = settled(
+        report([
+          rule(constant(1), both(test(12, "==", 0), compare(blocked, "==", 0))),
+          rule(constant(2), both(test(12, "==", 0), compare(blocked, "!=", 0))),
+          rule(field(12), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[1, 1], "rest"],
+        [[2, 2], "rest"],
+      ]);
+    });
+
+    it("follows each rule from an unknown frame when every rule gives a known next frame, like the pinball bumper", () => {
+      const rules = [
+        rule(field(12), both(test(0x12, "==", 0), test(12, "==", 0))),
+        rule(constant(0), both(test(0x12, "==", 0), test(12, "!=", 0))),
+        rule(constant(1), test(0x12, "!=", 0), [write(0x12, constant(0))]),
+      ];
+      const drawn = () => {
+        const data = settled(report(rules));
+        data.parts[0] = { ...data.parts[0]!, frameCount: 0 } as never;
+        return data;
+      };
+      const walk = walkBehaviourRules(drawn(), 39, []);
+      const branches = walk.stop?.branches ?? [];
+      expect(branches.map((branch) => branch.walk.states[0])).toEqual([0, 1]);
+      expect(branches.every((branch) => ["rest", "joins"].includes(branch.walk.status))).toBe(true);
+      // Hit, only one rule applies: the walk goes on from the frame it gives.
+      const hit = walkBehaviourRules(drawn(), 39, [known(0x12, 1)]);
+      expect(hit.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[1, 0, 0], "rest"],
+      ]);
+    });
+
+    it("follows rules that lead to the same next fields as one way, under what they all test", () => {
+      const data = settled(
+        report([
+          rule(constant(1), both(test(12, "==", 0), compare(answer, "==", 0))),
+          rule(constant(1), both(test(12, "==", 0), compare(answer, "!=", 0), compare(found, "==", 42))),
+          rule(constant(2), both(test(12, "==", 0), compare(answer, "!=", 0), compare(found, "!=", 42))),
+          rule(field(12), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      const branches = walk.stop?.branches ?? [];
+      expect(branches.map((branch) => branch.walk.states)).toEqual([
+        [1, 1],
+        [2, 2],
+      ]);
+      expect(branches[0]!.condition).toEqual({ kind: "and", terms: [test(12, "==", 0)] });
+      expect(branches[0]!.alternatives).toHaveLength(2);
+      expect(branches[1]!.alternatives).toBeUndefined();
+    });
+
+    it("ends a branch that knows more tests than another branch following the same state", () => {
+      const data = settled(
+        report([
+          rule(constant(2), both(test(12, "==", 0), compare(answer, "==", 0))),
+          rule(constant(1), both(test(12, "==", 0), compare(answer, "!=", 0), test(0x40, "==", 0))),
+          rule(field(12), both(test(12, "==", 0), compare(answer, "!=", 0), test(0x40, "!=", 0))),
+          rule(constant(2), test(12, "==", 1)),
+          rule(field(12), test(12, "==", 2)),
+        ]),
+      );
+      const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+      // The second branch reaches frame 2 knowing the field at 0x40 is 0. The first follows frame 2 knowing nothing
+      // about it, which covers that case too. The third stays at frame 0, which the walk itself follows.
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[2, 2], "rest"],
+        [[1, 2], "joins"],
+        [[0], "joins"],
+      ]);
+      // Both knew more tests than the place they continue at: the first branch's start, and the walk's own start.
+      expect(walk.stop?.branches?.slice(1).map((branch) => branch.walk.joined)).toEqual([
+        { path: [0], index: 0, sameTests: false },
+        { path: [], index: 0, sameTests: false },
+      ]);
+    });
+
+    describe("widening at the branch depth limit", () => {
+      /** Every walk at the end of a branch, with how deep it lies. */
+      const leaves = (walk: BehaviourWalk, depth = 0): { walk: BehaviourWalk; depth: number }[] =>
+        walk.stop?.branches?.length
+          ? walk.stop.branches.flatMap((branch) => leaves(branch.walk, depth + 1))
+          : [{ walk, depth }];
+      const nodes = (walk: BehaviourWalk): BehaviourWalk[] => [
+        walk,
+        ...(walk.stop?.branches ?? []).flatMap((branch) => nodes(branch.walk)),
+      ];
+      const widened = (walk: BehaviourWalk) => walk.assumptions.some((text) => text.includes("branch depth limit"));
+      /**
+       * Like the mouse motor in TIM 1: at every step the run's answer either keeps the part as it is, or flips its
+       * frame and counts its counter at 0x96 down. The counter starts at 0, so it goes through every number and no
+       * state repeats.
+       */
+      const motor = () => {
+        const count = write(0x96, add(0x96, -1));
+        const data = settled(
+          report([
+            rule(field(12), compare(answer, "==", 0)),
+            rule(constant(1), both(test(12, "==", 0), compare(answer, "!=", 0)), [count]),
+            rule(constant(0), both(test(12, "==", 1), compare(answer, "!=", 0)), [count]),
+          ]),
+        );
+        data.parts[0]!.frameCount = 2;
+        return data;
+      };
+
+      it("forgets a counter that differs from an earlier state at the same frame, and then ends", () => {
+        const walk = walkBehaviourRules(motor(), 39, [known(12, 0), known(0x96, 0)]);
+        expect(leaves(walk).every((leaf) => ["rest", "loop", "joins"].includes(leaf.walk.status))).toBe(true);
+        // The counter is known down to the depth limit; there the walk goes on without it.
+        const wide = nodes(walk).filter(widened);
+        expect(wide.length).toBeGreaterThan(0);
+        expect(wide.every((node) => !node.fields.some((item) => item.offset === 0x96))).toBe(true);
+        expect(Math.max(...leaves(walk).map((leaf) => leaf.depth))).toBeGreaterThan(24);
+      });
+
+      it("doesn't widen a walk that ends within the depth", () => {
+        const walk = walkBehaviourRules(motor(), 39, [known(12, 0)]);
+        expect(leaves(walk).every((leaf) => ["rest", "loop", "joins"].includes(leaf.walk.status))).toBe(true);
+        expect(nodes(walk).some(widened)).toBe(false);
+      });
+
+      it("stops as before when no earlier state at the same frame differs", () => {
+        const walk = walkBehaviourRules(motor(), 39, [known(12, 0), known(0x96, 0)], { branchDepth: 0 });
+        expect(walk).toMatchObject({ states: [0], status: "unresolved", stop: { kind: "ambiguity" } });
+        expect(walk.stop?.branches).toBeUndefined();
+      });
+    });
+  });
+
+  describe("states a decided assumption rules out", () => {
+    /** A monkey bike with 13 frames, whose run rules are given. */
+    const bike = (transitions: Transition[]) => {
+      const data = report(transitions);
+      data.parts[0] = { ...data.parts[0]!, id: "monkey-bike", frameCount: 13 } as never;
+      data.routines[0] = {
+        ...data.routines[0]!,
+        uncertainties: [],
+        returnPathsComplete: true,
+        outcomes: [
+          { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+        ],
+      } as never;
+      return data;
+    };
+
+    it("doesn't start the monkey bike on a pedalling frame with its counter at 0", () => {
+      const data = bike([rule(constant(0), { kind: "true" })]);
+      const walk = walkBehaviourRules(data, 39, [known(0x96, 0)]);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2, 3, 4]);
+      expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+
+    it("doesn't follow the way where its counter is 0 on a pedalling frame, and follows the one left", () => {
+      const data = bike([
+        rule(constant(10), both(test(12, "==", 9), test(0x96, "!=", 0))),
+        rule(constant(0), both(test(12, "==", 9), test(0x96, "==", 0))),
+        rule(field(12), test(12, "==", 10)),
+        rule(field(12), test(12, "==", 0)),
+      ]);
+      const walk = walkBehaviourRules(data, 39, [known(12, 9)]);
+      expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
+        [[10, 10], "rest"],
+      ]);
+      expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+  });
+
+  describe("the monkey bike's control value during its reaction", () => {
+    const minus = (offset: number, value: number): Expression => ({
+      kind: "binary",
+      operator: "-",
+      left: field(offset),
+      right: constant(value),
+      width: 16,
+    });
+    const counted = (operator: string): Predicate => ({
+      kind: "compare",
+      left: minus(0x96, 1),
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    /**
+     * Like the monkey bike's run: while its counter at 0x96 runs it shows frames 5 and 6, then frame 0, where it pedals
+     * on to frame 1 unless its control value at 0x12 is 0. Its reaction never writes the control value.
+     */
+    const reacting = () => {
+      const data = report([
+        { ...rule(constant(6), both(test(0x96, "!=", 0), counted("!=")), [write(0x96, minus(0x96, 1))]), from: [5] },
+        { ...rule(constant(5), both(test(0x96, "!=", 0), counted("!=")), [write(0x96, minus(0x96, 1))]), from: [6] },
+        { ...rule(constant(0), both(test(0x96, "!=", 0), counted("==")), [write(0x96, minus(0x96, 1))]), from: [5, 6] },
+        { ...rule(field(12), both(test(0x96, "==", 0), test(0x12, "==", 0))), from: [0, 1] },
+        { ...rule(constant(1), both(test(0x96, "==", 0), test(0x12, "!=", 0))), from: [0, 1] },
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id: "monkey-bike", frameCount: 13 } as never;
+      data.routines[0] = {
+        ...data.routines[0]!,
+        uncertainties: [],
+        returnPathsComplete: true,
+        outcomes: [
+          { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [], returnValue: constant(0) },
+        ],
+      } as never;
+      return data;
+    };
+    const nodes = (walk: BehaviourWalk): BehaviourWalk[] => [
+      walk,
+      ...(walk.stop?.branches ?? []).flatMap((branch) => nodes(branch.walk)),
+    ];
+    const recording: MeasuredClip = {
+      path: "synthetic",
+      frames: [5, 6, 5, 6, 0].map((state, n) => ({ state, control: 0, timer: 4 - n })),
+      loopStart: null,
+      input: {},
+      skippedEngineServices: {},
+    };
+    const compared = (walk: BehaviourWalk) => {
+      const animation: AnimationDescription = {
+        ...proof,
+        id: "react",
+        initial: "reset",
+        prerequisites: [],
+        initialFields: [known(12, 5)],
+        trigger: { ...proof, kind: "run", name: "Run", routine: 100, condition: { kind: "true" }, writes: [] },
+        walk,
+      };
+      return compareMeasuredWalks([animation], recording, reacting()).classification;
+    };
+
+    it("keeps the control value it had when the reaction started, so a recording that gives it proves the ending", () => {
+      const walk = walkBehaviourRules(reacting(), 39, [known(12, 5)], { reaction: true });
+      // After the reaction, the test of the control value is a test of the value the walk started with.
+      const end = nodes(walk).find((node) => node.states[0] === 0 && node.stop?.branches?.length);
+      expect(JSON.stringify(end?.stop?.branches?.map((branch) => branch.condition))).toContain(START);
+      expect(end?.assumptions).toContain(MONKEY_BIKE_REACTION_ASSUMPTION);
+      expect(compared(walk)).toBe("complete");
+    });
+
+    it("doesn't keep it when the walk may not, like after the bike's own bounce or rope callback", () => {
+      const walk = walkBehaviourRules(reacting(), 39, [known(12, 5)]);
+      expect(nodes(walk).some((node) => node.assumptions.includes(MONKEY_BIKE_REACTION_ASSUMPTION))).toBe(false);
+      expect(compared(walk)).toBe("prefix");
+    });
+
+    it("doesn't keep it in the description after the bike's own bounce", () => {
+      const data = reacting();
+      const hit = [write(12, constant(5)), write(0x96, constant(4))];
+      data.routines[2] = {
+        ...data.routines[2]!,
+        writes: hit,
+        outcomes: [{ ...proof, condition: { kind: "true" }, fields: hit, returnValue: constant(0) }],
+      };
+      const bounce = describeBehaviour(data).parts[0]!.animations.find((item) => item.trigger.kind === "callback")!;
+      expect(bounce.walk.states[0]).toBe(5);
+      expect(nodes(bounce.walk).some((node) => node.assumptions.includes(MONKEY_BIKE_REACTION_ASSUMPTION))).toBe(false);
+    });
+
+    it("doesn't keep it from a frame outside the reaction", () => {
+      const walk = walkBehaviourRules(reacting(), 39, [known(12, 0), known(0x96, 0)], { reaction: true });
+      expect(JSON.stringify(walk.stop?.branches?.map((branch) => branch.condition))).not.toContain(START);
+      expect(nodes(walk).some((node) => node.assumptions.includes(MONKEY_BIKE_REACTION_ASSUMPTION))).toBe(false);
+    });
+  });
+
+  describe("control values a decided assumption limits", () => {
+    /** A part with 3 frames whose run adds its control value to its frame, given an id. */
+    const tilting = (id: string) => {
+      const data = report([
+        rule(field(12), test(0x12, "==", 0)),
+        rule({ kind: "binary", operator: "+", left: field(12), right: field(0x12), width: 16 }, test(0x12, "!=", 0), [
+          write(0x12, constant(0)),
+        ]),
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id, frameCount: 3 } as never;
+      data.layout.fields.push({ name: "stateDelta", offset: 0x12, ...proof });
+      data.routines[2]!.writes = [write(0x12, constant(1)), write(0x12, constant(0xffff))];
+      return data;
+    };
+    const controls = (walk: ReturnType<typeof walkBehaviourRules>) =>
+      walk.stop?.branches?.map((branch) => JSON.stringify(branch.condition));
+
+    it("follows only -1, 0 and 1 for the jack-in-the-box's control value, with no branch for any other number", () => {
+      const walk = walkBehaviourRules(tilting("jack-in-the-box"), 39, [known(12, 1)]);
+      expect(walk.stop?.branches).toHaveLength(3);
+      expect(controls(walk)?.some((text) => text.includes('"!="'))).toBe(false);
+      expect(walk.assumptions).toContain(CONTROL_VALUE_ASSUMPTION);
+    });
+
+    it("gives no decided numbers to a part without that decision", () => {
+      const walk = walkBehaviourRules(tilting("bellows"), 39, [known(12, 1)]);
+      expect(walk.stop?.branches).toBeUndefined();
+      expect(walk.assumptions).not.toContain(CONTROL_VALUE_ASSUMPTION);
+    });
+
+    it("doesn't tip the teeter-totter past an end", () => {
+      const left = walkBehaviourRules(tilting("teeter-totter"), 39, [known(12, 0)]);
+      expect(left.stop?.branches?.map((branch) => branch.walk.states.slice(0, 2))).toEqual([
+        [0, 0],
+        [0, 1],
+      ]);
+      expect(left.assumptions).toContain(TEETER_TOTTER_END_ASSUMPTION);
+      const right = walkBehaviourRules(tilting("teeter-totter"), 39, [known(12, 2)]);
+      expect(right.stop?.branches?.map((branch) => branch.walk.states.slice(0, 2))).toEqual([
+        [2, 2],
+        [2, 1],
+      ]);
+    });
+  });
+
+  describe("a control value a rope question may have changed", () => {
+    /** The value the control value holds right after a rope query, when a question can come back to the part. */
+    const afterQuery: Expression = {
+      kind: "field",
+      object: "part after the query at 0x1d2d1",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    /** A teeter-totter that asks along its ropes and then adds what its control value holds to its frame. */
+    const asking = (keepsValue: boolean) => {
+      const data = report([
+        rule(field(12), test(0x12, "==", 0)),
+        {
+          ...rule(
+            { kind: "binary", operator: "+", left: field(12), right: afterQuery, width: 16 },
+            test(0x12, "!=", 0),
+            [write(0x12, keepsValue ? afterQuery : constant(0))],
+          ),
+          confidence: "unresolved",
+        },
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id: "teeter-totter", frameCount: 3 } as never;
+      data.routines[0]!.outcomes = [
+        { ...proof, effectsComplete: true, condition: { kind: "true" }, fields: [] },
+      ] as never;
+      return data;
+    };
+    const values = (walk: ReturnType<typeof walkBehaviourRules>) =>
+      walk.stop?.branches?.map((branch) => (branch.condition as { right: { value: number } }).right.value);
+
+    it("follows each decided number for it, and not one that tips the teeter-totter past an end", () => {
+      const walk = walkBehaviourRules(asking(false), 39, [known(12, 0), known(0x12, 1)]);
+      expect(values(walk)).toEqual([0, 1]);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states.slice(0, 2))).toEqual([
+        [0, 0],
+        [0, 1],
+      ]);
+      expect(walk.stop?.branches?.every((branch) => branch.walk.status === "rest")).toBe(true);
+      expect(walk.assumptions).toEqual(
+        expect.arrayContaining([CONTROL_VALUE_ASSUMPTION, TEETER_TOTTER_END_ASSUMPTION]),
+      );
+    });
+
+    it("uses the number for that run only, and works out the next run's value again", () => {
+      const walk = walkBehaviourRules(asking(true), 39, [known(12, 1), known(0x12, 1)]);
+      const up = walk.stop?.branches?.find((branch) => branch.walk.states[1] === 2)?.walk;
+      // The control value keeps that number, but the next run's query gives a new one.
+      expect(up?.fields.find((item) => item.offset === 0x12)?.value).toBe(1);
+      expect(up?.stop?.kind).toBe("state");
+      expect(values(up!)).toEqual([0, 0xffff]);
+    });
+
+    it("gives no numbers to a part without that decision", () => {
+      const data = asking(false);
+      data.parts[0] = { ...data.parts[0]!, id: "bellows" } as never;
+      expect(walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1)]).stop?.branches).toBeUndefined();
+    });
+  });
+
+  describe("starting frames of parts drawn by their own code", () => {
+    /** A part without a frame list, whose run always goes to frame 0. */
+    const drawn = (id: string) => {
+      const data = report([rule(constant(0), { kind: "true" })]);
+      data.parts[0] = { ...data.parts[0]!, id, frameCount: 0 } as never;
+      return data;
+    };
+
+    it("starts the conveyor belt on the first frame of each block of 7", () => {
+      const walk = walkBehaviourRules(drawn("conveyor-belt"), 39, []);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 7, 14, 21, 28]);
+      expect(walk.stop?.branches?.every((branch) => ["rest", "joins"].includes(branch.walk.status))).toBe(true);
+      expect(walk.assumptions).toContain(CONVEYOR_BELT_ASSUMPTION);
+    });
+
+    it("starts the gear on each of its four frames", () => {
+      const walk = walkBehaviourRules(drawn("gear"), 39, []);
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2, 3]);
+      expect(walk.assumptions).toContain(GEAR_ASSUMPTION);
+    });
+
+    it("starts the mouse motor on frame 0 or 1 and the electric motor on frames 0 to 2", () => {
+      const mouse = walkBehaviourRules(drawn("mouse-motor"), 39, []);
+      expect(mouse.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1]);
+      expect(mouse.assumptions).toContain(MOUSE_MOTOR_ASSUMPTION);
+      const electric = walkBehaviourRules(drawn("electric-motor"), 39, []);
+      expect(electric.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([0, 1, 2]);
+      expect(electric.assumptions).toContain(ELECTRIC_MOTOR_ASSUMPTION);
+    });
+
+    it("starts a case in the middle of a run on every frame the belt shows, not only a level's", () => {
+      const walk = walkBehaviourRules(drawn("conveyor-belt"), 39, [], { midRun: true });
+      expect(walk.stop?.branches?.map((branch) => branch.walk.states[0])).toEqual([...Array(35).keys()]);
+    });
+
+    it("still gives no starting frame to another part without a frame list", () => {
+      // Its next frame depends on the frame it starts on, so the rules alone can't give one either.
+      const data = report([
+        rule({ kind: "binary", operator: "+", left: field(12), right: constant(1), width: 16 }, { kind: "true" }),
+      ]);
+      data.parts[0] = { ...data.parts[0]!, id: "rope", frameCount: 0 } as never;
+      const walk = walkBehaviourRules(data, 39, []);
+      expect(walk.stop?.branches).toBeUndefined();
+      expect(walk.status).toBe("unresolved");
+    });
+  });
+
+  it("goes on without a branch when the rules that apply all lead to the same frame", () => {
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), test(0x40, "==", 0)), [write(0x30, constant(1))]),
+      rule(constant(1), both(test(12, "==", 0), test(0x40, "!=", 0)), [write(0x30, constant(2))]),
+      rule(field(12), test(12, "==", 1)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.stop).toBeUndefined();
+    expect(walk.states.slice(0, 2)).toEqual([0, 1]);
+    expect(walk.status).toBe("rest");
+    expect(walk.assumptions).toContain(
+      "The rules that apply here lead to the same next frame; the fields they set differently are forgotten.",
+    );
+  });
+
+  it("knows a field a branch tested for one number, so the next step can use it", () => {
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), test(0x40, "==", 3)), [write(0x30, field(0x40))]),
+      rule(constant(2), both(test(12, "==", 0), test(0x40, "!=", 3))),
+      rule(constant(2), both(test(12, "==", 1), test(0x30, "==", 3))),
+      rule(constant(0), both(test(12, "==", 1), test(0x30, "!=", 3))),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    const tested = walk.stop?.branches?.find((branch) => JSON.stringify(branch.condition).includes('"value":3'));
+    expect(tested?.walk.states.slice(0, 2)).toEqual([1, 2]);
+    expect(tested?.walk.status).toBe("rest");
+  });
+
+  describe("a value two paths set differently, when the walk can't tell which path", () => {
+    // Like the monkey bike after its reaction on frames 9 to 12: -1 or 1 by a flag the walk doesn't know, then the next
+    // run moves on unless the value is 0.
+    const choice = (then: number, otherwise: number) =>
+      report([
+        rule(constant(1), test(12, "==", 0), [
+          write(0x12, choose(test(0x40, "==", 0) as never, constant(then), constant(otherwise))),
+        ]),
+        rule(constant(2), both(test(12, "==", 1), test(0x12, "!=", 0))),
+        rule(field(12), both(test(12, "==", 1), test(0x12, "==", 0))),
+        rule(field(12), test(12, "==", 2)),
+      ]);
+
+    it("keeps the bits both values agree on, so -1 or 1 isn't 0", () => {
+      const walk = walkBehaviourRules(choice(0xffff, 1), 39, [known(12, 0)]);
+      expect(walk.stop).toBeUndefined();
+      expect(walk.states.slice(0, 3)).toEqual([0, 1, 2]);
+      expect(walk.status).toBe("rest");
+    });
+
+    it("still branches when the values share no bit that decides the test", () => {
+      const walk = walkBehaviourRules(choice(1, 2), 39, [known(12, 0)]);
+      expect(walk.stop?.branches).toHaveLength(2);
+    });
+
+    it("takes the value the test picks when the walk knows the field it tests", () => {
+      const walk = walkBehaviourRules(choice(0, 1), 39, [known(12, 0), known(0x40, 5)]);
+      expect(walk.stop).toBeUndefined();
+      expect(walk.states.slice(0, 3)).toEqual([0, 1, 2]);
+    });
+  });
+
+  it("does not branch on an opaque deciding value", () => {
+    const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
+    const guard = (operator: string): Predicate => ({
+      kind: "compare",
+      left: hidden,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(constant(1), both(test(12, "==", 0), guard("=="))),
+      rule(constant(2), both(test(12, "==", 0), guard("!="))),
+      rule(field(12), test(12, "==", 1)),
+      rule(field(12), test(12, "==", 2)),
+    ]);
+    const walk = walkBehaviourRules(data, 39, [known(12, 0)]);
+    expect(walk.status).toBe("unresolved");
+    expect(walk.stop?.branches).toBeUndefined();
+  });
+
+  it("branches by frame when an opaque value only chooses between rules that lead to the same frame", () => {
+    // Like the balloon: with its control value set it goes on to the next frame, whether or not the game could make
+    // the part that frees its rope; that only changes other fields.
+    const hidden: Expression = { kind: "unknown", reason: "An unresolved operand", width: 16 };
+    const guard = (operator: string): Predicate => ({
+      kind: "compare",
+      left: hidden,
+      operator,
+      right: constant(0),
+      signed: false,
+    });
+    const data = report([
+      rule(field(12), both(test(12, "==", 0), test(0x12, "==", 0))),
+      rule(constant(1), both(test(12, "==", 0), test(0x12, "!=", 0), guard("==")), [
+        write(12, constant(1)),
+        write(0x30, constant(1)),
+      ]),
+      rule(constant(1), both(test(12, "==", 0), test(0x12, "!=", 0), guard("!=")), [
+        write(12, constant(1)),
+        write(0x30, constant(2)),
+      ]),
+      rule(field(12), test(12, "==", 1)),
+    ]);
+    // Every return path of the run is one of these rules, so one of them applies.
+    const covered = (item: ReturnType<typeof report>) => {
+      item.routines[0] = { ...item.routines[0]!, returnPathsComplete: true } as never;
+      return item;
+    };
+    const walk = walkBehaviourRules(covered(data), 39, [known(12, 0), known(0x30, 0)]);
+    expect(walk.stop?.kind).toBe("ambiguity");
+    const branches = walk.stop?.branches ?? [];
+    expect(branches.map((branch) => [branch.condition, branch.walk.states, branch.walk.status])).toEqual([
+      [both(test(12, "==", 0), test(0x12, "==", 0)), [0], "joins"],
+      [both(test(12, "==", 0), test(0x12, "!=", 0)), [1, 1], "rest"],
+    ]);
+    expect(branches[1]!.alternatives).toEqual([both(guard("==")), both(guard("!="))]);
+    // The two ways write 1 and 2, so only the bits they agree on stay known.
+    expect(branches[1]!.walk.fields.find((item) => item.offset === 0x30)?.knownMask).toBe(0xfffc);
+    expect(branches[1]!.walk.assumptions).toContain(
+      "The rules that apply here lead to the same next frame; the fields they set differently are forgotten.",
+    );
+    // When what the rules of one frame all test doesn't rule out the other frame, no branch is chosen.
+    const loose = report([
+      rule(field(12), both(test(12, "==", 0), test(0x12, "==", 0))),
+      rule(constant(1), both(test(12, "==", 0), guard("=="))),
+      rule(constant(1), both(test(12, "==", 0), test(0x12, "!=", 0), guard("!="))),
+      rule(field(12), test(12, "==", 1)),
+    ]);
+    const looseWalk = walkBehaviourRules(covered(loose), 39, [known(12, 0)]);
+    expect(looseWalk.stop?.kind).toBe("ambiguity");
+    expect(looseWalk.stop?.branches).toBeUndefined();
   });
 
   it("does not join an unknown guard when its other exit is missing", () => {
@@ -321,6 +1176,36 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(walk.states).toEqual([]);
     expect(walk.parameterised?.kind).toBe("hold");
     expect(walk.status).toBe("rest");
+  });
+
+  it("holds an unknown state when the rules only add to what the walk knows", () => {
+    const data = report(
+      [rule(field(12), test(8, "==", 0), [write(0x62, constant(0))]), rule(field(12), test(8, "!=", 0))],
+      [],
+    );
+    const walk = walkBehaviourRules(data, 39, []);
+    expect([walk.status, walk.parameterised?.kind, walk.runCalls]).toEqual(["rest", "hold", 1]);
+  });
+
+  it("holds an unknown state from what is left after a helper that keeps the state forgets the other fields", () => {
+    const forgets = { ...rule(field(12), test(8, "==", 0)), confidence: "unresolved" as const };
+    const data = report([forgets, rule(field(12), test(8, "!=", 0), [write(0x62, constant(0))])], []);
+    data.routines[0] = {
+      ...data.routines[0]!,
+      uncertainties: [],
+      uncertainEffects: true,
+      returnPathsComplete: true,
+      outcomes: [
+        { ...proof, condition: test(8, "==", 0), fields: [], returnValue: constant(0), keepsState: true },
+        { ...proof, condition: test(8, "!=", 0), fields: [], returnValue: constant(0), effectsComplete: true },
+      ],
+    } as never;
+    const walk = walkBehaviourRules(data, 39, [known(4, 39)]);
+    expect([walk.status, walk.parameterised?.kind, walk.runCalls]).toEqual(["rest", "hold", 2]);
+    expect(walk.fields.find((item) => item.offset === 4)?.knownMask ?? 0).toBe(0);
+    // Without the helper's proof that it keeps the state, nothing is held.
+    (data.routines[0] as unknown as { outcomes: { keepsState?: boolean }[] }).outcomes[0]!.keepsState = undefined;
+    expect(walkBehaviourRules(data, 39, [known(4, 39)]).parameterised).toBeUndefined();
   });
 
   it("does not treat an unresolved state-field reference as an identity proof", () => {
@@ -494,6 +1379,461 @@ describe("creation defaults and related input conditions", () => {
     expect(descriptions.join(" ")).not.toContain("value is a linked object's recorded value");
   });
 
+  it("does not split input cases on the zero words of a fresh part", () => {
+    const step: Expression = { kind: "binary", operator: "+", left: field(12), right: field(0x30), width: 16 };
+    const data = report([rule(step, test(0x30, "!=", 0)), rule(field(12), test(0x30, "==", 0))]);
+    data.creation = [
+      {
+        ...proof,
+        routine: 500,
+        partType: 39,
+        source: "constructor",
+        uncertainties: [],
+        fields: [
+          { ...proof, name: "state", offset: 12, width: 16, value: 0 },
+          { ...proof, name: "+0x30", offset: 0x30, width: 16, value: 7 },
+        ],
+      },
+    ];
+    const cases = describeBehaviour(data).parts[0]!.animations.filter((animation) => animation.initial === "run-guard");
+    expect(cases.some((animation) => animation.initialFields?.some((f) => f.offset === 0x30 && f.value === 7))).toBe(
+      false,
+    );
+  });
+
+  it("says when the starting frame is the one the level saved, rather than an unresolved reset", () => {
+    const data = report([rule(field(12), test(12, "==", 0))], [write(0x12, constant(0))]);
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    data.parts[0]!.frameCount = 40;
+    expect(describeBehaviour(data).parts[0]!.rest).toMatchObject({
+      status: "saved",
+      description: "The reset keeps the frame the level saved, one of the part's 40 frames.",
+    });
+    expect(describeBehaviour(data).parts[0]!.rest.confidence).not.toBe("unresolved");
+    // A reset path that writes the frame leaves it to that path instead.
+    const writes = report([rule(field(12), test(12, "==", 0))], [write(12, field(0x62))]);
+    writes.lifecycle = data.lifecycle;
+    expect(describeBehaviour(writes).parts[0]!.rest.reason).toBe(
+      "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
+    );
+  });
+
+  it("names what a rope, belt or pulley helper may change on the parts it reaches", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    const object = "a part reached through a rope, belt or pulley at 0x1aaf7";
+    data.routines[2]!.writes = [0x14, 0x6a, 0x96, 0x40].map((offset) => ({
+      ...write(offset, { kind: "unknown", reason: "forgotten", width: 16 }),
+      object,
+      routine: 300,
+    }));
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain(
+      "May change field 0x14 of a part its ropes, belt or pulleys reach (this part too): the value the relay passes along.",
+    );
+    expect(lines).toContain(
+      "May change the rope links of a part its ropes, belt or pulleys reach (this part too), turning a rope round.",
+    );
+    expect(lines).toContain("May move the rope ends of a part its ropes, belt or pulleys reach (this part too).");
+    expect(lines).toContain("May change a field of a part its ropes, belt or pulleys reach (this part too).");
+    expect(lines.join(" ")).not.toContain("another part's");
+  });
+
+  it("names writes to a rope's record and to the part that touches a bounce callback's owner", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    const rope = "referenced-by(part+0x66)";
+    const counter: Expression = {
+      kind: "binary",
+      operator: "+",
+      left: { kind: "field", object: rope, offset: 0x0e, width: 16 },
+      right: constant(1),
+      width: 16,
+    };
+    data.routines[2]!.writes = [
+      { ...write(0x0e, counter), object: rope, routine: 300 },
+      { ...write(12, constant(9)), object: "collider", routine: 300 },
+    ];
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain("Adds 1 to field 0x0e of the record of its rope at 0x66.");
+    expect(lines).toContain("Selects state 9 on the touching part.");
+    // An overlap query's summary writes the parts it finds.
+    const found = "a candidate selected by the overlap query at 0x19540";
+    data.routines[2]!.writes = [0x78, 0x7a].map((offset) => ({
+      ...write(offset, { kind: "unknown", reason: "forgotten", width: 16 }),
+      object: found,
+      routine: 300,
+    }));
+    const search = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(search).toContain("Links a part its search finds into its found list (field 0x78).");
+    expect(search).toContain("May change field 0x7a of a part its search finds.");
+    // An object the routine creates itself.
+    data.routines[2]!.writes = [
+      { ...write(0x1e, constant(5)), object: "nullable allocation returned at 0x1b3a1", routine: 300 },
+    ];
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "Sets field 0x1e of the object it creates at 0x1b3a1.",
+    );
+    // With the type the routine passes the factory, one line per way says which part it makes and where.
+    const bullet = "nullable allocation returned at 0x1b3a1";
+    data.layout.fields.push(
+      ...(
+        [
+          ["positionX", 0x1e],
+          ["positionY", 0x20],
+          ["velocityX", 0x36],
+        ] as const
+      ).map(([name, offset]) => ({ name, offset, ...proof })),
+    );
+    data.parts.push({ ...data.parts[0]!, id: "bullet", type: 20, routines: [] });
+    data.createdParts = [{ ...proof, routine: 300, call: 0x1b3a1, type: 20 }];
+    const flipped = test(8, "!=", 0);
+    const made = [
+      { ...write(0x1e, add(0x1e, 0xffe0)), object: bullet, routine: 300 },
+      { ...write(0x20, add(0x20, 3)), object: bullet, routine: 300 },
+      { ...write(0x36, constant(0xd000)), object: bullet, routine: 300, condition: flipped },
+      { ...write(0x22, add(0x1e, 0xfff8)), object: bullet, routine: 300 },
+      { ...write(0x06, { kind: "unknown", reason: "flags", width: 16 }), object: bullet, routine: 300 },
+    ];
+    data.routines[2]!.writes = made;
+    data.routines[2]!.outcomes = [
+      {
+        ...proof,
+        effectsComplete: true,
+        condition: flipped,
+        fields: [
+          ...made.slice(0, 2),
+          { ...made[2]!, value: { kind: "unknown", reason: "Conditional contact-velocity-limit effect", width: 16 } },
+          ...made.slice(3),
+        ],
+        returnValue: constant(0),
+      },
+    ];
+    const creates = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(creates).toContain(
+      "Creates a bullet (type 20) at positionX = its positionX - 32 and positionY = its positionY + 3, moving at velocityX = -12288 (kept within the bullet's speed limit). It also sets 0x22 to its positionX - 8 and changes its 0x06.",
+    );
+    expect(creates.join(" ")).not.toContain("object it creates");
+    // The line keeps the evidence of the store whose value it gives for a field the speed limit wrote last.
+    const store = { address: 0x1b390, bytes: [0xc7], text: "mov word [si+0x36], 0xd000" };
+    data.routines[2]!.writes = made.map((item, n) => (n === 2 ? { ...item, evidence: [store] } : item));
+    const bullets = () => describeBehaviour(data).parts[0]!.effects.filter((e) => e.description.startsWith("Creates"));
+    expect(bullets()[0]!.evidence.map((item) => item.address)).toContain(0x1b390);
+    // The constructor's frame is the starting frame only when the way leaves the new part's state alone.
+    data.creation = [
+      {
+        ...proof,
+        partType: 20,
+        routine: 0x500,
+        source: "constructor",
+        fields: [{ ...proof, offset: 12, name: "state", value: 0, width: 16 }],
+        uncertainties: [],
+      },
+    ];
+    expect(bullets()[0]!.description).toMatch(/^Creates a bullet \(type 20, which starts on frame 0\) at /);
+    data.routines[2]!.outcomes[0]!.fields.push({ ...write(12, constant(3)), object: bullet, routine: 300 });
+    expect(bullets()[0]!.description).toMatch(/^Creates a bullet \(type 20\) at .* It also sets state to 3 and 0x22 /);
+    // A counter says which field it counts with.
+    data.parts[0]!.counters = [{ ...proof, offset: 0x96, comparisons: [{ ...proof }] }] as never;
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "Counts with field 0x96, which later tests read.",
+    );
+  });
+
+  it("says a flip that toggles a drawing flag turns that reflection round", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    data.layout.fields = data.layout.fields.filter((item) => item.offset !== 0x08);
+    data.layout.fields.push({
+      name: "drawingFlags",
+      offset: 0x08,
+      masks: [
+        { value: 0x10, name: "horizontalFlip" },
+        { value: 0x20, name: "verticalFlip" },
+      ],
+      ...proof,
+    } as never);
+    const toggle = (mask: number): Expression => ({
+      kind: "binary",
+      operator: "^",
+      left: field(0x08),
+      right: constant(mask),
+      width: 16,
+    });
+    data.parts[0]!.visibleEffects = [
+      { ...write(0x08, toggle(0x20)), routine: 300 },
+      { ...write(0x08, toggle(0x41)), routine: 300 },
+    ];
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain("Turns the part's vertical reflection round.");
+    expect(lines).toContain("Turns flag 0x41 of the part's drawing flags round.");
+    // An or sets bits and an and clears them, whatever the others were.
+    const set: Expression = { kind: "binary", operator: "|", left: field(0x08), right: constant(0x4200), width: 16 };
+    data.parts[0]!.visibleEffects = [
+      { ...write(0x08, set), routine: 300 },
+      {
+        ...write(0x08, { kind: "binary", operator: "&", left: set, right: constant(0xbfdf), width: 16 }),
+        routine: 300,
+      },
+    ];
+    const flags = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(flags).toContain("Sets flags 0x200 and 0x4000 of the part's drawing flags.");
+    expect(flags).toContain(
+      "Sets flag 0x200 of the part's drawing flags. Clears the part's vertical reflection on this path. Clears flag 0x4000 of the part's drawing flags.",
+    );
+    // A bit whose meaning the code proves says it, like the out-of-play flag the searches pass over.
+    data.parts[0]!.visibleEffects = [
+      {
+        ...write(0x08, { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2000), width: 16 }),
+        routine: 300,
+      },
+    ];
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "Sets the part's out-of-play flag 0x2000 in drawing flags (the contact dispatch, the contact search and the overlap searches pass over a part with it).",
+    );
+  });
+
+  it("names the goal marks in field 0x0a, the fine position and what a contact search may change", () => {
+    const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+    const other = "overlap candidate at 0x1d451";
+    const at = (offset: number, value: Expression) => ({
+      ...write(offset, value),
+      object: other,
+      routine: 300,
+    });
+    const own = (offset: number): Expression => ({ kind: "field", object: other, offset, width: 16 });
+    data.routines[0]!.writes = [
+      at(0x0a, { kind: "binary", operator: "|", left: own(0x0a), right: constant(0x0200), width: 16 }),
+      at(0x1a, own(0x20)),
+      at(0x86, { kind: "unknown", reason: "Conditional contact-search effect on field 0x86", width: 8 }),
+      at(0x24, own(0x20)),
+    ] as never;
+    data.layout.fields.push({ name: "previousY", offset: 0x24, ...proof } as never);
+    const lines = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(lines).toContain(
+      "Sets another part's goal mark 0x0200 in field 0x0a (no part's code reads it, only the puzzle goal checks, which end a puzzle when every part of one type has its mark).",
+    );
+    expect(lines).toContain("Updates another part's fine vertical position (low word), in 1/512 pixels.");
+    expect(lines).toContain(
+      "May change another part's contact side byte at 0x86 through the contact search it runs on it; what that search finds there, only the run knows.",
+    );
+    expect(lines).toContain(
+      "Updates another part's previous position, which the contact search sweeps from to the position.",
+    );
+    expect(lines.filter((line) => /isn't established|not established/.test(line))).toEqual([]);
+  });
+
+  it("starts a part with one frame on frame 0 when its reset keeps the saved frame", () => {
+    const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    data.parts[0]!.frameCount = 1;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.rest).toMatchObject({ status: "known", state: 0, frame: 0 });
+    expect(part.rest.assumptions.join(" ")).toContain("a part with one frame starts on frame 0");
+    data.parts[0]!.frameCount = 3;
+    expect(describeBehaviour(data).parts[0]!.rest.status).toBe("saved");
+  });
+
+  it("starts parts the program draws itself on the frames a decided assumption gives", () => {
+    const keepSaved = (id: string) => {
+      const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+      data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+      data.parts[0]!.id = id;
+      data.parts[0]!.frameCount = 0;
+      return describeBehaviour(data).parts[0]!;
+    };
+    // A wall has one starting frame, so its reset is known and it rests there.
+    const wall = keepSaved("brick-wall");
+    expect(wall.rest).toMatchObject({ status: "known", state: 0 });
+    expect(wall.rest.assumptions.join(" ")).toContain("the grass floor and the super ball on frame 0");
+    expect(wall.stableStates.map((stable) => stable.state)).toEqual([0]);
+    // A pulley can start on any of its four rope directions.
+    const pulley = keepSaved("pulley");
+    expect(pulley.rest).toMatchObject({ status: "saved", frames: [0, 1, 2, 3] });
+    expect(pulley.stableStates.map((stable) => stable.state)).toEqual([0, 1, 2, 3]);
+    // A part without such an assumption keeps the saved frame, but no frames are listed.
+    expect(keepSaved("trampoline").rest.frames).toBeUndefined();
+    expect(keepSaved("trampoline").rest).toMatchObject({
+      status: "saved",
+      reason:
+        "The reset keeps the frame the level saved; the part has no frame list to count, and no decided assumption gives the frames a level saves it on.",
+    });
+  });
+
+  it("lists the frames a part with a frame list can start on when its reset keeps the saved frame", () => {
+    const data = report([rule(field(12), test(12, "==", 0))], [write(0x12, constant(0))]);
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    expect(describeBehaviour(data).parts[0]!.rest).toMatchObject({
+      status: "saved",
+      frames: [0, 1, 2],
+      description: "The reset keeps the frame the level saved: one of frames 0 to 2.",
+    });
+    expect(describeBehaviour(data).parts[0]!.rest.reason).toBeUndefined();
+  });
+
+  it("gives the same effect of one routine on several paths one line with each path's condition", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    const other = "referenced-by(part+0x84)";
+    data.routines[2]!.writes = [test(12, "==", 0), test(12, "==", 1), test(12, "==", 1)].map((condition) => ({
+      ...write(0x40, constant(1)),
+      object: other,
+      condition,
+      routine: 300,
+    }));
+    const lines = describeBehaviour(data).parts[0]!.effects.filter((effect) => effect.field === 0x40);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.condition).toBeUndefined();
+    expect(lines[0]!.conditions).toEqual([test(12, "==", 0), test(12, "==", 1)]);
+  });
+
+  it("names the frames a walk follows from a start it doesn't know, and the test that splits its rules", () => {
+    const data = report(
+      [
+        rule(constant(1), both(test(12, "==", 0), test(0x9c, "==", 0))),
+        rule(constant(2), both(test(12, "==", 0), test(0x9c, "!=", 0))),
+        rule(field(12), test(12, "!=", 0)),
+      ],
+      [write(0x12, constant(0))],
+    );
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.uncertainties).toContain(
+      "The frame it starts on isn't known, so the walk follows each frame it can be: frames 0 to 2.",
+    );
+    const reasons: string[] = [];
+    const visit = (walk: BehaviourWalk) => {
+      if (walk.reason) reasons.push(walk.reason);
+      for (const branch of walk.stop?.branches ?? []) visit(branch.walk);
+    };
+    for (const animation of part.animations) visit(animation.walk);
+    expect(reasons).toContain(
+      "At frame 0, the rules that apply set different fields, and which one does depends on whether the word at +0x9c is 0, which the walk doesn't know, so each way is followed.",
+    );
+  });
+
+  it("keeps every conditional input case past 64", () => {
+    const data = report(
+      Array.from({ length: 70 }, (_, frame) =>
+        rule(constant(0), both(test(12, "==", frame), test(0x30, "==", frame + 1))),
+      ),
+    );
+    data.parts[0]!.frameCount = 0;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.animations.filter((animation) => animation.initial === "run-guard")).toHaveLength(70);
+    expect(part.uncertainties.join(" ")).not.toContain("conditional input cases");
+  });
+
+  it("starts no input case on a frame a part the program draws never has, like the gear's -1", () => {
+    const data = report([
+      rule(constant(3), both(test(12, "==", 0xffff), test(0x30, "==", 0))),
+      rule(constant(0), both(test(12, "==", 2), test(0x30, "==", 0))),
+      rule(field(12), test(0x30, "!=", 0)),
+    ]);
+    data.parts[0]!.id = "gear";
+    data.parts[0]!.frameCount = 0;
+    const cases = describeBehaviour(data).parts[0]!.animations.filter((animation) => animation.initial === "run-guard");
+    const starts = cases.flatMap((animation) => animation.initialFields!.filter((f) => f.offset === 12));
+    expect(starts.map((f) => f.value)).toContain(2);
+    expect(starts.map((f) => f.value)).not.toContain(0xffff);
+  });
+
+  it("lists the frames the walks rest on when no run outcome gives one", () => {
+    // From the saved frame the run goes 0, 1, 2 and stays on 2, but no single run outcome shows that.
+    const data = report(
+      [rule(add(12, 1), test(12, "<", 2)), rule(field(12), test(12, "==", 2))],
+      [write(0x12, constant(0))],
+    );
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    const part = describeBehaviour(data).parts[0]!;
+    expect(part.stableStates.map((stable) => stable.state)).toEqual([2]);
+    expect(part.stableStates[0]!.walks).toBeGreaterThan(0);
+    expect(part.stableStates[0]!.fields).toContainEqual(expect.objectContaining({ offset: 12, value: 2 }));
+    // Those frames start no walks of their own: the walks already reach them.
+    expect(part.animations.some((animation) => animation.initial === "documented-rest")).toBe(false);
+  });
+
+  it("rests on each frame when the run keeps every field", () => {
+    const data = report([rule(field(12), { kind: "true" })], [write(0x12, constant(0))]);
+    data.parts[0]!.frameCount = 3;
+    expect(describeBehaviour(data).parts[0]!.stableStates.map((stable) => stable.state)).toEqual([0, 1, 2]);
+    // A run that keeps the frame only under a test doesn't make every frame a resting frame.
+    const tested = report([rule(field(12), test(0x30, "==", 0)), rule(constant(0), test(0x30, "!=", 0))]);
+    tested.parts[0]!.frameCount = 3;
+    expect(describeBehaviour(tested).parts[0]!.stableStates.map((stable) => stable.state)).not.toContain(2);
+  });
+
+  // A reset like the electric switch's: it keeps bit 2 of the frame and sets bit 0 and bit 1 by whether the words at
+  // 0x62 and 0x64 are 0. Each path is one outcome of the reset routine.
+  function bitReset(keep: number | undefined, frameCount: number, low = 0, id = "trampoline", tested = [0x62, 0x64]) {
+    const data = report([rule(field(12), test(12, "==", 0))]);
+    data.parts[0]!.id = id;
+    const base = (bits: number): Expression =>
+      keep === undefined
+        ? constant(bits)
+        : bits
+          ? {
+              kind: "binary",
+              operator: "|",
+              left: { kind: "binary", operator: "&", left: field(12), right: constant(keep), width: 16 },
+              right: constant(bits),
+              width: 16,
+            }
+          : { kind: "binary", operator: "&", left: field(12), right: constant(keep), width: 16 };
+    const outcomes = [0, 1, 2, 3].map((bits) => ({
+      condition: both(test(tested[0]!, bits & 1 ? "!=" : "==", 0), test(tested[1]!, bits & 2 ? "!=" : "==", 0)),
+      fields: [write(12, base(bits << low))],
+      ...proof,
+    }));
+    data.routines[1] = { ...data.routines[1]!, outcomes } as never;
+    data.parts[0]!.frameCount = frameCount;
+    data.lifecycle = { reset: [{ ...proof, stateSource: 0x90, fields: [] }], history: [], diagnostics: [] } as never;
+    return describeBehaviour(data).parts[0]!.rest;
+  }
+
+  it("lists the frames a reset leaves when it keeps some bits of the saved frame and sets the others by tests", () => {
+    const rest = bitReset(4, 8);
+    expect(rest.status).toBe("sockets");
+    expect(rest.frames).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(rest.description).toBe(
+      "The reset keeps bit 2 of the frame saved in the level and sets bit 0 when a plug is in its first socket (+0x62) and bit 1 when a plug is in its second socket (+0x64), so it leaves one of frames 0 to 7.",
+    );
+    expect(rest.reason).toBeUndefined();
+    // Like the generator: it keeps the two low bits and sets bits 2 and 3.
+    expect(bitReset(3, 16, 2).description).toContain("keeps bits 0 and 1 of the frame saved in the level");
+    // The generator never starts partway through a turn (decided), so bits 0 and 1 of the saved frame are 0.
+    const generator = bitReset(3, 16, 2, "generator");
+    expect(generator.frames).toEqual([0, 4, 8, 12]);
+    expect(generator.assumptions.join(" ")).toContain("never starts the generator partway through a turn");
+    // Like the solar panel: no bit of the saved frame is kept.
+    expect(bitReset(undefined, 4)).toMatchObject({
+      frames: [0, 1, 2, 3],
+      description:
+        "The reset sets bit 0 when a plug is in its first socket (+0x62) and bit 1 when a plug is in its second socket (+0x64), so it leaves one of frames 0 to 3, whatever the frame saved in the level.",
+    });
+  });
+
+  it("keeps a reset unresolved when fields other than the sockets set its frame", () => {
+    const rest = bitReset(4, 8, 0, "trampoline", [0x62, 0x30]);
+    expect(rest).toMatchObject({ status: "unresolved", confidence: "unresolved", frames: [0, 1, 2, 3, 4, 5, 6, 7] });
+    expect(rest.description).toContain("bit 1 when the word at +0x30 is not 0");
+  });
+
+  it("names no frames when a reset path can leave a frame the part doesn't have", () => {
+    const rest = bitReset(4, 4);
+    expect(rest.frames).toBeUndefined();
+    expect(rest.reason).toBe(
+      "The reset paths are resolved, but the frame they leave depends on fields the reset doesn't fix.",
+    );
+  });
+
+  it("says a write of the saved state is the state the next level reset starts from", () => {
+    const data = report([rule(field(12), test(12, "==", 0))]);
+    data.layout.fields.push({ name: "savedState", offset: 0x90, ...proof } as never);
+    data.routines[2] = {
+      ...data.routines[2]!,
+      outcomes: [{ condition: { kind: "true" }, fields: [write(0x90, constant(4)), write(12, constant(4))], ...proof }],
+    } as never;
+    const descriptions = describeBehaviour(data).parts[0]!.animations.map((item) => item.trigger.description);
+    expect(descriptions.join(" ")).toContain("Saves state 4 as the one the next level reset starts from.");
+  });
+
   it("keeps a creation state separate from a loaded level's unknown reset value", () => {
     const data = report(
       [rule(constant(2), test(12, "==", 1)), rule(constant(0), test(12, "==", 2)), rule(field(12), test(12, "==", 0))],
@@ -576,4 +1916,250 @@ it("keeps listed outline storage separate from part flags and state fields in wo
     effects.some((e) => e.description === "May update the outline coordinates of a part in the overlap list."),
   ).toBe(true);
   expect(effects.some((e) => /drawing flags|selected state/.test(e.description))).toBe(false);
+});
+
+describe("starting frames a callback's condition rules out", () => {
+  const bounce = (condition: Predicate) => {
+    const data = report([rule(field(12), test(12, "==", 1)), rule(constant(1), test(12, "!=", 1))], []);
+    data.routines[2]!.outcomes = [
+      {
+        ...proof,
+        effectsComplete: true,
+        condition,
+        fields: [write(0x12, constant(1))],
+        returnValue: constant(0),
+      },
+    ];
+    const animation = describeBehaviour(data).parts[0]!.animations.find((item) => item.trigger.kind === "callback")!;
+    return animation.walk.stop?.branches?.map((branch) => branch.condition);
+  };
+
+  it("follows only the frames the callback's test of the frame allows", () => {
+    expect(bounce(test(12, "!=", 0))).toEqual([test(12, "==", 1), test(12, "==", 2)]);
+  });
+
+  it("still follows the one frame the test leaves", () => {
+    expect(bounce(test(12, "==", 2))).toEqual([test(12, "==", 2)]);
+  });
+});
+
+describe("countdowns", () => {
+  const minus = (offset: number, value: number): Expression => ({
+    kind: "binary",
+    operator: "-",
+    left: field(offset),
+    right: constant(value),
+    width: 16,
+  });
+  const compare = (left: Expression, operator: string, value: number): Predicate => ({
+    kind: "compare",
+    left,
+    operator,
+    right: constant(value),
+    signed: false,
+  });
+  const complete = (data: BehaviourReport, outcomes: unknown[]) => {
+    data.routines[0] = { ...data.routines[0]!, uncertainties: [], returnPathsComplete: true, outcomes } as never;
+    return data;
+  };
+  const anyPath = {
+    ...proof,
+    effectsComplete: true,
+    condition: { kind: "true" },
+    fields: [],
+    returnValue: constant(0),
+  };
+  /** A windmill: while the heat at 0x9c lasts it turns between frames 0 and 1, one heat a run. */
+  const windmill = () => {
+    const turning = (from: number, to: number) => ({
+      ...rule(constant(to), both(test(0x9c, "!=", 0), compare(minus(0x9c, 1), "!=", 0), test(12, "==", from)), [
+        write(0x9c, minus(0x9c, 1)),
+      ]),
+      from: [from],
+    });
+    return complete(
+      report([
+        rule(field(12), test(0x9c, "==", 0)),
+        rule(field(12), both(test(0x9c, "!=", 0), compare(minus(0x9c, 1), "==", 0)), [write(0x9c, minus(0x9c, 1))]),
+        turning(0, 1),
+        turning(1, 0),
+      ]),
+      [anyPath],
+    );
+  };
+  const leaves = (walk: BehaviourWalk): BehaviourWalk[] =>
+    walk.stop?.branches?.length ? walk.stop.branches.flatMap((branch) => leaves(branch.walk)) : [walk];
+
+  it("follows a countdown it doesn't know from its starting value, and ends", () => {
+    const walk = walkBehaviourRules(windmill(), 39, [known(12, 0)]);
+    const all = leaves(walk);
+    expect(all.every((leaf) => ["rest", "loop", "joins"].includes(leaf.status))).toBe(true);
+    // The heat's tests are tests of the heat the walk started with.
+    expect(JSON.stringify(walk.stop?.branches?.map((branch) => branch.condition))).toContain(START);
+    // A turn that comes round with the heat further on continues like the earlier turn.
+    expect(all.some((leaf) => leaf.joined?.shift?.some((shift) => shift.offset === 0x9c))).toBe(true);
+  });
+
+  it("lets a recording that gives the starting value prove when the countdown ends", () => {
+    const walk = walkBehaviourRules(windmill(), 39, [known(12, 0)]);
+    const animation: AnimationDescription = {
+      ...proof,
+      id: "turning",
+      initial: "reset",
+      prerequisites: [],
+      initialFields: [known(12, 0)],
+      trigger: { ...proof, kind: "run", name: "Run", routine: 100, condition: { kind: "true" }, writes: [] },
+      walk,
+    };
+    const recording = (heat: number | undefined, frames: number[]): MeasuredClip => ({
+      path: "synthetic",
+      frames: frames.map((state) => ({ state, ...(heat === undefined ? {} : { heat }) })),
+      loopStart: null,
+      input: {},
+      skippedEngineServices: {},
+    });
+    // With heat 4 it turns three times and holds frame 1.
+    expect(compareMeasuredWalks([animation], recording(4, [0, 1, 0, 1, 1]), windmill()).classification).toBe(
+      "complete",
+    );
+    // With heat 5 it would turn once more: the walk disagrees with a recording that holds there.
+    expect(compareMeasuredWalks([animation], recording(5, [0, 1, 0, 1, 1]), windmill()).classification).toBe(
+      "different",
+    );
+    // Without the heat, the recording can't tell when it stops.
+    expect(compareMeasuredWalks([animation], recording(undefined, [0, 1, 0, 1, 1]), windmill()).classification).toBe(
+      "prefix",
+    );
+  });
+
+  it("takes a rule apart into its paths when they split on a countdown, like the mouse motor's", () => {
+    // While the control value at 0x12 is set, each run counts the counter at 0x96 down, and clears the control value
+    // when it runs out. The two paths are one rule, which leaves the control value unknown.
+    const data = complete(
+      report([
+        rule(field(12), test(0x12, "!=", 0), [
+          write(0x96, minus(0x96, 1)),
+          write(0x12, { kind: "unknown", reason: "Field 0x12 differs on complementary paths", width: 16 }),
+        ]),
+        rule(field(12), test(0x12, "==", 0)),
+      ]),
+      [
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "!=", 0)),
+          fields: [write(0x96, minus(0x96, 1))],
+        },
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "==", 0)),
+          fields: [write(0x96, minus(0x96, 1)), write(0x12, constant(0))],
+        },
+        { ...anyPath, condition: test(0x12, "==", 0) },
+      ],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
+    expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
+    expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+  });
+
+  it("takes a rule apart into its paths when the countdown picks one of two values for the control value", () => {
+    // The same run, with the control value kept as one of its two values: 0 when the counter runs out, else unchanged.
+    const runsOut = compare(minus(0x96, 1), "==", 0) as Extract<Predicate, { kind: "compare" }>;
+    const data = complete(
+      report([
+        rule(field(12), test(0x12, "!=", 0), [
+          write(0x96, minus(0x96, 1)),
+          write(0x12, choose(runsOut, constant(0), field(0x12))),
+        ]),
+        rule(field(12), test(0x12, "==", 0)),
+      ]),
+      [
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "!=", 0)),
+          fields: [write(0x96, minus(0x96, 1))],
+        },
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "==", 0)),
+          fields: [write(0x96, minus(0x96, 1)), write(0x12, constant(0))],
+        },
+        { ...anyPath, condition: test(0x12, "==", 0) },
+      ],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
+    expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
+    expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+    // The rule is taken apart into the two paths, each with its own control value.
+    const [part] = data.parts;
+    const paths = splitRules(part!, part!.transitions, data.routines[0], 12);
+    expect(paths).toHaveLength(3);
+    expect(paths.slice(0, 2).map((path) => path.updates?.find((item) => item.offset === 0x12)?.value)).toEqual([
+      field(0x12),
+      constant(0),
+    ]);
+  });
+
+  it("follows each path when only the countdown's starting value tells apart rules that flip to the same frame", () => {
+    // Like the mouse motor after a hit: while the control value at 0x12 is set it flips between frames 0 and 1 and
+    // counts 0x96 down, and the last count also clears the control value. Both paths flip to the same frame, so a
+    // walk that took one step with what they agree on forgot the control value at the end of the count.
+    const flip = (from: number, last: boolean) => ({
+      ...rule(
+        constant(1 - from),
+        both(test(0x12, "!=", 0), compare(minus(0x96, 1), last ? "==" : "!=", 0), test(12, "==", from)),
+        [write(0x96, minus(0x96, 1)), ...(last ? [write(0x12, constant(0))] : [])],
+      ),
+      from: [from],
+    });
+    const data = complete(
+      report([flip(0, false), flip(0, true), flip(1, false), flip(1, true), rule(field(12), test(0x12, "==", 0))]),
+      [anyPath],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1)]);
+    const animation: AnimationDescription = {
+      ...proof,
+      id: "running",
+      initial: "reset",
+      prerequisites: [],
+      initialFields: [known(12, 0)],
+      trigger: { ...proof, kind: "run", name: "Run", routine: 100, condition: { kind: "true" }, writes: [] },
+      walk,
+    };
+    const recording: MeasuredClip = {
+      path: "synthetic",
+      frames: [0, 1, 0, 1].map((state, run) => ({ state, control: run < 3 ? 1 : 0, timer: 3 - run })),
+      loopStart: null,
+      input: {},
+      skippedEngineServices: {},
+    };
+    // With the counter at 3 it flips three times and holds frame 1 with the control value cleared.
+    expect(compareMeasuredWalks([animation], recording, data).classification).toBe("complete");
+  });
+
+  it("knows a field the run stores from its list scan when the rule tests that value, like the mouse motor's", () => {
+    // With the control value at 0x12 clear, the run scans its list and may start itself, which sets the control value.
+    // The control value after the scan is one value of the run: the rule that finds it 0 stores 0.
+    const scanned: Expression = {
+      kind: "field",
+      object: "part after list scan at 0x1bff5",
+      offset: 0x12,
+      width: 16,
+      unresolved: true,
+    };
+    const data = complete(
+      report([
+        rule(field(12), both(test(0x12, "==", 0), compare(scanned, "==", 0)), [write(0x12, scanned)]),
+        rule(constant(1), both(test(0x12, "==", 0), compare(scanned, "!=", 0)), [write(0x12, scanned)]),
+        rule(field(12), test(0x12, "!=", 0)),
+      ]),
+      [anyPath],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 0)]);
+    const still = walk.stop?.branches?.find((branch) => branch.walk.states[0] === 0)?.walk;
+    expect(still?.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+    // The scan that found something leaves the control value unknown: the walk doesn't choose it.
+    const started = walk.stop?.branches?.find((branch) => branch.walk.states[0] === 1)?.walk;
+    expect(started?.fields.some((item) => item.offset === 0x12)).toBe(false);
+  });
 });

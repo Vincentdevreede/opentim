@@ -100,6 +100,8 @@ function guardedFactoryFixture(
     guardSafe?: boolean;
     extraStore?: boolean;
     earlyRestore?: boolean;
+    /** Gives the new part's list flags at 0x06 from the type-indexed table, as the games' factory does. */
+    startingFlags?: boolean;
   } = {},
 ) {
   const image = new Uint8Array(0xc00);
@@ -166,7 +168,9 @@ function guardedFactoryFixture(
   if (options.earlyRestore) p.emit(0x5e);
   p.emit(0x89, 0x7c, 4);
   if (options.extraStore) p.emit(0xc7, 0x45, 0x0c, 1, 0);
-  p.emit(0xb1, strideBits, 0x8b, 0xdf, 0xd3, 0xe3, 0x8b, 0x87, 0x20, 6, 0x0b, 0x87, 0x22, 6);
+  p.emit(0xb1, strideBits);
+  if (options.startingFlags) p.emit(0x8b, 0xdf, 0xd3, 0xe3, 0x8b, 0x87, 0x24, 6, 0x89, 0x44, 6);
+  p.emit(0x8b, 0xdf, 0xd3, 0xe3, 0x8b, 0x87, 0x20, 6, 0x0b, 0x87, 0x22, 6);
   p.branch(0x74, "after");
   p.emit(0x56, 0x8b, 0xdf, 0xd3, 0xe3, 0xff, 0x9f, 0x20, 6, 0x59, 0x3d, 1, 0);
   p.branch(0x75, "after");
@@ -307,6 +311,54 @@ describe("structural engine summaries", () => {
     }
   });
 
+  it("reads the flag tests an overlap query keeps a part by, like the candle's search", () => {
+    const query = (typeTest: boolean) => {
+      const image = new Uint8Array(0x800);
+      head(image, 0x100);
+      next(image, 0x180, 0x100);
+      const b = build(0x300);
+      b.emit(0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x7e, 6, 0xc7, 0x45, 0x58, 0, 0, 0x0e);
+      b.call(0x100);
+      b.emit(0x8b, 0xf0, 0x3b, 0xfe);
+      b.branch(0x74, "skip");
+      // Only parts with 0x0004 in field 0x0a, and none with 0x2000 in field 0x08.
+      b.emit(0xf7, 0x44, 0x0a, 0x04, 0x00);
+      b.branch(0x74, "skip");
+      b.emit(0xf7, 0x44, 0x08, 0x00, 0x20);
+      b.branch(0x75, "skip");
+      // A type test that leaves a part out is a filter the reader can't place.
+      if (typeTest) {
+        b.emit(0x83, 0x7c, 0x04, 0x05);
+        b.branch(0x75, "skip");
+      }
+      b.emit(0x03, 0x44, 0x24, 0x03, 0x44, 0x26);
+      for (const arg of [0x0a, 0x0c, 0x0e, 0x10]) {
+        b.emit(0x3b, 0x46, arg);
+        b.branch(0x7c, "skip");
+      }
+      b.emit(0x8b, 0x45, 0x58, 0x89, 0x44, 0x58, 0x89, 0x75, 0x58);
+      b.label("skip");
+      b.emit(0x0e);
+      b.call(0x180);
+      b.emit(0x5f, 0x5e, 0x5d, 0xcb);
+      b.install(image);
+      return discoverEngineSummaries(
+        image,
+        codes(image, 0x100, 0x180, 0x300),
+        layout(0x24, 0x26),
+        undefined,
+        0x40,
+      ).find((s) => s.address === 0x300)!;
+    };
+    const summary = query(false);
+    expect(summary.kind).toBe("overlap-list");
+    expect(summary.list!.memberTests!.map(({ offset, mask, set }) => ({ offset, mask, set }))).toEqual([
+      { offset: 0x0a, mask: 4, set: true },
+      { offset: 8, mask: 0x2000, set: false },
+    ]);
+    expect(query(true).list!.memberTests).toBeUndefined();
+  });
+
   it("bounds ordered insertion to its displaced forward and backward links", () => {
     for (const extraStateWrite of [false, true]) {
       const image = new Uint8Array(0x800);
@@ -416,6 +468,136 @@ describe("structural engine summaries", () => {
     expect(summary.footprint).toMatchObject({ complete: true, partMemoryComplete: true, preservesPartState: true });
   });
 
+  it("gives a helper's stores the tests of the part's fields on every path to them, like the mouse motor's start", () => {
+    const image = new Uint8Array(0x800);
+    image.set(
+      [
+        ...[0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6],
+        // test word [si+0x08], 0x0010; je +7
+        ...[0xf7, 0x44, 0x08, 0x10, 0x00, 0x74, 0x07],
+        // mov word [si+0x12], 0xffff; jmp +5; mov word [si+0x12], 1
+        ...[0xc7, 0x44, 0x12, 0xff, 0xff, 0xeb, 0x05, 0xc7, 0x44, 0x12, 0x01, 0x00],
+        // mov word [si+0x96], 100; mov word [si+0x22], 1; or word [si+0x22], 2
+        ...[0xc7, 0x84, 0x96, 0x00, 0x64, 0x00, 0xc7, 0x44, 0x22, 1, 0, 0x83, 0x4c, 0x22, 2],
+        ...[0x5e, 0x5d, 0xcb],
+      ],
+      0x100,
+    );
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
+    expect(summary.kind).toBe("owner-field-update");
+    const flag = (operator: string) => ({
+      kind: "compare",
+      operator,
+      left: {
+        kind: "binary",
+        operator: "&",
+        left: { kind: "field", object: "part", offset: 8, width: 16 },
+        right: { kind: "constant", value: 0x10, width: 16 },
+        width: 16,
+      },
+      right: { kind: "constant", value: 0, width: 16 },
+      signed: false,
+    });
+    expect(summary.writes.map((w) => [w.offset, w.value, w.condition])).toEqual([
+      [0x12, { kind: "constant", value: 0xffff, width: 16 }, flag("!=")],
+      [0x12, { kind: "constant", value: 1, width: 16 }, flag("==")],
+      [0x96, { kind: "constant", value: 100, width: 16 }, { kind: "true" }],
+      // A store an `or` changes afterwards is not the last, but every path read exactly gives the field 1 | 2.
+      [0x22, { kind: "constant", value: 3, width: 16 }, { kind: "true" }],
+    ]);
+  });
+
+  /** The gear's push in Even More (`0x1afdc`): `velocityX -= s; if (velocityX < s) velocityX = -s`. */
+  const push = [
+    ...[0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6],
+    // mov dx, [bp+8]; sub [si+0x36], dx; mov ax, [si+0x36]; cmp ax, dx; jge +7
+    ...[0x8b, 0x56, 8, 0x29, 0x54, 0x36, 0x8b, 0x44, 0x36, 0x3b, 0xc2, 0x7d, 0x07],
+    // xor ax, ax; sub ax, dx; mov [si+0x36], ax
+    ...[0x33, 0xc0, 0x2b, 0xc2, 0x89, 0x44, 0x36],
+    ...[0x5e, 0x5d, 0xcb],
+  ];
+
+  it("reads a helper's stores of values worked out from the part's fields exactly, like the gear's push", () => {
+    const image = new Uint8Array(0x800);
+    image.set(push, 0x100);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
+    expect(summary.kind).toBe("owner-field-update");
+    const velocity = { kind: "field", object: "part", offset: 0x36, width: 16 };
+    const amount = { kind: "field", object: "argument", offset: 8, width: 16 };
+    const after = { kind: "binary", operator: "-", left: velocity, right: amount, width: 16 };
+    const test = (operator: string) => ({ kind: "compare", operator, left: after, right: amount, signed: true });
+    expect(summary.writes.map((w) => [w.offset, w.value, w.condition])).toEqual([
+      [0x36, after, test(">=")],
+      [
+        0x36,
+        { kind: "binary", operator: "-", left: { kind: "constant", value: 0, width: 16 }, right: amount, width: 16 },
+        test("<"),
+      ],
+    ]);
+  });
+
+  it("follows a call that leaves the part alone when it reads every path exactly, like the vacuum cleaner's pull", () => {
+    const image = new Uint8Array(0x800);
+    // The callee changes no part, like a redraw request: here it only reads its argument.
+    image.set([0x55, 0x8b, 0xec, 0x8b, 0x46, 0x06, 0x5d, 0xcb], 0x100);
+    const b = build(0x180);
+    // mov ax, [si+4]; cmp ax, 4; je pop
+    b.emit(0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0x8b, 0x44, 0x04, 0x3d, 0x04, 0x00);
+    b.branch(0x74, "pop");
+    // push si; push cs; call; pop cx; or word [si+8], 0x2000; jmp done
+    b.emit(0x56, 0x0e);
+    b.call(0x100);
+    b.emit(0x59, 0x81, 0x4c, 0x08, 0x00, 0x20);
+    b.branch(0xeb, "done");
+    // mov word [si+0x12], 1
+    b.label("pop");
+    b.emit(0xc7, 0x44, 0x12, 0x01, 0x00);
+    b.label("done");
+    b.emit(0x5e, 0x5d, 0xcb);
+    b.install(image);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100, 0x180), layout()).find(
+      (s) => s.address === 0x180,
+    )!;
+    expect(summary.kind).toBe("owner-field-update");
+    const type = (operator: string) => ({
+      kind: "compare",
+      operator,
+      left: { kind: "field", object: "part", offset: 4, width: 16 },
+      right: { kind: "constant", value: 4, width: 16 },
+      signed: false,
+    });
+    expect(summary.writes.filter((w) => w.root === "argument").map((w) => [w.offset, w.value, w.condition])).toEqual([
+      [
+        8,
+        {
+          kind: "binary",
+          operator: "|",
+          left: { kind: "field", object: "part", offset: 8, width: 16 },
+          right: { kind: "constant", value: 0x2000, width: 16 },
+          width: 16,
+        },
+        type("!="),
+      ],
+      [0x12, { kind: "constant", value: 1, width: 16 }, type("==")],
+    ]);
+  });
+
+  it.each([
+    // An overflow branch is no comparison the reader knows.
+    ["an overflow branch", 0x7d, 0x70],
+    // A byte store of al, whose value the reader doesn't follow.
+    ["a byte store", 0x89, 0x88],
+  ])("keeps the old summary when it can't read every path exactly: %s", (_, from, to) => {
+    const image = new Uint8Array(0x800);
+    const bytes = [...push];
+    bytes[push.lastIndexOf(from)] = to;
+    image.set(bytes, 0x100);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
+    expect(summary.kind).toBe("owner-field-update");
+    expect(summary.writes.length).toBeGreaterThan(0);
+    for (const w of summary.writes) expect(w.value.kind === "unknown" || w.condition.kind === "unknown").toBe(true);
+  });
+
   it("uses checked layout names in helper prose and keeps offsets in structured writes", () => {
     const image = new Uint8Array(0x800);
     image.set(
@@ -430,7 +612,7 @@ describe("structural engine summaries", () => {
     const named = discoverEngineSummaries(image, codes(image, 0x100), known)[0]!;
     expect(named.purpose).toBe("Updates horizontal and vertical velocity while preserving the state.");
     const unnamed = discoverEngineSummaries(image, codes(image, 0x100), layout())[0]!;
-    expect(unnamed.purpose).toBe("Updates object fields whose meaning is not established.");
+    expect(unnamed.purpose).toBe("Updates fields 0x22, 0x24 while preserving the state.");
     expect(named.writes.map((w) => w.offset)).toEqual([0x22, 0x24]);
   });
 
@@ -538,12 +720,37 @@ describe("structural engine summaries", () => {
         partMemoryComplete: true,
       });
       expect(summary.factory!.noConstructor.initialState).toEqual({ offset: 0x0c, value: 0 });
+      // Every other word the zero fill covers and no success path writes is known zero too.
+      const zero = summary.factory!.noConstructor.zeroWords!;
+      expect(zero).toContain(0x0c);
+      expect(zero.every((offset) => offset % 2 === 0 && offset + 2 <= summary.allocationSize!)).toBe(true);
+      for (const w of summary.factory!.noConstructor.writes)
+        expect(zero.some((offset) => offset < w.offset + w.width / 8 && w.offset < offset + 2)).toBe(false);
       expect(summary.footprint.preservesPartState).toBe(false);
       expect(
         summary.factory!.noConstructor.evidence.some((e) => e.bytes.length === 4 && e.text.includes("type 2")),
       ).toBe(true);
       expect(
         discoverEngineSummaries(f.image, f.code, layout(), 0x880, 0).find((s) => s.address === f.factory)!.factory,
+      ).toBeUndefined();
+    }
+  });
+
+  it("reads the words a new part starts with from the factory's type-indexed table", () => {
+    for (const strideBits of [3, 4]) {
+      const f = guardedFactoryFixture({ strideBits, startingFlags: true });
+      for (let type = 0; type < 3; type++)
+        f.image.set([0x00, type === 1 ? 0x48 : 0x08], 0x624 + type * 2 ** strideBits);
+      const summary = discoverEngineSummaries(f.image, f.code, layout(), 0x880, 0, 3).find(
+        (s) => s.address === f.factory,
+      )!;
+      expect(summary.factory?.startingWords).toMatchObject([
+        { field: 6, table: { segment: 0, offset: 0x624, stride: 2 ** strideBits }, values: [0x800, 0x4800, 0x800] },
+      ]);
+      const plain = guardedFactoryFixture({ strideBits });
+      expect(
+        discoverEngineSummaries(plain.image, plain.code, layout(), 0x880, 0, 3).find((s) => s.address === plain.factory)
+          ?.factory?.startingWords,
       ).toBeUndefined();
     }
   });

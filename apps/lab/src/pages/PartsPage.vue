@@ -19,7 +19,7 @@ import PartPicture from "../components/PartPicture.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
-import { readBehaviourInBackground, type BehaviourResult } from "../behaviour.ts";
+import { readBehaviourInBackground, type BehaviourResult, type WalksResult } from "../behaviour.ts";
 import { edition, program, resources, selected } from "../library.ts";
 import {
   compose,
@@ -54,14 +54,22 @@ const list = computed(() => loaded.value?.list);
 const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p).name])));
 /** What the program does with the parts, read in the background once the parts come from the program. */
 const behaviour = shallowRef<BehaviourResult | { status: "reading" }>();
+/** The walks from the parts' triggers, which come a few seconds after the rest. */
+const walks = shallowRef<WalksResult | { status: "reading" }>();
 watch(
   () => [program.value?.data, loaded.value?.program] as const,
   ([data, parts]) => {
     behaviour.value = undefined;
+    walks.value = undefined;
     if (!data || !parts) return;
     behaviour.value = { status: "reading" };
-    void readBehaviourInBackground(data, parts).then((result) => {
+    walks.value = { status: "reading" };
+    const reading = readBehaviourInBackground(data, parts);
+    void reading.result.then((result) => {
       if (program.value?.data === data) behaviour.value = result;
+    });
+    void reading.walks.then((result) => {
+      if (program.value?.data === data) walks.value = result;
     });
   },
   { immediate: true },
@@ -207,6 +215,7 @@ onBeforeUnmount(() => (crumb.value = []));
       :sheet-sprites="sheets"
       :record="loaded?.records.get(currentPart.type)"
       :behaviour="behaviour"
+      :walks="walks"
       :no-behaviour="noBehaviour"
       :part-names="partNames"
       :gallery-palette="AUTO"

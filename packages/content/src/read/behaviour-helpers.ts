@@ -21,6 +21,12 @@ import {
 } from "./behaviour-contact-rotation.ts";
 import { discoverFirstContactResponse, type ContactResponseFirst } from "./behaviour-contact-response-first.ts";
 import { discoverContactResponsePair, type ContactResponsePair } from "./behaviour-contact-response-pair.ts";
+import { addConnectionSummaries } from "./behaviour-connection-relay.ts";
+import { addRopeCutSummary } from "./behaviour-rope-cut.ts";
+import { addPartCopySummary } from "./behaviour-part-copy.ts";
+import { discoverDirectedVelocity, type DirectedVelocity } from "./behaviour-directed-velocity.ts";
+import { addCentreAngleSummaries, type CentreAngle } from "./behaviour-centre-angle.ts";
+import { addOutlineSearchSummary } from "./behaviour-outline-search.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
 import { addContactMotionAngleSummaries, type ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
@@ -36,6 +42,8 @@ import type { ExternalListConsumer } from "./behaviour-list-consumers.ts";
 import { proveOverlapProducer, type OverlapProducer } from "./behaviour-overlap-producer.ts";
 import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-connection-bypass.ts";
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
+import { ownerPathStores, ownerStoreConditions } from "./behaviour-owner-paths.ts";
+import type { FrameDrawing } from "./behaviour-frame-drawing.ts";
 
 export type EnginePointer =
   | { kind: "argument"; argument: number; path: number[]; displacement?: number }
@@ -59,6 +67,8 @@ export interface EngineWrite extends Finding {
   value: Expression;
   condition: Predicate;
   repeated?: { stride: number; countField?: number };
+  /** The routine makes this write exactly when its condition holds, so a caller keeps the old value otherwise. */
+  exact?: true;
 }
 
 export interface EngineReturn extends Finding {
@@ -69,6 +79,8 @@ export interface EngineReturn extends Finding {
 }
 
 export interface EngineSummary extends Finding {
+  /** The frame size or drawing position helper, proved: its writes are exact values of the part and tables. */
+  frameDrawing?: FrameDrawing;
   contactBounds?: ContactBounds;
   contactSearch?: ContactSearch;
   globalObjectWrites?: ContactObjectWrite[];
@@ -76,13 +88,62 @@ export interface EngineSummary extends Finding {
   contactSelection?: ContactSelection;
   contactSmall?: ContactSmallRelation;
   contactResponse?: ContactResponse;
+  /**
+   * What the routine may write beyond its argument: fields of parts it reaches through ropes, belts or pulleys, and
+   * fields of the rope, belt or pulley records reached through those links. A caller forgets these fields on every such
+   * object, the owner included for part fields, and keeps every other field.
+   */
+  connected?: Finding & {
+    partFields: { offset: number; width: number }[];
+    recordFields: { offset: number; width: number }[];
+    /** The part fields that point to records: a belt at 0x54, ropes at 0x66 and 0x68. */
+    recordLinks: number[];
+    /**
+     * The argument, by its offset, that the named part fields are written on only in `askingFields`. When a caller
+     * passes its own part there, it keeps every other named field; other parts still forget them all.
+     */
+    exceptArgument?: number;
+    /** The part fields that may still change on the part passed in `exceptArgument`. Absent means none. */
+    askingFields?: { offset: number; width: number }[];
+    /**
+     * Part fields whose new value the routine and its callees fix, as an expression of the arguments: a part reached
+     * either keeps its field or gets this value.
+     */
+    values?: { offset: number; width: number; value: Expression }[];
+    /**
+     * Part fields the routine writes only on the part that holds a rope record it reaches (slot 0 of the record), by
+     * the rope geometry update. A part that never holds a rope record keeps them.
+     */
+    ropeHolderFields?: { offset: number; width: number }[];
+    /** Part fields the routine writes only through the belt end check, which acts when a belt has a loose end. */
+    beltEndFields?: { offset: number; width: number }[];
+    /**
+     * Fields the owner keeps when it is the argument of a call from one of `callers`, each by a decided assumption
+     * about the parts those routines run on.
+     */
+    ownerKeeps?: { offset: number; width: number; assumption: string; callers: number[] }[];
+  };
   contactRotation?: ContactRotation;
+  /** Sets a part's velocity to a speed in the direction of an angle; a caller keeps the speed it passed. */
+  directedVelocity?: DirectedVelocity;
+  /** Works out the angle of the line from one part's centre to another's; a caller keeps which parts with the answer. */
+  centreAngle?: CentreAngle;
   rotationScalar?: RotationScalar;
   contactResponseFirst?: ContactResponseFirst;
   contactResponsePair?: ContactResponsePair;
   contactOutline?: ContactOutline;
   contactMotionAngle?: ContactMotionAngle;
   shortCircuit?: ConnectionBypass;
+  /**
+   * The owner's links an `ordered-part-insertion` sets: `next` gets the part it now stands before (0 at the end of the
+   * list), `previous` the part it now follows, or the list head's slot when it goes first.
+   */
+  orderedLinks?: { next: number; previous: number };
+  /**
+   * The size in bytes of a node of the separately allocated pool an `owned-node-pool-update` changes. It writes nothing
+   * else but the pool's head globals and its own stack.
+   */
+  nodePool?: { nodeSize: number };
   listConsumer?: ExternalListConsumer;
   listConsumerScope?: ListConsumerCall;
   overlapProducer?: OverlapProducer;
@@ -102,7 +163,21 @@ export interface EngineSummary extends Finding {
     typeArgument: number;
     constructorTable: { segment: number; offset: number; stride: number; typeCount: number };
     noConstructorTypes: number[];
+    /**
+     * Words every new part starts with, each from a table of the factory indexed by type like its constructors: the
+     * field it goes to and the value for each type, as they are in the program. Field 0x06 holds the list flags.
+     */
+    startingWords?: (Finding & {
+      field: number;
+      table: { segment: number; offset: number; stride: number };
+      values: number[];
+    })[];
     constructors?: (Finding & { type: number; address: number })[];
+    /**
+     * Flags a type's constructor sets on the new part before its first branch, call or return, so every call sets
+     * them: the field, and the bits it ORs in. A later store may still clear them.
+     */
+    constructorFlags?: (Finding & { type: number; field: number; mask: number })[];
     ownedConstructors?: (Finding & { type: number; address: number })[];
     alwaysSuccessfulConstructors?: (Finding & { type: number; address: number })[];
     noConstructor: Finding & {
@@ -111,6 +186,11 @@ export interface EngineSummary extends Finding {
       writes: EngineWrite[];
       freshFieldsOnly: true;
       initialState?: { offset: number; value: 0 };
+      /**
+       * Every word offset of the new part that the allocator's zero fill covers and that no success path of the
+       * factory writes, so a fresh part holds zero there when the constructor starts.
+       */
+      zeroWords?: number[];
     };
   };
   partGraph?: Finding & {
@@ -148,6 +228,12 @@ export interface EngineSummary extends Finding {
     confidence: Confidence;
     evidence: Evidence[];
     assumptions: string[];
+    /**
+     * Every test of a candidate's own fields that decides whether the query keeps it, apart from its position and
+     * size: a flag that must be set, like `0x0004` in field `0x0a`, or clear, like `0x2000` in field `0x08`. Only
+     * present when the reader accounts for every such test.
+     */
+    memberTests?: (Finding & { offset: number; mask: number; set: boolean })[];
   };
   footprint: {
     complete: boolean;
@@ -445,6 +531,71 @@ function doublyLinkedSplice(
   return undefined;
 }
 
+/**
+ * The tests of a candidate's own flags that skip it, read from every conditional branch that follows a compare or
+ * test of a candidate field. A `test word [node+X], mask` with a `je` or `jne` straight to the instruction after the
+ * link-in decides whether the candidate is kept. Any other compare of a candidate field must only pick between two
+ * ways that join again without a store outside the stack, like the wider box of one type: then it changes where the
+ * query looks, not which parts it keeps. Any other use gives no answer.
+ */
+function candidateFlagTests(
+  code: RoutineCode,
+  node: string,
+  insertion: Instruction[],
+): (Finding & { offset: number; mask: number; set: boolean })[] | undefined {
+  const last = insertion.at(-1)!;
+  const skip = last.address + last.size;
+  const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  const before = new Map(code.instructions.map((i) => [i.address + i.size, i]));
+  const tests: (Finding & { offset: number; mask: number; set: boolean })[] = [];
+  for (const branch of code.instructions) {
+    if (branch.flow !== "branch") continue;
+    const compare = before.get(branch.address);
+    const reads =
+      compare && ["cmp", "test"].includes(compare.mnemonic) && compare.operands.some((o) => isMemory(o, node));
+    if (!reads) continue;
+    // The flags must come from that compare alone.
+    if (code.edges.some((e) => e.to === branch.address && e.from !== compare.address)) return undefined;
+    const taken = code.edges.find((e) => e.from === branch.address && e.kind === "taken")?.to;
+    const tested = compare.operands[0];
+    // Some builds jump over a jump to the skip instead: `je kept; jmp skip; kept:`.
+    const over = byAddress.get(branch.address + branch.size);
+    const inverted =
+      over?.flow === "jump" &&
+      taken === over.address + over.size &&
+      code.edges.some((e) => e.from === over.address && e.to === skip) &&
+      code.edges.filter((e) => e.from === over.address).length === 1 &&
+      !code.edges.some((e) => e.to === over.address && e.from !== branch.address);
+    if (
+      (taken === skip || inverted) &&
+      compare.mnemonic === "test" &&
+      isMemory(tested, node) &&
+      tested.width === 16 &&
+      isImmediate(compare.operands[1]) &&
+      ["je", "jne"].includes(branch.mnemonic)
+    ) {
+      tests.push({
+        ...fact(inverted ? [compare, branch, over] : [compare, branch], "checked"),
+        offset: tested.displacement,
+        mask: compare.operands[1].value,
+        set: (branch.mnemonic === "je") !== inverted,
+      });
+      continue;
+    }
+    if (taken === undefined || taken === null || taken === skip) return undefined;
+    // The other way must run straight into the taken one, storing only into the stack.
+    let at = branch.address + branch.size;
+    for (let steps = 0; at !== taken; steps++) {
+      const step = byAddress.get(at);
+      if (!step || steps > 16 || step.flow !== "next") return undefined;
+      if (explicitWrite(step) && isMemory(step.operands[0]) && !stackMemory(step.operands[0])) return undefined;
+      if (implicitWrite(step)) return undefined;
+      at = step.address + step.size;
+    }
+  }
+  return tests;
+}
+
 function excludesOwner(code: RoutineCode, owner: string, node: string, insertion: number): Evidence[] | undefined {
   for (const compare of code.instructions) {
     if (
@@ -728,11 +879,21 @@ function ownerPurpose(offsets: number[], layout: BehaviourLayout | undefined, pr
     contextCounter: "a counter",
     baseWidth: "base width",
     baseHeight: "base height",
+    savedState: "the saved state",
+    outlinePointCount: "the outline corner count",
   };
   const selected = offsets.map((offset) => layout?.fields.find((f) => f.offset === offset && names[f.name]));
-  if (selected.some((f) => !f)) return "Updates object fields whose meaning is not established.";
-  const keys = selected.map((f) => f!.name);
-  let labels = keys.map((key) => names[key]!);
+  // A field without a checked name is given by its offset.
+  const unnamed = [...new Set(offsets.filter((_, n) => !selected[n]))].sort((a, b) => a - b);
+  const keys = selected.flatMap((f) => (f ? [f.name] : []));
+  let labels = [
+    ...new Set(keys.map((key) => names[key]!)),
+    ...(unnamed.length
+      ? [
+          `field${unnamed.length > 1 ? "s" : ""} ${unnamed.map((o) => (o < 0 ? `-0x${(-o).toString(16)}` : `0x${o.toString(16)}`)).join(", ")}`,
+        ]
+      : []),
+  ];
   for (const [a, b, label] of [
     ["velocityX", "velocityY", "horizontal and vertical velocity"],
     ["positionX", "positionY", "position"],
@@ -1169,6 +1330,11 @@ export function specializeNullConstructor(
     ]);
   let budget = 1024;
   let stateChanged = !!owned;
+  /** The bytes of the new part that a success path may write, from the factory's own stores and its callees. */
+  const written = new Set<number>();
+  const mark = (offset: number, width: number) => {
+    for (let byte = offset; byte < offset + width / 8; byte++) written.add(byte);
+  };
   if (owned) {
     proof.push(...owned.evidence);
     for (const assumption of owned.assumptions) assumptions.add(assumption);
@@ -1213,6 +1379,8 @@ export function specializeNullConstructor(
       )
         return undefined;
     }
+    if (explicitWrite(instruction) && isMemory(instruction.operands[0], object))
+      mark(instruction.operands[0].displacement, instruction.operands[0].width);
     if (
       explicitWrite(instruction) &&
       isMemory(instruction.operands[0], object) &&
@@ -1261,6 +1429,7 @@ export function specializeNullConstructor(
               w.offset + w.width / 8 <= summary.allocationSize!,
           )
         ) {
+          for (const w of callee.writes) mark(w.offset, w.width);
           if (
             stateOffset !== undefined &&
             callee.writes.some((w) => w.offset < stateOffset + 2 && stateOffset < w.offset + w.width / 8)
@@ -1323,15 +1492,65 @@ export function specializeNullConstructor(
   }
   if (!noConstructorTypes.length) return undefined;
   proof.push(...allocationClosure.flatMap((c) => c.instructions.map(evidence)), ...pointerEvidence);
+  for (const w of summary.writes) mark(w.offset, w.width);
+  // With an owned constructor, the factory itself may write any field before it returns, so no word is known.
+  const zeroWords = owned
+    ? undefined
+    : Array.from({ length: Math.floor((summary.allocationSize ?? 0) / 2) }, (_, n) => n * 2).filter(
+        (offset) => !written.has(offset) && !written.has(offset + 1),
+      );
   const stateUntouched =
     !stateChanged &&
     stateOffset !== undefined &&
     summary.allocationSize >= stateOffset + 2 &&
     !summary.writes.some((w) => w.offset < stateOffset + 2 && stateOffset < w.offset + w.width / 8);
+  // Some fields of the new part come from the same type-indexed table: one load into AX, stored once into the new
+  // part before the constructor pointer is tested.
+  const objectStores = code.instructions.filter(
+    (i): i is Instruction & { operands: [Extract<Operand, { kind: "memory" }>, Operand] } =>
+      i.mnemonic === "mov" && isMemory(i.operands[0], object) && i.operands[0].segment === "ds",
+  );
+  const startingWords = objectStores.flatMap((store) => {
+    const load = previous.get(store.address);
+    const field = store.operands[0].displacement;
+    if (
+      store.operands[0].width !== 16 ||
+      !isRegister(store.operands[1], "ax") ||
+      load?.mnemonic !== "mov" ||
+      !isRegister(load.operands[0], "ax") ||
+      !isMemory(load.operands[1], "bx") ||
+      load.operands[1].segment !== "ds" ||
+      load.operands[1].width !== 16 ||
+      objectStores.filter((i) => i.operands[0].displacement === field).length !== 1 ||
+      indexAt(load.address)?.count !== constructorIndex.count ||
+      !dominates(store.address, pointerLoad.address)
+    )
+      return [];
+    const offset = load.operands[1].displacement;
+    if (offset < 0 || offset + (typeCount! - 1) * stride + 2 > 0x10000) return [];
+    if (dataSegment * 16 + offset + (typeCount! - 1) * stride + 2 > image.length) return [];
+    const values = Array.from({ length: typeCount! }, (_, type) => {
+      const at = dataSegment * 16 + offset + type * stride;
+      return image[at]! | (image[at + 1]! << 8);
+    });
+    return [
+      {
+        confidence: "inferred" as const,
+        assumptions: [
+          "The factory's type table keeps the words it has in the program, and the factory gives each new part the word for its type.",
+        ],
+        evidence: [evidence(load), evidence(store)],
+        field,
+        table: { segment: dataSegment, offset, stride },
+        values,
+      },
+    ];
+  });
   return {
     typeArgument: summary.argumentOffset,
     constructorTable: { segment: dataSegment, offset: base, stride, typeCount: typeCount! },
     noConstructorTypes,
+    ...(startingWords.length ? { startingWords } : {}),
     noConstructor: {
       purpose: "Allocates and initializes a new part without invoking a type constructor, preserving existing parts.",
       confidence: "inferred",
@@ -1340,6 +1559,7 @@ export function specializeNullConstructor(
       writes: summary.writes,
       freshFieldsOnly: true,
       ...(stateUntouched ? { initialState: { offset: stateOffset, value: 0 as const } } : {}),
+      ...(zeroWords?.length ? { zeroWords } : {}),
       footprint: {
         complete: false,
         partMemoryComplete: true,
@@ -1442,6 +1662,7 @@ export function discoverEngineSummaries(
     ) {
       summary.kind = "ordered-part-insertion";
       summary.argumentKind = "object";
+      summary.orderedLinks = { next: splice.link, previous: splice.back };
       summary.purpose =
         "Inserts the owner into a doubly linked list using comparisons of object fields and type-record data to choose its position.";
       summary.writes = splice.stores.map((i) => ({
@@ -1502,6 +1723,7 @@ export function discoverEngineSummaries(
       summary.kind = "overlap-list";
       summary.argumentKind = "object";
       const exclusion = excludesOwner(code, insertion.owner, insertion.node, insertion.instructions[0]!.address);
+      const memberTests = candidateFlagTests(code, insertion.node, insertion.instructions);
       summary.list = {
         headField: insertion.offset,
         nextField: insertion.offset,
@@ -1511,6 +1733,7 @@ export function discoverEngineSummaries(
         assumptions: [
           "The list describes nodes accepted during this query; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],
+        ...(memberTests ? { memberTests } : {}),
       };
       summary.purpose = pointBounds
         ? "Builds a linked list of other objects whose tested reference points lie inside the supplied bounds."
@@ -1951,6 +2174,55 @@ export function discoverEngineSummaries(
         direct.writes.some((w) => w.root !== "argument" || w.argumentOffset !== firstArgument(code) || w.path.length)
       )
         continue;
+      // A store reached under tests of the part's own fields keeps those tests, like the mouse motor's start.
+      const calleeAt = new Map(code.calls.map((call, n) => [call.instruction, callees[n]]));
+      const callKeepsOwner = (call: Instruction) => {
+        const callee = calleeAt.get(call.address);
+        return (
+          !!callee &&
+          (callee.footprint.complete || callee.footprint.partMemoryComplete === true) &&
+          callee.writes.every((w) => w.root === "global")
+        );
+      };
+      const conditions = ownerStoreConditions(code, owner, stores, callKeepsOwner);
+      for (const write of direct.writes) {
+        const condition = conditions.get(write.evidence[0]!.address);
+        if (!condition) continue;
+        write.condition = condition;
+        write.exact = true;
+        write.assumptions = [
+          "Every path of the helper was followed: the store happens exactly when its tests of the part's fields hold, and it is the last store to that field.",
+        ];
+      }
+      // A field those tests leave open may still be read exactly, value and all, like the gear's push `0x1afdc`.
+      const open = new Set(
+        direct.writes.filter((w) => w.condition.kind === "unknown" || w.value.kind === "unknown").map((w) => w.offset),
+      );
+      const exact = open.size
+        ? ownerPathStores(code, owner, firstArgument(code), dataSegment, callKeepsOwner)
+        : undefined;
+      if (exact && [...open].every((offset) => exact.some((e) => e.offset === offset))) {
+        const kept = direct.writes.filter((w) => !open.has(w.offset));
+        direct.writes.length = 0;
+        direct.writes.push(
+          ...kept,
+          ...exact
+            .filter((e) => open.has(e.offset))
+            .map((e): EngineWrite => ({
+              ...fact([e.store, ...e.tests], "inferred", [
+                "Every path of the helper was followed with the values it reads worked out from the part's fields and its arguments as it got them: the field ends with this value exactly when the tests hold.",
+              ]),
+              root: "argument",
+              argumentOffset: firstArgument(code),
+              path: [],
+              offset: e.offset,
+              width: e.width,
+              value: e.value,
+              condition: e.condition,
+              exact: true,
+            })),
+        );
+      }
       const fields = [
         ...new Set(stores.map((i) => (i.operands[0] as Extract<Operand, { kind: "memory" }>).displacement)),
       ].sort((a, b) => a - b);
@@ -2289,6 +2561,7 @@ export function discoverEngineSummaries(
   addContactEffectSummaries(codes, summaries, layout);
   addContactOutlineSummaries(codes, summaries, dataSegment);
   addContactMotionAngleSummaries(codes, summaries, layout, dataSegment, image);
+  addCentreAngleSummaries(codes, summaries, layout);
   addContactSelection(codes, summaries);
   for (const code of codes.values()) {
     const scalar = discoverRotationScalarSummary(code, image);
@@ -2299,6 +2572,8 @@ export function discoverEngineSummaries(
   for (const code of codes.values()) {
     const rotation = discoverContactRotation(code, codes, summaries, image);
     if (rotation) summaries.set(code.address, rotation);
+    const velocity = discoverDirectedVelocity(code, codes, image);
+    if (velocity) summaries.set(code.address, velocity);
   }
   for (const code of codes.values()) {
     const response = discoverFirstContactResponse(code, codes, summaries, image, table, dataSegment, typeCount);
@@ -2316,5 +2591,12 @@ export function discoverEngineSummaries(
     )
       summaries.set(code.address, pair);
   }
+  addConnectionSummaries(codes, summaries);
+  // The connection summaries complete some forwarded helpers' footprints, so the wrappers that call them compose again.
+  addStatePreservingForwarders(codes, summaries, true);
+  // The rope cut uses the rope geometry summary the connection summaries add.
+  addRopeCutSummary(codes, summaries);
+  addOutlineSearchSummary(codes, summaries);
+  addPartCopySummary(codes, summaries);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

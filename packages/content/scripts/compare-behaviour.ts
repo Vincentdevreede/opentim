@@ -13,11 +13,11 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import type { BehaviourReport } from "../src/read/behaviour.ts";
+import { transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
 import { measuredClips, validateMeasuredPart } from "../src/read/behaviour-validation.ts";
 import { describeBehaviour, type BehaviourDescription } from "../src/read/describe-behaviour.ts";
 
-import { compareMeasuredWalks, type WalkMatch } from "../src/read/behaviour-walk-validation.ts";
+import { compareMeasuredWalks, restartWalk, type WalkMatch } from "../src/read/behaviour-walk-validation.ts";
 
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -71,8 +71,15 @@ function metricsOf(report: BehaviourReport) {
     routines: report.routines.length,
     callbackRoutines: callbacks.length,
     transitions: report.parts.reduce((sum, part) => sum + part.transitions.length, 0),
-    unresolvedTransitions: report.parts.reduce(
-      (sum, part) => sum + part.transitions.filter((transition) => transition.confidence === "unresolved").length,
+    unresolvedTransitions: report.parts.reduce((sum, part) => sum + transitionCounts(part.transitions).unresolved, 0),
+    conditionalTransitions: report.parts.reduce((sum, part) => sum + transitionCounts(part.transitions).conditional, 0),
+    unknownWriteTransitions: report.parts.reduce(
+      (sum, part) => sum + transitionCounts(part.transitions).unknownWrites,
+      0,
+    ),
+    callWrittenTransitions: report.parts.reduce((sum, part) => sum + transitionCounts(part.transitions).callWritten, 0),
+    namedRunValueTransitions: report.parts.reduce(
+      (sum, part) => sum + transitionCounts(part.transitions).namedRunValues,
       0,
     ),
     unresolvedCallsites: diagnostics.filter((item) => item.startsWith("Effects of call")).length,
@@ -141,7 +148,9 @@ function writeDescriptionMarkdown(path: string, description: BehaviourDescriptio
             ? walk.reason
             : walk.status === "loop"
               ? "The walk repeats."
-              : "The ending is stable.";
+              : walk.status === "joins"
+                ? "The walk continues like another branch."
+                : "The ending is stable.";
         const text = `${trigger} ${states} ${stopping ?? ""}`;
         if (seen.has(text)) continue;
         seen.add(text);
@@ -170,11 +179,13 @@ const { values } = parseArgs({
     oracle: { type: "string" },
     models: { type: "string" },
     out: { type: "string" },
+    // Leaves out the description files (about 300 MB a build), for measuring many builds in one run.
+    "no-descriptions": { type: "boolean" },
   },
 });
-if (!values.baseline?.length || !values.reports?.length || !values.oracle || !values.out)
+if (!values.reports?.length || !values.oracle || !values.out)
   throw new Error(
-    "Give --baseline <saved file or folder>, --reports <new file or folder>, --oracle <animations.json> and --out <folder>. Repeat report options as needed.",
+    "Give --reports <new file or folder>, --oracle <animations.json> and --out <folder>, and --baseline <saved file or folder> to compare with. Repeat report options as needed.",
   );
 const out = resolve(values.out);
 mkdirSync(out, { recursive: true });
@@ -199,9 +210,14 @@ interface ComparisonPart {
   walkMatches: { complete: number; prefix: number; different: number; unavailable: number };
   walkBasis: {
     completeFromCreation: number;
-    completeFromTriggers: number;
+    completeFromSeededStates: number;
     completeFromResetOrRest: number;
     completeFromInputCases: number;
+    /** Complete only with what the recorder writes or clears between runs: not a proof about the game. */
+    completeFromRecorderFields: number;
+    /** Complete only with that and the recorder's empty found list for a search it skipped: not a proof about the game. */
+    completeFromRecorderSkippedSearches: number;
+    completeWithUntouchedStart: number;
     animatedComplete: number;
   };
   walks: WalkMatch[];
@@ -218,6 +234,11 @@ interface ComparisonResult {
     extractionMilliseconds: number | null;
     describeMilliseconds: number;
     knownResetStates: number;
+    levelResets: number;
+    unresolvedResets: number;
+    vagueEffects: number;
+    partsWithoutStableStates: number;
+    unmeasuredParts: number;
     measuredClips: number;
     oneFrameClips: number;
     walkMatches: { complete: number; prefix: number; different: number; unavailable: number };
@@ -226,9 +247,10 @@ interface ComparisonResult {
   parts: ComparisonPart[];
   qualification: string;
 }
+const VAGUE = /isn't established|not established/;
 const results: ComparisonResult[] = [];
 for (const phase of ["baseline", "reports"] as const) {
-  const paths = [...new Set(values[phase]!.flatMap((path) => filesAt(resolve(path))))];
+  const paths = [...new Set((values[phase] ?? []).flatMap((path) => filesAt(resolve(path))))];
   for (const path of paths) {
     const data = readJson(path);
     if (!object(data) || !Array.isArray(data.parts) || !Array.isArray(data.routines) || typeof data.listId !== "string")
@@ -240,15 +262,18 @@ for (const phase of ["baseline", "reports"] as const) {
     const description = describeBehaviour(report);
     const describeMilliseconds = performance.now() - started;
     const descriptionName: string = `${phase}-${results.length + 1}-${basename(path, ".json")}.description.json`;
-    writeDescription(join(out, descriptionName), description);
-    writeDescriptionMarkdown(join(out, descriptionName.replace(/\.json$/, ".md")), description);
+    if (!values["no-descriptions"]) {
+      writeDescription(join(out, descriptionName), description);
+      writeDescriptionMarkdown(join(out, descriptionName.replace(/\.json$/, ".md")), description);
+    }
     const measured = match ? oracle[match.version] : undefined;
     const parts = report.parts.map((part) => {
       const clips = object(measured)
         ? measuredClips(measured[String(part.type)], `${match!.version}.${part.type}`)
         : [];
       const described = description.parts.find((item) => item.type === part.type)!;
-      const walks = clips.map((clip) => compareMeasuredWalks(described.animations, clip, report));
+      const walkFrom = restartWalk(report, part.type);
+      const walks = clips.map((clip) => compareMeasuredWalks(described.animations, clip, report, walkFrom, part.type));
       const run = part.routines.find((item) => item.slot === 1);
       const edgeCoverage = clips.length
         ? validateMeasuredPart(
@@ -273,14 +298,23 @@ for (const phase of ["baseline", "reports"] as const) {
         walkBasis: {
           completeFromCreation: walks.filter((walk) => walk.classification === "complete" && walk.basis === "creation")
             .length,
-          completeFromTriggers: walks.filter((walk) => walk.classification === "complete" && walk.basis === "trigger")
-            .length,
+          completeFromSeededStates: walks.filter(
+            (walk) => walk.classification === "complete" && walk.basis === "seeded-state",
+          ).length,
           completeFromResetOrRest: walks.filter(
             (walk) => walk.classification === "complete" && walk.basis === "reset-or-rest",
           ).length,
           completeFromInputCases: walks.filter(
             (walk) => walk.classification === "complete" && walk.basis === "input-case",
           ).length,
+          completeFromRecorderFields: walks.filter(
+            (walk) => walk.classification === "complete" && walk.basis === "recorder-fields",
+          ).length,
+          completeFromRecorderSkippedSearches: walks.filter(
+            (walk) => walk.classification === "complete" && walk.basis === "recorder-skipped-search",
+          ).length,
+          completeWithUntouchedStart: walks.filter((walk) => walk.classification === "complete" && walk.untouchedStart)
+            .length,
           animatedComplete: walks.filter(
             (walk) =>
               walk.classification === "complete" &&
@@ -306,13 +340,30 @@ for (const phase of ["baseline", "reports"] as const) {
       extractionMilliseconds: extractionMilliseconds(data, path),
       describeMilliseconds,
       knownResetStates: description.parts.filter((part) => part.rest.status === "known").length,
+      // Resets that keep the saved frame or set it from the sockets are the game's own: the level gives the frame.
+      levelResets: description.parts.filter((part) => ["saved", "sockets"].includes(part.rest.status)).length,
+      unresolvedResets: description.parts.filter((part) => part.rest.status === "unresolved").length,
+      // Effect lines that say their meaning or value isn't known, counted once per part and wording.
+      vagueEffects: description.parts.reduce(
+        (sum, part) =>
+          sum + new Set(part.effects.map((effect) => effect.description).filter((text) => VAGUE.test(text))).size,
+        0,
+      ),
+      partsWithoutStableStates: parts.filter((part) => !part.stableStates.length).length,
+      unmeasuredParts: parts.filter((part) => !part.measuredClips).length,
       measuredClips: parts.reduce((sum, part) => sum + part.measuredClips, 0),
       oneFrameClips: parts.reduce((sum, part) => sum + part.oneFrameClips, 0),
       walkBasis: {
         completeFromCreation: parts.reduce((sum, part) => sum + part.walkBasis.completeFromCreation, 0),
-        completeFromTriggers: parts.reduce((sum, part) => sum + part.walkBasis.completeFromTriggers, 0),
+        completeFromSeededStates: parts.reduce((sum, part) => sum + part.walkBasis.completeFromSeededStates, 0),
         completeFromResetOrRest: parts.reduce((sum, part) => sum + part.walkBasis.completeFromResetOrRest, 0),
         completeFromInputCases: parts.reduce((sum, part) => sum + part.walkBasis.completeFromInputCases, 0),
+        completeFromRecorderFields: parts.reduce((sum, part) => sum + part.walkBasis.completeFromRecorderFields, 0),
+        completeFromRecorderSkippedSearches: parts.reduce(
+          (sum, part) => sum + part.walkBasis.completeFromRecorderSkippedSearches,
+          0,
+        ),
+        completeWithUntouchedStart: parts.reduce((sum, part) => sum + part.walkBasis.completeWithUntouchedStart, 0),
         animatedComplete: parts.reduce((sum, part) => sum + part.walkBasis.animatedComplete, 0),
       },
       walkMatches: {
@@ -335,7 +386,7 @@ for (const phase of ["baseline", "reports"] as const) {
         : "No exact executable hash matched an oracle model; measured walk coverage is unavailable.",
     });
     console.log(
-      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions; ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete, ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
+      `${phase}: ${basename(path)}: ${summary.unresolvedTransitions}/${summary.transitions} unresolved transitions, ${summary.conditionalTransitions} conditional, ${summary.unknownWriteTransitions} with unknown writes, ${summary.callWrittenTransitions} with values a call writes but nobody follows, ${summary.namedRunValueTransitions} with named run values, ${summary.vagueEffects} vague effect lines; ${summary.unresolvedResets} unresolved resets, ${summary.levelResets} resets the level gives, ${summary.partsWithoutStableStates} parts without resting frames, ${summary.unmeasuredParts} unmeasured parts; ${match ? `recordings of ${match.version}` : "no recordings of this executable"}, ${summary.measuredClips} oracle clips: ${summary.walkMatches.complete} complete (${summary.walkBasis.completeFromResetOrRest} from the reset or a resting frame, ${summary.walkBasis.completeFromCreation} from creation, ${summary.walkBasis.completeFromInputCases} from an input case, ${summary.walkBasis.completeFromSeededStates} from a seeded state, ${summary.walkBasis.completeFromRecorderFields} through the recorder's fields, ${summary.walkBasis.completeFromRecorderSkippedSearches} through a recorder-skipped search, ${summary.walkBasis.completeWithUntouchedStart} taking the part as untouched at the start), ${summary.walkMatches.prefix} prefix, ${summary.walkMatches.different} different, ${summary.walkMatches.unavailable} unavailable`,
     );
   }
 }
@@ -349,10 +400,19 @@ const comparisons = results
     const numeric = [
       "transitions",
       "unresolvedTransitions",
+      "conditionalTransitions",
+      "unknownWriteTransitions",
+      "callWrittenTransitions",
+      "namedRunValueTransitions",
       "unresolvedCallsites",
       "pointerLosses",
       "unresolvedLoops",
       "knownResetStates",
+      "levelResets",
+      "unresolvedResets",
+      "vagueEffects",
+      "partsWithoutStableStates",
+      "unmeasuredParts",
     ] as const;
     return {
       source: final.source,
@@ -374,12 +434,18 @@ const comparisons = results
     };
   });
 const limitations = [
+  "Unresolved transitions leave out conditional ones: a conditional transition tests only values found during that run, like a query's answer, the part a loop found or what a list scan leaves behind, and its routine lost no effect. Transitions with unknown writes are counted apart from both, whatever their condition: they write a value nobody named, an unknown or a value read again after one. Transitions with call-written values write no such value, but at least one value only says that a call, a query or a list scan may have written the field (what a call writes to the parts it selects, the part's own field after such a call): its value isn't followed, so it says no more than an unknown. Transitions with named run values write only known values and run values whose identity is known, like a query's answer, a part a loop found, a search's found list, the list links after an insertion or the centre angle answer, and at least one of those.",
   "Oracle coverage is counted in saved clips. Changed-state edge checks are a separate count.",
   "Complete walks refer to state-selected frame numbers and run-call positions. Hiding, reflection, physics and wall time are outside these match counts.",
   "A complete match requires a proved stable ending or matching repeating visible cycles; unknown endings are prefixes.",
   "One-frame clips have no measured transition; a complete match for one requires a statically proved stable walk.",
   "Descriptions use reset fields, actual extracted trigger assignments and explicitly labelled input cases taken from run predicates and producer constants. No oracle seed or invented collision supplies inputs.",
-  "Complete matches retain their basis: reset/rest, actual code trigger or conditional input case. A conditional input case does not prove that the level or another part supplies those values.",
+  "Complete matches retain their basis: reset/rest, creation, conditional input case or seeded state. A conditional input case does not prove that the level or another part supplies those values.",
+  "The recorder performs no trigger: it puts each part alone on a cleared bench, writes the fields its action names and only calls the run routine. A walk from a trigger (another callback of the part, or another part's write) therefore counts only when its start is the recorder's: the trigger's writes are values the action gives and the trigger's other tests on the part hold for them. Those matches have their own basis, seeded state, and say nothing about the trigger happening.",
+  "A clip that lists a search the recorder skipped may match with what the recorder gave in its place (0 and no memory written, so an empty found list). Those matches have their own basis, recorder-skipped search, and are counted apart: they show the walk agrees with the recorder, not what the game finds.",
+  "Where the walks don't match as they are, a clip may also match with what the recorder itself writes before every run (the position words at 0x1e to 0x28, the previous frames at 0x0e and 0x10) and the bytes it clears that nothing in the clip can write. Those matches have their own basis, recorder fields, and are counted apart too: they describe the recorder's bench, not the game.",
+  "A recording starts from the recorder's part as it was: a walk whose start knows another value for a field the run reads (a reset value the recorder cleared, for example) doesn't count, and the comparison looks for one that starts from the recorder's value.",
+  "Matches that need the part to touch nothing at the start (its contact bits at 0x06 clear, decided with the user) say so and are counted apart, whatever their basis.",
   "Repeated externally supplied inputs remain outside a single-trigger description and cannot establish complete coverage.",
   "Callback-only diagnostics are counted once per distinct string; engine helper diagnostics are excluded from these comparison totals.",
   "Extraction milliseconds come from saved capture metadata when available. Description timings are measured separately in this process.",
@@ -402,13 +468,13 @@ const lines = [
   "",
   ...limitations.map((item) => `- ${item}`),
   "",
-  "| Phase and build | Unresolved transitions | Unresolved call sites | Pointer losses | Loops | Oracle clips | Complete walks | Prefixes | Different | No compatible start | Extract ms | Describe ms |",
-  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  "| Phase and build | Unresolved transitions | Conditional transitions | Transitions with unknown writes | Transitions with call-written values | Transitions with named run values | Vague effect lines | Unresolved resets | Parts without resting frames | Unmeasured parts | Unresolved call sites | Pointer losses | Loops | Oracle clips | Complete walks | Of them through the recorder's fields | Of them through a recorder-skipped search | Prefixes | Different | No compatible start | Extract ms | Describe ms |",
+  "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
 ];
 for (const result of results) {
   const s = result.summary;
   lines.push(
-    `| ${result.phase}: ${result.source?.folder ?? result.report} | ${s.unresolvedTransitions}/${s.transitions} | ${s.unresolvedCallsites} | ${s.pointerLosses} | ${s.unresolvedLoops} | ${s.measuredClips} | ${s.walkMatches.complete} | ${s.walkMatches.prefix} | ${s.walkMatches.different} | ${s.walkMatches.unavailable} | ${s.extractionMilliseconds?.toFixed(1) ?? "Unavailable"} | ${s.describeMilliseconds.toFixed(1)} |`,
+    `| ${result.phase}: ${result.source?.folder ?? result.report} | ${s.unresolvedTransitions}/${s.transitions} | ${s.conditionalTransitions} | ${s.unknownWriteTransitions} | ${s.callWrittenTransitions} | ${s.namedRunValueTransitions} | ${s.vagueEffects} | ${s.unresolvedResets} | ${s.partsWithoutStableStates} | ${s.unmeasuredParts} | ${s.unresolvedCallsites} | ${s.pointerLosses} | ${s.unresolvedLoops} | ${s.measuredClips} | ${s.walkMatches.complete} | ${s.walkBasis.completeFromRecorderFields} | ${s.walkBasis.completeFromRecorderSkippedSearches} | ${s.walkMatches.prefix} | ${s.walkMatches.different} | ${s.walkMatches.unavailable} | ${s.extractionMilliseconds?.toFixed(1) ?? "Unavailable"} | ${s.describeMilliseconds.toFixed(1)} |`,
   );
 }
 for (const result of results.filter((item) => item.phase === "final")) {
@@ -416,7 +482,9 @@ for (const result of results.filter((item) => item.phase === "final")) {
     "",
     `## ${result.source?.folder ?? result.report}`,
     "",
-    `Description: [${result.description}](${result.description}).`,
+    values["no-descriptions"]
+      ? "Description files were left out."
+      : `Description: [${result.description}](${result.description}).`,
     "",
     "| Part | Reset | Documented stable states | Measured clips | Complete | Prefix | Different | No compatible start | Main uncertainty |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
@@ -427,5 +495,8 @@ for (const result of results.filter((item) => item.phase === "final")) {
     );
 }
 writeFileSync(join(out, "report.md"), lines.join("\n") + "\n");
-if (!results.some((result) => result.phase === "baseline") || !results.some((result) => result.phase === "final"))
+if (
+  (values.baseline?.length && !results.some((result) => result.phase === "baseline")) ||
+  !results.some((result) => result.phase === "final")
+)
   throw new Error("No valid baseline or final behaviour reports were found");

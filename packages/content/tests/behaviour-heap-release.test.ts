@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
-import { matchHeapRoutine, proveOwnedHeapRelease } from "../src/read/behaviour-heap-release.ts";
+import {
+  matchCheckedReleaseWrapper,
+  matchHeapRoutine,
+  proveOwnedHeapRelease,
+} from "../src/read/behaviour-heap-release.ts";
 
 const entry = { address: 0, segment: 0, offset: 0 };
 const branchPattern = `mov ax,16:ds[{global}]
@@ -57,6 +61,31 @@ describe("heap routine structure proofs", () => {
     expect(matchHeapRoutine(code, "callf $helper\nretf", new Map())).toBeUndefined();
     code.calls[0]!.target = { address: 3, segment: 0, offset: 3 };
     expect(matchHeapRoutine(code, "call $helper\nretf", new Map())).toBeUndefined();
+  });
+  it("binds the checked release wrapper whether the release is a near push cs call or a real far call", () => {
+    // push bp; mov bp,sp; nop; push cs; call validate; push [bp+6]; <release call>; pop cx; nop; push cs; call validate;
+    // pop bp; retf. Validate is a retf at 0x20 and the release wrapper a retf at 0x21.
+    const wrapper = (release: number[]) => {
+      const image = new Uint8Array(0x22);
+      image.set([0x55, 0x8b, 0xec, 0x90, 0x0e, 0xe8, 0x18, 0, 0xff, 0x76, 6, ...release]);
+      image.set([0x59, 0x90, 0x0e, 0xe8, 0x0a, 0, 0x5d, 0xcb], 0x10);
+      image.set([0xcb, 0xcb], 0x20);
+      return readRoutineCode(image, entry, 0);
+    };
+    for (const release of [
+      [0x90, 0x0e, 0xe8, 0x11, 0],
+      [0x9a, 0x21, 0, 0, 0],
+    ]) {
+      const bindings = matchCheckedReleaseWrapper(wrapper(release));
+      expect(bindings?.get("validate")).toBe(0x20);
+      expect(bindings?.get("wrapper")).toBe(0x21);
+    }
+    // A plain near call without push cs would return with the wrong stack layout.
+    expect(matchCheckedReleaseWrapper(wrapper([0x90, 0x90, 0xe8, 0x11, 0]))).toBeUndefined();
+    // Both validation calls must reach the same helper.
+    const other = wrapper([0x9a, 0x21, 0, 0, 0]);
+    other.calls.at(-1)!.target = { address: 0x21, segment: 0, offset: 0x21 };
+    expect(matchCheckedReleaseWrapper(other)).toBeUndefined();
   });
   it("does not grant arbitrary read-only code a release contract without the allocator and ownership chain", () => {
     const code = readRoutineCode(Uint8Array.from([0xcb]), entry, 0);

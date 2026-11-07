@@ -89,9 +89,22 @@ export function discoverCreationDefaults(
     }
     return code;
   };
+  const named = new Map(layout.fields.map((f) => [f.offset, f]));
   for (const engine of helpers) {
     const factory = engine.factory;
     if (!factory) continue;
+    // The words the cleared allocation leaves zero are followed as fields too, named by the layout when it can.
+    const zeroWords = new Set(factory.noConstructor.zeroWords ?? []);
+    const tracked: LayoutField[] = [
+      ...fields,
+      ...[...zeroWords]
+        .filter((offset) => !fields.some((f) => f.offset === offset))
+        .map((offset): LayoutField => ({
+          ...(named.get(offset) ?? { confidence: "inferred", evidence: [], assumptions: [] }),
+          offset,
+          name: named.get(offset)?.name ?? `+0x${offset.toString(16).padStart(2, "0")}`,
+        })),
+    ];
     const factoryCode = read({
       address: engine.address,
       segment: Math.floor(engine.address / 0x10000) * 0x1000,
@@ -426,17 +439,17 @@ export function discoverCreationDefaults(
             routine: engine.address,
             source: "zeroed-allocation",
             constructorCode: undefined,
-            fields: [
-              {
+            fields: tracked
+              .filter((field) => field.offset === initial.offset || zeroWords.has(field.offset))
+              .map((field) => ({
                 confidence: factory.noConstructor.confidence,
                 evidence: factory.noConstructor.evidence,
                 assumptions: factory.noConstructor.assumptions,
-                offset: f.offset,
-                name: f.name,
-                value: initial.value,
-                width: 16,
-              },
-            ],
+                offset: field.offset,
+                name: field.name,
+                value: 0,
+                width: 16 as const,
+              })),
             confidence: "inferred",
             evidence: [tableEvidence, ...factory.noConstructor.evidence],
             assumptions: [...assumptions],
@@ -454,12 +467,18 @@ export function discoverCreationDefaults(
       if (selected && initial) {
         defaults.set(selected.offset, initial.value);
         for (const item of factory.noConstructor.evidence) proof.set(item.address, item);
-        assumptions.add(
-          "Only the state word proved zero by the factory's cleared-allocation contract is supplied to the constructor relation; other unassigned fields remain unknown.",
-        );
+        if (zeroWords.size) {
+          for (const offset of zeroWords) defaults.set(offset, 0);
+          assumptions.add(
+            "Every word the factory's cleared allocation leaves unwritten is supplied to the constructor relation as zero; words the factory or its callees may write remain unknown.",
+          );
+        } else
+          assumptions.add(
+            "Only the state word proved zero by the factory's cleared-allocation contract is supplied to the constructor relation; other unassigned fields remain unknown.",
+          );
       }
-      const values = analyse(read(constructor), fields, defaults, 0);
-      const found = fields
+      const values = analyse(read(constructor), tracked, defaults, 0);
+      const found = tracked
         .filter((f) => typeof values.get(f.offset) === "number")
         .map((f): CreationField => ({
           offset: f.offset,

@@ -91,4 +91,53 @@ describe("selected overlap candidates", () => {
     const result = analyse([0xc7, 0x44, 0x60, 0, 0, ...call], summary);
     expect(result.uncertainties.some((s) => s.includes("pointer is lost"))).toBe(true);
   });
+  it("names the found list a checked query leaves and what it writes in the parts it finds", () => {
+    const named = (excludesArgument: boolean) => {
+      const summary = query();
+      summary.list = { ...summary.list!, excludesArgument, confidence: "checked" };
+      summary.writes = [
+        { ...summary.writes[0]!, value: { kind: "constant", value: 0, width: 16 } },
+        { ...summary.writes[0]!, condition: { kind: "unknown", reason: "A part passes the gates." } },
+        summary.writes[1]!,
+        { ...summary.writes[1]!, offset: 0x7a },
+      ];
+      const result = analyse(call, summary);
+      const owner = result.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x60)!.value;
+      const found = (offset: number) =>
+        result.writes.find((w) => w.object.startsWith("a candidate selected") && w.offset === offset)!.value;
+      return { owner, next: found(0x60), value: found(0x7a) };
+    };
+    for (const excludesArgument of [true, false]) {
+      // The head is the part found last, or 0, whether or not the query may list the part that asks.
+      const { owner, next, value } = named(excludesArgument);
+      expect(owner).toMatchObject({ kind: "field", object: "found list after the query at 0x8", unresolved: true });
+      expect(next).toMatchObject({ kind: "field", object: "next in the found list of the query at 0x8", offset: 0x60 });
+      expect(value).toMatchObject({
+        kind: "field",
+        object: "value the query at 0x8 writes to a found part",
+        offset: 0x7a,
+      });
+    }
+  });
+  it("keeps the owner's fields when the query skips the part that asks", () => {
+    const skipping = (excludesArgument: boolean) => {
+      const summary = query();
+      summary.list = { ...summary.list!, excludesArgument };
+      summary.writes.push({ ...summary.writes[1]!, offset: 0x7a });
+      return summary;
+    };
+    // The owner writes 7 to its own field 0x7a, asks, then copies that field to its state.
+    const body = [0xc7, 0x44, 0x7a, 7, 0, ...call, 0x8b, 0x44, 0x7a, 0x89, 0x44, 12];
+    const kept = analyse(body, skipping(true));
+    expect(kept.transitions.some((t) => t.to.kind === "constant" && t.to.value === 7)).toBe(true);
+    expect(kept.transitions.every((t) => t.confidence !== "unresolved")).toBe(true);
+    const aliased = analyse(body, skipping(false));
+    expect(aliased.transitions.some((t) => t.to.kind === "constant" && t.to.value === 7)).toBe(false);
+    // Another part asking may select the owner, so the owner's field is forgotten.
+    const other = analyse(
+      [0xc7, 0x44, 0x7a, 7, 0, 0x8b, 0x7c, 0x50, 0x57, 0x9a, 0, 1, 0, 0, 0x59, 0x8b, 0x44, 0x7a, 0x89, 0x44, 12],
+      skipping(true),
+    );
+    expect(other.transitions.some((t) => t.to.kind === "constant" && t.to.value === 7)).toBe(false);
+  });
 });

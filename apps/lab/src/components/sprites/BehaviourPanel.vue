@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
-import type { BehaviourResult } from "../../behaviour.ts";
-import { outlineSides, routineGroups, stateGroups, type ChangeRow, type WriteRow } from "../../behaviour-view.ts";
+import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
+import {
+  outlineSides,
+  routineGroups,
+  stateGroups,
+  walkGroups,
+  type ChangeRow,
+  type WriteRow,
+} from "../../behaviour-view.ts";
 import { behaviourLayout } from "../../ui.ts";
 import LabAlert from "../LabAlert.vue";
 import LabChip from "../LabChip.vue";
@@ -13,13 +20,19 @@ import LabSection from "../LabSection.vue";
 import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
+import BehaviourDoing from "./BehaviourDoing.vue";
+import BehaviourEffect from "./BehaviourEffect.vue";
+import BehaviourRest from "./BehaviourRest.vue";
 import BehaviourRow from "./BehaviourRow.vue";
+import BehaviourWalkGroup from "./BehaviourWalkGroup.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
-/** What the program does with a part, by routine or by the state a change starts from. */
+/** What the program does with a part, by routine, by the state a change starts from, or by the walk from a trigger. */
 const props = defineProps<{
   /** The analysis of the loaded program; undefined while it hasn't started. */
   result?: BehaviourResult | { status: "reading" };
+  /** The walks from the parts' triggers, which come after the rest. */
+  walks?: WalksResult | { status: "reading" };
   /** Why there is no analysis, when there can't be one. */
   unavailable?: string;
   type: number;
@@ -35,6 +48,7 @@ const emit = defineEmits<{ showFrame: [id: number] }>();
 const LAYOUTS = [
   { value: "routine" as const, label: "By routine" },
   { value: "state" as const, label: "By state" },
+  { value: "walk" as const, label: "By walk" },
 ];
 /** What a routine is likely for, from where the program calls it. */
 const ROLES: Record<string, string> = {
@@ -50,6 +64,27 @@ const summary = computed(() => (props.result?.status === "done" ? props.result.s
 const part = computed(() => summary.value?.parts[props.type]);
 const routines = computed(() => (part.value ? routineGroups(part.value) : []));
 const states = computed(() => (part.value ? stateGroups(part.value) : []));
+const walkList = computed(() => {
+  const w = props.walks?.status === "done" ? props.walks.walks[props.type] : undefined;
+  return w ? walkGroups(w) : [];
+});
+/** What other parts do to this one without changing its frame, which comes with the walks. */
+const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
+/** How the reset leaves its frame and where it comes to rest, which also comes with the walks. */
+const rest = computed(() => (props.walks?.status === "done" ? props.walks.rests[props.type] : undefined));
+/** What the part does: the parts it creates, then what it does to itself and to other parts. */
+const doings = computed(() => (props.walks?.status === "done" ? (props.walks.doings[props.type] ?? []) : []));
+const created = computed(() => doings.value.filter((d) => d.on === "created"));
+const doneTo = computed(() =>
+  (["itself", "others"] as const)
+    .map((on) => ({
+      on,
+      title: on === "itself" ? "On itself" : "On other parts",
+      list: doings.value.filter((d) => d.on === on),
+    }))
+    .filter((g) => g.list.length),
+);
+const doneCount = computed(() => doneTo.value.reduce((n, g) => n + g.list.length, 0));
 const sides = computed(() => (part.value ? outlineSides(part.value) : undefined));
 const draws = computed(() => routines.value.flatMap((g) => g.draws));
 const gear = computed(() => part.value?.gear);
@@ -283,6 +318,29 @@ const more = computed(() => {
         </section>
       </div>
 
+      <div v-else-if="behaviourLayout === 'walk'" class="flex flex-col">
+        <p v-if="!props.walks || props.walks.status === 'reading'" class="flex items-center gap-2 text-muted">
+          <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
+          Following the frames from each trigger. This takes a few more seconds.
+        </p>
+        <LabAlert v-else-if="props.walks.status === 'error'" title="Couldn’t follow the walks">
+          <span class="font-mono text-meta break-words">{{ props.walks.message }}</span>
+        </LabAlert>
+        <p v-else-if="!walkList.length" class="text-muted">The analysis follows no walk for this part.</p>
+        <div v-else class="-mx-3 flex flex-col">
+          <BehaviourWalkGroup
+            v-for="g in walkList"
+            :key="g.trigger"
+            :trigger="g.trigger"
+            :rows="g.rows"
+            :frames="frames"
+            :sides="sides"
+            :current="current"
+            @show-frame="emit('showFrame', $event)"
+          />
+        </div>
+      </div>
+
       <div v-else class="flex flex-col">
         <p v-if="!states.length" class="text-muted">No routine changes the state.</p>
         <div class="-mx-3 flex flex-col">
@@ -337,6 +395,22 @@ const more = computed(() => {
         </LabSection>
       </div>
 
+      <LabSection v-if="rest" title="Rest">
+        <BehaviourRest :rest="rest" :frames="frames" @show-frame="emit('showFrame', $event)" />
+      </LabSection>
+
+      <LabSection v-if="effects.length" title="From other parts">
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+          <BehaviourEffect v-for="(e, i) in effects" :key="i" :effect="e" :name="nameOf(e.sourceType)" />
+        </div>
+      </LabSection>
+
+      <LabSection v-if="created.length" title="Creates">
+        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
+          <BehaviourDoing v-for="d in created" :key="d.description" :doing="d" />
+        </div>
+      </LabSection>
+
       <LabSection v-if="gear" title="Gear">
         <template #action>
           <LabInfo :text="[gear.text.activation, '', ...gear.text.scheduling].join('\n')" />
@@ -371,6 +445,18 @@ const more = computed(() => {
           </div>
         </template>
       </LabSection>
+
+      <LabDisclosure
+        v-if="doneCount"
+        :title="`To itself and others · ${doneCount} ${doneCount === 1 ? 'line' : 'lines'}`"
+      >
+        <template v-for="g in doneTo" :key="g.on">
+          <PanelTitle class="block px-3 pt-2 pb-1">{{ g.title }}</PanelTitle>
+          <div class="flex flex-col [&>*:first-child]:border-t-0">
+            <BehaviourDoing v-for="d in g.list" :key="d.description" :doing="d" />
+          </div>
+        </template>
+      </LabDisclosure>
 
       <LabDisclosure :title="`More · ${more} findings`">
         <ul class="flex flex-col gap-1 p-3 font-mono text-meta break-words text-muted">

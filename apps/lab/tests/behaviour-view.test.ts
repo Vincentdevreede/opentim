@@ -1,11 +1,13 @@
 import type { Expression } from "@opentim/content";
 import { describe, expect, it } from "vitest";
-import { valueForState, writer, type Change, type PartSummary } from "../src/behaviour.ts";
+import { valueForState, writer, type Change, type PartSummary, type Walk } from "../src/behaviour.ts";
 import {
   changeRows,
+  endText,
   outlineShape,
   outlineSides,
   readTerm,
+  restingMore,
   ownTerms,
   routineGroups,
   stateGroups,
@@ -13,6 +15,7 @@ import {
   writeRows,
   tidyTerm,
   tidyTerms,
+  walkGroups,
 } from "../src/behaviour-view.ts";
 
 const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
@@ -46,6 +49,24 @@ describe("valueForState", () => {
   });
 });
 
+describe("values a test picks", () => {
+  it("writes the two values and the test that picks one", () => {
+    const { expression } = writer([{ offset: 0x0c, name: "state" }]);
+    const picked = (operator: string, other: string, then: Expression, otherwise: Expression) =>
+      binary(
+        "+",
+        binary("*", binary(operator, state, constant(2)), then),
+        binary("*", binary(other, state, constant(2)), otherwise),
+      );
+    expect(expression(picked("==", "!=", constant(3), constant(5)))).toBe("3 if state == 2, else 5");
+    expect(expression(picked("<", ">=", binary("+", state, constant(1)), constant(5)))).toBe(
+      "(state + 1) if state < 2, else 5",
+    );
+    // Without the opposite test, it is a sum like any other.
+    expect(expression(picked("==", "==", constant(3), constant(5)))).toBe("((state == 2) * 3) + ((state == 2) * 5)");
+  });
+});
+
 describe("tidying conditions", () => {
   it("writes an absolute value and a negative constant shorter", () => {
     const { expression } = writer([{ offset: 0x0c, name: "state" }]);
@@ -56,12 +77,31 @@ describe("tidying conditions", () => {
     expect(tidyTerm(`${expression(binary("+", absolute, constant(1)))} > 2`)).toBe("|state - olderY| + 1 > 2");
     const own = binary(">>", state, constant(15));
     expect(tidyTerm(`${expression(binary("-", binary("^", state, own), own))} < 3`)).toBe("|state| < 3");
+    // Also of another part's field, like the overlap of the part a search found.
+    expect(tidyTerm("(found.overlapX ^ (found.overlapX >> 15)) - (found.overlapX >> 15) < 292")).toBe(
+      "|found.overlapX| < 292",
+    );
     expect(tidyTerm("x + 0xffe0 > 3")).toBe("x - 32 > 3");
     expect(tidyTerm("(x - 32) - 0xffc0")).toBe("(x - 32) + 64");
+    // A word compared whole reads signed; bits under a hex mask stay hex like the mask.
+    expect(tidyTerm("x == 0xd000")).toBe("x == -12288");
+    expect(tidyTerm("x & 0xc000 == 0x8000")).toBe("x & 0xc000 == 0x8000");
+    expect(tidyTerm("(x + 0x4000) & 0xc000 != 0xc000")).toBe("(x + 0x4000) & 0xc000 != 0xc000");
   });
 
   it("drops repeats, comparisons of numbers and terms another implies", () => {
     expect(tidyTerms(["a < 0", "a != 0", "a <= 0", "3 == 3", "a < 0", "b >= 2"])).toEqual(["a < 0", "b >= 2"]);
+    // Masked bits read in hex, and say the same.
+    expect(tidyTerms(["k & 0x7 != 0x4", "k & 0x7 == 0x2", "0x200 != 0"])).toEqual(["k & 0x7 == 0x2"]);
+  });
+});
+
+describe("restingMore", () => {
+  it("counts the other ways from every walk that rests on a frame, and says and others when only a few are kept", () => {
+    expect(restingMore({ ways: 1 })).toBe("");
+    expect(restingMore({ ways: 2 })).toBe("1 more way");
+    expect(restingMore({ ways: 158 })).toBe("157 more ways");
+    expect(restingMore({ ways: 191, capped: true })).toBe("and others");
   });
 });
 
@@ -285,5 +325,89 @@ describe("outlineShape", () => {
         { width: 8, height: 8 },
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("walkGroups", () => {
+  const walk = (
+    trigger: string,
+    start: Walk["start"],
+    frames: number[],
+    condition: string[],
+    more: Partial<Walk> = {},
+  ): Walk => ({
+    confidence: "inferred",
+    frames,
+    end: "rest",
+    branches: [],
+    trigger,
+    start,
+    condition,
+    about: trigger,
+    ...more,
+  });
+
+  it("puts walks that follow the same path into one row, with the terms they share and what each adds", () => {
+    const [group] = walkGroups([
+      walk("run", "run-guard", [0, 1], ["stateDelta != 0", "state == 0"]),
+      walk("run", "run-guard", [0, 1], ["stateDelta != 0", "state == 1"]),
+    ]);
+    expect(group!.rows).toHaveLength(1);
+    expect(group!.rows[0]).toMatchObject({ shared: ["stateDelta != 0"], variants: [["state == 0"], ["state == 1"]] });
+  });
+
+  it("lists run first, and the walks of a trigger in the order they start", () => {
+    const groups = walkGroups([
+      walk("bounce", "reset", [], []),
+      walk("run", "run-guard", [2], []),
+      walk("run", "reset", [0], []),
+    ]);
+    expect(groups.map((g) => g.trigger)).toEqual(["run", "bounce"]);
+    expect(groups[0]!.rows.map((r) => r.start)).toEqual(["reset", "run-guard"]);
+  });
+
+  it("tidies the conditions of branches", () => {
+    const [group] = walkGroups([
+      walk("run", "reset", [], [], {
+        end: "branches",
+        branches: [
+          {
+            condition: ["state == 0", "0 == 0"],
+            path: { confidence: "inferred", frames: [0], end: "stop", branches: [] },
+          },
+        ],
+      }),
+    ]);
+    expect(group!.rows[0]!.path.branches[0]!.condition).toEqual(["state == 0"]);
+  });
+
+  it("keeps whether every way a split goes ends, and doesn't put it in a row with an open split", () => {
+    const split = { end: "branches" as const, branches: [] };
+    const [group] = walkGroups([
+      walk("run", "reset", [0], [], { ...split, settled: true }),
+      walk("run", "reset", [0], [], split),
+    ]);
+    expect(group!.rows.map((row) => row.path.settled)).toEqual([true, undefined]);
+  });
+});
+
+describe("endText", () => {
+  const path = (end: Walk["end"], frames: number[], more = {}) => ({
+    confidence: "inferred" as const,
+    frames,
+    end,
+    branches: [],
+    ...more,
+  });
+  it("says how a path ends in a few words", () => {
+    expect(endText(path("rest", [0, 1]))).toBe("rests");
+    expect(endText(path("loop", [0, 1, 2], { loopFrom: 1 }))).toBe("loops to 1");
+    expect(endText(path("cycle", [], { cycle: { period: 4, direction: -1 } }))).toBe("cycles 4 frames down");
+    expect(endText(path("stop", [3]))).toBe("stops");
+    expect(endText(path("joins", [2]))).toBe("continues like another way");
+    expect(endText(path("branches", [0], { branches: [{}, {}] }))).toBe("2 ways");
+    expect(endText(path("branches", [0], { branches: [{}, {}], settled: true }))).toBe("2 ways, all end");
+    expect(endText(path("branches", [0], { ways: 3 }))).toBe("3 ways");
+    expect(endText(path("branches", [0], { ways: 1, settled: true }))).toBe("1 way, it ends");
   });
 });
