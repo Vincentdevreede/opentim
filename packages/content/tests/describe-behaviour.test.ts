@@ -1518,6 +1518,11 @@ describe("creation defaults and related input conditions", () => {
     const partly = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
     expect(partly).toContain("Sets field 0x1e of the object it creates at 0x1b3a1.");
     data.routines[2]!.returnPathsComplete = true;
+    // Nor does a way whose effects aren't all known, since a call there may have taken the field off its line.
+    data.routines[2]!.outcomes = [{ ...data.routines[2]!.outcomes[0]!, effectsComplete: false }];
+    const unknown = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(unknown).toContain("Sets field 0x1e of the object it creates at 0x1b3a1.");
+    data.routines[2]!.outcomes = [{ ...data.routines[2]!.outcomes[0]!, effectsComplete: true }];
     // The line keeps the evidence of the store whose value it gives for a field the speed limit wrote last.
     const store = { address: 0x1b390, bytes: [0xc7], text: "mov word [si+0x36], 0xd000" };
     data.routines[2]!.writes = made.map((item, n) => (n === 2 ? { ...item, evidence: [store] } : item));
