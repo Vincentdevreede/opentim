@@ -1101,7 +1101,13 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   };
 }
 
-/** The states as short text, like "0–2, 4". */
+/**
+ * A run of frames as short text, like "0–2". A run that starts below 0, like the wood incline's -1 to 3, says "to":
+ * "-1–3" reads like a subtraction.
+ */
+export const rangeText = (start: number, end: number): string => (start < 0 ? `${start} to ${end}` : `${start}–${end}`);
+
+/** The states as short text, like "0–2, 4", or "-1 to 3". */
 export function statesText(states: readonly number[] | null): string {
   if (!states) return "any";
   if (!states.length) return "none";
@@ -1109,7 +1115,7 @@ export function statesText(states: readonly number[] | null): string {
   for (let i = 0; i < states.length; i++) {
     let j = i;
     while (j + 1 < states.length && states[j + 1] === states[j]! + 1) j++;
-    runs.push(j > i ? `${states[i]}–${states[j]}` : String(states[i]));
+    runs.push(j > i ? rangeText(states[i]!, states[j]!) : String(states[i]));
     i = j;
   }
   return runs.join(", ");

@@ -46,3 +46,15 @@ it("folds the many input cases of a run, like the jack-in-the-box's 156, by wher
     ].join(" "),
   );
 });
+
+it("puts where a hit needs the part on a line below the trigger's name", async () => {
+  const trigger =
+    "hit by a teeter-totter, when its positionX is 0 to 12 pixels left of the teeter-totter's right end (positionX + 74)";
+  const html = await renderToString(
+    createSSRApp({ render: () => h(BehaviourWalkGroup, { trigger, rows: [row("reset", [], "a")], frames: [0, 1] }) }),
+  );
+  expect(html).toContain(">hit by a teeter-totter</span>");
+  expect(html).toContain(
+    ">when its positionX is 0 to 12 pixels left of the teeter-totter&#39;s right end (positionX + 74)</span>",
+  );
+});

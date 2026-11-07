@@ -26,6 +26,17 @@ const toggle = (key: string) => (opened.has(key) ? opened.delete(key) : opened.a
 const count = (rows: readonly WalkRow[]) => rows.reduce((n, r) => n + Math.max(1, r.variants.length), 0);
 const walks = computed(() => count(props.rows));
 const folds = computed(() => (props.rows.length > FOLD_ROWS ? startGroups(props.rows) : undefined));
+/**
+ * The trigger as a short heading and what it needs as a line below, so a hit with a place, like "hit by a
+ * teeter-totter, when its positionX is 0 to 12 pixels left of the teeter-totter's right end (positionX + 74)", doesn't
+ * fill the heading.
+ */
+const heading = computed(() => {
+  const at = props.trigger.indexOf(", when ");
+  return at < 0
+    ? { name: props.trigger, when: undefined }
+    : { name: props.trigger.slice(0, at), when: props.trigger.slice(at + 2) };
+});
 /** Whether a walk starts from the frame on the stage. */
 const startsHere = (frames: readonly number[]) => props.current !== undefined && frames[0] === props.current;
 </script>
@@ -33,7 +44,10 @@ const startsHere = (frames: readonly number[]) => props.current !== undefined &&
 <template>
   <section class="flex flex-col">
     <LabListRow :expanded="open" @click="open = !open">
-      <span class="font-mono font-semibold text-ink">{{ trigger }}</span>
+      <span class="flex min-w-0 flex-col">
+        <span class="font-mono font-semibold text-ink">{{ heading.name }}</span>
+        <span v-if="heading.when" class="text-meta break-words text-muted">{{ heading.when }}</span>
+      </span>
       <template #end>
         <LabChip tone="accent">{{ walks }} {{ walks === 1 ? "walk" : "walks" }}</LabChip>
         <LabChip v-if="rows.length < walks" tone="faint">{{ rows.length }} paths</LabChip>

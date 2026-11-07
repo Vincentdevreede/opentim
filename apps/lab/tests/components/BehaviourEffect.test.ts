@@ -50,7 +50,7 @@ it("shows both velocities as a direction on the line and their numbers in the ti
     sets: [{ what: "", value: "up and to the left" }],
     sourceWhen: ["not mirrored"],
     description:
-      "A jack in the box that reaches it sets its velocity up and to the left (velocityX -4096, velocityY -4096).",
+      "A jack-in-the-box that reaches it sets its velocity up and to the left (velocityX -4096, velocityY -4096).",
   };
   expect(await text(punch, "Jack-in-the-box")).toBe("Jack-in-the-box up and to the left not mirrored moving list");
   const html = await renderToString(

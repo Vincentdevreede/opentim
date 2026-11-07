@@ -6,6 +6,7 @@
 import type { Confidence } from "@opentim/content";
 import {
   NAMED_TERMS,
+  rangeText,
   statesText,
   type Change,
   type PartSummary,
@@ -140,7 +141,7 @@ export function targetsText(from: readonly number[], targets: readonly number[])
     else runs.push({ start: state, end: state, to: targets[i]! });
   });
   if (runs.length > 3) return undefined;
-  return runs.map((r) => `${r.start === r.end ? r.start : `${r.start}–${r.end}`}→${r.to}`).join(" · ");
+  return runs.map((r) => `${r.start === r.end ? r.start : rangeText(r.start, r.end)}→${r.to}`).join(" · ");
 }
 
 /** The paths of a routine that change the state from the same states to the same value. */

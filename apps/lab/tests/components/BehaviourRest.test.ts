@@ -49,7 +49,7 @@ it("shows frame -1 of a part like the wood incline as -1", async () => {
     frames: [-1, 0, 1, 2, 3],
     resting: [{ ...finding, state: -1, walks: 1, conditions: [], ways: 1 }],
   };
-  expect(await text(incline)).toBe("placed keeps the saved frame · -1–3 rests on -1");
+  expect(await text(incline)).toBe("placed keeps the saved frame · -1 to 3 rests on -1");
 });
 
 it("says in the tip when a way to a resting frame has no test, so the part rests there always", async () => {

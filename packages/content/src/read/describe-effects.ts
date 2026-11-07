@@ -431,10 +431,21 @@ const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.addr
  * Ids are never renamed once published, so a part whose id doesn't say what it is in TIM 1 and Even More gets its
  * words here: part 43 has the id "pinball", but in these games it is the cannonball the cannon fires.
  */
-const WORDS: Record<string, string> = { pinball: "cannonball" };
+const WORDS: Record<string, string> = {
+  pinball: "cannonball",
+  // Names the game writes with hyphens or as a name keep them; other ids are words split by spaces.
+  "teeter-totter": "teeter-totter",
+  "jack-in-the-box": "jack-in-the-box",
+  "jack-o-lantern": "jack-o-lantern",
+  "mel-schlemming": "Mel Schlemming",
+  "mels-house": "Mel's house",
+};
 /** A part id in words, for the behaviour descriptions of TIM 1 and Even More. */
 export const nameOf = (id: string) => WORDS[id] ?? id.replace(/-/g, " ");
 const article = (name: string) => (/^[aeiou]/.test(name) ? "An" : "A");
+/** A part's name with "a" or "an" before it, or alone when it is a name, like Mel Schlemming. */
+export const named = (name: string, capital = false): string =>
+  /^[A-Z]/.test(name) ? name : `${capital ? article(name) : article(name).toLowerCase()} ${name}`;
 
 interface Candidate {
   sourceWords: string[];
@@ -889,7 +900,7 @@ export function effectsFromOthers(
           conditionWords: toucherWords,
           ...(velocityDirection ? { velocityDirection } : {}),
           touch: c.returns === undefined ? {} : { returns: c.returns },
-          description: `${article(name)} ${name} it touches${when} ${said.join(" and ")}.${only}${response}`,
+          description: `${named(name, true)} it touches${when} ${said.join(" and ")}.${only}${response}`,
           confidence: value.confidence,
           assumptions: [
             ...new Set([
@@ -940,7 +951,7 @@ export function effectsFromOthers(
         conditionWords: item.conditionWords,
         words: item.caseWords,
       })),
-      description: `${article(name)} ${name} it touches ${said.join(" and ")} in ${made.length} cases: ${made
+      description: `${named(name, true)} it touches ${said.join(" and ")} in ${made.length} cases: ${made
         .map((item, n) => `(${n + 1}) when ${item.caseWords}`)
         .join("; ")}.${tail}`,
       confidence: made.map((item) => item.confidence).reduce((a, b) => (rank[b] > rank[a] ? b : a)),
@@ -1100,7 +1111,7 @@ export function effectsFromOthers(
       const name = nameOf(c.sourcePart);
       const { said, velocityDirection } = sayings(sets, name);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
-      const description = `${article(name)} ${name} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (w.startsWith("its ") ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (w.startsWith("its ") ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
       const key = JSON.stringify([c.routine, sets, conditionTerms]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);

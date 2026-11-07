@@ -16,6 +16,7 @@ import {
   LIST_FLAGS,
   TYPE_TABLE_ASSUMPTION,
   listFlagWords,
+  named,
   nameOf,
   objects,
   offMovingList,
@@ -59,7 +60,6 @@ export interface PartHit extends Finding {
 
 const conjunction = (list: Predicate[]): Predicate =>
   list.length === 0 ? { kind: "true" } : list.length === 1 ? list[0]! : { kind: "and", terms: list };
-const article = (name: string) => (/^[aeiou]/.test(name) ? "an" : "a");
 const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.address, e])).values()];
 /** The type a test `member type == type` names. */
 function namedType(term: Predicate, member: string, typeOffset: number): number | undefined {
@@ -145,7 +145,7 @@ export const NAMED_POINTS: Record<string, Record<string, string>> = {
   "teeter-totter": { "positionX:74": "right end", "positionX:0": "left end" },
 };
 /**
- * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter totter's right end (positionX + 74)".
+ * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter-totter's right end (positionX + 74)".
  * The distance is the source's point minus the member's field, so a positive one is to the left. A point in
  * `NAMED_POINTS` for the source's id is named, with the field and shift after it.
  */
@@ -166,8 +166,8 @@ export function placeWords(
   return [...groups.values()].map(({ offset, shift, low, high }) => {
     const name = field(offset);
     const at = `${name}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
-    const named = sourceId === undefined ? undefined : NAMED_POINTS[sourceId]?.[`${name}:${shift}`];
-    const point = named ? `the ${source}'s ${named} (${at})` : `the ${source}'s ${at}`;
+    const end = sourceId === undefined ? undefined : NAMED_POINTS[sourceId]?.[`${name}:${shift}`];
+    const point = end ? `the ${source}'s ${end} (${at})` : `the ${source}'s ${at}`;
     if (low !== undefined && high !== undefined && low >= 0)
       return `its ${name} is ${low} to ${high} pixels left of ${point}`;
     if (low !== undefined && high !== undefined && high <= 0)
@@ -578,7 +578,7 @@ export function hitsFromOthers(
         );
       }
       hit.sources.sort((a, b) => a.part.localeCompare(b.part));
-      const names = [...new Set(hit.sources.map((s) => nameOf(s.part)))].map((n) => `${article(n)} ${n}`);
+      const names = [...new Set(hit.sources.map((s) => nameOf(s.part)))].map((n) => named(n));
       const listed = names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names[0];
       hit.name = touch ? `Touching ${listed}` : `Hit by ${listed}`;
       if (place.length) {

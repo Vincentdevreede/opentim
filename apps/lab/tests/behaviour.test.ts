@@ -196,6 +196,11 @@ describe("statesText", () => {
     expect(statesText([])).toBe("none");
     expect(statesText(null)).toBe("any");
   });
+
+  it("says a run below 0 with to, so it doesn't read as a subtraction", () => {
+    expect(statesText([-1, 0, 1, 2, 3])).toBe("-1 to 3");
+    expect(statesText([-1])).toBe("-1");
+  });
 });
 
 describe("summariseBehaviour", () => {
@@ -529,7 +534,7 @@ describe("summariseEffects", () => {
             sourceConditionWords: ["mirrored"],
             velocityDirection: "up and to the right",
             description:
-              "A jack in the box that reaches it sets its velocity up and to the right (velocityX 4096, velocityY -4096).",
+              "A jack-in-the-box that reaches it sets its velocity up and to the right (velocityX 4096, velocityY -4096).",
             sets: [
               { kind: "field", offset: 0x36, width: 16, value: 4096 },
               { kind: "field", offset: 0x38, width: 16, value: 0xf000 },

@@ -210,7 +210,7 @@ describe("other parts' effects with values the type settles", () => {
   it("keeps a test of the part's own fields when the source names its type", () => {
     const [house] = lines.get(54)!.effects.filter((e) => e.sourcePart === "mels-house");
     expect(house!.description).toBe(
-      "A mels house that reaches it sets its out-of-play flag 0x2000 in drawing flags. Only when its state is below 6 (unsigned).",
+      "Mel's house that reaches it sets its out-of-play flag 0x2000 in drawing flags. Only when its state is below 6 (unsigned).",
     );
     expect(house!.conditionWords).toEqual(["its state is below 6 (unsigned)"]);
   });

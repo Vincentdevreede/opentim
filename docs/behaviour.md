@@ -1220,7 +1220,7 @@ a per-member outcome of the run that names the consumer, and the hits and the pa
 
 A test of where the part lies from the end compares two places, which a walk doesn't follow. Such a test, the end
 plus a number minus the part's own field of the same kind, is said in words in the walk's name, for example "Hit by a
-teeter totter, when its positionX is 0 to 8 pixels left of the teeter totter's right end (positionX + 74)", and the
+teeter-totter, when its positionX is 0 to 8 pixels left of the teeter-totter's right end (positionX + 74)", and the
 walk keeps the part's own tests, like whether it is mirrored. Walks with different places stay apart. The two points
 the teeter-totter measures from are named: `positionX + 74` is its right end and `positionX` its left end, as seen on
 screen (decided on 2026-11-07; the code itself doesn't name them). The mouse motor's and the
@@ -2479,7 +2479,7 @@ Later changes to the descriptions had already moved the bike's 4 reaction clips 
 recorder's values, so on the current base nothing moves: per build 428 reset or rest (336 in TIM 1), 136 input case, 0
 seeded state, 68 recorder fields and 16 skipped search (12), all 648 and 552 complete. The rule still matters: in Even
 More, of the trigger walks that alone fit a clip as a seeded state (the flips of the vacuum cleaner, fan, alligator and
-others, the conveyor belt's, the balloon's and bullet's hits and more), only the teeter totter's rope outcomes and Mel's
+others, the conveyor belt's, the balloon's and bullet's hits and more), only the teeter-totter's rope outcomes and Mel's
 flip still do.
 
 ### Outlines
