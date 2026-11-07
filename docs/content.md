@@ -1,6 +1,6 @@
 # Content: part lists, sprites and packs
 
-Status: the model and the part lists are built, in `packages/content`. Packs and the composition code are not.
+Status: the model, the part lists and the composition code are built, in `packages/content`. Packs are not.
 
 The lab and the game draw the parts of a level: balls, belts, candles. The original games keep what those parts look
 like in their RESOURCE files and in their program. OpenTIM should not depend on those files directly, so that a

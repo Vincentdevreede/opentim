@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { Part, Placement, TypeRecord } from "@opentim/content";
+import { compose, drawOrder, type Part, type Placement, type SpriteOf, type TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, watch, watchEffect } from "vue";
 import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import { outlineShape } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
-import { compose, drawOrder, partName, sheetFile, type SpriteOf } from "../../parts.ts";
+import { partName, sheetFile } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
