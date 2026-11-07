@@ -3470,7 +3470,7 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
   // A bounce callback's argument is the part that touched its owner.
   // An object the routine allocates itself, like the bullet the gun creates: whether it is a part isn't claimed here.
-  const created = /^nullable allocation returned at (0x[0-9a-f]+)$/.exec(write.object);
+  const created = /^(?:nullable allocation|fresh object) returned at (0x[0-9a-f]+)$/.exec(write.object);
   if (created)
     return `Sets field 0x${write.offset.toString(16).padStart(2, "0")} of the object it creates at ${created[1]}.`;
   // An overlap query's summary writes the parts it finds: the found list's link at 0x78 and the fields it fills in.
