@@ -96,6 +96,8 @@ export function createdPartLines(
                 : `${field} of ${owner}`,
       };
       const byOffset = new Map(writes.map((write) => [write.offset, write]));
+      /** The stores whose value a line gives for a field the speed limit wrote last, which that field doesn't carry. */
+      const quoted: FieldWrite[] = [];
       const place: string[] = [];
       const speed: string[] = [];
       const given: string[] = [];
@@ -125,12 +127,14 @@ export function createdPartLines(
           );
           const before = new Set(stores.map((item) => JSON.stringify(item.value)));
           if (stores.some((item) => unknownIn(item.value)) || before.size > 1) other.push(name);
-          else
+          else {
+            quoted.push(...stores);
             into.push(
               before.size
                 ? `${name}${into === given ? " to" : " ="} ${formula(tidy(JSON.parse([...before][0]!) as Expression), wordsOf)}`
                 : `the ${what}'s starting ${name}`,
             );
+          }
           continue;
         }
         const kept = speedLimitOf(write.value);
@@ -148,9 +152,14 @@ export function createdPartLines(
           into.push(`${name}${into === given ? " to" : " ="} ${formula(value, wordsOf)}`);
         else other.push(name);
       }
+      // The constructor's frame is where the part starts only when this way leaves its state alone.
       const start = report.creation
         ?.find((item) => item.partType === created.type)
-        ?.fields.find((field) => field.name === "state");
+        ?.fields.find(
+          (field) =>
+            field.name === "state" &&
+            !writes.some((write) => write.offset < field.offset + 2 && field.offset < write.offset + write.width / 8),
+        );
       const starts = start ? `, which starts on frame ${start.value}` : "";
       const first = id
         ? `Creates ${article} ${what} (type ${created.type}${starts})`
@@ -168,7 +177,7 @@ export function createdPartLines(
         description,
         condition: outcome.condition,
         routine: routine.address,
-        items: [created, ...[...byOffset.values()]],
+        items: [created, ...byOffset.values(), ...quoted],
       });
     }
   }

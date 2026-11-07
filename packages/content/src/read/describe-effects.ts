@@ -1112,7 +1112,8 @@ export function effectsFromOthers(
       const { said, velocityDirection } = sayings(sets, name);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
       const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (w.startsWith("its ") ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
-      const key = JSON.stringify([c.routine, sets, conditionTerms]);
+      // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
+      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
       if (prior) {

@@ -27,6 +27,16 @@ export function findCreatedParts(
   helpers: EngineSummary[],
   typeOffset: number,
 ): CreatedPart[] {
+  // The factory's own stores of its argument as the new part's type.
+  const typeStores = (helper: EngineSummary) =>
+    helper.writes.filter(
+      (write) =>
+        write.offset === typeOffset &&
+        write.width === 16 &&
+        write.value.kind === "field" &&
+        write.value.object === "argument" &&
+        write.value.offset === helper.factory?.typeArgument,
+    );
   const factories = new Map(
     helpers
       .filter(
@@ -34,15 +44,7 @@ export function findCreatedParts(
           helper.kind === "part-factory" &&
           helper.factory?.typeArgument === 6 &&
           helper.returnConvention?.kind === "far" &&
-          // The factory's own store of its argument as the new part's type.
-          helper.writes.some(
-            (write) =>
-              write.offset === typeOffset &&
-              write.width === 16 &&
-              write.value.kind === "field" &&
-              write.value.object === "argument" &&
-              write.value.offset === helper.factory!.typeArgument,
-          ),
+          typeStores(helper).length > 0,
       )
       .map((helper) => [helper.address, helper]),
   );
@@ -89,10 +91,7 @@ export function findCreatedParts(
         assumptions: [
           "The part factory's type argument is the word pushed last before its far call. The factory stores it as the new part's type and calls that type's constructor.",
         ],
-        evidence: [
-          ...proof.map(evidenceOf),
-          ...factory.evidence.filter((item) => item.text.includes(`+0x${typeOffset.toString(16).padStart(2, "0")}], `)),
-        ],
+        evidence: [...proof.map(evidenceOf), ...typeStores(factory).flatMap((write) => write.evidence)],
       };
       found.set(`${routine.address}:${site.address}`, created);
     }
