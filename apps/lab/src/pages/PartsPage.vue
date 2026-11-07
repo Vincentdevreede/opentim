@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { compose, coverSprites, type SpriteOf } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
@@ -21,17 +22,7 @@ import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
 import { readBehaviourInBackground, type BehaviourResult, type WalksResult } from "../behaviour.ts";
 import { edition, program, resources, selected } from "../library.ts";
-import {
-  compose,
-  coverSprites,
-  findParts,
-  listIdOf,
-  partName,
-  readLoadedParts,
-  sheetFile,
-  type PartOrder,
-  type SpriteOf,
-} from "../parts.ts";
+import { findParts, listIdOf, partName, readLoadedParts, sheetFile, type PartOrder } from "../parts.ts";
 import { decode, isImage } from "../sprites.ts";
 import { crumb, openAt, openSprite, selectedPart } from "../ui.ts";
 

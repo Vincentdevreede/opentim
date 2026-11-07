@@ -5,6 +5,15 @@ import type { PartList } from "./model.ts";
 
 export type { Frame, Part, PartList, Placement } from "./model.ts";
 export {
+  compose,
+  coverSprites,
+  drawOrder,
+  type Bounds,
+  type Composition,
+  type Placed,
+  type SpriteOf,
+} from "./compose.ts";
+export {
   GAMES,
   readProgramParts,
   readTim2Parts,

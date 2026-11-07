@@ -21,7 +21,11 @@ describe("autoPalette", () => {
   it("falls back to the game's main palette", () => {
     expect(autoPalette("PART1.BMP", ["SIERRA.PAL", "TIM.PAL"])?.name).toBe("TIM.PAL");
     expect(autoPalette("CATBUTT.BMP", ["DYNAMIX.PAL", "GAME.PAL", "TITLE.PAL"])?.name).toBe("GAME.PAL");
-    expect(autoPalette("PART1.BMP", ["OTHER.PAL"])?.name).toBe("OTHER.PAL");
+    expect(autoPalette("PART1.BMP", ["OTHER.PAL"])).toEqual({ name: "OTHER.PAL", reason: "the only palette found" });
+    expect(autoPalette("PART1.BMP", ["ONE.PAL", "TWO.PAL"])).toEqual({
+      name: "ONE.PAL",
+      reason: "the first palette found",
+    });
     expect(autoPalette("PART1.BMP", [])).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { frameToRgba, type Frame } from "@opentim/resources";
-import type { Composition } from "../parts.ts";
+import type { Composition } from "@opentim/content";
 
 /** Without a palette, the indexes are shown as grey levels. */
 export const greys = Uint8Array.from({ length: 768 }, (_, i) => Math.floor(i / 3));

@@ -1488,7 +1488,9 @@ A search or a rope, belt or pulley helper writes parts that only the running gam
 the parts at the other end of a rope. Those writes used to be anonymous unknowns ("A selected related object may
 change this field", "Conditional overlap-list effect on field 0x78"). Each value is now named after the call that
 gives it, with the existing expression form of a field marked `unresolved`, so every traversal reads it as before
-and a walk still forgets it. Within one run a name is one value: no path passes the same call twice.
+and a walk still forgets it. A name for a field of a found or selected part is that part's value, so two parts one
+search finds can hold different values under the same name. Every other name is one value within a run: no path
+passes the same call twice.
 
 - **The found list.** An overlap query clears the asking part's head at `0x78` and puts each part it finds at the
   front (`linkedInsertion`, or the outline search's checked graph). After the query the head is `found list after

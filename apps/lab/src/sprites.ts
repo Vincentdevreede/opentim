@@ -122,7 +122,8 @@ export function autoPalette(image: string, available: readonly string[]): Palett
   const main = MAIN_PALETTES.find((p) => available.includes(p));
   if (main) return { name: main, reason: "the game’s main palette" };
   const first = available[0];
-  return first ? { name: first, reason: "the only palette found" } : undefined;
+  if (!first) return undefined;
+  return { name: first, reason: available.length === 1 ? "the only palette found" : "the first palette found" };
 }
 
 /** How many pixels of each palette index a frame draws. */
