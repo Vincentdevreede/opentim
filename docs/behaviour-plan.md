@@ -8,12 +8,20 @@ section it names.
 
 |                                                                       | Even More, start | now | TIM 1, start | now |
 | --------------------------------------------------------------------- | ---------------: | --: | -----------: | --: |
-| Rules that write a value the analysis can't name                      |       365 of 925 |   0 |   324 of 764 |   0 |
+| Rules that write a value nobody named (an unknown)                    |       365 of 925 |   0 |   324 of 764 |   0 |
+| Rules that write a value a call may write, which nobody follows       |       in the 365 | 193 |   in the 324 | 181 |
+| Rules that write only known values and run values of known identity   |      not counted |  41 |  not counted |  33 |
 | Effect lines that say "isn't established" (once per part and wording) |               23 |   0 |           14 |   0 |
 | Parts whose reset the report calls unresolved                         |         41 of 67 |   0 |           36 |   0 |
 | Parts without a documented resting frame                              |               33 |   4 |           28 |   3 |
 | Recordings that stop early                                            |        52 of 648 |   0 |    48 of 552 |   0 |
 | Parts without any recording                                           |               28 |  28 |           22 |  22 |
+
+The 0 in the first row says less than it seems. A value named after the call that may write it (`value the call at` an
+address `writes to a selected part`, `part after field effect at` a call, and the like) says where the write comes from,
+not what it writes, so it is no more than an unknown: the second row counts those rules. Only the third row holds values
+whose identity is known: a query's answer, a part a search found, the found list, the list links after an insertion, the
+centre angle answer. See "Values a call writes but nobody follows" in `docs/behaviour.md`.
 
 The parts without a recording are checked against the shipped levels instead (E1). The parts left without a resting frame (Even More 6, 8, 58 and 61, TIM 1 6, 8 and 10) have walks that all end, but
 in a loop or by keeping the frame they are given, so no walk rests on one frame. Since decided assumption 21 the wood
@@ -47,8 +55,9 @@ counts as named, not unknown.
       See "The owner's rope fields after the relay".
 - [x] **B4. Objects a part creates.** The balloon, cannon, gun and dynamite plunger make a rope end, a cannonball, a
       bullet and an explosion, each with its place, speed and other fields.
-- [x] **B5. A part's own fields.** Every field is known or a named run value. Unknown writes 0 of 925 and 0 of 764;
-      named run values 234 and 214.
+- [x] **B5. A part's own fields.** Every field is known or named after where its value comes from. Unknown writes 0
+      of 925 and 0 of 764. But 193 and 181 of the named rules hold a value that only says a call may write the field,
+      which nobody follows, so they tell no more than an unknown; 41 and 33 write only run values of known identity.
 - [x] **B6. The "isn't established" effect lines.** 0 in both builds: the out-of-play flag, the ran-this-step mark,
       the goal marks, the contact flag and the fine position say what the code does with them. See "Effect lines with a
       proved meaning".
@@ -59,14 +68,19 @@ counts as named, not unknown.
       bullet and the trampoline on Mel are lines or walks in "From other parts". See "Touch effects of four more parts".
 - [x] **C2. Check the list is complete.** `list-other-part-pairs` gives every pair the code allows as described,
       partly described, ruled out or missing, each with its reason. Even More: 1,084 pairs, 221 described, 46 partly,
-      570 ruled out, 247 missing; TIM 1: 615, 129, 17, 345, 124. See "Which parts can affect which".
+      570 ruled out, 247 missing; TIM 1: 615, 129, 17, 345, 124. A constant test the conditions keep, like `1 != 0`,
+      no longer counts as a test of where the part is: missing pairs with that reason go from 153 to 128 and from 55
+      to 52, each with its real reason now. See "Which parts can affect which".
 - [x] **C3. What a teeter-totter's end does to the part lying there.** The helper its ends hand their lists to is read
       path by path, with each call's numbers put in. The bellows, scissors, dynamite plunger and flashlight get 4 walks
       each, named with where the part must lie ("when its positionX is 0 to 8 pixels left of the teeter totter's
       positionX + 74"); the mouse motor and fish bowl join their walks. Pairs: Even More 1,090 and 227 described, TIM 1
       621 and 135, the six all described. See "What a teeter-totter's end does to the part lying there".
-- [ ] **C4. The missing pairs that depend on where parts are.** 247 pairs in Even More and 124 in TIM 1 (sweeps,
-      explosion splits, thrown directions) belong with several parts working together; this plan only lists them.
+- [ ] **C4. The missing pairs.** 247 pairs in Even More and 124 in TIM 1 stay missing; this plan only lists them.
+      128 and 52 of them have a test that depends on where the parts are (sweeps, pulls), and those belong with
+      several parts working together. The others have a value the part's type doesn't settle (a table word, like the
+      teapot's spout and the fan's blow), a value the analysis doesn't know, or a path that isn't read; a pair can have
+      more than one reason.
 
 ## D. Recordings that stop early
 
@@ -104,7 +118,9 @@ Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
       by name, and folds a trigger's many walks by where they start. See "The Behaviour tab".
 - [ ] **G2. PR text and final numbers**, shown to you before it is posted. Final numbers on 0b1d5ce: every walk ends
       (1,391 in Even More, 1,207 in TIM 1), 0 unknown writes, 0 vague effect lines, 0 unresolved resets, and every
-      recording complete (648 and 552). The text is drafted and waits for your read.
+      recording complete (648 and 552). The 0 unknown writes doesn't mean every value is known: 193 and 181 rules hold
+      a value a call may write that nobody follows, and only 41 and 33 write run values of known identity. The text is
+      drafted and waits for your read.
 
 ## Not in this plan
 
