@@ -6,7 +6,8 @@ import BehaviourRow from "./BehaviourRow.vue";
 
 /**
  * One thing another part does to this one without changing its frame, like the explosion's push: the part's name,
- * what it sets and the value, with a chip for what either part must be. It opens to the source's whole condition.
+ * what it sets and the value, with a chip for what either part must be. It opens to the source's whole condition, one
+ * line for each way the source does the same.
  */
 const props = defineProps<{ effect: OtherEffect; name: string }>();
 
@@ -22,7 +23,12 @@ const tip = computed(() =>
       ? ["", `In ${props.effect.cases.length} cases:`, ...props.effect.cases.map((c, n) => `${n + 1}. ${c}`)]
       : []),
     "",
-    `When the ${props.name.toLowerCase()} has: ${props.effect.sourceCondition}`,
+    ...(props.effect.sourceConditions.length > 1
+      ? [
+          `When the ${props.name.toLowerCase()} has one of:`,
+          ...props.effect.sourceConditions.map((c, n) => `${n + 1}. ${c}`),
+        ]
+      : [`When the ${props.name.toLowerCase()} has: ${props.effect.sourceConditions[0]}`]),
     "",
     `${props.effect.confidence}. No walk: it changes no frame.`,
   ].join("\n"),
@@ -46,12 +52,17 @@ const tip = computed(() =>
       >
         <LabChip v-if="effect.touch" tone="faint">touching</LabChip>
         <LabChip v-if="effect.cases" tone="faint">{{ effect.cases.length }} cases</LabChip>
+        <LabChip v-if="effect.sourceConditions.length > 1" tone="faint"
+          >{{ effect.sourceConditions.length }} ways</LabChip
+        >
         <LabChip v-for="w in effect.sourceWhen" :key="`source ${w}`" tone="faint">{{ w }}</LabChip>
         <LabChip v-for="w in effect.when" :key="w">{{ w }}</LabChip>
       </span>
     </span>
     <template #detail>
-      <span class="break-words">when {{ name.toLowerCase() }}: {{ effect.sourceCondition }}</span>
+      <span v-for="(c, n) in effect.sourceConditions" :key="n" class="break-words"
+        >when {{ name.toLowerCase() }}: {{ c }}</span
+      >
     </template>
   </BehaviourRow>
 </template>

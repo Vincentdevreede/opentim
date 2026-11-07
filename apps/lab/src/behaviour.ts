@@ -133,9 +133,12 @@ export interface OtherEffect extends Finding {
   awayWithin?: number;
   /** What this part must be, in a few words, like `moving list`. */
   when: string[];
-  /** What the source must be, in a few words, like `mirrored`, and its whole condition as text. */
+  /**
+   * What the source must be, in a few words, like `mirrored`, and its whole condition as text: one for each way the
+   * source does the same, like the jack-in-the-box's push, which tests its frame on each way.
+   */
   sourceWhen: string[];
-  sourceCondition: string;
+  sourceConditions: string[];
   /** When it does this on paths whose tests can't be said as one: each path's tests in words. */
   cases?: string[];
   /** The analysis's own sentence. */
@@ -1027,6 +1030,32 @@ function joinFine(sets: { what: string; value: string }[]) {
   });
 }
 
+/**
+ * Effects that say the same, from the same part, as one: the analysis keeps a line for each test its source makes (the
+ * jack-in-the-box's push on each of its frames), and the row keeps each of those conditions. It is as sure as the
+ * least sure of them, and keeps what each assumes and the instructions that show it.
+ */
+function joinSameEffects(effects: OtherEffect[]): OtherEffect[] {
+  const joined = new Map<string, OtherEffect>();
+  for (const e of effects) {
+    const key = JSON.stringify([e.sourceType, e.touch, e.sets, e.when, e.sourceWhen, e.cases, e.description]);
+    const line = joined.get(key);
+    if (!line) {
+      joined.set(key, { ...e, assumptions: [...e.assumptions], evidence: [...e.evidence] });
+      continue;
+    }
+    for (const c of e.sourceConditions) if (!line.sourceConditions.includes(c)) line.sourceConditions.push(c);
+    if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
+      line.confidence = e.confidence;
+    for (const a of e.assumptions) if (!line.assumptions.includes(a)) line.assumptions.push(a);
+    for (const i of e.evidence)
+      if (line.evidence.length < MAX_EVIDENCE && !line.evidence.some((x) => x.address === i.address))
+        line.evidence.push(i);
+    if (e.awayWithin !== undefined) line.awayWithin = Math.max(line.awayWithin ?? 0, e.awayWithin);
+  }
+  return [...joined.values()];
+}
+
 /** What other parts do to each part without changing its frame, by type, from the report's description. */
 export function summariseEffects(
   report: BehaviourReport,
@@ -1038,49 +1067,51 @@ export function summariseEffects(
   return Object.fromEntries(
     description.parts.map((d) => [
       d.type,
-      d.effectsFromOthers.map((e): OtherEffect => {
-        const fieldValue = (offset: number) =>
-          e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
-        const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
-        // Both velocities read as one pair, across then down.
-        // Where both velocities move the part on the screen, when the analysis says it; the numbers are in the tip.
-        const pair =
-          x && y
-            ? [
-                e.velocityDirection
-                  ? { what: "", value: e.velocityDirection }
-                  : { what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` },
-              ]
-            : [];
-        const sets = [
-          ...pair,
-          ...e.sets.flatMap((s) =>
-            s.kind === "speed"
-              ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
-              : s.kind === "expression"
-                ? // A value of the part's own fields, like a touch that halves its velocityX.
-                  [settingOf(s, write)]
-                : pair.length && (s.offset === 0x36 || s.offset === 0x38)
-                  ? []
-                  : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
-          ),
-        ];
-        return {
-          confidence: e.confidence,
-          assumptions: e.assumptions,
-          evidence: instructions(e.evidence),
-          ...awayWithin(e.sets),
-          sourceType: e.sourceType,
-          source: e.sourcePart,
-          ...(e.touch ? { touch: true } : {}),
-          sets: joinFine(sets),
-          when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
-          sourceWhen: e.sourceConditionWords,
-          sourceCondition: write.predicate(e.sourceCondition),
-          ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
-          description: e.description,
-        };
-      }),
+      joinSameEffects(
+        d.effectsFromOthers.map((e): OtherEffect => {
+          const fieldValue = (offset: number) =>
+            e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
+          const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
+          // Both velocities read as one pair, across then down.
+          // Where both velocities move the part on the screen, when the analysis says it; the numbers are in the tip.
+          const pair =
+            x && y
+              ? [
+                  e.velocityDirection
+                    ? { what: "", value: e.velocityDirection }
+                    : { what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` },
+                ]
+              : [];
+          const sets = [
+            ...pair,
+            ...e.sets.flatMap((s) =>
+              s.kind === "speed"
+                ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
+                : s.kind === "expression"
+                  ? // A value of the part's own fields, like a touch that halves its velocityX.
+                    [settingOf(s, write)]
+                  : pair.length && (s.offset === 0x36 || s.offset === 0x38)
+                    ? []
+                    : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
+            ),
+          ];
+          return {
+            confidence: e.confidence,
+            assumptions: e.assumptions,
+            evidence: instructions(e.evidence),
+            ...awayWithin(e.sets),
+            sourceType: e.sourceType,
+            source: e.sourcePart,
+            ...(e.touch ? { touch: true } : {}),
+            sets: joinFine(sets),
+            when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
+            sourceWhen: e.sourceConditionWords,
+            sourceConditions: [write.predicate(e.sourceCondition)],
+            ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
+            description: e.description,
+          };
+        }),
+      ),
     ]),
   );
 }

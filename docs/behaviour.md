@@ -54,7 +54,10 @@ the rest when it is opened.
   frame 65535 reads -1, here and in the walks.
 - **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
   "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
-  positionY × 512"), and a number added or a halving reads in words.
+  positionY × 512"), and a number added or a halving reads in words. Lines of one part that say the same are one
+  row with how many ways give it, and each way's condition when the row is opened: the analysis keeps a line for
+  each test its source makes, so the jack-in-the-box's push on the cat is two rows of 5 ways (mirrored and not)
+  instead of ten. In Even More the 1,192 lines become 875 rows.
 - **Creates.** Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
   where the new part starts and how fast it moves. The lab keeps its own name for part 43 elsewhere.
 - **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,

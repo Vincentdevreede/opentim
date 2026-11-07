@@ -626,7 +626,7 @@ describe("summariseEffects", () => {
       sets: [{ what: "speed", value: "4096" }],
       when: ["moving list"],
       sourceWhen: [],
-      sourceCondition: "state + 1 == 2",
+      sourceConditions: ["state + 1 == 2"],
       confidence: "inferred",
     });
   });
@@ -660,6 +660,26 @@ describe("summariseEffects", () => {
       { what: "out-of-play flag", value: "set" },
       { what: "goal mark 0x0100", value: "set" },
     ]);
+  });
+
+  it("joins effects of one part that say the same, keeping the condition of each way", () => {
+    const way = (value: number, assumption: string, address: number) =>
+      effect({
+        sourceType: 13,
+        sourcePart: "jack-in-the-box",
+        sourceCondition: compare("<=", field(0x0c), constant(value)),
+        sets: [{ kind: "speed", fields: [0x36, 0x38], speed: 4096, setter: 0x7d97 }],
+        assumptions: [assumption],
+        evidence: [{ address, bytes: "90", text: "nop" }],
+      });
+    const twice = {
+      parts: [{ type: 12, effectsFromOthers: [way(7, "One.", 0x10), way(18, "Two.", 0x20)] }],
+    } as unknown as BehaviourDescription;
+    const [joined, ...rest] = summariseEffects(report, twice)[12]!;
+    expect(rest).toEqual([]);
+    expect(joined!.sourceConditions).toEqual(["state <= 7", "state <= 18"]);
+    expect(joined!.assumptions).toEqual(["One.", "Two."]);
+    expect(joined!.evidence.map((e) => e.address)).toEqual([0x10, 0x20]);
   });
 });
 
