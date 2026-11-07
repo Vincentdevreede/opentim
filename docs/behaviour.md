@@ -1989,6 +1989,24 @@ only splits on whether the list scan finds something, the restart that stays ope
 know more fields the same way. Walk endings don't change (Even More 521 end through branches and 577 end directly, TIM 1 450 and 476),
 nor do the recording comparisons (564 and 476 complete): the mouse motor's recordings stay prefixes for the restart.
 
+### Fields a path may have changed without a store
+
+Some effects leave a field of the part with one value the run gives it, without storing anything the analysis can
+follow: a find-first loop's passes, a list scan, a helper that writes parts reached through ropes. Later reads name
+that value ("part after field effect at ..."). A path's rule used to list only the fields it stored, so a field such
+an effect may have changed, but that the path never stored again, was missing from the rule. When two rules merged
+over one test, a field missing on one side counted as unchanged there, so the merged rule could claim the old value
+on that side. A path's rule now lists every such field of the part with the value a read would give, so the merge
+keeps it as a possible change.
+
+A list scan marks the fields its body may write on the listed parts. Those marks used to count for the owner too,
+though the owner's own memory was already kept: the scan's summary lists every field it may write on the owner as the
+owner's (when the query may list the owner, or for a global list), and otherwise the owner is not on the list (the
+query's checked comparison of each part with the part that asks, or the external list's contract). So a listed part's
+field mark no longer counts for the owner. This is where all such marks in the measured builds came from: the teapot's
+run (`0x36` and others), the jack-in-the-box, the cat and the other parts whose run scans a list, in both
+builds. Their merged rules keep the value they had.
+
 ### The recorder's normal seed
 
 The v25 recorder sets a part's normal seed on the part before each of its clips, and then the clip's own seed over it

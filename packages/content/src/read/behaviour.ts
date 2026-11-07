@@ -2667,6 +2667,32 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         ...(final.directedSpeed ? { directedSpeed: final.directedSpeed } : {}),
       });
     }
+    // A field of the part an effect may have changed, with no store after it, ends with the one value the run gives it
+    // after that effect, as a read would name it: a path that leaves it out would claim it unchanged.
+    for (const effect of [...(s.fieldHavoc ?? [])].reverse()) {
+      if (
+        effect.exceptOwner ||
+        effect.ownerOnly ||
+        (effect.offset < stateOffset + 2 && stateOffset < effect.offset + effect.width / 8) ||
+        Array.from({ length: effect.width / 8 }, (_, n) => effect.offset + n).every((byte) =>
+          updates.some((u) => u.object === "part" && u.offset <= byte && byte < u.offset + u.width / 8),
+        )
+      )
+        continue;
+      const value = {
+        ...field(`part after field effect at ${hex(effect.address)}`, effect.offset, effect.width),
+        unresolved: true,
+      } as Expression;
+      updates.unshift({
+        object: "part",
+        offset: effect.offset,
+        width: effect.width,
+        value,
+        condition,
+        routine: entry.address,
+        ...finding(value, condition, s, [evidenceOf(i)]),
+      });
+    }
     const returned = registerRead("ax", s);
     outcomes.push({
       effectsComplete: !s.uncertain && s.partMemoryHavocAt === undefined,
@@ -2812,8 +2838,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       s.assumptions = [...new Set([...s.assumptions, ...list.assumptions])];
       s.evidence.push(...list.evidence);
       for (const effect of list.possibleFields) {
+        // A listed member's field is never the owner's: the scan's summary lists every field it may write on the owner
+        // as the owner's own (a query that may list the owner, or a global list), and otherwise the owner is not on the
+        // list (the query's checked test against the part that asks, or the external list's contract).
         if (s.fieldHavoc?.length && !["stack", "data", "buffer"].includes(effect.object))
-          s.fieldHavoc.push({ offset: effect.offset, width: effect.width, address: i.address, exceptOwner: false });
+          s.fieldHavoc.push({
+            offset: effect.offset,
+            width: effect.width,
+            address: i.address,
+            exceptOwner: effect.object !== "part",
+          });
         if (effect.object === "stack" && effect.operand) {
           if (
             list.possibleFields.indexOf(effect) !==
