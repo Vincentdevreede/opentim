@@ -16,11 +16,19 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    My suggestion is A first. Its steps are smaller, each one makes the descriptions the machine needs, and the
    machine in B then uses them instead of guessing.
 
+   Answered: A first.
+
 2. **May I record whole levels from the game?** The recorder so far runs one part alone. To check a machine, I would
    extend it to run the game's own step loop from TIM.EXE on a shipped level and save every part's frame and position
    after each step. Like the part recorder, it runs only the game's code, with nothing from other projects. It is the
    only way to check B without you playing every level by hand.
-3. **Which machines first?** I'd start with machines that don't need falling and bouncing: a motor turning a gear
+3. **May the teeter-totter's search count as finding only moving parts?** It looks only among the parts in the game's
+   list the flag 0x1000 picks (`0x682f` gives the list at `0x4d7d` for it). The assumption you approved says a part
+   of a fixed type, like a brick wall, is never on the moving list, but the analysis knows the moving list only as the
+   flag 0x1000 in a part's field 0x06, and the gun puts its bullets in the list of moving parts without that flag. To
+   rule out the teeter-totter launching a brick wall, I'd take the list at `0x4d7d` as that moving list: a fixed
+   part is never in it, a bullet can be. That is a new game assumption, so it needs your yes.
+4. **Which machines first?** I'd start with machines that don't need falling and bouncing: a motor turning a gear
    train, a belt from a motor to a conveyor belt, a rope over a pulley pulling a teeter-totter, and a switch that
    starts a fan. Do you have levels in mind that show these well, or shall I pick shipped levels with the fewest
    parts that use them?
