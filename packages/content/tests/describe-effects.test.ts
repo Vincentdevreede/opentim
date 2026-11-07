@@ -255,6 +255,31 @@ describe("effects of other parts", () => {
     expect(set.assumptions).toContain(SCREEN_DIRECTION_ASSUMPTION);
   });
 
+  it("keeps the same setting under two different source tests as two lines, each with its own source test", () => {
+    const outcome = (mirrored: boolean, assumption: string) => ({
+      ...finding,
+      assumptions: [assumption],
+      scope: "one overlap-list member",
+      header: 0x1a819,
+      object: MEMBER,
+      effectsComplete: true,
+      condition: { kind: "and", terms: [compare(and(f("part", 8), 16), mirrored ? "!=" : "==", c(0)), moving] },
+      fields: [write(0x36, c(4096)), write(0x38, c(0xf000))],
+    });
+    const both = {
+      ...report(),
+      routines: [
+        { address: 0x1a73a, iterationOutcomes: [outcome(true, "Mirrored."), outcome(false, "Not mirrored.")] },
+      ],
+    } as unknown as BehaviourReport;
+    const sets = effectsFromOthers(both, evaluateBehaviourCondition)
+      .get(12)!
+      .effects.filter((e) => e.sets[0]!.kind === "field");
+    expect(sets.map((e) => e.sourceConditionWords)).toEqual([["mirrored"], ["not mirrored"]]);
+    expect(sets.map((e) => e.assumptions.includes("Mirrored."))).toEqual([true, false]);
+    expect(sets.map((e) => e.assumptions.includes("Not mirrored."))).toEqual([false, true]);
+  });
+
   it("leaves out a fixed type by the decided assumption, and says so", () => {
     expect(lines.get(1)).toEqual({ effects: [], assumptions: [FIXED_LIST_ASSUMPTION] });
   });
