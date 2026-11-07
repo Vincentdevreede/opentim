@@ -347,6 +347,9 @@ export function placeWords(
       return `its ${name} is between ${-low} pixels ${after} and ${high} pixels ${before} ${point}`;
     if (low === 0 && high === undefined) return `its ${name} is at or ${before} ${point}`;
     if (high === 0 && low === undefined) return `its ${name} is at or ${after} ${point}`;
+    // At least 1 pixel off is strictly to that side.
+    if (low === 1 && high === undefined) return `its ${name} is ${before} ${point}`;
+    if (high === -1 && low === undefined) return `its ${name} is ${after} ${point}`;
     if (low !== undefined)
       return low > 0
         ? `its ${name} is at least ${low} pixels ${before} ${point}`

@@ -141,6 +141,11 @@ export interface OtherEffect extends Finding {
   sourceConditions: string[];
   /** When it does this on paths whose tests can't be said as one: each path's tests in words. */
   cases?: string[];
+  /**
+   * The fields the source leaves to the contact search it then runs on this part, by name, like the teeter-totter's
+   * launch: what that search finds there only the run knows.
+   */
+  searched?: string[];
   /** The analysis's own sentence. */
   description: string;
 }
@@ -1011,6 +1016,13 @@ function settingOf(
   const field = write.place("part", s.offset);
   const add = /^(adds|subtracts) (\d+) (?:to|from) /.exec(s.words);
   if (add) return { what: field, value: `${field} ${add[1] === "adds" ? "+" : "-"} ${add[2]}` };
+  // A formula added, like the fan's push: "adds 16 * (256 - |overlapX|) to velocityX, kept within its speed limit".
+  const added = /^(adds|subtracts) (.+) (?:to|from) (?:field 0x[0-9a-f]+|\w+)(, kept within its speed limit)?$/.exec(
+    s.words,
+  );
+  if (added) return { what: field, value: `${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}` };
+  if (/^keeps (?:field 0x[0-9a-f]+|\w+) within its speed limit$/.test(s.words))
+    return { what: field, value: "kept within its speed limit" };
   if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
   if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
   const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
@@ -1108,6 +1120,7 @@ export function summariseEffects(
             sourceWhen: e.sourceConditionWords,
             sourceConditions: [write.predicate(e.sourceCondition)],
             ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
+            ...(e.searched?.length ? { searched: e.searched.map((offset) => write.place("part", offset)) } : {}),
             description: e.description,
           };
         }),

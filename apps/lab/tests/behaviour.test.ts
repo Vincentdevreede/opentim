@@ -650,6 +650,57 @@ describe("summariseEffects", () => {
     expect(vacuum!.sets[2]).toEqual({ what: "velocityY", value: "velocityY + 2048" });
   });
 
+  it("writes a formula another part adds, and a velocity it only keeps within the part's speed limit", () => {
+    const push = (words: string, offset: number) => ({
+      kind: "expression",
+      offset,
+      width: 16,
+      value: field(offset),
+      words,
+    });
+    const fan = {
+      parts: [
+        {
+          type: 12,
+          effectsFromOthers: [
+            effect({
+              sourceType: 50,
+              sourcePart: "fan",
+              sets: [
+                push("keeps velocityY within its speed limit", 0x38),
+                push("adds 16 * (256 - |overlapX|) to velocityX, kept within its speed limit", 0x36),
+              ],
+            }),
+          ],
+        },
+      ],
+    } as unknown as BehaviourDescription;
+    expect(summariseEffects(report, fan)[12]![0]!.sets).toEqual([
+      { what: "velocityY", value: "kept within its speed limit" },
+      { what: "velocityX", value: "velocityX + 16 * (256 - |overlapX|), kept within its speed limit" },
+    ]);
+  });
+
+  it("names the fields a contact search after the effect may change", () => {
+    const launch = {
+      parts: [
+        {
+          type: 12,
+          effectsFromOthers: [
+            effect({
+              sourceType: 3,
+              sourcePart: "teeter-totter",
+              sets: [{ kind: "field", offset: 0x38, width: 16, value: 0xe400 }],
+              searched: [0x12, 0x40],
+            }),
+          ],
+        },
+      ],
+    } as unknown as BehaviourDescription;
+    expect(summariseEffects(report, launch)[12]![0]!.searched).toEqual(["stateDelta", "part+0x40"]);
+    expect(summariseEffects(report, description)[12]![0]!.searched).toBeUndefined();
+  });
+
   it("says a flag bit with a proved meaning by its name, and both words of the fine position as one", () => {
     expect(trampoline!.sets).toEqual([
       { what: "contactPart", value: "0" },

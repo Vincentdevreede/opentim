@@ -470,6 +470,13 @@ describe("walks from other parts that change a part's frame", () => {
     expect(placeWords([{ offset: 0x1e, shift: -6, low: 3 }], "fan", name)).toEqual([
       "its positionX is at least 3 pixels left of the fan's positionX - 6",
     ]);
+    // One pixel or more is simply to that side.
+    expect(placeWords([{ offset: 0x1e, shift: 0, low: 1 }], "fan", name)).toEqual([
+      "its positionX is left of the fan's positionX",
+    ]);
+    expect(placeWords([{ offset: 0x1e, shift: 0, high: -1 }], "fan", name)).toEqual([
+      "its positionX is right of the fan's positionX",
+    ]);
   });
 
   it("says a place down the screen as above or below, and a centre with its formula", () => {

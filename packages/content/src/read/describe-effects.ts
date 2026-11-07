@@ -526,6 +526,16 @@ export function tidyArithmetic(e: Expression): Expression {
   }
   if (e.operator === "&" && number(e.right) === 0xffff && e.left.kind === "binary" && e.left.operator === "s/")
     return tidyArithmetic(e.left);
+  // A division by 1, like a push divided by a mass of 1, is the value itself.
+  if (e.operator === "s/" && number(right) === 1) return left;
+  // The low word of a value, in 16-bit arithmetic that wraps anyway, is the value: the mask says nothing there. Before
+  // a shift right, a division or a comparison the high word would count, so the mask stays.
+  const lowWord = (x: Expression) =>
+    x.kind === "binary" && x.operator === "&" && number(x.right) === 0xffff ? x.left : x;
+  if (e.width === 16 && ["+", "-", "*", "&", "|", "^", "<<"].includes(e.operator)) {
+    const [l, r] = [lowWord(left), lowWord(right)];
+    if (l !== left || r !== right) return tidyArithmetic({ ...e, left: l, right: r });
+  }
   if (e.operator === "s/") return { ...e, operator: "÷", left, right };
   // A type settled to a number leaves products by a test's 1 or 0, like `(type != 8) * x` for a type other than 8.
   if (e.operator === "*" && (number(left) === 0 || number(right) === 0)) return constant(0, e.width);
@@ -1182,6 +1192,59 @@ export function effectsFromOthers(
       evidence: uniqueEvidence(made.flatMap((item) => item.evidence)),
     };
   };
+  /**
+   * The values the frame-position helper writes in a part's own fields, like its frameWidth from its frame list: a
+   * source that redraws itself and then reads such a field reads that value, which a line says by the field's name. The
+   * helper's value reads the part's fields as they are when it is called, so where the source changed one before, like
+   * the teeter-totter stepping its frame, the value holds what that field was then: each field of the helper's value may
+   * stand for any value, the same one wherever it is read.
+   */
+  const drawn = (report.helpers ?? [])
+    .filter((h) => h.kind === "frame-position")
+    .flatMap((h) =>
+      (h.writes ?? []).flatMap((w) =>
+        "root" in w && w.root === "argument" && !w.path?.length && (w.condition?.kind ?? "true") === "true"
+          ? [
+              {
+                value: w.value,
+                field: { kind: "field", object: "part", offset: w.offset, width: w.width } as Expression,
+              },
+            ]
+          : [],
+      ),
+    );
+  const fits = (template: Expression, e: Expression, bound: Map<number, string>): boolean => {
+    if (template.kind === "field" && template.object === "part" && !template.unresolved) {
+      const key = JSON.stringify(e);
+      const prior = bound.get(template.offset);
+      if (prior !== undefined) return prior === key;
+      // A field may stand only for a value of the source's own fields.
+      const read = objects(e);
+      if (read.unknown || [...read.objects].some((o) => o !== "part")) return false;
+      bound.set(template.offset, key);
+      return true;
+    }
+    if (template.kind !== e.kind) return false;
+    if (template.kind === "binary" && e.kind === "binary")
+      return (
+        template.operator === e.operator && fits(template.left, e.left, bound) && fits(template.right, e.right, bound)
+      );
+    if (template.kind === "table" && e.kind === "table")
+      return template.segment === e.segment && template.offset === e.offset && fits(template.index, e.index, bound);
+    return JSON.stringify(template) === JSON.stringify(e);
+  };
+  const drawnValue = (e: Expression): Expression => {
+    const named = drawn.find((d) => d.value.kind === "binary" && fits(d.value, e, new Map()));
+    if (named) return named.field;
+    if (e.kind === "binary") return { ...e, left: drawnValue(e.left), right: drawnValue(e.right) };
+    return e;
+  };
+  const drawnFields = (p: Predicate): Predicate =>
+    p.kind === "compare"
+      ? { ...p, left: drawnValue(p.left), right: drawnValue(p.right) }
+      : p.kind === "and"
+        ? { ...p, terms: p.terms.map(drawnFields) }
+        : p;
   const candidates: Candidate[] = [];
   const touches: TouchCandidate[] = [];
   for (const source of report.parts)
@@ -1236,7 +1299,7 @@ export function effectsFromOthers(
         const ownType = (t: Predicate) =>
           callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
         for (const term of terms(outcome.condition).map((t) =>
-          ownType(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt)),
+          ownType(drawnFields(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt))),
         )) {
           const { objects: read, unknown } = objects(term);
           // A test the source's type settles says nothing when it holds, and rules the way out when it fails.

@@ -127,8 +127,12 @@ Why the missing ones are missing (a pair can have several reasons):
       which A5 is about. No pair says "isn't known to the analysis" now.
 - [ ] **A5. The few left.** The alligator's and jack-in-the-box's values from their own place, the explosion's and
       pinball bumper's direction, the conveyor belt's contact response.
-- [ ] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
+- [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
+      Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The
+      teeter-totter's half width reads "centre X (positionX + frameWidth / 2)", the fan's and bellows' push a sum,
+      the vacuum cleaner's pull without masks, long conditions as lines under the row, and a "then contact search"
+      chip on the launch. See "Words for the Behaviour tab".
 
 ## B. The machine
 

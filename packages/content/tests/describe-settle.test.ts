@@ -81,6 +81,18 @@ describe("arithmetic as the words say it", () => {
     expect(tidyArithmetic(shifted(100))).toEqual(shifted(100));
   });
 
+  it("drops products by 1 or 0, a division by 1, and a low-word mask where 16-bit arithmetic wraps anyway", () => {
+    const x = field(0x36, "part");
+    expect(tidyArithmetic(binary("*", constant(1), x, 16))).toEqual(x);
+    expect(tidyArithmetic(binary("+", binary("*", constant(0), x, 16), x, 16))).toEqual(x);
+    expect(tidyArithmetic(binary("s/", x, constant(1), 16))).toEqual(x);
+    const product = binary("*", constant(48, 32), word, 32);
+    const low = binary("&", product, constant(0xffff), 16);
+    expect(tidyArithmetic(binary("-", x, low, 16))).toEqual(binary("-", x, product, 16));
+    // A shift right sees the low word's sign, which the 32-bit product doesn't have: the mask stays.
+    expect(tidyArithmetic(binary(">>", low, constant(1, 8), 16))).toEqual(binary(">>", low, constant(1, 8), 16));
+  });
+
   it("reads the low word of a signed quotient as the quotient, written ÷", () => {
     const quotient = binary("s/", word, constant(40, 32), 32);
     expect(tidyArithmetic(binary("&", quotient, constant(0xffff), 16))).toEqual({ ...quotient, operator: "÷" });

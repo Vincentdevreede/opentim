@@ -11,6 +11,11 @@ import BehaviourRow from "./BehaviourRow.vue";
  */
 const props = defineProps<{ effect: OtherEffect; name: string }>();
 
+/** Conditions short enough for a chip; a longer one, like where the part must be, is a line of its own that wraps. */
+const SHORT = 40;
+const chips = computed(() => props.effect.when.filter((w) => w.length <= SHORT));
+const lines = computed(() => props.effect.when.filter((w) => w.length > SHORT));
+
 const tip = computed(() =>
   [
     props.effect.description,
@@ -47,17 +52,26 @@ const tip = computed(() =>
         >
       </span>
       <span
-        v-if="effect.touch || effect.cases || effect.sourceWhen.length || effect.when.length"
+        v-if="
+          effect.touch ||
+          effect.searched ||
+          effect.cases ||
+          effect.sourceConditions.length > 1 ||
+          effect.sourceWhen.length ||
+          chips.length
+        "
         class="ml-auto flex flex-wrap gap-1"
       >
         <LabChip v-if="effect.touch" tone="faint">touching</LabChip>
+        <LabChip v-if="effect.searched" tone="faint">then contact search</LabChip>
         <LabChip v-if="effect.cases" tone="faint">{{ effect.cases.length }} cases</LabChip>
         <LabChip v-if="effect.sourceConditions.length > 1" tone="faint"
           >{{ effect.sourceConditions.length }} ways</LabChip
         >
         <LabChip v-for="w in effect.sourceWhen" :key="`source ${w}`" tone="faint">{{ w }}</LabChip>
-        <LabChip v-for="w in effect.when" :key="w">{{ w }}</LabChip>
+        <LabChip v-for="w in chips" :key="w">{{ w }}</LabChip>
       </span>
+      <span v-for="w in lines" :key="w" class="basis-full font-sans text-meta break-words text-soft">{{ w }}</span>
     </span>
     <template #detail>
       <span v-for="(c, n) in effect.sourceConditions" :key="n" class="break-words"

@@ -57,7 +57,12 @@ the rest when it is opened.
   positionY × 512"), and a number added or a halving reads in words. Lines of one part that say the same are one
   row with how many ways give it, and each way's condition when the row is opened: the analysis keeps a line for
   each test its source makes, so the jack-in-the-box's push on the cat is two rows of 5 ways (mirrored and not)
-  instead of ten. In Even More the 1,192 lines become 875 rows.
+  instead of ten. In Even More the 1,192 lines become 875 rows. A formula the source adds reads as a sum, like the
+  fan's "velocityX + 16 * (256 - |overlapX|), kept within its speed limit", and a velocity the source only keeps
+  within the part's speed limit says so. A condition too long for a chip, like where the part must be ("its centre X is
+  left of the teeter-totter's centre X (positionX + frameWidth / 2)"), is a line under the row that wraps. A row whose
+  source then runs the contact search on the part, like the teeter-totter's launch, has a "then contact search" chip,
+  and its tip names the fields that search may change.
 - **Creates.** Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
   where the new part starts and how fast it moves. The lab keeps its own name for part 43 elsewhere.
 - **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
@@ -929,13 +934,33 @@ the teeter-totter's addresses, and the lines now read past both:
 The balloon now gets 36 lines from the teeter-totter: one for each of the four ways it can be launched in each of 9
 cases of the teeter-totter's own fields, which the Lab joins into four rows: "A teeter-totter that reaches it sets its
 velocity up and to the right (velocityX 1792, velocityY -7168). Only when its centre X is at or right of the
-teeter-totter's positionX + ...". The speeds are its mass's (0x1C00 for a balloon) and a quarter of it. The
-teeter-totter's half width still reads as its frame list formula; A6 is to word it.
+teeter-totter's centre X (positionX + frameWidth / 2)". The speeds are its mass's (0x1C00 for a balloon) and a quarter
+of it.
 
 Missing pairs: Even More 84 → 23, TIM 1 59 → 9. The teeter-totter's pairs are partly described (61 and 50), with only
 the contact search's fields unsaid. The bullet and Mel stay missing: their rules read the velocity the teeter-totter
 sets, so they need a walk, and the walks don't read past the rope pull ("its rules read a field the source sets, so it
 needs a walk, and a walk doesn't read past the source's rope pull").
+
+### Words for the Behaviour tab
+
+Step A6 of the plan makes "From other parts" readable at a glance on the fan, the vacuum cleaner and the
+teeter-totter, checked in a browser on the balloon.
+
+- A source that redraws itself and then reads its own frame width reads the value the frame-position helper
+  (`0x68aa` in Even More) writes in frameWidth: a word of its frame list picked by its state, or its baseWidth. The
+  lines say that value by its name when it is the helper's value with each of the part's fields standing for the same
+  value throughout, so the teeter-totter, which steps its frame before it redraws, reads at the frame it stepped to.
+  Its launch then says "its centre X is left of the teeter-totter's centre X (positionX + frameWidth / 2)" instead of
+  the frame list formula. A source whose callback is its type's alone has its type folded in its tests, and products
+  by the 1 or 0 that leaves drop out.
+- The words drop a division by 1 (a push divided by a mass of 1) and a low-word mask inside 16-bit arithmetic that
+  wraps anyway, so the vacuum cleaner's pull reads "velocityY - (48 * (80 - |overlapY|))". Before a shift right, a
+  division or a comparison the mask stays, since there the high word of a 32-bit product would count:
+  `((48 * x) & 0xffff) >> 1` is not `24 * x` once 48 × x passes 32,767.
+- A place at least 1 pixel to one side reads "left of" or "below", not "at least 1 pixels".
+- The lab reads a formula added, a velocity only kept within the speed limit, long conditions as lines, and the
+  contact search after a launch, as "The Behaviour tab" says.
 
 ### Two values the pair check names
 

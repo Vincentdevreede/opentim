@@ -218,6 +218,64 @@ describe("other parts' effects with values the type settles", () => {
     expect(mel!.sets).toContainEqual({ kind: "field", offset: 0x38, width: 16, value: 6656 });
   });
 
+  it("names the frame width a source just drew, even at the frame it stepped to", () => {
+    const data = report();
+    data.layout.fields.push(
+      { offset: 0x1e, name: "positionX" } as (typeof data.layout.fields)[number],
+      { offset: 0x44, name: "frameWidth" } as (typeof data.layout.fields)[number],
+    );
+    // The frame-position helper's frameWidth: a word of the frame list, picked by the part's state.
+    const width = (state: Expression): Expression => ({
+      kind: "table",
+      segment: 0x2fe1,
+      offset: 0,
+      index: bin("<<", state, c(1)),
+      width: 16,
+    });
+    data.helpers!.push({
+      ...finding,
+      address: 0x68aa,
+      kind: "frame-position",
+      purpose: "redraw",
+      writes: [
+        {
+          ...finding,
+          root: "argument",
+          path: [],
+          offset: 0x44,
+          width: 16,
+          value: bin("+", width(f("part", 12)), c(0)),
+          condition: { kind: "true" },
+        },
+      ],
+    } as unknown as NonNullable<BehaviourReport["helpers"]>[number]);
+    const M = "overlap candidate at 0x700";
+    const centre = (object: string, half: Expression) => bin("+", f(object, 0x1e), bin(">>", half, c(1)));
+    // The source stepped to its next frame and drew it: the test reads that frame's width.
+    const stepped = bin("+", width(bin("+", f("part", 12), c(1))), c(0));
+    const right: Predicate = {
+      kind: "compare",
+      operator: ">=",
+      left: centre(M, f(M, 0x44)),
+      right: centre("part", stepped),
+      signed: true,
+    };
+    data.routines.find((r) => r.address === 0x600)!.iterationOutcomes = [
+      member(M, 0x700, and(compare(f(M, 4), "==", c(12)), right), [write(M, 0x38, c(0x400))]),
+    ];
+    const [line] = effectsFromOthers(data, evaluateBehaviourCondition).get(12)!.effects;
+    expect(line!.description).toContain(
+      "its centre X is at or right of the teeter-totter's centre X (positionX + frameWidth / 2)",
+    );
+    // A width the helper doesn't draw stays a formula.
+    const other: Predicate = { ...right, right: centre("part", bin("*", f("part", 12), c(3))) };
+    data.routines.find((r) => r.address === 0x600)!.iterationOutcomes = [
+      member(M, 0x700, and(compare(f(M, 4), "==", c(12)), other), [write(M, 0x38, c(0x400))]),
+    ];
+    const [plain] = effectsFromOthers(data, evaluateBehaviourCondition).get(12)!.effects;
+    expect(plain!.description).not.toContain("frameWidth / 2)");
+  });
+
   it("keeps a test of the part's own fields when the source names its type", () => {
     const [house] = lines.get(54)!.effects.filter((e) => e.sourcePart === "mels-house");
     expect(house!.description).toBe(
