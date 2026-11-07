@@ -281,6 +281,24 @@ describe("the pairs of other parts", () => {
     expect(read.consumers).toEqual([]);
   });
 
+  it("reads past a constant test the conditions keep, and drops a path whose constant test fails", () => {
+    const withTest = (test: Predicate) => {
+      const data = report();
+      const outcome = data.routines.find((r) => r.address === 0x600)!.iterationOutcomes![0]!;
+      outcome.condition = and(outcome.condition, test);
+      return otherPartPairs(data, evaluateBehaviourCondition).pairs.find(
+        (p) => p.sourcePart === "teeter-totter" && p.targetPart === "cat",
+      );
+    };
+    // `1 != 0` and `7 >=s 7` read no object: the reason is still the value's, not where the part is.
+    expect(withTest(compare(c(1), "!=", c(0)))).toMatchObject({ status: "missing", reasons: [SOURCE_VALUE] });
+    expect(withTest({ kind: "compare", operator: ">=", left: c(7), right: c(7), signed: true })).toMatchObject({
+      status: "missing",
+      reasons: [SOURCE_VALUE],
+    });
+    expect(withTest(compare(c(0), "!=", c(0)))).toBeUndefined();
+  });
+
   it("names a consumer pair's lines only from that way, not from the same run's own list", () => {
     const data = report();
     const consumer = data.helpers!.find((h) => h.address === 0x1d797)!;

@@ -187,7 +187,7 @@ function partSummary(part: BehaviourReport["parts"][number], report: BehaviourRe
   const notes = [
     ...part.uncertainties.slice(0, 2),
     ...(part.uncertainties.length > 2 ? [`${part.uncertainties.length - 2} further uncertainties in JSON`] : []),
-    `${partial} incomplete callbacks; ${counts.unresolved} unresolved transition conditions; ${counts.conditional} conditional on run values; ${counts.unknownWrites} with unknown writes; ${counts.namedRunValues} with named run values`,
+    `${partial} incomplete callbacks; ${counts.unresolved} unresolved transition conditions; ${counts.conditional} conditional on run values; ${counts.unknownWrites} with unknown writes; ${counts.callWritten} with values a call writes but nobody follows; ${counts.namedRunValues} with named run values`,
   ];
   const row = `| ${part.type}: ${part.id} | ${part.stateWrites.length} | ${part.transitions.length} | ${part.reset.length} | ${part.counters.length} | ${part.visibleEffects.length} | ${notes.join("; ").replaceAll("|", "\\|").replaceAll("\n", " ")} |`;
   return { type: part.type, id: part.id, semantics: hashes, row };

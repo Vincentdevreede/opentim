@@ -109,6 +109,11 @@ export const CONSUMER_UNREAD =
   "the helper that walks the list is read only as a footprint (which member fields it may write), not path by path";
 
 const hex = (n: number) => `0x${n.toString(16)}`;
+/** A test that reads no object and no unknown, like `7 >=s 7`: its value is the same on every run. */
+const constantTest = (term: Predicate) => {
+  const read = objects(term);
+  return term.kind === "compare" && !read.unknown && !read.objects.size;
+};
 const bytesOf = (w: { offset: number; width: number }) => [...Array(w.width / 8).keys()].map((b) => w.offset + b);
 
 interface Path {
@@ -165,6 +170,8 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       const add = (way: PairWay, member: string, outcome: Path["outcome"], header?: number) => {
         const writes = outcome.fields.filter((f) => f.object === member);
         if (!writes.length && outcome.effectsComplete) return;
+        // A constant test that fails, like `0 != 0`, means the code never takes the path.
+        if (terms(outcome.condition).some((term) => constantTest(term) && evaluate(term, []) === false)) return;
         const memberTerms = terms(outcome.condition).filter((term) => {
           const read = objects(term);
           return !read.unknown && read.objects.size === 1 && read.objects.has(member);
@@ -268,6 +275,8 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       const read = objects(term);
       if (touch && term.kind === "compare" && readsAnswer(term) && !read.objects.has(member)) continue;
       if (placed(term)) continue;
+      // A constant test the conditions keep, like `1 != 0`, reads no object: when it holds it says nothing.
+      if (constantTest(term) && evaluate(term, []) === true) continue;
       if (read.unknown || term.kind === "unknown") return OPEN_TEST;
       const only = [...read.objects];
       // A loop's tests may read the source or the member, a bounce's both together.

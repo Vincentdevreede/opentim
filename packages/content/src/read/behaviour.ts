@@ -4670,18 +4670,29 @@ function markConditional(transitions: Transition[], pathsCertain: boolean): Tran
 }
 
 /**
+ * Run values that only say a call, a query or a list scan may have written the field: the value it writes isn't
+ * followed, so such a name tells no more than an unknown would, only where the write comes from.
+ */
+const CALL_WRITTEN =
+  /^(value the (query|call)|part after field effect|part after list scan|value after the list scan|part after the query) at /;
+/**
  * Counts a part's rules: unresolved ones, conditional ones (they test only values found during the run) and, apart from
- * both, those that write a value nobody named (an unknown, or a value read again after one), and those whose every
- * written value is known or named but at least one is a named run value, like a search's found list.
+ * both, three groups by what they write. Rules with unknown writes write a value nobody named (an unknown, or a value
+ * read again after one). Rules with call-written values write no such value, but at least one value only says that a
+ * call may have written the field (`CALL_WRITTEN`), which is no more than an unknown. Rules with named run values write
+ * only known values and run values whose identity is known, like a search's answer or found list, and at least one.
  */
 export function transitionCounts(transitions: Transition[]) {
   const anonymous = (t: Transition) => t.updates?.some((update) => !runValuesIn(update.value)) ?? false;
+  const written = (t: Transition) =>
+    t.updates?.flatMap((update) => [...(runValuesIn(update.value) ?? [])]) ?? ([] as string[]);
   return {
     unresolved: transitions.filter((t) => t.confidence === "unresolved" && !t.runValues).length,
     conditional: transitions.filter((t) => t.runValues).length,
     unknownWrites: transitions.filter(anonymous).length,
+    callWritten: transitions.filter((t) => !anonymous(t) && written(t).some((name) => CALL_WRITTEN.test(name))).length,
     namedRunValues: transitions.filter(
-      (t) => !anonymous(t) && t.updates?.some((update) => runValuesIn(update.value)?.size),
+      (t) => !anonymous(t) && written(t).length > 0 && !written(t).some((name) => CALL_WRITTEN.test(name)),
     ).length,
   };
 }
