@@ -61,10 +61,12 @@ Why the missing ones are missing (a pair can have several reasons):
       by what it is where the code shows it ("in front of the nozzle", "above the left end"). Done when no pair is
       missing for a test of where the part is.
       Found so far: the vacuum cleaner's 1,148 ways on what it finds are 760 unresolved because their values outgrow
-      the expression size limit, not because the code isn't read. Each way clips velocityY twice (the part's speed
-      limit, then at most 1024 upward) and velocityX up to three times (±512 toward the nozzle, and 0 when it would
-      pass), and a clip written as a choice repeats the whole value about three times. Next: write a clip as signed
-      min and max, so a value grows by one term per clip.
+      the expression size limit, not because the code isn't read. The vacuum pulls velocityY up by a multiple of
+      overlapY (kept within the speed limit, at most 1024 upward) and moves velocityX toward its nozzle in steps held
+      within ±512. The limit is reached in a helper write that holds only when its tests do (`choose` at the
+      engine's conditional exact writes), whose old value is already about 750 terms; the speed limit's clip is not
+      the cause (a compact clip was tried and changed nothing). Next: read what the vacuum's own helpers `0x1e84e`
+      and `0x1e8bb` write, and why the value is that large before them.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
