@@ -466,6 +466,62 @@ export function splitBySource<T extends { condition: Predicate; fields: FieldWri
     return [{ ...outcome, condition: conjunction(once), fields: way.fields }];
   });
 }
+/**
+ * The values the frame-position helper writes in a part's own fields, like its frameWidth from its frame list: a
+ * source that redraws itself and then reads such a field reads that value, which a line or walk says by the field's
+ * name. The helper's value reads the part's fields as they are when it is called, so where the source changed one
+ * before, like the teeter-totter stepping its frame, the value holds what that field was then: each field of the
+ * helper's value may stand for any value of the source's own fields, the same one wherever it is read.
+ */
+export function drawnFieldsOf(report: Pick<BehaviourReport, "helpers">): (p: Predicate) => Predicate {
+  const drawn = (report.helpers ?? [])
+    .filter((h) => h.kind === "frame-position")
+    .flatMap((h) =>
+      (h.writes ?? []).flatMap((w) =>
+        "root" in w && w.root === "argument" && !w.path?.length && (w.condition?.kind ?? "true") === "true"
+          ? [
+              {
+                value: w.value,
+                field: { kind: "field", object: "part", offset: w.offset, width: w.width } as Expression,
+              },
+            ]
+          : [],
+      ),
+    );
+  const fits = (template: Expression, e: Expression, bound: Map<number, string>): boolean => {
+    if (template.kind === "field" && template.object === "part" && !template.unresolved) {
+      const key = JSON.stringify(e);
+      const prior = bound.get(template.offset);
+      if (prior !== undefined) return prior === key;
+      // A field may stand only for a value of the source's own fields.
+      const read = objects(e);
+      if (read.unknown || [...read.objects].some((o) => o !== "part")) return false;
+      bound.set(template.offset, key);
+      return true;
+    }
+    if (template.kind !== e.kind) return false;
+    if (template.kind === "binary" && e.kind === "binary")
+      return (
+        template.operator === e.operator && fits(template.left, e.left, bound) && fits(template.right, e.right, bound)
+      );
+    if (template.kind === "table" && e.kind === "table")
+      return template.segment === e.segment && template.offset === e.offset && fits(template.index, e.index, bound);
+    return JSON.stringify(template) === JSON.stringify(e);
+  };
+  const drawnValue = (e: Expression): Expression => {
+    const named = drawn.find((d) => d.value.kind === "binary" && fits(d.value, e, new Map()));
+    if (named) return named.field;
+    if (e.kind === "binary") return { ...e, left: drawnValue(e.left), right: drawnValue(e.right) };
+    return e;
+  };
+  const drawnFields = (p: Predicate): Predicate =>
+    p.kind === "compare"
+      ? { ...p, left: drawnValue(p.left), right: drawnValue(p.right) }
+      : p.kind === "and"
+        ? { ...p, terms: p.terms.map(drawnFields) }
+        : p;
+  return drawnFields;
+}
 /** A found part's field a loop reads after a connection query of the source's, like "<member> after field effect at 0x1d2af". */
 const AFTER_EFFECT = / after field effect at (0x[0-9a-f]+)$/;
 /**
@@ -1253,59 +1309,7 @@ export function effectsFromOthers(
       evidence: uniqueEvidence(made.flatMap((item) => item.evidence)),
     };
   };
-  /**
-   * The values the frame-position helper writes in a part's own fields, like its frameWidth from its frame list: a
-   * source that redraws itself and then reads such a field reads that value, which a line says by the field's name. The
-   * helper's value reads the part's fields as they are when it is called, so where the source changed one before, like
-   * the teeter-totter stepping its frame, the value holds what that field was then: each field of the helper's value may
-   * stand for any value, the same one wherever it is read.
-   */
-  const drawn = (report.helpers ?? [])
-    .filter((h) => h.kind === "frame-position")
-    .flatMap((h) =>
-      (h.writes ?? []).flatMap((w) =>
-        "root" in w && w.root === "argument" && !w.path?.length && (w.condition?.kind ?? "true") === "true"
-          ? [
-              {
-                value: w.value,
-                field: { kind: "field", object: "part", offset: w.offset, width: w.width } as Expression,
-              },
-            ]
-          : [],
-      ),
-    );
-  const fits = (template: Expression, e: Expression, bound: Map<number, string>): boolean => {
-    if (template.kind === "field" && template.object === "part" && !template.unresolved) {
-      const key = JSON.stringify(e);
-      const prior = bound.get(template.offset);
-      if (prior !== undefined) return prior === key;
-      // A field may stand only for a value of the source's own fields.
-      const read = objects(e);
-      if (read.unknown || [...read.objects].some((o) => o !== "part")) return false;
-      bound.set(template.offset, key);
-      return true;
-    }
-    if (template.kind !== e.kind) return false;
-    if (template.kind === "binary" && e.kind === "binary")
-      return (
-        template.operator === e.operator && fits(template.left, e.left, bound) && fits(template.right, e.right, bound)
-      );
-    if (template.kind === "table" && e.kind === "table")
-      return template.segment === e.segment && template.offset === e.offset && fits(template.index, e.index, bound);
-    return JSON.stringify(template) === JSON.stringify(e);
-  };
-  const drawnValue = (e: Expression): Expression => {
-    const named = drawn.find((d) => d.value.kind === "binary" && fits(d.value, e, new Map()));
-    if (named) return named.field;
-    if (e.kind === "binary") return { ...e, left: drawnValue(e.left), right: drawnValue(e.right) };
-    return e;
-  };
-  const drawnFields = (p: Predicate): Predicate =>
-    p.kind === "compare"
-      ? { ...p, left: drawnValue(p.left), right: drawnValue(p.right) }
-      : p.kind === "and"
-        ? { ...p, terms: p.terms.map(drawnFields) }
-        : p;
+  const drawnFields = drawnFieldsOf(report);
   const candidates: Candidate[] = [];
   const touches: TouchCandidate[] = [];
   for (const source of report.parts)

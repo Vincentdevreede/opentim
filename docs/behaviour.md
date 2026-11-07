@@ -939,8 +939,10 @@ of it.
 
 Missing pairs: Even More 84 → 23, TIM 1 59 → 9. The teeter-totter's pairs are partly described (61 and 50), with only
 the contact search's fields unsaid. The bullet and Mel stay missing: their rules read the velocity the teeter-totter
-sets, so they need a walk, and the walks don't read past the rope pull ("its rules read a field the source sets, so it
-needs a walk, and a walk doesn't read past the source's rope pull").
+sets, so they need a walk. Walks read past the rope pull too since "Walks past the rope pull and the overlap", but a
+walk also needs the source to name the part's type or the tests its search makes on the part, and the teeter-totter's
+search names none: the pair check says "its rules read a field the source sets, so it needs a walk, and a walk needs the
+source to name the part's type or the tests its search makes on the part, which aren't read for this search".
 
 ### Words for the Behaviour tab
 
@@ -1006,6 +1008,22 @@ jack-in-the-box's centre X (positionX + frameWidth / 2)" if the bellows is mirro
 not; the alligator tilts a teeter-totter by which side of it the teeter-totter's positionX lies. Missing pairs: Even
 More 18 → 13, TIM 1 8 → 6. The jack-in-the-box's push of a teeter-totter stays missing: its value grew past the size
 budget before it could be split.
+
+### Walks past the rope pull and the overlap
+
+The walks read a search's own list as the lines do: a way open only at the overlap the search stored in the part, at
+the source's rope pull or at the contact search it runs on the part is read, the part's field after the rope pull is
+its own, the rope pull's answer and the source's fields after it are the source's tests, a frame width the source
+redrew reads by its name, and a value takes the words of the part's type record its type settles (not its speed
+limit, which has no number for a walk). The fan's walk of the windmill needed the overlap: Even More 435 → 436
+described, TIM 1 217 → 218.
+
+The teeter-totter's search (`0x437d`) tests nothing on the parts it finds. It walks a list its flags argument picks
+(`0x682f`: 0x2000 the list at `0x4e1f`, 0x1000 the moving list at `0x4d7d`, 0x0800 the one at `0x4cdb`), and the
+teeter-totter passes 0x1000. So it finds only parts on the moving list, which by the decided assumption is no part of
+a fixed type. The analysis doesn't read that choice of list yet: it lets the teeter-totter reach fixed parts, like a
+brick wall, and gives those launch lines, and it gives the bullet and Mel no walk ("which aren't read for this
+search"). Reading the list a search walks from the flags its call passes is the next step.
 
 ### Two values the pair check names
 

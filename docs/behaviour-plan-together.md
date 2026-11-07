@@ -136,6 +136,10 @@ Why the missing ones are missing (a pair can have several reasons):
       Values that pick by the source's place are split into their cases (see "Values that pick by where the source
       is"): the jack-in-the-box's and alligator's pushes of the bellows, scissors and teeter-totter are walks now.
       Missing: Even More 18 → 13, TIM 1 8 → 6.
+      Walks read past the rope pull, the stored overlap and the type record (the fan's windmill is described). Found:
+      the teeter-totter's search `0x437d` walks only the list its flags argument picks (the moving list for 0x1000),
+      which the analysis doesn't read yet, so it still allows the teeter-totter to reach fixed parts and gives them
+      lines. Next: read a search's list from the flags its call passes.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

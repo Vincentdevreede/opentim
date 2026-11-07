@@ -8,6 +8,7 @@
  * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
+import { callKinds, openCalls } from "./behaviour.ts";
 import { formula as formulaOf } from "./describe-touch.ts";
 import {
   ANSWER_ASSUMPTION,
@@ -23,7 +24,12 @@ import {
   offMovingList,
   onlyAnswersOpen,
   partFields,
+  settleForType,
   splitBySource,
+  afterQueriesIn,
+  drawnFieldsOf,
+  sourceRun,
+  withOwnOverlapsIn,
   tidyArithmetic,
   predicateForType,
   readsAnswer,
@@ -479,6 +485,7 @@ export function hitsFromOthers(
   const gives = (type: number, t: SearchTest) =>
     ((factory?.startingWords?.find((w) => w.field === t.offset)?.values[type] ?? 0) & t.mask) === t.mask ||
     !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
+  const drawnFields = drawnFieldsOf(report);
   const candidates: Candidate[] = [];
   /**
    * The contact dispatch calls the bounce callback of the type of the part a moving part touched, with the moving part
@@ -493,6 +500,7 @@ export function hitsFromOthers(
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
       const iterations = routines.get(callback.address)?.iterationOutcomes ?? [];
+      const kindAt = callKinds(report, callback.address);
       // A value that picks by the source's tests, like where the jack-in-the-box is from the bellows, is its cases.
       for (const outcome of [...iterations.flatMap((o) => splitBySource(o, o.object)), ...touches(callback)]) {
         const member = outcome.object;
@@ -503,9 +511,18 @@ export function hitsFromOthers(
         const placeOnly = () =>
           terms(outcome.condition).every((t) => !objects(t).unknown || placeTest(t, member) !== undefined) &&
           outcome.fields.every((f) => !objects(f.value).unknown);
+        // A search's own list may be open only at the overlap the search stored, the source's rope pull or the contact
+        // search it runs on the part, as for the lines (`describe-effects.ts`).
+        const readable = () =>
+          !touch &&
+          !consumed &&
+          !openCalls([outcome.condition, ...outcome.fields.flatMap((f) => [f.value, f.condition])], kindAt).other;
         if (
           !outcome.effectsComplete ||
-          (outcome.confidence === "unresolved" && !(touch && onlyAnswersOpen(outcome)) && !(consumed && placeOnly()))
+          (outcome.confidence === "unresolved" &&
+            !(touch && onlyAnswersOpen(outcome)) &&
+            !(consumed && placeOnly()) &&
+            !readable())
         )
           continue;
         const writes = outcome.fields.filter((f) => f.object === member);
@@ -516,7 +533,11 @@ export function hitsFromOthers(
         const dropped = { both: false, answer: false };
         const place: PlaceTest[] = [];
         let open = false;
-        for (const term of terms(outcome.condition)) {
+        for (const term of terms(outcome.condition).map((t) =>
+          drawnFields(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt)),
+        )) {
+          // What the source's rope pull answers, and its own fields after it, are the source's business.
+          if (!touch && sourceRun(term, kindAt)) continue;
           const { objects: read, unknown } = objects(term);
           // A test of where the part lies from the source, like the jack-in-the-box's reach or the teeter-totter's ends.
           const placed = touch ? undefined : placeTest(term, member);
@@ -633,11 +654,17 @@ export function hitsFromOthers(
       const responded = (w: FieldWrite) =>
         responds && [...Array(w.width / 8).keys()].some((byte) => afterResponse!.has(w.offset + byte));
       const changes = c.writes.filter(readsField);
+      // A value with the words of the part's type record its type settles, like a launch speed by its mass, and the
+      // overlap its search stored as its own field. A value kept within its speed limit has no number to follow.
+      const own = (w: FieldWrite) => {
+        const settled = settleForType(w.value, c.member, typeOffset, part.type, report.typeTable, used);
+        return settled.kept ? undefined : ownValue(settled.value, c.member);
+      };
       // A number, or a value of the part's own fields as the touch found them, in a field the rules read gives the walk
       // something to follow; a field a response may change again is unknown, and at least one other must be known.
       if (
         !changes.length ||
-        changes.some((w) => w.directedSpeed || (!responded(w) && !ownValue(w.value, c.member))) ||
+        changes.some((w) => w.directedSpeed || (!responded(w) && !own(w))) ||
         changes.every(responded)
       )
         continue;
@@ -651,7 +678,7 @@ export function hitsFromOthers(
         continue;
       }
       const asPart = (w: FieldWrite): FieldWrite => {
-        const value = ownValue(w.value, c.member);
+        const value = own(w);
         return {
           ...w,
           object: "part",

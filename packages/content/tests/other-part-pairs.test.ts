@@ -11,13 +11,13 @@ import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-e
 import { LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
 import {
   BUDGET_VALUE,
-  CONNECTION_QUERY,
   CONSUMER_UNREAD,
   CONTACT_SEARCH,
   HELPER_VALUE,
   LIMIT_RULE_FIELD,
   otherPartPairs,
   renderOtherPartPairs,
+  SEARCH_UNREAD,
   SOURCE_VALUE,
   UNRESOLVED_PATH,
   UNKNOWN_VALUE,
@@ -382,10 +382,16 @@ describe("the pairs of other parts", () => {
     expect(line!.description).toContain("Then it runs the contact search on it, which may change its field 0x20");
     expect(JSON.stringify(line!.condition)).not.toContain("after field effect");
     expect(JSON.stringify(line!.sourceCondition)).toContain("part after the query at 0x610");
-    // The cat's rules read its velocityX: it needs a walk, which doesn't read past the rope pull.
+    // The cat's rules read its velocityX, and this test names its type: a walk reads past the rope pull.
     expect(run(member(M, 0x700, pulled, [write(M, 0x36, c(0x400))]), "unresolved")).toMatchObject({
+      status: "described",
+      walks: 1,
+    });
+    // Without its type named, a walk needs the search's tests, which this loop's search doesn't have read.
+    const anyType = and(...(pulled as Extract<Predicate, { kind: "and" }>).terms.filter((t) => t !== isCat));
+    expect(run(member(M, 0x700, anyType, [write(M, 0x36, c(0x400))]), "unresolved")).toMatchObject({
       status: "missing",
-      reasons: [CONNECTION_QUERY],
+      reasons: [SEARCH_UNREAD],
     });
     // The same unknowns after another call, or anything else unknown, keep the general reasons.
     expect(

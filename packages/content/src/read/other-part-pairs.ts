@@ -98,8 +98,8 @@ export interface OtherPartPairs {
 
 export const NO_COMPLETE_EFFECTS = "the path's effects aren't complete, so the analysis doesn't know all it writes";
 export const UNRESOLVED_PATH = "the path is unresolved: a test or value on it isn't read";
-export const CONNECTION_QUERY =
-  "its rules read a field the source sets, so it needs a walk, and a walk doesn't read past the source's rope pull: the source asks the part at the other end of each rope, which only the run knows";
+export const SEARCH_UNREAD =
+  "its rules read a field the source sets, so it needs a walk, and a walk needs the source to name the part's type or the tests its search makes on the part, which aren't read for this search";
 export const CONTACT_SEARCH =
   "the source runs the contact search on the part: where that leaves the part, with its contact record and list flags, only the run knows";
 export const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
@@ -303,6 +303,16 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       return HELPER_VALUE;
     return UNKNOWN_VALUE;
   };
+  /** Whether a path's tests name the part's type, like the jack-in-the-box's `type == 0x15` for the switch. */
+  const namesType = (path: Path) =>
+    path.memberTerms.some(
+      (t) =>
+        t.kind === "compare" &&
+        t.operator === "==" &&
+        t.left.kind === "field" &&
+        t.left.object === path.member &&
+        t.left.offset === typeOffset,
+    );
   /** Why a path the description leaves out for this part isn't said, when no decided assumption rules it out. */
   const missingReason = (path: Path, type: number): string => {
     const { outcome, way, member } = path;
@@ -368,8 +378,14 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         }
         return unknownReason(w.value);
       }
-      // A field its rules read needs a walk, which can't follow the rope pull's answer.
-      if (readsRule(w) && open?.connectionQuery) return CONNECTION_QUERY;
+      // A field its rules read needs a walk, which needs the part's type named or its search's tests read.
+      if (
+        readsRule(w) &&
+        way === "overlap list" &&
+        !namesType(path) &&
+        !searchTests(report, path.routine, path.header ?? 0)
+      )
+        return SEARCH_UNREAD;
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
       if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;

@@ -486,6 +486,77 @@ describe("walks from other parts that change a part's frame", () => {
     expect(flip!.assumptions.join(" ")).toContain("Two parts' places differ by less than 32,768 pixels");
   });
 
+  it("reads the overlap a search stored in the part as its own, and a type record word its type settles", () => {
+    const data = report();
+    data.parts.push(
+      part("windmill", 40, [rule(c(1), compare(f("part", 0x12), "!=", c(0)))]) as never,
+      part("fan", 50, [], [902]) as never,
+    );
+    // Record words of 0x3a bytes from 0x2ef10; the windmill's word at +0x02 is 3.
+    (data as { typeTable?: unknown }).typeTable = {
+      address: 0x2ef10,
+      stride: 0x3a,
+      words: Array.from({ length: 60 }, (_, type) =>
+        Array.from({ length: 29 }, (_, n) => (n === 1 && type === 40 ? 3 : 0)),
+      ),
+    };
+    const stored: Expression = {
+      ...f(`overlapX the query at 0x1abc7 found for ${MEMBER}`, 0x7a),
+      unresolved: true,
+    } as Expression;
+    const word: Expression = {
+      kind: "table",
+      segment: 0x2ef1,
+      offset: 2,
+      index: { kind: "binary", operator: "*", left: f(MEMBER, 4), right: c(0x3a), width: 16 },
+      width: 16,
+    };
+    data.routines.push({
+      address: 902,
+      writes: [],
+      ...proof,
+      iterationOutcomes: [
+        {
+          ...outcome(and(isType(40), { kind: "compare", operator: "<", left: stored, right: c(200), signed: true }), [
+            write(MEMBER, 0x12, word),
+          ]),
+          confidence: "unresolved" as const,
+        },
+      ],
+    } as never);
+    const [turn] = hitsFromOthers(data, evaluateBehaviourCondition).get(40)!.hits;
+    expect(turn).toMatchObject({
+      sources: [{ type: 50, part: "fan", routine: 902 }],
+      writes: [{ object: "part", offset: 0x12, value: c(3) }],
+    });
+    expect(JSON.stringify(turn!.condition)).toContain('"object":"part","offset":122');
+  });
+
+  it("walks past the source's rope pull, leaving what it answers to the source", () => {
+    const data = report();
+    data.parts.push(
+      part("windmill", 40, [rule(c(1), compare(f("part", 0x12), "!=", c(0)))]) as never,
+      part("teeter-totter", 3, [], [903]) as never,
+    );
+    (data.helpers as unknown[]).push({ ...proof, address: 0x1d638, kind: "connection-query", purpose: "rope pull" });
+    const answer: Expression = { ...f("answer of the query at 0x610", 0), unresolved: true } as Expression;
+    data.routines.push({
+      address: 903,
+      writes: [],
+      ...proof,
+      engineCalls: [{ ...proof, instruction: 0x610, summary: 0x1d638, purpose: "rope pull" }],
+      iterationOutcomes: [
+        {
+          ...outcome(and(isType(40), compare(answer, "==", c(0))), [write(MEMBER, 0x12, c(1))]),
+          confidence: "unresolved" as const,
+        },
+      ],
+    } as never);
+    expect(hitsFromOthers(data, evaluateBehaviourCondition).get(40)!.hits).toMatchObject([
+      { sources: [{ type: 3, part: "teeter-totter", routine: 903 }], writes: [{ offset: 0x12, value: c(1) }] },
+    ]);
+  });
+
   it("puts place tests in words by the side the part lies on", () => {
     const name = (offset: number) => (offset === 0x1e ? "positionX" : "?");
     expect(
