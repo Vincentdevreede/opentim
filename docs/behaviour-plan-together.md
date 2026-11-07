@@ -77,8 +77,10 @@ Why the missing ones are missing (a pair can have several reasons):
       again for each type a found part can have, with its type field and the type record words the game never writes
       as numbers, resolves many more ways (vacuum cleaner 6,152 of 17,928, teeter-totter 8,712 of 15,048, fan 1,048 of
       1,064; the cat none of 284). But it takes 315 seconds per build instead of 15, and the report gets too large to
-      write. Next: read only the loop body per type, group types that give the same numbers (the vacuum's pull has 8
-      mass classes, not 63 types), and keep only what the lines need.
+      write. Agreed with you on 2026-11-07: do it, fast first, and in the Lab never in the way (read after the rest,
+      like the walks). Grouping types by the type record words a loop reads saves little (vacuum cleaner 44 groups,
+      teeter-totter 45, of 66 types; the cat 3, the fan 21). Next: keep only the resolved ways per type with their
+      evidence trimmed, measure size and time, then make each run cheaper.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
