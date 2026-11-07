@@ -169,5 +169,23 @@ describe("the rope connection query", () => {
       expect(engineSummaries.has(0x200)).toBe(false);
       expect(helpers).toEqual([query]);
     });
+
+    it("is not stable while a callback first found to write global storage is left out of the bound", () => {
+      // The second callback's analysis is unfinished in the first round, and then writes only global storage.
+      const engineSummaries = new Map([[query.address, query]]);
+      let round = -1;
+      const summarise = (target: number) => {
+        if (target === 0x300) {
+          round++;
+          return analysis([write("part", 0x0c)]);
+        }
+        return analysis([write("data", 0x4a6d)], round > 0);
+      };
+      settleRopeDispatch(query, [0x300, 0x310], undefined, summarise, engineSummaries, [query], () => {});
+      expect(engineSummaries.get(query.address)!.footprint).toMatchObject({
+        complete: false,
+        unknownGlobalEffects: ["A rope callback may change global storage."],
+      });
+    });
   });
 });
