@@ -49,6 +49,30 @@ Why the missing ones are missing (a pair can have several reasons):
 | A speed whose direction depends on where both parts are |               3 | explosion, pinball bumper                |           0 |
 | A contact response after the bounce                     |               1 | conveyor belt                            |           1 |
 
+## Where it stands
+
+After A6 and part of A5 (2026-11-08), from `list-other-part-pairs` on all eleven builds (each game's builds agree):
+
+|                                   | Even More (start) | Even More (now) | TIM 1 (start) | TIM 1 (now) |
+| --------------------------------- | ----------------: | --------------: | ------------: | ----------: |
+| Pairs of parts the code lets meet |             1,090 |           1,090 |           621 |         621 |
+| Described                         |               227 |             436 |           135 |         218 |
+| Partly described                  |                46 |              71 |            17 |          52 |
+| Ruled out (they can never meet)   |               570 |             570 |           345 |         345 |
+| Missing                           |               247 |              13 |           124 |           6 |
+
+Every missing pair names why. In Even More:
+
+- Mel or the bullet need a walk, and the walk has nothing to follow: a velocity kept within the part's speed limit (the
+  fan, bellows, teapot), one whose direction depends on where both parts are (the explosion, the pinball bumper), a
+  contact response after the touch (the conveyor belt), or a search whose tests aren't read (the teeter-totter).
+- The explosion's split of a wall makes a new part; the jack-in-the-box's push of a teeter-totter grew past the size
+  budget.
+
+Next: read the list a search walks from the flags its call passes. The teeter-totter's search finds only parts on the
+moving list, which would rule out its fixed-type pairs (they get launch lines now) and let the bullet's walk through.
+Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchanged.
+
 ## A. What parts do to each other, where it depends on where they are
 
 - [x] **A1. Tables picked by angle or distance.** The word they read was the found part's speed limit, not a table
