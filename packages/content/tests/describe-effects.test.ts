@@ -440,6 +440,30 @@ describe("effects of parts that touch", () => {
     expect(line!.assumptions).toContain(TOUCH_ASSUMPTION);
   });
 
+  it("takes a velocity the bounce keeps within the part's own speed limit, like the trampoline's launch", () => {
+    const limit: Expression = {
+      kind: "table",
+      segment: 0x2ef1,
+      offset: 0x0a,
+      index: { kind: "binary", operator: "*", left: f(TOUCHER, 4), right: c(0x3a), width: 16 },
+      width: 16,
+    };
+    const negative: Expression = { kind: "binary", operator: "-", left: c(0), right: limit, width: 16 };
+    const launched: Expression = { kind: "binary", operator: "-", left: reversed, right: c(0x400), width: 16 };
+    const test = (operator: string, right: Expression) =>
+      ({ kind: "compare", operator, left: launched, right, signed: true }) as Extract<Predicate, { kind: "compare" }>;
+    const kept = choose(test(">", limit), limit, choose(test("<", negative), negative, launched));
+    const trampoline = {
+      ...report,
+      typeTable: { address: 0x2ef10, stride: 0x3a, words: Array.from({ length: 62 }, () => Array(29).fill(0)) },
+      routines: [{ address: 0x1da61, outcomes: [outcome([edge(0)], [touchWrite(0x38, kept)])] }],
+    } as unknown as BehaviourReport;
+    const [line] = effectsFromOthers(trampoline, evaluateBehaviourCondition).get(12)!.effects;
+    expect(line!.description).toBe(
+      "An alligator it touches sets velocityY to -|velocityY| - 1024, kept within its speed limit. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
+    );
+  });
+
   it("keeps a test that names another type, and says when a contact response may follow", () => {
     const mouse = touches(42);
     expect(mouse.map((e) => e.description)).toEqual([

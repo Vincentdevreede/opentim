@@ -757,9 +757,10 @@ function touchCandidate(
   const writes = outcome.fields.filter((f) => f.object === TOUCHER);
   // What the bounce does to the touched part itself is that part's own business.
   if (!writes.length || outcome.fields.some((f) => f.object !== TOUCHER && f.object !== "part")) return undefined;
+  // A table word goes on to the line's settings, which take one the part's type settles, or its own speed limit.
   const own = (value: Expression) => {
     const read = objects(value);
-    return !read.unknown && [...read.objects].every((o) => o === TOUCHER) && !readsTable(value);
+    return !read.unknown && [...read.objects].every((o) => o === TOUCHER);
   };
   if (writes.some((w) => !w.directedSpeed && !own(w.value))) return undefined;
   const toucherTerms: Predicate[] = [],

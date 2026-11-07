@@ -130,6 +130,9 @@ Why the missing ones are missing (a pair can have several reasons):
       Walks read place tests of a search's own list now (2026-11-07, see "Walks within reach of the source"): the
       electric switch from the jack-in-the-box and the alligator is described, and the vacuum cleaner's candle, cat
       and mouse are partly described. Missing: Even More 23 → 18, TIM 1 9 → 8.
+      Touch lines take the part's own speed limit (the trampoline's launch, the alligator's snap): described Even More
+      389 → 430, TIM 1 200 → 215. Pairs whose rules read a velocity kept within the speed limit (Mel and the bullet)
+      name that as their reason.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

@@ -669,6 +669,7 @@ describe("summariseEffects", () => {
               sets: [
                 push("keeps velocityY within its speed limit", 0x38),
                 push("adds 16 * (256 - |overlapX|) to velocityX, kept within its speed limit", 0x36),
+                push("adds 1536 to velocityX, kept within its speed limit", 0x36),
               ],
             }),
           ],
@@ -678,6 +679,7 @@ describe("summariseEffects", () => {
     expect(summariseEffects(report, fan)[12]![0]!.sets).toEqual([
       { what: "velocityY", value: "kept within its speed limit" },
       { what: "velocityX", value: "velocityX + 16 * (256 - |overlapX|), kept within its speed limit" },
+      { what: "velocityX", value: "velocityX + 1536, kept within its speed limit" },
     ]);
   });
 

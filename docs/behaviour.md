@@ -980,8 +980,15 @@ The fan, the bellows and the teapot push Mel and the bullet, whose rules read th
 kept within the part's speed limit, the word at +0x0a of its type record, which the game works out for each level
 (`0x107dc` and `0x1084c` in Even More write it), so a walk has no number to follow. The pair check now says so ("its
 rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a
-walk can't follow it") instead of the reason it gave when it found no other: these pairs, and the bullet's velocityY
-the trampoline, the alligator and the vacuum cleaner leave unsaid.
+walk can't follow it") instead of the reason it gave when it found no other.
+
+A touch line now takes a velocity kept within the part's own speed limit too, as the lines from a search's list have
+since A2: the line's settings settle the type record's words for the part's type and keep the speed limit as its own.
+So the trampoline's launch reads "sets velocityY to -|velocityY| - 1024, kept within its speed limit", and the
+alligator's snap "sets velocityY to -5632, kept within its speed limit and adds 1536 to velocityX, kept within its
+speed limit". Their pairs were partly described with the velocity left out; now every part but the bullet is
+described (Even More 389 → 430 described, TIM 1 200 → 215), and no pair is left "for a reason this check doesn't
+name". The Lab reads an added number with its speed limit as well.
 
 ### Two values the pair check names
 

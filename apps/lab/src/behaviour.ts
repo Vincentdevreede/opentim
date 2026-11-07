@@ -1014,9 +1014,8 @@ function settingOf(
   const word = / to the (low|high) word of (.+)$/.exec(s.words);
   if (fine && word) return { what: `${fine} ${word[1]}`, value: word[2]! };
   const field = write.place("part", s.offset);
-  const add = /^(adds|subtracts) (\d+) (?:to|from) /.exec(s.words);
-  if (add) return { what: field, value: `${field} ${add[1] === "adds" ? "+" : "-"} ${add[2]}` };
-  // A formula added, like the fan's push: "adds 16 * (256 - |overlapX|) to velocityX, kept within its speed limit".
+  // A number or a formula added, like the fan's push: "adds 16 * (256 - |overlapX|) to velocityX, kept within its speed
+  // limit".
   const added = /^(adds|subtracts) (.+) (?:to|from) (?:field 0x[0-9a-f]+|\w+)(, kept within its speed limit)?$/.exec(
     s.words,
   );
