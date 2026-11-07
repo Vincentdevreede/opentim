@@ -648,7 +648,7 @@ function containsUnknown(expression: Expression): boolean {
   );
 }
 /** Why a value the analysis gave up on, because it grew too large, is unknown. */
-const SIZE_BUDGET_REACHED = "Symbolic expression size budget reached";
+export const SIZE_BUDGET_REACHED = "Symbolic expression size budget reached";
 /** Whether a value or test has a value the analysis gave up on because it grew too large. */
 const outgrown = (x: Expression | Predicate): boolean =>
   x.kind === "unknown"

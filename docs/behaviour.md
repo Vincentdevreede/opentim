@@ -937,6 +937,32 @@ the contact search's fields unsaid. The bullet and Mel stay missing: their rules
 sets, so they need a walk, and the walks don't read past the rope pull ("its rules read a field the source sets, so it
 needs a walk, and a walk doesn't read past the source's rope pull").
 
+### Two values the pair check names
+
+After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the
+analysis". Both are read here from the code, and the pair check now names why a line can't give them:
+
+- The explosion splits a brick wall or a wood wall (Even More `0x1a73a`, its type table sends types 1 and 0x30 to
+  `0x1a8ae`). It cuts a hole on a 16-pixel grid around its centre X (cx, its positionX + frameWidth / 2), from
+  `((cx - 32) & ~15) + 8` to `((cx + 24) & ~15) + 8`, along the wall's longer side (in Y with cy for a wall no wider than
+  it is tall). A wall that reaches past both edges keeps the piece before the hole, and the game copies it
+  (`0x66aa`) for the piece after it, with 0x0010 in the copy's field 0x06. A wall that reaches past one edge is cut
+  back to it. A wall inside the hole is put out of play (0x2000 in its drawingFlags). Each piece gets its outline
+  again (`0x1d8bc`). The analysis reads the helper's writes with their tests, but it allocates a part and links it
+  into a list, so its effect in the explosion's loop stays a "conditional effect". Read out, the values would still
+  come from the explosion's place, and the copy is a part of its own, which a line of the wall can't say. The pair
+  check says "a value it sets comes from a helper the source calls on the part, whose tests the analysis doesn't
+  carry into the loop".
+- The jack-in-the-box's push of a teeter-totter (Even More `0x1b888`, its type table sends type 3 to `0x1badd`) tilts
+  the plank by where the jack-in-the-box's centre X is: at frame 0 it tilts to 1 when the plank's positionX + 36 is
+  right of that centre, at frame 1 to 1 or -1 around positionX + 40, and at frame 2 to -1 when positionX + 44 is left
+  of it. The helper is read exactly, four writes of stateDelta with their tests, but folded one into another in the
+  jack-in-the-box's loop the value grows past the size the analysis keeps for one value. Read out, it would be a value
+  from the jack-in-the-box's place, which is A5. The pair check says "a value it sets grew past the size the analysis
+  keeps for one value".
+
+No pair in the eleven builds says "isn't known to the analysis" now. The missing ones stay at Even More 23 and TIM 1 9.
+
 ### The push's direction
 
 The explosion's run gives the speed setter the answer of the routine at `0x496e` (Even More, English floppy) as its

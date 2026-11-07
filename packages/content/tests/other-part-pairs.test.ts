@@ -4,9 +4,11 @@ import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
 import {
+  BUDGET_VALUE,
   CONNECTION_QUERY,
   CONSUMER_UNREAD,
   CONTACT_SEARCH,
+  HELPER_VALUE,
   otherPartPairs,
   renderOtherPartPairs,
   SOURCE_VALUE,
@@ -330,6 +332,18 @@ describe("the pairs of other parts", () => {
     expect(
       run(member(M, 0x700, isCat, [write(M, 0x38, { kind: "unknown", reason: "Other", width: 16 })]), "inferred"),
     ).toMatchObject({ reasons: [UNKNOWN_VALUE] });
+    // A helper's effect the loop doesn't carry, like the explosion's split of a wall, and a value past the size
+    // budget, like the jack-in-the-box's push of a teeter-totter, say so.
+    const unknownSet = (reason: string) => [write(M, 0x38, { kind: "unknown", reason, width: 16 })];
+    expect(
+      run(
+        member(M, 0x700, isCat, unknownSet("Conditional owner-and-outline-relation effect on field 0x38")),
+        "inferred",
+      ),
+    ).toMatchObject({ reasons: [HELPER_VALUE] });
+    expect(
+      run(member(M, 0x700, isCat, unknownSet("Symbolic expression size budget reached")), "inferred"),
+    ).toMatchObject({ reasons: [BUDGET_VALUE] });
   });
 
   it("describes a consumer read path by path apart from the run's own list", () => {

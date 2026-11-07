@@ -15,8 +15,8 @@
  * The searches themselves also write the found list's link and scratch words on every part they find; those are
  * counted apart.
  */
-import type { BehaviourReport, FieldWrite, Predicate, RoutineOutcome } from "./behaviour.ts";
-import { callKinds, openCalls } from "./behaviour.ts";
+import type { BehaviourReport, Expression, FieldWrite, Predicate, RoutineOutcome } from "./behaviour.ts";
+import { callKinds, openCalls, SIZE_BUDGET_REACHED } from "./behaviour.ts";
 import {
   effectsFromOthers,
   type Evaluate,
@@ -107,6 +107,9 @@ export const OPEN_TEST = "a test depends on something besides the two parts' own
 export const DIRECTED_RULE_FIELD =
   "its rules read the velocity it sets, whose direction depends on where the two parts are, so a walk can't follow it";
 export const UNKNOWN_VALUE = "a value it sets isn't known to the analysis";
+export const HELPER_VALUE =
+  "a value it sets comes from a helper the source calls on the part, whose tests the analysis doesn't carry into the loop";
+export const BUDGET_VALUE = "a value it sets grew past the size the analysis keeps for one value";
 export const OPEN_VALUE = "a value it sets reads something besides the two parts' fields";
 export const SOURCE_VALUE = "a value it sets depends on the source's own fields, like where the source is";
 export const TABLE_VALUE =
@@ -280,6 +283,24 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       }
     }
 
+  /** Why a value isn't known: a helper's effect on the part, the size budget, or else no reason this check names. */
+  const unknownReason = (value: Expression): string => {
+    const reasons = new Set<string>();
+    const visit = (v: Expression): void => {
+      if (v.kind === "unknown") reasons.add(v.reason);
+      else if (v.kind === "field" && v.unresolved) reasons.add("");
+      else if (v.kind === "binary") {
+        visit(v.left);
+        visit(v.right);
+      } else if (v.kind === "table") visit(v.index);
+    };
+    visit(value);
+    const all = (test: (reason: string) => boolean) => reasons.size > 0 && [...reasons].every(test);
+    if (all((r) => r === SIZE_BUDGET_REACHED)) return BUDGET_VALUE;
+    if (all((r) => /^Conditional .+ effect on field /.test(r) && !/^Conditional contact-search /.test(r)))
+      return HELPER_VALUE;
+    return UNKNOWN_VALUE;
+  };
   /** Why a path the description leaves out for this part isn't said, when no decided assumption rules it out. */
   const missingReason = (path: Path, type: number): string => {
     const { outcome, way, member } = path;
@@ -341,7 +362,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
           searched = true;
           continue;
         }
-        return UNKNOWN_VALUE;
+        return unknownReason(w.value);
       }
       // A field its rules read needs a walk, which can't follow the rope pull's answer.
       if (readsRule(w) && open?.connectionQuery) return CONNECTION_QUERY;

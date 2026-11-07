@@ -111,7 +111,7 @@ Why the missing ones are missing (a pair can have several reasons):
       the part at the other end of each rope answers), and the contact search it runs on each part it launches
       (`0x4fd`, swept from 16 pixels above and below it). No pair is left with "a test or value on it isn't read". Missing pairs are
       unchanged (Even More 84, TIM 1 59). See "Where the teeter-totter's launch stops being known".
-- [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
+- [x] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
       the fan's and the jack-in-the-box's last ones. Name each one, like the run values in the last plan, or give its
       formula from the source's fields.
       The teeter-totter's launch speed (2026-11-07): read past the rope pull and the contact search, so its pairs are
@@ -121,6 +121,10 @@ Why the missing ones are missing (a pair can have several reasons):
       16-pixel grid, with a copy of the wall for the far piece), and the jack-in-the-box's push of a teeter-totter
       (`0x1badd`: it tilts the plank by which side of its positionX + 36, 40 or 44 the jack-in-the-box's centre X is,
       by the plank's frame; the analysis stops at its size budget there).
+      Done (2026-11-07): both are read from the code and given in "Two values the pair check names", and the pair check
+      names them instead of "isn't known": a helper's effect the loop doesn't carry (the wall split, which also makes a
+      new part), and a value past the size budget (the push). Read out, both would be values from the source's place,
+      which A5 is about. No pair says "isn't known to the analysis" now.
 - [ ] **A5. The few left.** The alligator's and jack-in-the-box's values from their own place, the explosion's and
       pinball bumper's direction, the conveyor belt's contact response.
 - [ ] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
