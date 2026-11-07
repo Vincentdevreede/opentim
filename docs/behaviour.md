@@ -2003,9 +2003,17 @@ A list scan marks the fields its body may write on the listed parts. Those marks
 though the owner's own memory was already kept: the scan's summary lists every field it may write on the owner as the
 owner's (when the query may list the owner, or for a global list), and otherwise the owner is not on the list (the
 query's checked comparison of each part with the part that asks, or the external list's contract). So a listed part's
-field mark no longer counts for the owner. This is where all such marks in the measured builds came from: the teapot's
-run (`0x36` and others), the jack-in-the-box, the cat and the other parts whose run scans a list, in both
-builds. Their merged rules keep the value they had.
+field mark no longer counts for the owner. Most of the merges that left out a marked field came from these marks (the
+teapot's `0x36`, the jack-in-the-box's `0x2a` to `0x46`, in Even More and TIM 1), and those rules keep the value they
+had, now proved.
+
+In Even More, English floppy, the cat's run (`0x19d80`) changes. Its scan at `0x1a01a` writes the cat's own `0x0a`,
+and on 52 of its 120 rules the path forgets that store again later while the field stays marked, so the rule left
+`0x0a` out; it now says "part after field effect at 0x1a01a". Its reads of `0x08` after the scan, which only listed parts' `0x08` can change,
+are now the cat's own field instead of a value of the run, and the same holds for Mel's house (`0x1e29b`) and the
+vacuum cleaner (`0x1e7ee`). The counts don't move (0/925 unresolved, 128 conditional, 0 with unknown writes, 234 with
+named run values), the recordings still match 648 of 648, and every walk still ends (722 through branches, 669
+directly). TIM 1, French, comes out the same (552 of 552).
 
 ### The recorder's normal seed
 
