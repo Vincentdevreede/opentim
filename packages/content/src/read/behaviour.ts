@@ -2513,6 +2513,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         )
           continue;
         const merged = queued.state;
+        // Either path's searches may have left the owner in a list, so the joined path keeps both.
+        const heads = new Set([...(merged.ownerMayBeListed ?? []), ...(s.ownerMayBeListed ?? [])]);
+        merged.ownerMayBeListed = heads.size ? heads : undefined;
         merged.conditions = left.filter((t) => rightIds.has(textOf(t)));
         merged.visited = new Set([...merged.visited, ...s.visited]);
         const joinEvidence = uniqueEvidence(
