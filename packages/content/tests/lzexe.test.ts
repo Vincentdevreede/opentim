@@ -68,4 +68,18 @@ describe("unpackLzexe", () => {
     other[0x1f] = 0x30; // "LZ90"
     expect(() => unpackLzexe(other)).toThrow("LZEXE");
   });
+
+  it("stops at 1 MiB, more than a DOS program can hold", () => {
+    const exe = pack((w) => {
+      w.bits(1);
+      w.bytes(0);
+      // Long references of 256 bytes, each one byte back, until the image passes 1 MiB.
+      for (let i = 0; i < 4096; i++) {
+        w.bits(0, 1);
+        w.bytes(0xff, 0xf8, 255);
+      }
+      end(w);
+    });
+    expect(() => unpackLzexe(exe)).toThrow("larger than 1 MiB");
+  });
 });

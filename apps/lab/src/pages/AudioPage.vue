@@ -91,12 +91,16 @@ const pcm = computed<Pcm | undefined>(() => {
   return sample.value && samplePcm(sample.value);
 });
 
-/** The file the bank's sounds come from, like `TIM.SX`. */
-const bankFile = computed(() => sections.value.find((s) => s.title !== "Samples")?.title);
+/** The files the banks' sounds come from, like `TIM.SX`. */
+const bankFiles = computed(() => sections.value.filter((s) => s.title !== "Samples").map((s) => s.title));
+/** Where the sounds come from, for the subtitle: the bank's file, or how many banks when there are several. */
+const banksLabel = computed(() =>
+  bankFiles.value.length > 1 ? `${bankFiles.value.length} banks` : bankFiles.value[0],
+);
 const soundCount = computed(() => all.value.filter((i) => i.type === "bank").length);
 const sampleCount = computed(() => all.value.filter((i) => i.type === "raw").length);
 /** With more than one bank loaded, a row names its bank too, as their sounds share one list. */
-const manyBanks = computed(() => sections.value.filter((s) => s.title !== "Samples").length > 1);
+const manyBanks = computed(() => bankFiles.value.length > 1);
 /** The meta of a row: the sound's id, with its bank when that's needed, or the sample file's size. */
 const rowMeta = (item: AudioItem) =>
   item.type === "raw"
@@ -178,11 +182,11 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
 <template>
   <PageHeader title="Audio">
     <template #subtitle>
-      <template v-if="bankFile">
+      <template v-if="banksLabel">
         <span class="font-mono text-ink">{{ soundCount }}</span> sounds in
-        <span class="font-mono text-ink">{{ bankFile }}</span>
+        <span class="font-mono text-ink">{{ banksLabel }}</span>
       </template>
-      <template v-if="bankFile && sampleCount"> · </template>
+      <template v-if="banksLabel && sampleCount"> · </template>
       <template v-if="sampleCount">
         <span class="font-mono text-ink">{{ sampleCount }}</span> sample files
       </template>
