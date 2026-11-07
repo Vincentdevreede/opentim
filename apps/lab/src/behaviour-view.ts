@@ -31,8 +31,10 @@ export function tidyTerm(term: string): string {
       )
       .replace(/ \+ 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` - ${0x10000 - parseInt(n, 16)}`)
       .replace(/ - 0x([89a-f][0-9a-f]{3})\b/g, (_, n: string) => ` + ${0x10000 - parseInt(n, 16)}`)
-      // Equal or not equal to a 16-bit word is the same test with its signed value.
-      .replace(/ (==|!=) 0x([89a-f][0-9a-f]{3})$/, (_, op: string, n: string) => ` ${op} ${parseInt(n, 16) - 0x10000}`)
+      // Equal or not equal to a 16-bit word is the same test with its signed value; masked bits stay hex like the mask.
+      .replace(/^(.+) (==|!=) 0x([89a-f][0-9a-f]{3})$/, (whole, left: string, op: string, n: string) =>
+        / [&|^] 0x[0-9a-f]+\)*$/.test(left) ? whole : `${left} ${op} ${parseInt(n, 16) - 0x10000}`,
+      )
   );
 }
 

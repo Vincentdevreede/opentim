@@ -83,6 +83,10 @@ describe("tidying conditions", () => {
     );
     expect(tidyTerm("x + 0xffe0 > 3")).toBe("x - 32 > 3");
     expect(tidyTerm("(x - 32) - 0xffc0")).toBe("(x - 32) + 64");
+    // A word compared whole reads signed; bits under a hex mask stay hex like the mask.
+    expect(tidyTerm("x == 0xd000")).toBe("x == -12288");
+    expect(tidyTerm("x & 0xc000 == 0x8000")).toBe("x & 0xc000 == 0x8000");
+    expect(tidyTerm("(x + 0x4000) & 0xc000 != 0xc000")).toBe("(x + 0x4000) & 0xc000 != 0xc000");
   });
 
   it("drops repeats, comparisons of numbers and terms another implies", () => {

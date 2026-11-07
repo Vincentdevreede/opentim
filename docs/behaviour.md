@@ -70,7 +70,7 @@ the rest when it is opened.
   tip. A hit walked from an input case shows both in its condition: the case and the hit's own tests, so the
   bullet's "touching a trampoline" rows also read "contactEdge == 0" and the speed the touch needs.
 - **Numbers in conditions.** A frame, a speed, a position or a control value reads signed in decimal
-  ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too ("ropeKind & 0x18 == 0x10"; under
+  ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too, also from 0x8000 up ("ropeKind & 0x18 == 0x10"; under
   a mask below 10 as a number, and a mask of a mask as one), a direction in degrees ("collider.contactAngle <
   315°"), and an unsigned test's number as it is. The absolute value of another part's field reads "|found.overlapX|".
   The analysis's own sentences next to them say a frame, a speed and the control value signed too: the wood
