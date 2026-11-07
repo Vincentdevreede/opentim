@@ -94,6 +94,14 @@ Why the missing ones are missing (a pair can have several reasons):
       pixels of the vacuum's centre X; when it does, it adds a local (`stack.-6`, not yet read) halved to velocityX.
       The teeter-totter tests the part's centre X against its own centre with a frame-dependent width, and the ends
       `(positionX + 74) - part.positionX` and `positionX - part.positionX` in the ranges C3 already names.
+      The vacuum cleaner is read (2026-11-07, see "The vacuum cleaner pulls what lies under its nozzle"): place tests
+      that compare two places, ways open only at the stored overlap, a helper's type record reads per type, the
+      search's flag test, and the part's own speed limit in tests and values. The per-type step is its own
+      (`readBehaviourInSteps`), which the Lab takes after the walks. Even More 145 → 84 missing pairs, TIM 1 59. The
+      teeter-totter's test (the part's centre X against its positionX plus half the width of its new frame) and the
+      jack-in-the-box's (the part's positionX against its centre X) read as place tests too. What keeps their pairs
+      missing now is A3 and A4 (the teeter-totter), A5 (the jack-in-the-box's electric switch: its search's flag tests
+      aren't read), and for ten vacuum cleaner pairs A4: their test reads the pull left from the part before.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,

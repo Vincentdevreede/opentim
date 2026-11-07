@@ -557,8 +557,18 @@ function candidateFlagTests(
   insertion: Instruction[],
 ): (Finding & { offset: number; mask: number; set: boolean })[] | undefined {
   const last = insertion.at(-1)!;
-  const skip = last.address + last.size;
   const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  // Where a part the search doesn't keep goes on: after the insertion, and after any stores into the kept part that
+  // follow it, like the overlaps 0x417e stores in it (Even More, English floppy).
+  const skips = new Set([last.address + last.size]);
+  for (let at = last.address + last.size, step = byAddress.get(at); step; step = byAddress.get(at)) {
+    const [to, from] = step.operands;
+    const storesInPart = step.mnemonic === "mov" && isMemory(to, node) && from?.kind === "register";
+    const loadsLocal = step.mnemonic === "mov" && to?.kind === "register" && stackMemory(from);
+    if (step.flow !== "next" || !(storesInPart || loadsLocal)) break;
+    at = step.address + step.size;
+    skips.add(at);
+  }
   const before = new Map(code.instructions.map((i) => [i.address + i.size, i]));
   const tests: (Finding & { offset: number; mask: number; set: boolean })[] = [];
   for (const branch of code.instructions) {
@@ -576,11 +586,11 @@ function candidateFlagTests(
     const inverted =
       over?.flow === "jump" &&
       taken === over.address + over.size &&
-      code.edges.some((e) => e.from === over.address && e.to === skip) &&
+      code.edges.some((e) => e.from === over.address && e.to !== null && skips.has(e.to)) &&
       code.edges.filter((e) => e.from === over.address).length === 1 &&
       !code.edges.some((e) => e.to === over.address && e.from !== branch.address);
     if (
-      (taken === skip || inverted) &&
+      ((taken !== undefined && taken !== null && skips.has(taken)) || inverted) &&
       compare.mnemonic === "test" &&
       isMemory(tested, node) &&
       tested.width === 16 &&
@@ -595,7 +605,7 @@ function candidateFlagTests(
       });
       continue;
     }
-    if (taken === undefined || taken === null || taken === skip) return undefined;
+    if (taken === undefined || taken === null || skips.has(taken)) return undefined;
     // The other way must run straight into the taken one, storing only into the stack.
     let at = branch.address + branch.size;
     for (let steps = 0; at !== taken; steps++) {

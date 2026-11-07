@@ -831,6 +831,59 @@ With this, no pair is missing for a table word any more: Even More goes from 247
 124 to 59. Four pairs of these three (one in TIM 1) stay missing because a test of the found part isn't settled by its
 type. The scoreboard and every recording are unchanged.
 
+### The vacuum cleaner pulls what lies under its nozzle
+
+The vacuum cleaner's run (`0x1e643`, Even More, English floppy) calls the overlap search `0x417e` with a box of 0, 0,
+0 and 64: it finds the parts that overlap it across and lie at most 64 pixels below its bottom, and keeps only parts
+whose flag 0x2000 at +0x08 is clear. That test of the search was not read before: the search stores the overlaps in a
+part after linking it, so a part it skips jumps past those stores too, and the reader now steps over them. For each
+part it finds, the vacuum cleaner:
+
+- goes on only when the part's positionY is more than 44 pixels below its own; then it clears the part's contact
+  flag, and when the part is less than 47 pixels below, it swallows it (`0x1e8bb`: a balloon pops, every other part
+  goes out of play);
+- when the part's velocityY is above -1024, works out the pull from the part's mass (`0x1e84e`: 0x0C00 below 2 down
+  to 0x0080 from 201) times 80 − |overlapY|, divided by 64, subtracts it from velocityY, keeps both velocities within
+  the part's speed limit and velocityY at -1024 or more;
+- unless the part's positionY equals its field 0x28, puts Mel Schlemming (type 0x36) below frame 6 on frame 6, and
+  moves the part's velocityX by half the pull toward its own centre X: up to 512 when the part's centre X is more
+  than 4 pixels left of its own, down to -512 when more than 4 pixels right, and toward 0 when within 4 pixels;
+- and in every case puts out a candle (type 0x2d): it clears the candle's fields 0x9c and 0x12 and its state.
+
+For a balloon the pull is 48 × (80 − |overlapY|). When the part's velocityY is already -1024 or less, the vacuum
+cleaner doesn't work out a pull, and the velocityX step uses the pull still in its local from the part before (or
+whatever the stack held). That value is one for A4 of the plan; the lines leave those ways out.
+
+Reading this took four changes:
+
+- The loop is read again for each type a found part can have (`readBehaviourInSteps`, `readLoopsPerType`). The
+  found part's type field is that type, and a word of its type record the game never writes while it runs is the
+  program's word, also when a helper reads it, like the mass in `0x1e84e`. The ways that type resolves are kept with
+  a few instructions as evidence; the rest of a loop's unresolved ways are kept as one way per loop and set of the
+  part's own tests, with the fields they write, so a pair they allow still counts as missing and one the part's flags
+  rule out stays ruled out. This is the slow step, about four minutes for Even More, English floppy, against 13
+  seconds for the rest: the Lab takes it after the walks are on the page, and adds the lines it gives when it is done.
+  `extract-behaviour` leaves it out of its reports. Written out, the vacuum cleaner's ways alone would be 2.5 GB, as
+  the speed limit's clamp repeats the value inside it; in memory they share it. `list-other-part-pairs`,
+  `list-assumptions` and `check-level-frames` take the step.
+- A way that is unresolved only because it reads the overlap the search stored (`onlyStoredOverlapsOpen`) counts: the
+  part holds that overlap in its own fields, as the fan's push already reads it.
+- A test comparing a place of the part with the same place of the source, like the part's positionY against the vacuum
+  cleaner's positionY plus 44, or the two centres X (`positionX + frameWidth / 2`), is a place test. Its words say how
+  far, above or below for Y and left or right for X: "its positionY is at least 45 pixels below the vacuum cleaner's
+  positionY", "its centre X is within 4 pixels of the vacuum cleaner's centre X (positionX + frameWidth / 2)". Each side
+  may be its own point along the axis, like the jack-in-the-box's test of the part's positionX + 20 against its own
+  centre X, and the source's point may add a value of its own fields: the teeter-totter, after it tilts and redraws
+  itself, compares the part's centre X with its positionX plus half the width of its new frame, which the analysis reads
+  through its frame list. Reading the distance from such a comparison states that two parts' places differ by less than
+  32,768 pixels.
+- A test or value may read the part's own speed limit, the word at +0x0a of its type record, as it would read one of
+  its fields. The words say it: "its velocityX kept within its speed limit is below 512".
+
+The balloon now gets 25 lines from the vacuum cleaner. Even More goes from 145 missing pairs to 84; TIM 1, which has
+no vacuum cleaner, stays at 59. The teeter-totter's search is left missing only for a path that isn't read and a
+value the analysis doesn't know, which are A3 and A4 of the plan.
+
 ### The push's direction
 
 The explosion's run gives the speed setter the answer of the routine at `0x496e` (Even More, English floppy) as its

@@ -8,6 +8,7 @@
  * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
+import { formula as formulaOf } from "./describe-touch.ts";
 import {
   ANSWER_ASSUMPTION,
   type Evaluate,
@@ -88,11 +89,28 @@ function readsTable(value: Expression | Predicate): boolean {
  */
 export interface PlaceTest {
   offset: number;
+  /** For the source's centre, the size field whose half it adds to its field, like frameWidth for the centre X. */
+  half?: number;
+  /** The same for the member's centre, when the test measures to its centre. */
+  memberHalf?: number;
+  /**
+   * A value of the source's own fields its point adds as well, like the teeter-totter's half width in the frame it
+   * just went to, which it reads from its frame list.
+   */
+  extra?: Expression;
   /** What the source adds to its own field to get the point, like 74 for the teeter-totter's right end. */
   shift: number;
   low?: number;
   high?: number;
+  /**
+   * Set when the test compares the two places, like `member positionY > source positionY + 44`, and the distance is
+   * read from that: so the places must be near enough that their difference doesn't wrap around a word.
+   */
+  compared?: true;
 }
+/** What reading the distance from a comparison of two places assumes. */
+export const PLACE_DIFFERENCE_ASSUMPTION =
+  "Two parts' places differ by less than 32,768 pixels, so a test comparing them says how far apart they are.";
 const signedOf = (value: number, width: number) => {
   const wrapped = value & (2 ** width - 1);
   return wrapped >= 2 ** (width - 1) ? wrapped - 2 ** width : wrapped;
@@ -102,6 +120,9 @@ const signedOf = (value: number, width: number) => {
  * field as the member's. A value the run gives, like the owner's field after a list scan, is not where the source is.
  */
 export function placeTest(term: Predicate, member: string): PlaceTest | undefined {
+  return pointTest(term, member) ?? comparedPlaces(term, member);
+}
+function pointTest(term: Predicate, member: string): PlaceTest | undefined {
   if (term.kind !== "compare" || !term.signed || term.right.kind !== "constant") return undefined;
   const left = term.left;
   if (left.kind !== "binary" || left.operator !== "-") return undefined;
@@ -138,6 +159,123 @@ export function placeTest(term: Predicate, member: string): PlaceTest | undefine
   return bound && { offset: mine.offset, shift, ...bound };
 }
 /**
+ * A signed test comparing a place of the member with a place of the source along the same axis, like the vacuum
+ * cleaner's `member positionY > source positionY + 44` or `source centre X - 4 <= member centre X`, where a centre X is
+ * `positionX + (frameWidth >> 1)`, or the jack-in-the-box's `member positionX + 20 <= source centre X`. Both sides are
+ * sums of the two parts' fields and numbers; their difference must be the source's place minus the member's (or the
+ * other way round) plus a number, and that gives the bound on the distance from the source's place to the member's.
+ */
+function comparedPlaces(term: Predicate, member: string): PlaceTest | undefined {
+  if (term.kind !== "compare" || !term.signed || !["<", "<=", ">", ">="].includes(term.operator)) return undefined;
+  const atoms = new Map<string, number>();
+  const extras = new Map<string, Expression>();
+  let number = 0;
+  /** A value that reads only the source's own known fields, words and numbers. */
+  const sourceOnly = (e: Expression) => {
+    const text = JSON.stringify(e);
+    const objects = [...text.matchAll(/"object":"([^"]+)"/g)].map((m) => m[1]);
+    return (
+      objects.length > 0 &&
+      objects.every((o) => o === "part") &&
+      !text.includes('"unresolved":true') &&
+      !text.includes('"kind":"unknown"')
+    );
+  };
+  const add = (e: Expression, sign: number): boolean => {
+    if (!(e.kind === "field" || e.kind === "constant") && !(e.kind === "binary" && ["+", "-"].includes(e.operator))) {
+      const half =
+        e.kind === "binary" &&
+        e.operator === ">>" &&
+        e.right.kind === "constant" &&
+        e.right.value === 1 &&
+        e.left.kind === "field";
+      if (!half && sourceOnly(e)) {
+        const key = `x:${JSON.stringify(e)}`;
+        extras.set(key, e);
+        atoms.set(key, (atoms.get(key) ?? 0) + sign);
+        return true;
+      }
+    }
+    if (e.kind === "constant") {
+      number += sign * signedOf(e.value, e.width);
+      return true;
+    }
+    if (e.kind === "field" && !e.unresolved && (e.object === member || e.object === "part")) {
+      const key = `${e.object === member ? "m" : "s"}:${e.offset}:${e.width}:full`;
+      atoms.set(key, (atoms.get(key) ?? 0) + sign);
+      return true;
+    }
+    if (e.kind !== "binary") return false;
+    if (e.operator === "+") return add(e.left, sign) && add(e.right, sign);
+    if (e.operator === "-") return add(e.left, sign) && add(e.right, -sign);
+    if (
+      e.operator === ">>" &&
+      e.right.kind === "constant" &&
+      e.right.value === 1 &&
+      e.left.kind === "field" &&
+      !e.left.unresolved &&
+      (e.left.object === member || e.left.object === "part")
+    ) {
+      const key = `${e.left.object === member ? "m" : "s"}:${e.left.offset}:${e.left.width}:half`;
+      atoms.set(key, (atoms.get(key) ?? 0) + sign);
+      return true;
+    }
+    return false;
+  };
+  if (!add(term.left, 1) || !add(term.right, -1)) return undefined;
+  const used = [...atoms].filter(([, n]) => n !== 0);
+  const extra = used.filter(([key]) => key.startsWith("x:"));
+  const of = (who: string) => used.filter(([key]) => key.startsWith(`${who}:`));
+  const mine = of("m"),
+    theirs = of("s");
+  if (!mine.length || !theirs.length) return undefined;
+  const sign = theirs[0]![1];
+  // The source's atoms and extras come with the source's sign, the member's with the other.
+  if (![1, -1].includes(sign) || used.some(([key, n]) => n !== (key.startsWith("m:") ? -sign : sign))) return undefined;
+  /** A part's point: one field, and at most one half of a size, like a centre. */
+  const point = (list: [string, number][]) => {
+    const fields = list.filter(([key]) => key.endsWith(":full")),
+      halves = list.filter(([key]) => key.endsWith(":half"));
+    if (fields.length !== 1 || halves.length > 1) return undefined;
+    const [, offset, width] = fields[0]![0].split(":").map(Number) as [number, number, number];
+    return width === 16 ? { offset, half: halves.length ? Number(halves[0]![0].split(":")[1]) : undefined } : undefined;
+  };
+  const at = point(mine),
+    from = point(theirs);
+  // Points along the same axis: the same field of each part, each with or without half its size.
+  if (!at || !from || at.offset !== from.offset) return undefined;
+  const { offset } = at;
+  // left - right = sign × distance + number, compared with 0; so the distance is compared with -number, the test
+  // turned round when the source's place came with a minus.
+  const flip: Record<string, string> = { "<": ">", "<=": ">=", ">": "<", ">=": "<=" };
+  const operator = sign === 1 ? term.operator : flip[term.operator]!;
+  const n = sign === 1 ? -number : number;
+  const bound =
+    operator === ">="
+      ? { low: n }
+      : operator === ">"
+        ? { low: n + 1 }
+        : operator === "<="
+          ? { high: n }
+          : { high: n - 1 };
+  return {
+    offset,
+    ...(from.half === undefined ? {} : { half: from.half }),
+    ...(at.half === undefined ? {} : { memberHalf: at.half }),
+    ...(extra.length
+      ? {
+          extra: extra
+            .map(([key]) => extras.get(key)!)
+            .reduce((a, b) => ({ kind: "binary", operator: "+", left: a, right: b, width: 16 })),
+        }
+      : {}),
+    shift: 0,
+    ...bound,
+    compared: true,
+  };
+}
+
+/**
  * Points of a part the place tests use, by the part's id, its field and the shift. The teeter-totter's list consumer
  * measures from `positionX + 74` and `positionX`, the two ends of its board as seen on screen.
  */
@@ -145,9 +283,10 @@ export const NAMED_POINTS: Record<string, Record<string, string>> = {
   "teeter-totter": { "positionX:74": "right end", "positionX:0": "left end" },
 };
 /**
- * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter-totter's right end (positionX + 74)".
- * The distance is the source's point minus the member's field, so a positive one is to the left. A point in
- * `NAMED_POINTS` for the source's id is named, with the field and shift after it.
+ * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter-totter's right end (positionX + 74)"
+ * or "its positionY is at least 47 pixels below the vacuum cleaner's positionY". The distance is the source's point
+ * minus the member's place, so a positive one is to the left, or above. A point in `NAMED_POINTS` for the source's id
+ * is named, with the field and shift after it; a centre says its formula.
  */
 export function placeWords(
   tests: PlaceTest[],
@@ -155,27 +294,65 @@ export function placeWords(
   field: (offset: number) => string,
   sourceId?: string,
 ): string[] {
-  const groups = new Map<string, { offset: number; shift: number; low?: number; high?: number }>();
+  const groups = new Map<
+    string,
+    {
+      offset: number;
+      half?: number;
+      memberHalf?: number;
+      extra?: Expression;
+      shift: number;
+      low?: number;
+      high?: number;
+    }
+  >();
   for (const t of tests) {
-    const key = `${t.offset}:${t.shift}`;
-    const g = groups.get(key) ?? { offset: t.offset, shift: t.shift };
+    const key = `${t.offset}:${t.half}:${t.memberHalf}:${t.shift}:${JSON.stringify(t.extra)}`;
+    const g = groups.get(key) ?? {
+      offset: t.offset,
+      ...(t.half === undefined ? {} : { half: t.half }),
+      ...(t.memberHalf === undefined ? {} : { memberHalf: t.memberHalf }),
+      ...(t.extra ? { extra: t.extra } : {}),
+      shift: t.shift,
+    };
     if (t.low !== undefined) g.low = Math.max(g.low ?? t.low, t.low);
     if (t.high !== undefined) g.high = Math.min(g.high ?? t.high, t.high);
     groups.set(key, g);
   }
-  return [...groups.values()].map(({ offset, shift, low, high }) => {
-    const name = field(offset);
-    const at = `${name}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
-    const end = sourceId === undefined ? undefined : NAMED_POINTS[sourceId]?.[`${name}:${shift}`];
-    const point = end ? `the ${source}'s ${end} (${at})` : `the ${source}'s ${at}`;
+  return [...groups.values()].map(({ offset, half, memberHalf, extra, shift, low, high }) => {
+    const fieldName = field(offset);
+    const axis = /[XY]$/.exec(fieldName)?.[0];
+    const centre = `centre${axis ? ` ${axis}` : ""}`;
+    const name = memberHalf === undefined ? fieldName : centre;
+    const plain = { field, of: (_: string, what: string) => what };
+    const base = half === undefined ? fieldName : `${fieldName} + ${field(half)} / 2`;
+    const formula = extra ? `${base} + ${formulaOf(extra, plain, true)}` : base;
+    const at = `${formula}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
+    const end = sourceId === undefined || extra ? undefined : NAMED_POINTS[sourceId]?.[`${fieldName}:${shift}`];
+    const point =
+      half === undefined
+        ? end
+          ? `the ${source}'s ${end} (${at})`
+          : `the ${source}'s ${at}`
+        : `the ${source}'s ${centre} (${at})`;
+    const [before, after] = axis === "Y" ? ["above", "below"] : ["left of", "right of"];
+    if (low !== undefined && high !== undefined && low === -high)
+      return `its ${name} is within ${high} pixels of ${point}`;
     if (low !== undefined && high !== undefined && low >= 0)
-      return `its ${name} is ${low} to ${high} pixels left of ${point}`;
+      return `its ${name} is ${low} to ${high} pixels ${before} ${point}`;
     if (low !== undefined && high !== undefined && high <= 0)
-      return `its ${name} is ${-high} to ${-low} pixels right of ${point}`;
+      return `its ${name} is ${-high} to ${-low} pixels ${after} ${point}`;
     if (low !== undefined && high !== undefined)
-      return `its ${name} is between ${-low} pixels right and ${high} pixels left of ${point}`;
-    if (low !== undefined) return `${point} minus its ${name} is at least ${low}`;
-    return `${point} minus its ${name} is at most ${high}`;
+      return `its ${name} is between ${-low} pixels ${after} and ${high} pixels ${before} ${point}`;
+    if (low === 0 && high === undefined) return `its ${name} is at or ${before} ${point}`;
+    if (high === 0 && low === undefined) return `its ${name} is at or ${after} ${point}`;
+    if (low !== undefined)
+      return low > 0
+        ? `its ${name} is at least ${low} pixels ${before} ${point}`
+        : `its ${name} is at most ${-low} pixels ${after} ${point}`;
+    return high! < 0
+      ? `its ${name} is at least ${-high!} pixels ${after} ${point}`
+      : `its ${name} is at most ${high} pixels ${before} ${point}`;
   });
 }
 

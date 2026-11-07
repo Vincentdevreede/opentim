@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { describeBehaviour, evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
-import { hitsFromOthers, LIGHTABLE_ASSUMPTION, placeWords } from "../src/read/describe-hits.ts";
+import { hitsFromOthers, LIGHTABLE_ASSUMPTION, placeTest, placeWords } from "../src/read/describe-hits.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const proof = {
@@ -468,7 +468,104 @@ describe("walks from other parts that change a part's frame", () => {
       "its positionX is 0 to 8 pixels left of the teeter-totter's positionX + 30",
     ]);
     expect(placeWords([{ offset: 0x1e, shift: -6, low: 3 }], "fan", name)).toEqual([
-      "the fan's positionX - 6 minus its positionX is at least 3",
+      "its positionX is at least 3 pixels left of the fan's positionX - 6",
     ]);
+  });
+
+  it("says a place down the screen as above or below, and a centre with its formula", () => {
+    const name = (offset: number) => ({ 0x1e: "positionX", 0x20: "positionY", 0x44: "frameWidth" })[offset] ?? "?";
+    expect(placeWords([{ offset: 0x20, shift: 0, high: -47 }], "vacuum cleaner", name)).toEqual([
+      "its positionY is at least 47 pixels below the vacuum cleaner's positionY",
+    ]);
+    expect(placeWords([{ offset: 0x20, shift: 0, low: -46, high: -45 }], "vacuum cleaner", name)).toEqual([
+      "its positionY is 45 to 46 pixels below the vacuum cleaner's positionY",
+    ]);
+    expect(
+      placeWords(
+        [
+          { offset: 0x1e, half: 0x44, memberHalf: 0x44, shift: 0, low: -4 },
+          { offset: 0x1e, half: 0x44, memberHalf: 0x44, shift: 0, high: 4 },
+        ],
+        "vacuum cleaner",
+        name,
+      ),
+    ).toEqual(["its centre X is within 4 pixels of the vacuum cleaner's centre X (positionX + frameWidth / 2)"]);
+    // The jack-in-the-box measures from the part's positionX to its own centre X.
+    expect(placeWords([{ offset: 0x1e, half: 0x44, shift: 0, low: 20 }], "jack-in-the-box", name)).toEqual([
+      "its positionX is at least 20 pixels left of the jack-in-the-box's centre X (positionX + frameWidth / 2)",
+    ]);
+    expect(placeWords([{ offset: 0x20, shift: 0, low: 0 }], "fan", name)).toEqual([
+      "its positionY is at or above the fan's positionY",
+    ]);
+  });
+
+  it("reads a test comparing the two parts' places as the distance between them", () => {
+    const signed = (left: Expression, operator: string, right: Expression): Predicate => ({
+      kind: "compare",
+      operator,
+      left,
+      right,
+      signed: true,
+    });
+    const plus = (left: Expression, right: Expression): Expression => ({
+      kind: "binary",
+      operator: "+",
+      left,
+      right,
+      width: 16,
+    });
+    const half = (object: string): Expression => ({
+      kind: "binary",
+      operator: ">>",
+      left: f(object, 0x44),
+      right: c(1),
+      width: 16,
+    });
+    // The vacuum cleaner at 0x1e6c4 (Even More, English floppy): `cmp [di+0x20], ax; jg` with ax its positionY + 44.
+    expect(placeTest(signed(f(MEMBER, 0x20), ">", plus(f("part", 0x20), c(0x2c))), MEMBER)).toEqual({
+      offset: 0x20,
+      shift: 0,
+      high: -45,
+      compared: true,
+    });
+    // Its centre X less 4 at most the member's centre X: the member is at most 4 pixels left of it.
+    const centre = (object: string) => plus(f(object, 0x1e), half(object));
+    expect(placeTest(signed(plus(centre("part"), c(0xfffc)), "<=", centre(MEMBER)), MEMBER)).toEqual({
+      offset: 0x1e,
+      half: 0x44,
+      memberHalf: 0x44,
+      shift: 0,
+      high: 4,
+      compared: true,
+    });
+    // The jack-in-the-box at 0x19f70: the part's positionX + 20 at most its centre X.
+    expect(placeTest(signed(plus(f(MEMBER, 0x1e), c(0x14)), "<=", centre("part")), MEMBER)).toEqual({
+      offset: 0x1e,
+      half: 0x44,
+      shift: 0,
+      low: 20,
+      compared: true,
+    });
+    // The teeter-totter adds a value of its own fields to its positionX, like half its new frame's width.
+    const own: Expression = { kind: "table", segment: 0x2fe1, offset: 6, index: f("part", 0x0c), width: 16 };
+    const halfOwn: Expression = { kind: "binary", operator: ">>", left: own, right: c(1), width: 16 };
+    expect(placeTest(signed(centre(MEMBER), "<", plus(f("part", 0x1e), halfOwn)), MEMBER)).toEqual({
+      offset: 0x1e,
+      memberHalf: 0x44,
+      extra: halfOwn,
+      shift: 0,
+      low: 1,
+      compared: true,
+    });
+    // A value that reads the member, or something unknown, isn't the source's own.
+    const theirs: Expression = { ...own, index: f(MEMBER, 0x0c) };
+    expect(
+      placeTest(signed(centre(MEMBER), "<", plus(f("part", 0x1e), { ...halfOwn, left: theirs } as Expression)), MEMBER),
+    ).toBeUndefined();
+    // Two different places, or a part's place against a number, aren't a place test.
+    expect(placeTest(signed(f(MEMBER, 0x20), ">", plus(f("part", 0x1e), c(4))), MEMBER)).toBeUndefined();
+    expect(placeTest(signed(f(MEMBER, 0x20), ">", c(4)), MEMBER)).toBeUndefined();
+    // Nor is an unsigned test.
+    expect(placeTest(compare(f(MEMBER, 0x20), ">", f("part", 0x20)), MEMBER)).toBeUndefined();
   });
 });

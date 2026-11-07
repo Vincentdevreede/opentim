@@ -71,6 +71,10 @@ watch(
     void reading.walks.then((result) => {
       if (program.value?.data === data) walks.value = result;
     });
+    // The walks again with the loops read per type: they replace the first ones; if that fails, the first ones stay.
+    void reading.perType.then((result) => {
+      if (program.value?.data === data && result.status === "done") walks.value = result;
+    });
   },
   { immediate: true },
 );

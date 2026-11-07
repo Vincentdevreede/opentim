@@ -1,5 +1,8 @@
 /**
  * Extracts static behaviour reports from local game files. Reports are derived data and belong outside src/lists.
+ * They leave out the loops read once for each type of found part (`readLoopsPerType`): those ways would make a report
+ * too large to write, and they only add what parts do to each other, which `list-other-part-pairs` and the Lab read
+ * from the game files themselves.
  *
  *   pnpm --filter @opentim/content extract-behaviour --out <folder> --tim1 <game folder> --evenmore <game folder>
  */
@@ -18,7 +21,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
-import { readBehaviour, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
+import { readBehaviourInSteps, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
 import { partSemantics } from "../src/read/behaviour-build-comparison.ts";
 import { readProgramParts } from "../src/read/parts.ts";
 
@@ -145,7 +148,7 @@ for (const listId of ["tim1", "evenmore"] as const) {
         (sheet) => files.get(`${sheet}.BMP`),
       );
       const started = performance.now();
-      const report = readBehaviour(program, parts);
+      const { report } = readBehaviourInSteps(program, parts);
       const milliseconds = performance.now() - started;
       const source = { folder, sha256: createHash("sha256").update(program).digest("hex") };
       const name = basename(folder)

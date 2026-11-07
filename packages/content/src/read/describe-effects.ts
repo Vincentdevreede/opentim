@@ -17,7 +17,7 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, speedLimitOf } from "./behaviour.ts";
+import { binary, onlyStoredOverlapsOpen, speedLimitOf } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import {
   compareWords,
@@ -35,7 +35,11 @@ import {
   isLightableTest,
   LIGHTABLE_ASSUMPTION,
   LIGHTABLE_PARTS,
+  PLACE_DIFFERENCE_ASSUMPTION,
+  placeTest,
+  placeWords,
   searchTests,
+  type PlaceTest,
   type SearchTest,
 } from "./describe-hits.ts";
 
@@ -237,6 +241,11 @@ export interface OtherPartEffect extends Finding {
   /** When it sets both velocities to numbers: where that moves the part on the screen, like "up and to the left". */
   velocityDirection?: string;
   /**
+   * Where this part must lie from the source, like the vacuum cleaner's "its positionY is at least 47 pixels below the
+   * vacuum cleaner's positionY". Its words are in `conditionWords`.
+   */
+  place?: PlaceTest[];
+  /**
    * Set when this part touches the source: the contact dispatch calls the source's bounce with this part. `returns` is
    * what the bounce returns on these paths, which says whether the game goes on to a contact response, undefined when
    * it isn't a number.
@@ -373,6 +382,13 @@ function forType(
 }
 /** The overlap an overlap search stored in a found part, like "overlapX the query at 0x1abc7 found for <member>". */
 const OVERLAP = /^overlap([XY]) the query at 0x[0-9a-f]+ found for (.+)$/;
+/** A test with the overlap its search stored in the member read as the member's own field. */
+export const withOwnOverlapsIn = (p: Predicate, member: string): Predicate =>
+  p.kind === "compare"
+    ? { ...p, left: withOwnOverlaps(p.left, member), right: withOwnOverlaps(p.right, member) }
+    : p.kind === "and"
+      ? { ...p, terms: p.terms.map((t) => withOwnOverlapsIn(t, member)) }
+      : p;
 /** A value with the overlap its search stored in the member read as the member's own field, which holds it now. */
 export function withOwnOverlaps(e: Expression, member: string): Expression {
   if (e.kind === "field" && e.unresolved && OVERLAP.exec(e.object)?.[2] === member)
@@ -399,11 +415,13 @@ export function settleForType(
   const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
   const kept = speedLimitOf(settled);
   const limit = kept?.limit;
+  // The limit read for this part's type: through its type field, or, read for a known type, at that type's record.
   const ownLimit =
     !!table &&
     limit?.kind === "table" &&
     limit.segment * 16 + limit.offset === table.address + SPEED_LIMIT &&
-    JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`);
+    (JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`) ||
+      (limit.index.kind === "constant" && limit.index.value === type * table.stride));
   return ownLimit && kept ? { value: kept.speed, kept: true } : { value: settled, kept: false };
 }
 /** The speed limit's word in a type record, which the game works out for every type from the level's air and gravity. */
@@ -526,6 +544,8 @@ export const named = (name: string, capital = false): string =>
   /^[A-Z]/.test(name) ? name : `${capital ? article(name) : article(name).toLowerCase()} ${name}`;
 
 interface Candidate {
+  /** Set when the way comes from reading the loop for one type of found part: it holds only for that type. */
+  onlyType?: number;
   sourceWords: string[];
   sourceType: number;
   sourcePart: string;
@@ -535,6 +555,8 @@ interface Candidate {
   writes: FieldWrite[];
   sourceTerms: Predicate[];
   memberTerms: Predicate[];
+  /** The tests of where the part lies from the source. */
+  place: PlaceTest[];
   /**
    * Whether the source names the part's type, or else the flag tests of the search that found it, when they are all
    * known. Only then may a line keep tests of the part's own fields that its type doesn't decide: a search may keep
@@ -550,12 +572,38 @@ export const TOUCH_ASSUMPTION =
   "The part touches the source, which is another part, and the fields of both meet the tests when the contact dispatch calls the source's bounce; that this happens in a level is not claimed.";
 
 /** Whether a value reads a table, which a line can't look up. */
-function readsTable(value: Expression | Predicate): boolean {
-  if (value.kind === "table") return true;
-  if (value.kind === "binary" || value.kind === "compare") return readsTable(value.left) || readsTable(value.right);
-  if (value.kind === "and") return value.terms.some(readsTable);
+function readsTable(
+  value: Expression | Predicate,
+  allowed?: (e: Extract<Expression, { kind: "table" }>) => boolean,
+): boolean {
+  if (value.kind === "table") return !allowed?.(value);
+  if (value.kind === "binary" || value.kind === "compare")
+    return readsTable(value.left, allowed) || readsTable(value.right, allowed);
+  if (value.kind === "and") return value.terms.some((t) => readsTable(t, allowed));
   return false;
 }
+/**
+ * Whether a table word is the speed limit of a part of the type: the game works it out for every type when a level
+ * starts, so it is the part's own, like a field, though it is no number before the level.
+ */
+export function isSpeedLimitOf(
+  e: Extract<Expression, { kind: "table" }>,
+  type: number,
+  table: BehaviourReport["typeTable"],
+): boolean {
+  return (
+    !!table &&
+    e.segment * 16 + e.offset === table.address + SPEED_LIMIT &&
+    e.index.kind === "constant" &&
+    e.index.value === type * table.stride
+  );
+}
+/** Whether a value reads a table word besides the speed limit of a part of the type. */
+export const readsTableBesidesSpeedLimit = (
+  value: Expression | Predicate,
+  type: number,
+  table: BehaviourReport["typeTable"],
+): boolean => readsTable(value, (e) => isSpeedLimitOf(e, type, table));
 
 /**
  * A query's answer, like the bounce pool's at `0x867c` (Even More, English floppy) that the teeter-totter asks whether a
@@ -688,13 +736,15 @@ export function effectsFromOthers(
     !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
-  const settingWords = (offset: number, raw: Expression) => {
+  const settingWords = (offset: number, raw: Expression, type?: number) => {
+    const table = (e: Extract<Expression, { kind: "table" }>) =>
+      type !== undefined && isSpeedLimitOf(e, type, report.typeTable) ? "speed limit" : undefined;
     const field = fieldName(offset);
     const value = tidyArithmetic(raw);
     const own = (e: Expression) => e.kind === "field" && e.object === "part" && e.offset === offset && e.width === 16;
     // A value added to the field's own, like a push.
     if (value.kind === "binary" && value.operator === "+" && own(value.left) && value.right.kind !== "constant")
-      return `adds ${formula(value.right, { field: fieldName, of: (_, what) => what })} to ${field}`;
+      return `adds ${formula(value.right, { field: fieldName, of: (_, what) => what, table })} to ${field}`;
     const signedWord = (n: number) => (n >= 0x8000 ? n - 0x10000 : n);
     if (value.kind === "binary" && own(value.left) && value.right.kind === "constant") {
       const n = value.right.value;
@@ -717,7 +767,7 @@ export function effectsFromOthers(
     if (value.kind === "binary" && value.operator === "-" && value.left.kind === "constant" && value.left.value === 0) {
       if (own(value.right)) return `reverses ${field}`;
     }
-    const plain: Names = { field: fieldName, of: (_, what) => what };
+    const plain: Names = { field: fieldName, of: (_, what) => what, table };
     const long = longPart(value);
     if (long)
       return `sets ${field} to the ${long.high ? "high" : "low"} word of ${formula(long.word, plain)} × ${2 ** long.shift}`;
@@ -745,7 +795,12 @@ export function effectsFromOthers(
       if (settled) {
         // Only a value of the part's own fields says something a line can repeat.
         const read = objects(settled.value);
-        if (read.unknown || readsTable(settled.value) || [...read.objects].some((o) => o !== member)) return undefined;
+        if (
+          read.unknown ||
+          readsTableBesidesSpeedLimit(settled.value, type, report.typeTable) ||
+          [...read.objects].some((o) => o !== member)
+        )
+          return undefined;
         // A value worked out from the part's own fields, as a touch can set: like halving its velocityX.
         const value = rename(settled.value, member, "part");
         const unchanged = value.kind === "field" && value.object === "part" && value.offset === w.offset;
@@ -757,8 +812,8 @@ export function effectsFromOthers(
           words: settled.kept
             ? unchanged
               ? `keeps ${fieldName(w.offset)} within its speed limit`
-              : `${settingWords(w.offset, value)}, kept within its speed limit`
-            : settingWords(w.offset, value),
+              : `${settingWords(w.offset, value, type)}, kept within its speed limit`
+            : settingWords(w.offset, value, type),
         });
         continue;
       }
@@ -1057,10 +1112,22 @@ export function effectsFromOthers(
   for (const source of report.parts)
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
-      for (const outcome of routines.get(callback.address)?.iterationOutcomes ?? []) {
+      // A loop read for each type of found part gives each type's own ways, in place of the generic ones.
+      const code = routines.get(callback.address);
+      const ways = code?.iterationOutcomesByType
+        ? Object.entries(code.iterationOutcomesByType).flatMap(([type, list]) =>
+            list.map((outcome) => ({ outcome, onlyType: Number(type) as number | undefined })),
+          )
+        : (code?.iterationOutcomes ?? []).map((outcome) => ({ outcome, onlyType: undefined as number | undefined }));
+      for (const { outcome, onlyType } of ways) {
         // What a list consumer does to a member tests where it lies from the source, which a line can't say yet: it
         // comes as a walk (`describe-hits.ts`).
-        if (!outcome.effectsComplete || outcome.confidence === "unresolved" || outcome.listConsumer) continue;
+        if (
+          !outcome.effectsComplete ||
+          (outcome.confidence === "unresolved" && !onlyStoredOverlapsOpen(outcome)) ||
+          outcome.listConsumer
+        )
+          continue;
         const member = outcome.object;
         const writes = outcome.fields.filter((f) => f.object === member);
         if (!writes.length || writes.length !== outcome.fields.length) continue;
@@ -1074,13 +1141,17 @@ export function effectsFromOthers(
         )
           continue;
         const sourceTerms: Predicate[] = [],
-          memberTerms: Predicate[] = [];
+          memberTerms: Predicate[] = [],
+          place: PlaceTest[] = [];
         let open = false;
-        for (const term of terms(outcome.condition)) {
+        for (const term of terms(outcome.condition).map((t) => withOwnOverlapsIn(t, member))) {
           const { objects: read, unknown } = objects(term);
+          const placed = unknown ? undefined : placeTest(term, member);
           if (unknown || term.kind === "unknown") open = true;
           else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
+          // A test of where the part lies from the source, like the vacuum cleaner's nozzle below it.
+          else if (placed) place.push(placed);
           else open = true;
         }
         if (open) continue;
@@ -1095,6 +1166,7 @@ export function effectsFromOthers(
         );
         const search = named ? undefined : searchTests(report, callback.address, outcome.header);
         candidates.push({
+          ...(onlyType === undefined ? {} : { onlyType }),
           named,
           ...(search ? { search } : {}),
           sourceWords: sourceTerms.flatMap((t) => drawingFlagWords(t, report) ?? []),
@@ -1106,6 +1178,7 @@ export function effectsFromOthers(
           writes,
           sourceTerms,
           memberTerms,
+          place,
         });
       }
       // The contact dispatch calls the bounce of the touched part's type with the part that touched it (`collider`).
@@ -1136,6 +1209,7 @@ export function effectsFromOthers(
       partFields(rule.to, read);
     }
     for (const c of candidates) {
+      if (c.onlyType !== undefined && c.onlyType !== part.type) continue;
       const used = { table: false };
       const conditionTerms: Predicate[] = [],
         words: string[] = [];
@@ -1178,7 +1252,13 @@ export function effectsFromOthers(
         const own = renamePredicate(typed, c.member, "part");
         // A test of the part's own fields that its type doesn't decide, like Mel's frame, stays as the line's condition,
         // in words, as for a touch: "its state is below 6".
-        if (!flag && (!(c.named || c.search) || own.kind !== "compare" || readsTable(own))) decided = false;
+        if (
+          !flag &&
+          (!(c.named || c.search) ||
+            own.kind !== "compare" ||
+            readsTableBesidesSpeedLimit(own, part.type, report.typeTable))
+        )
+          decided = false;
         conditionTerms.push(own);
         // A flag the search needs clear says its name, like "its out-of-play flag 0x2000 is clear".
         const cleared = clearNames.get(term);
@@ -1187,7 +1267,14 @@ export function effectsFromOthers(
             (cleared
               ? `its ${cleared} is clear`
               : own.kind === "compare"
-                ? compareWords(own, { field: fieldName, of: (_, what) => `its ${what}` })
+                ? compareWords(
+                    { ...own, left: tidyArithmetic(own.left), right: tidyArithmetic(own.right) },
+                    {
+                      field: fieldName,
+                      of: (_, what) => `its ${what}`,
+                      table: (e) => (isSpeedLimitOf(e, part.type, report.typeTable) ? "speed limit" : undefined),
+                    },
+                  )
                 : ""),
         );
       }
@@ -1203,10 +1290,12 @@ export function effectsFromOthers(
       }
       const name = nameOf(c.sourcePart);
       const { said, velocityDirection } = sayings(sets, name);
+      const placeSaid = placeWords(c.place, name, fieldName, c.sourcePart);
+      words.push(...placeSaid);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (w.startsWith("its ") ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*its /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
       // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
-      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms]);
+      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
       if (prior) {
@@ -1223,8 +1312,10 @@ export function effectsFromOthers(
         condition: conjunction(conditionTerms),
         conditionWords: words,
         ...(velocityDirection ? { velocityDirection } : {}),
+        ...(c.place.length ? { place: c.place } : {}),
         description,
-        confidence: c.outcome.confidence,
+        // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
+        confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
         assumptions: [
           ...new Set([
             ...c.outcome.assumptions,
@@ -1233,6 +1324,7 @@ export function effectsFromOthers(
             ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
             ...proofs,
             ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
+            ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
             "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
           ]),
         ],

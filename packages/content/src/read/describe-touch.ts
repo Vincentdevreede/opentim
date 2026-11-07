@@ -6,6 +6,7 @@
  * drops out. Joining only ever unites whole paths, so a line holds exactly when one of its paths' tests hold.
  */
 import type { Expression, Predicate } from "./behaviour.ts";
+import { speedLimitOf } from "./behaviour.ts";
 
 /** Ranges of a word's values, read unsigned, sorted and apart. */
 type Ranges = [number, number][];
@@ -291,6 +292,8 @@ export function joinPaths<T>(paths: { tests: Tests; value: T }[], join: (into: T
 export interface Names {
   field(offset: number): string;
   of(object: string, what: string): string;
+  /** The name of a table word, like a part's speed limit, when it has one. */
+  table?(e: Extract<Expression, { kind: "table" }>): string | undefined;
 }
 
 const isAbsolute = (e: Expression): Expression | undefined => {
@@ -359,6 +362,13 @@ export function formula(e: Expression, names: Names, nested = false): string {
   if (e.kind === "field" && e.unresolved && /^answer of the query at /.test(e.object)) return `the ${e.object}`;
   if (e.kind === "field") return names.of(e.object, names.field(e.offset));
   if (e.kind === "binary") {
+    // A value kept within a speed limit, as the game's speed limit routine keeps a velocity.
+    const kept = speedLimitOf(e);
+    if (kept) {
+      const limit = kept.limit.kind === "table" ? names.table?.(kept.limit) : undefined;
+      const text = `${formula(kept.speed, names, true)} kept within ${limit ? `its ${limit}` : `±${formula(kept.limit, names, true)}`}`;
+      return nested ? `(${text})` : text;
+    }
     const absolute = isAbsolute(e);
     if (absolute) return `|${formula(absolute, names)}|`;
     const middle = centre(e, names);
@@ -372,7 +382,7 @@ export function formula(e: Expression, names: Names, nested = false): string {
     const text = `${formula(e.left, names, true)} ${e.operator} ${right}`;
     return nested ? `(${text})` : text;
   }
-  if (e.kind === "table") return "a table word";
+  if (e.kind === "table") return names.table?.(e) ?? "a table word";
   return "an unknown value";
 }
 

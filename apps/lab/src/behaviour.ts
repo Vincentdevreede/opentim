@@ -1170,6 +1170,11 @@ export type WalksResult =
       rests: Record<number, RestSummary>;
       doings: Record<number, Doing[]>;
       seconds: number;
+      /**
+       * Whether the loops over the parts a part finds were read once for each type a found part can have, which gives
+       * more of what other parts do to it, like the vacuum cleaner's pull. That takes longest, so it comes last.
+       */
+      perType: boolean;
     }
   | { status: "error"; message: string };
 
@@ -1179,11 +1184,17 @@ export interface BehaviourRequest {
   parts: ProgramParts;
 }
 
-/** What the worker answers: first the behaviour, then the walks. */
-export type BehaviourMessage = { kind: "behaviour"; result: BehaviourResult } | { kind: "walks"; result: WalksResult };
+/** What the worker answers: first the behaviour, then the walks, then the walks again with the loops read per type. */
+export type BehaviourMessage =
+  | { kind: "behaviour"; result: BehaviourResult }
+  | { kind: "walks"; result: WalksResult }
+  | { kind: "per type"; result: WalksResult };
 
 /** The behaviour and the walks of a program, once per program: a later call gets the same answers, unless one failed. */
-const results = new WeakMap<Uint8Array, { result: Promise<BehaviourResult>; walks: Promise<WalksResult> }>();
+const results = new WeakMap<
+  Uint8Array,
+  { result: Promise<BehaviourResult>; walks: Promise<WalksResult>; perType: Promise<WalksResult> }
+>();
 
 /** How to stop the read of a program while its worker still runs. */
 const running = new Map<Uint8Array, (message: string) => void>();
@@ -1197,20 +1208,22 @@ export function stopBehaviourRead(program: Uint8Array): void {
 }
 
 /**
- * Reads the behaviour of a program in a worker, then the walks from its triggers. The behaviour comes first, so it can
- * show while the walks are still being read.
+ * Reads the behaviour of a program in a worker, then the walks from its triggers, then the walks again with the loops
+ * over found parts read per type. The behaviour comes first, so it can show while the rest is still being read.
  */
 export function readBehaviourInBackground(
   program: Uint8Array,
   parts: ProgramParts,
-): { result: Promise<BehaviourResult>; walks: Promise<WalksResult> } {
+): { result: Promise<BehaviourResult>; walks: Promise<WalksResult>; perType: Promise<WalksResult> } {
   let reading = results.get(program);
   if (!reading) {
     let resolveResult!: (r: BehaviourResult) => void;
     let resolveWalks!: (r: WalksResult) => void;
+    let resolvePerType!: (r: WalksResult) => void;
     reading = {
       result: new Promise((resolve) => (resolveResult = resolve)),
       walks: new Promise((resolve) => (resolveWalks = resolve)),
+      perType: new Promise((resolve) => (resolvePerType = resolve)),
     };
     let worker: Worker | undefined;
     const end = () => {
@@ -1220,6 +1233,7 @@ export function readBehaviourInBackground(
     const stop = (message: string) => {
       resolveResult({ status: "error", message });
       resolveWalks({ status: "error", message });
+      resolvePerType({ status: "error", message });
       end();
       if (results.get(program) === reading) results.delete(program);
     };
@@ -1232,8 +1246,11 @@ export function readBehaviourInBackground(
         if (data.kind === "behaviour") {
           resolveResult(data.result);
           if (data.result.status === "error") stop(data.result.message);
-        } else {
+        } else if (data.kind === "walks") {
           resolveWalks(data.result);
+          if (data.result.status === "error") stop(data.result.message);
+        } else {
+          resolvePerType(data.result);
           end();
         }
       };
@@ -1249,6 +1266,7 @@ export function readBehaviourInBackground(
     };
     void reading.result.then(forget);
     void reading.walks.then(forget);
+    void reading.perType.then(forget);
   }
   return reading;
 }

@@ -16,6 +16,7 @@
  * counted apart.
  */
 import type { BehaviourReport, FieldWrite, Predicate, RoutineOutcome } from "./behaviour.ts";
+import { onlyStoredOverlapsOpen } from "./behaviour.ts";
 import {
   effectsFromOthers,
   type Evaluate,
@@ -28,7 +29,9 @@ import {
   partFields,
   predicateForType,
   settleForType,
+  withOwnOverlapsIn,
   readsAnswer,
+  readsTableBesidesSpeedLimit,
   terms,
 } from "./describe-effects.ts";
 import {
@@ -129,6 +132,8 @@ interface Path {
   writes: FieldWrite[];
   memberTerms: Predicate[];
   header?: number;
+  /** Set when the way comes from reading the loop for one type of found part: it holds only for that type. */
+  onlyType?: number;
 }
 
 /**
@@ -168,15 +173,17 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       if (callback.sharedDefault) continue;
       const code = routines.get(callback.address);
       if (!code) continue;
-      const add = (way: PairWay, member: string, outcome: Path["outcome"], header?: number) => {
+      const add = (way: PairWay, member: string, outcome: Path["outcome"], header?: number, onlyType?: number) => {
         const writes = outcome.fields.filter((f) => f.object === member);
         if (!writes.length && outcome.effectsComplete) return;
         // A constant test that fails, like `0 != 0`, means the code never takes the path.
         if (terms(outcome.condition).some((term) => constantTest(term) && evaluate(term, []) === false)) return;
-        const memberTerms = terms(outcome.condition).filter((term) => {
-          const read = objects(term);
-          return !read.unknown && read.objects.size === 1 && read.objects.has(member);
-        });
+        const memberTerms = terms(outcome.condition)
+          .map((term) => withOwnOverlapsIn(term, member))
+          .filter((term) => {
+            const read = objects(term);
+            return !read.unknown && read.objects.size === 1 && read.objects.has(member);
+          });
         paths.push({
           sourceType: source.type,
           sourcePart: source.id,
@@ -187,10 +194,23 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
           writes,
           memberTerms,
           ...(header === undefined ? {} : { header }),
+          ...(onlyType === undefined ? {} : { onlyType }),
         });
       };
-      for (const outcome of code.iterationOutcomes ?? [])
-        add(outcome.listConsumer ? "list consumer" : "overlap list", outcome.object, outcome, outcome.header);
+      // A loop read for each type of found part gives each type's own ways, in place of the generic ones.
+      if (code.iterationOutcomesByType)
+        for (const [type, list] of Object.entries(code.iterationOutcomesByType))
+          for (const outcome of list)
+            add(
+              outcome.listConsumer ? "list consumer" : "overlap list",
+              outcome.object,
+              outcome,
+              outcome.header,
+              Number(type),
+            );
+      else
+        for (const outcome of code.iterationOutcomes ?? [])
+          add(outcome.listConsumer ? "list consumer" : "overlap list", outcome.object, outcome, outcome.header);
       if (callback.slot === 0) {
         let selfOnly = 0;
         for (const outcome of code.outcomes ?? []) {
@@ -258,12 +278,13 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   const missingReason = (path: Path, type: number): string => {
     const { outcome, way, member } = path;
     const touch = way === "touch";
-    // A consumer's test of where the member lies from the source is said in words.
-    const placed = (term: Predicate) => way === "list consumer" && placeTest(term, member) !== undefined;
+    // A loop's test of where the member lies from the source is said in words.
+    const placed = (term: Predicate) => !touch && placeTest(term, member) !== undefined;
     if (!outcome.effectsComplete) return NO_COMPLETE_EFFECTS;
     if (
       outcome.confidence === "unresolved" &&
       !(touch && onlyAnswersOpen(outcome)) &&
+      !(way === "overlap list" && "scope" in outcome && onlyStoredOverlapsOpen(outcome)) &&
       !(
         way === "list consumer" &&
         terms(outcome.condition).every((t) => placed(t) || !objects(t).unknown) &&
@@ -272,7 +293,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
     )
       return UNRESOLVED_PATH;
     if (outcome.fields.some((f) => f.object !== member && !(touch && f.object === "part"))) return OTHER_OBJECTS;
-    for (const term of terms(outcome.condition)) {
+    for (const term of terms(outcome.condition).map((t) => withOwnOverlapsIn(t, path.member))) {
       const read = objects(term);
       if (touch && term.kind === "compare" && readsAnswer(term) && !read.objects.has(member)) continue;
       if (placed(term)) continue;
@@ -298,7 +319,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       if (value.unknown) return UNKNOWN_VALUE;
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
-      if (JSON.stringify(settled).includes('"kind":"table"')) return TABLE_VALUE;
+      if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;
     }
     if (
       touch &&
@@ -315,6 +336,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   for (const path of paths)
     for (const target of report.parts) {
       // A test of the part's type, or of a type table word, that fails for this type: the code never does it.
+      if (path.onlyType !== undefined && path.onlyType !== target.type) continue;
       if (path.memberTerms.some((term) => evaluate(typed(term, path.member, target.type), []) === false)) continue;
       const ruled = new Set<string>();
       // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
