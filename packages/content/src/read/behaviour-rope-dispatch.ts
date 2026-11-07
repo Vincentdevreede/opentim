@@ -151,12 +151,15 @@ export function settleRopeDispatch(
     recordFields: fieldsOf(lists, (l) => l.recordFields),
     globals: lists.some((l) => l.globals),
   });
+  // The bound is built from the round before, so a round that finds global storage written for the first time isn't
+  // stable either.
   const key = (fields: RopeCallbackWrites) =>
-    JSON.stringify(
-      [fields.partFields, fields.ownFields, fields.recordFields].map((items) =>
+    JSON.stringify([
+      ...[fields.partFields, fields.ownFields, fields.recordFields].map((items) =>
         items.map((f) => `${f.offset}:${f.width}`).sort(),
       ),
-    );
+      fields.globals,
+    ]);
   // `ownFields` here holds what a question that comes back can change on the part that asks.
   let fields: RopeCallbackWrites = { partFields: [], ownFields: [], recordFields: [], globals: false };
   let bound = query,
