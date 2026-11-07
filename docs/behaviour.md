@@ -788,6 +788,49 @@ Describing a build takes as long as before (about 6 seconds for Even More and 5.
 The lab shows the lines in the Behaviour tab, under "From other parts": one row each, with the other part's name, what
 it sets and the value, and a chip for what either part must be.
 
+### The fan, the bellows and the teapot push what they find
+
+The three search a box beside them with the overlap search at `0x417e` (Even More, English floppy; TIM 1 French
+`0x3597`) and push every part on the moving list it finds. Their push went through three helpers of the compiler's
+runtime, which the analysis now reads, recognised by their exact code (the same bytes in all eleven builds):
+
+- `0x2bdb3`: `mov bx, sp`, `mov ax, [bx+4]`, `imul word [bx+6]`, `retf`. It multiplies the two signed words on the
+  stack into the 32-bit product in DX:AX.
+- `0xc9d5` and its sister entries: a 145-byte body that divides the 32-bit word pair on the stack by the next one and
+  pops both (`retf 8`). Its entry sets CX: bit 0 makes it unsigned and bit 1 gives the remainder. A signed division
+  truncates toward zero and a remainder takes the dividend's sign, as the analysis's own `s/` and `s%` do. A divisor
+  of 0 would fault, so a running game never has one there (an assumption on the summary).
+- `0xcaa4`, the 32-bit shift the analysis already knew.
+
+A 32-bit value passed from one helper to the next is split into its two words and joined again; the analysis joins
+`x & 0xffff` and `(x >>> 16) & 0xffff` back into `x`, so the value keeps its size. Multiplying folds exactly in every
+width (two 32-bit words multiply past what a double keeps).
+
+The search stores in each part it finds, besides the link at 0x78, the overlap at 0x7a and 0x7c. The search's code
+gives each its axis: the stored local starts from the found part's positionX for 0x7a and its positionY for 0x7c, so
+they are named overlapX and overlapY. Along X it is how far the part lies outside the box: the gap past the box's
+right edge, at least 1, or the gap before its left edge as a negative number, at most -1, whichever edge is nearer.
+A value read from a found part after the search names it as a run value, "overlapX the query at 0x1abc7 found for"
+that part.
+
+The fan's box is 256 pixels long on the side it blows to (right, or left when flipped) and overlaps the part's height,
+with 10 pixels to spare above. For each part it finds, the fan adds 16 × (256 − |overlapX|) ÷ the part's mass to its
+velocityX (−16 when flipped), and then keeps both velocities within the part's speed limit. The bellows does the same
+with 8. The teapot, when it pours, pushes a part that moves slower than 1536 by 1536 (or 1024) up and to the side it
+faces, also kept within the part's speed limit. The mass is the type's word at +0x02; the speed limit is the word at
++0x0a, which the game works out for every type from the level's air pressure and gravity, so a line says "kept within
+its speed limit" rather than a number.
+
+The lines and the pair check settle each value for the found part's type the same way (`settleForType`): the overlap
+reads as the part's own field, the type's settled words are numbers, and the speed limit's clamp is taken out with
+"kept within its speed limit". The words write the arithmetic plainly (`tidyArithmetic`): a sign extended word is the
+word, `(4096 × x) >> 8` is `16 × x`, and the low word of the quotient is the quotient, which fits a word here because
+the box keeps 256 − |overlapX| between 0 and 255.
+
+With this, no pair is missing for a table word any more: Even More goes from 247 missing pairs to 145, TIM 1 from
+124 to 59. Four pairs of these three (one in TIM 1) stay missing because a test of the found part isn't settled by its
+type. The scoreboard and every recording are unchanged.
+
 ### The push's direction
 
 The explosion's run gives the speed setter the answer of the routine at `0x496e` (Even More, English floppy) as its

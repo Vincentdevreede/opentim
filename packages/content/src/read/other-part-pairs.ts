@@ -27,6 +27,7 @@ import {
   onlyAnswersOpen,
   partFields,
   predicateForType,
+  settleForType,
   readsAnswer,
   terms,
 } from "./describe-effects.ts";
@@ -291,23 +292,13 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         if (readsRule(w)) return DIRECTED_RULE_FIELD;
         continue;
       }
-      const value = objects(w.value);
+      // The value as the line says it: the overlap its search stored, the type's words and the part's speed limit.
+      const settled = settleForType(w.value, member, typeOffset!, type, report.typeTable, { table: false }).value;
+      const value = objects(settled);
       if (value.unknown) return UNKNOWN_VALUE;
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
-      if (JSON.stringify(w.value).includes('"kind":"table"')) {
-        const settled = JSON.stringify(
-          predicateForType(
-            { kind: "compare", operator: "==", left: w.value, right: w.value, signed: false },
-            member,
-            typeOffset,
-            type,
-            report.typeTable,
-            { table: false },
-          ),
-        );
-        if (settled.includes('"kind":"table"')) return TABLE_VALUE;
-      }
+      if (JSON.stringify(settled).includes('"kind":"table"')) return TABLE_VALUE;
     }
     if (
       touch &&

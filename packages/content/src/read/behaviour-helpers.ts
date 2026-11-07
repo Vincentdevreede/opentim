@@ -242,6 +242,11 @@ export interface EngineSummary extends Finding {
      * present when the reader accounts for every such test.
      */
     memberTests?: (Finding & { offset: number; mask: number; set: boolean })[];
+    /**
+     * The words an overlap search stores in each part it finds besides the link, by the axis the search measures
+     * them on: what the search's code computes from that part's position along X or along Y.
+     */
+    overlaps?: { offset: number; axis: "X" | "Y" }[];
   };
   footprint: {
     complete: boolean;
@@ -832,6 +837,49 @@ const DIVIDE32 =
   "c304007407f7daf7d883da005f5e5dca0800f7f3f7c7020074019233d2ebed";
 const hexOf = (instructions: readonly Instruction[]) =>
   instructions.map((i) => i.bytes.map((b) => b.toString(16).padStart(2, "0")).join("")).join("");
+
+/**
+ * The axis of each word an overlap search stores in a found part, other than its link. The search stores a local
+ * (`mov ax, [bp-k]`, then `mov [node+off], ax`); the local first gets a difference that starts from another local,
+ * and that one first gets the found part's position field: positionX for X, positionY for Y.
+ */
+function overlapAxes(
+  code: RoutineCode,
+  node: string,
+  link: number,
+  positionX: number | undefined,
+  positionY: number | undefined,
+): { offset: number; axis: "X" | "Y" }[] {
+  const i = [...code.instructions].sort((a, b) => a.address - b.address);
+  const local = (o: Operand | undefined) =>
+    o && isMemory(o) && o.base.length === 1 && o.base[0] === "bp" ? o.displacement : undefined;
+  const firstStore = (k: number) =>
+    i.findIndex((x) => x.mnemonic === "mov" && local(x.operands[0]) === k && isRegister(x.operands[1], "ax"));
+  const loadBefore = (n: number, from: (o: Operand) => boolean) => {
+    for (let k = n - 1; k >= 0; k--)
+      if (i[k]!.mnemonic === "mov" && isRegister(i[k]!.operands[0], "ax") && from(i[k]!.operands[1]!)) return k;
+    return -1;
+  };
+  const result: { offset: number; axis: "X" | "Y" }[] = [];
+  i.forEach((store, n) => {
+    const dest = store.operands[0];
+    if (store.mnemonic !== "mov" || !dest || !isMemory(dest, node) || !isRegister(store.operands[1], "ax")) return;
+    if (dest.displacement === link) return;
+    const stored = local(
+      i[n - 1]?.mnemonic === "mov" && isRegister(i[n - 1]!.operands[0], "ax") ? i[n - 1]!.operands[1] : undefined,
+    );
+    if (stored === undefined) return;
+    const difference = firstStore(stored);
+    const start = difference < 0 ? -1 : loadBefore(difference, (o) => local(o) !== undefined);
+    const edge = start < 0 ? -1 : firstStore(local(i[start]!.operands[1])!);
+    const position = edge < 0 ? -1 : loadBefore(edge, (o) => isMemory(o, node));
+    const field =
+      position < 0 ? undefined : (i[position]!.operands[1] as Extract<Operand, { kind: "memory" }>).displacement;
+    const axis = field === positionX ? "X" : field === positionY ? "Y" : undefined;
+    if (axis && field !== undefined) result.push({ offset: dest.displacement, axis });
+  });
+  return result;
+}
 
 /** The 32-bit arithmetic helper a routine is, recognised by its exact code. */
 function wideArithmetic(code: RoutineCode): EngineSummary["arithmetic"] | undefined {
@@ -1779,6 +1827,13 @@ export function discoverEngineSummaries(
       summary.argumentKind = "object";
       const exclusion = excludesOwner(code, insertion.owner, insertion.node, insertion.instructions[0]!.address);
       const memberTests = candidateFlagTests(code, insertion.node, insertion.instructions);
+      const overlaps = overlapAxes(
+        code,
+        insertion.node,
+        insertion.offset,
+        layout?.fields.find((f) => f.name === "positionX")?.offset,
+        layout?.fields.find((f) => f.name === "positionY")?.offset,
+      );
       summary.list = {
         headField: insertion.offset,
         nextField: insertion.offset,
@@ -1789,6 +1844,7 @@ export function discoverEngineSummaries(
           "The list describes nodes accepted during this query; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],
         ...(memberTests ? { memberTests } : {}),
+        ...(overlaps.length ? { overlaps } : {}),
       };
       summary.purpose = pointBounds
         ? "Builds a linked list of other objects whose tested reference points lie inside the supplied bounds."

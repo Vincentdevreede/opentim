@@ -2288,7 +2288,10 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               unresolved: true,
             }) as Expression,
           // Its other stores, besides the link, are the overlap it works out for that part.
-          (offset) => (offset === engine.list!.nextField ? undefined : "overlap"),
+          (offset) =>
+            offset === engine.list!.nextField
+              ? undefined
+              : `overlap${engine.list!.overlaps?.find((o) => o.offset === offset)?.axis ?? ""}`,
         );
       }
     }
@@ -4705,7 +4708,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
  * ordered insertion links a part between, or the angle between two parts' centres.
  */
 const RUN_VALUE =
-  /^(answer of the query|overlap the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
+  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {

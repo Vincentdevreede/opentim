@@ -17,6 +17,7 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
+import { binary, speedLimitOf } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import {
   compareWords,
@@ -354,7 +355,8 @@ function forType(
   if (e.kind === "binary") {
     const left = forType(e.left, member, typeOffset, type, table, used),
       right = forType(e.right, member, typeOffset, type, table, used);
-    return left === e.left && right === e.right ? e : { ...e, left, right };
+    // Rebuilt with the analysis's own folding, so a test of two numbers the type settles is a number too.
+    return left === e.left && right === e.right ? e : binary(e.operator, left, right, e.width, Infinity);
   }
   if (e.kind === "table") {
     const index = numberOf(forType(e.index, member, typeOffset, type, table, used));
@@ -369,6 +371,82 @@ function forType(
   }
   return e;
 }
+/** The overlap an overlap search stored in a found part, like "overlapX the query at 0x1abc7 found for <member>". */
+const OVERLAP = /^overlap([XY]) the query at 0x[0-9a-f]+ found for (.+)$/;
+/** A value with the overlap its search stored in the member read as the member's own field, which holds it now. */
+export function withOwnOverlaps(e: Expression, member: string): Expression {
+  if (e.kind === "field" && e.unresolved && OVERLAP.exec(e.object)?.[2] === member)
+    return { kind: "field", object: member, offset: e.offset, width: e.width };
+  if (e.kind === "binary")
+    return { ...e, left: withOwnOverlaps(e.left, member), right: withOwnOverlaps(e.right, member) };
+  if (e.kind === "table") return { ...e, index: withOwnOverlaps(e.index, member) };
+  return e;
+}
+/**
+ * A value a source sets on a found part of the type, settled as far as the type allows: the overlap its search just
+ * stored in the part reads as the part's own field, words of the type record the type settles are numbers, and a value
+ * kept within the part's speed limit is the value inside, with `kept` set. The speed limit is a word of the type record
+ * the game works out per level, so it stays a word, but it is the part's own.
+ */
+export function settleForType(
+  value: Expression,
+  member: string,
+  typeOffset: number,
+  type: number,
+  table: BehaviourReport["typeTable"],
+  used: { table: boolean },
+): { value: Expression; kept: boolean } {
+  const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
+  const kept = speedLimitOf(settled);
+  const limit = kept?.limit;
+  const ownLimit =
+    !!table &&
+    limit?.kind === "table" &&
+    limit.segment * 16 + limit.offset === table.address + SPEED_LIMIT &&
+    JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`);
+  return ownLimit && kept ? { value: kept.speed, kept: true } : { value: settled, kept: false };
+}
+/** The speed limit's word in a type record, which the game works out for every type from the level's air and gravity. */
+const SPEED_LIMIT = 0x0a;
+
+/**
+ * A value as the words say it, the same number written plainly: a word sign extended to 32 bits is the word, a 32-bit
+ * number past 2^31 is negative, `(c × x) >> k` with c a multiple of 2^k is `(c / 2^k) × x`, the low word of a quotient
+ * is the quotient (a push's quotient fits a word), and a signed division reads ÷.
+ */
+export function tidyArithmetic(e: Expression): Expression {
+  if (e.kind === "constant" && e.width === 32 && e.value >= 2 ** 31)
+    return { kind: "binary", operator: "-", left: constant(0, 32), right: constant(2 ** 32 - e.value, 32), width: 32 };
+  if (e.kind !== "binary") return e;
+  const left = tidyArithmetic(e.left),
+    right = tidyArithmetic(e.right);
+  const number = (x: Expression) => (x.kind === "constant" ? x.value : undefined);
+  // (x ^ 0x8000) - 0x8000: the word x, sign extended.
+  if (
+    e.operator === "-" &&
+    number(e.right) === 0x8000 &&
+    e.left.kind === "binary" &&
+    e.left.operator === "^" &&
+    number(e.left.right) === 0x8000
+  )
+    return tidyArithmetic(e.left.left);
+  if (e.operator === ">>" && e.left.kind === "binary" && e.left.operator === "*" && number(e.right) !== undefined) {
+    const k = number(e.right)!;
+    const c = number(e.left.left);
+    // The number is signed: the arithmetic shift keeps its sign.
+    const signedC = c !== undefined && c >= 2 ** (e.left.left.width - 1) ? c - 2 ** e.left.left.width : c;
+    if (signedC !== undefined && signedC % 2 ** k === 0) {
+      const scaled = signedC / 2 ** k;
+      const width = e.left.left.width;
+      return tidyArithmetic({ ...e.left, left: constant(scaled < 0 ? 2 ** width + scaled : scaled, width) });
+    }
+  }
+  if (e.operator === "&" && number(e.right) === 0xffff && e.left.kind === "binary" && e.left.operator === "s/")
+    return tidyArithmetic(e.left);
+  if (e.operator === "s/") return { ...e, operator: "÷", left, right };
+  return left === e.left && right === e.right ? e : { ...e, left, right };
+}
+
 export function predicateForType(
   p: Predicate,
   ...rest: [string, number, number, BehaviourReport["typeTable"], { table: boolean }]
@@ -596,6 +674,9 @@ export function effectsFromOthers(
   if (typeOffset === undefined || stateOffset === undefined) return result;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const fieldNames = new Map(report.layout.fields.map((f) => [f.offset, f.name]));
+  // The words an overlap search stores in the parts it finds, named by the axis its code measures them on.
+  for (const h of report.helpers ?? [])
+    for (const o of h.list?.overlaps ?? []) if (!fieldNames.has(o.offset)) fieldNames.set(o.offset, `overlap${o.axis}`);
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
@@ -607,9 +688,13 @@ export function effectsFromOthers(
     !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
-  const settingWords = (offset: number, value: Expression) => {
+  const settingWords = (offset: number, raw: Expression) => {
     const field = fieldName(offset);
+    const value = tidyArithmetic(raw);
     const own = (e: Expression) => e.kind === "field" && e.object === "part" && e.offset === offset && e.width === 16;
+    // A value added to the field's own, like a push.
+    if (value.kind === "binary" && value.operator === "+" && own(value.left) && value.right.kind !== "constant")
+      return `adds ${formula(value.right, { field: fieldName, of: (_, what) => what })} to ${field}`;
     const signedWord = (n: number) => (n >= 0x8000 ? n - 0x10000 : n);
     if (value.kind === "binary" && own(value.left) && value.right.kind === "constant") {
       const n = value.right.value;
@@ -648,28 +733,36 @@ export function effectsFromOthers(
     const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
     for (const w of writes) {
       // A number, or a value the part's type settles, like a speed read from its type record.
-      const number = w.directedSpeed
+      // A number, a value of the part's own fields, or either one kept within the part's speed limit.
+      const settled = w.directedSpeed
         ? undefined
-        : numberOf(forType(w.value, member, typeOffset, type, report.typeTable, used));
-      if (number !== undefined) {
+        : settleForType(w.value, member, typeOffset, type, report.typeTable, used);
+      const number = settled && numberOf(settled.value);
+      if (settled && number !== undefined && !settled.kept) {
         sets.push({ kind: "field", offset: w.offset, width: w.width, value: number });
         continue;
       }
-      if (!w.directedSpeed) {
+      if (settled) {
         // Only a value of the part's own fields says something a line can repeat.
-        const read = objects(w.value);
-        if (read.unknown || readsTable(w.value) || [...read.objects].some((o) => o !== member)) return undefined;
+        const read = objects(settled.value);
+        if (read.unknown || readsTable(settled.value) || [...read.objects].some((o) => o !== member)) return undefined;
         // A value worked out from the part's own fields, as a touch can set: like halving its velocityX.
-        const value = rename(w.value, member, "part");
+        const value = rename(settled.value, member, "part");
+        const unchanged = value.kind === "field" && value.object === "part" && value.offset === w.offset;
         sets.push({
           kind: "expression",
           offset: w.offset,
           width: w.width,
           value,
-          words: settingWords(w.offset, value),
+          words: settled.kept
+            ? unchanged
+              ? `keeps ${fieldName(w.offset)} within its speed limit`
+              : `${settingWords(w.offset, value)}, kept within its speed limit`
+            : settingWords(w.offset, value),
         });
         continue;
       }
+      if (!w.directedSpeed) continue;
       const speed = numberOf(forType(w.directedSpeed.speed, member, typeOffset, type, report.typeTable, used));
       if (speed === undefined) return undefined;
       const prior = sets.find(
@@ -975,7 +1068,7 @@ export function effectsFromOthers(
         // was given: so a value may read only the member and the type table.
         if (
           writes.some((w) => {
-            const read = objects(w.value);
+            const read = objects(withOwnOverlaps(w.value, member));
             return !w.directedSpeed && (read.unknown || [...read.objects].some((o) => o !== member));
           })
         )
