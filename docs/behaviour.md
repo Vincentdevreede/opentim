@@ -2015,6 +2015,14 @@ vacuum cleaner (`0x1e7ee`). The counts don't move (0/925 unresolved, 128 conditi
 named run values), the recordings still match 648 of 648, and every walk still ends (722 through branches, 669
 directly). TIM 1, French, comes out the same (552 of 552).
 
+A path whose effects are incomplete lists only the fields it stored, too: after a call that keeps the part's state
+without a complete footprint of its other fields, or after a store through an untracked pointer, any other field may
+have changed. Such a rule is now marked (`effectsIncomplete`), and two rules no longer merge when one of them is
+marked and leaves out a field the other lists: the merge would read the missing field as unchanged. They stay apart.
+In the measured builds only one routine that no part's callbacks list splits, from 6 rules to 9 (`0xd58f` in Even
+More, `0xccde` in TIM 1, already unresolved). 89 rules in each build carry the mark. The part rules, the counts,
+the recordings (648 and 552 complete) and the walks (all end) stay the same.
+
 ### The recorder's normal seed
 
 The v25 recorder sets a part's normal seed on the part before each of its clips, and then the clip's own seed over it
