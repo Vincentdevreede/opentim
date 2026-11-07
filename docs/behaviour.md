@@ -73,6 +73,8 @@ the rest when it is opened.
   ("velocityX != -12288"), a mask in hex with what it keeps compared in hex too ("ropeKind & 0x18 == 0x10"; under
   a mask below 10 as a number, and a mask of a mask as one), a direction in degrees ("collider.contactAngle <
   315°"), and an unsigned test's number as it is. The absolute value of another part's field reads "|found.overlapX|".
+  The analysis's own sentences next to them say a frame, a speed and the control value signed too: the wood
+  incline's walk "Shows state -1" and the bullet's case "a part-specific value is -12288".
 - **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
   end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
   asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). The tip
