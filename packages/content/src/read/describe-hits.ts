@@ -138,10 +138,23 @@ export function placeTest(term: Predicate, member: string): PlaceTest | undefine
   return bound && { offset: mine.offset, shift, ...bound };
 }
 /**
- * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter-totter's positionX + 74". The
- * distance is the source's point minus the member's field, so a positive one is to the left.
+ * Points of a part the place tests use, by the part's id, its field and the shift. The teeter-totter's list consumer
+ * measures from `positionX + 74` and `positionX`, the two ends of its board as seen on screen.
  */
-export function placeWords(tests: PlaceTest[], source: string, field: (offset: number) => string): string[] {
+export const NAMED_POINTS: Record<string, Record<string, string>> = {
+  "teeter-totter": { "positionX:74": "right end", "positionX:0": "left end" },
+};
+/**
+ * Place tests in words, like "its positionX is 0 to 8 pixels left of the teeter totter's right end (positionX + 74)".
+ * The distance is the source's point minus the member's field, so a positive one is to the left. A point in
+ * `NAMED_POINTS` for the source's id is named, with the field and shift after it.
+ */
+export function placeWords(
+  tests: PlaceTest[],
+  source: string,
+  field: (offset: number) => string,
+  sourceId?: string,
+): string[] {
   const groups = new Map<string, { offset: number; shift: number; low?: number; high?: number }>();
   for (const t of tests) {
     const key = `${t.offset}:${t.shift}`;
@@ -152,7 +165,9 @@ export function placeWords(tests: PlaceTest[], source: string, field: (offset: n
   }
   return [...groups.values()].map(({ offset, shift, low, high }) => {
     const name = field(offset);
-    const point = `the ${source}'s ${name}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
+    const at = `${name}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
+    const named = sourceId === undefined ? undefined : NAMED_POINTS[sourceId]?.[`${name}:${shift}`];
+    const point = named ? `the ${source}'s ${named} (${at})` : `the ${source}'s ${at}`;
     if (low !== undefined && high !== undefined && low >= 0)
       return `its ${name} is ${low} to ${high} pixels left of ${point}`;
     if (low !== undefined && high !== undefined && high <= 0)
@@ -468,7 +483,7 @@ export function hitsFromOthers(
       };
       const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
       // Where the part must lie from the source stays in words; the walk doesn't follow where parts are.
-      const place = c.place?.length ? placeWords(c.place, nameOf(c.sourcePart), fieldName) : [];
+      const place = c.place?.length ? placeWords(c.place, nameOf(c.sourcePart), fieldName, c.sourcePart) : [];
       const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value]), place]);
       const given = (c.search ?? []).flatMap((t) =>
         t.set

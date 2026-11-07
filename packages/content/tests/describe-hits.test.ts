@@ -433,14 +433,14 @@ describe("walks from other parts that change a part's frame", () => {
     } as never);
     const scissors = hitsFromOthers(data, evaluateBehaviourCondition).get(37)!.hits;
     expect(scissors.map((hit) => hit.name)).toEqual([
-      "Hit by a teeter totter, when its positionX is 0 to 12 pixels left of the teeter totter's positionX + 74",
-      "Hit by a teeter totter, when its positionX is 25 to 37 pixels left of the teeter totter's positionX + 74",
+      "Hit by a teeter totter, when its positionX is 0 to 12 pixels left of the teeter totter's right end (positionX + 74)",
+      "Hit by a teeter totter, when its positionX is 25 to 37 pixels left of the teeter totter's right end (positionX + 74)",
     ]);
     expect(scissors[0]).toMatchObject({
       sources: [{ type: 3, part: "teeter-totter", routine: 900, consumer: 0x1d797 }],
       writes: [{ object: "part", offset: 0x12, value: c(1) }],
       condition: compare(masked("part", 8, 0x10), "==", c(0)),
-      placeWords: ["its positionX is 0 to 12 pixels left of the teeter totter's positionX + 74"],
+      placeWords: ["its positionX is 0 to 12 pixels left of the teeter totter's right end (positionX + 74)"],
     });
     expect(scissors[0]!.assumptions.join(" ")).toContain("the walk doesn't follow where parts are");
   });
@@ -457,6 +457,16 @@ describe("walks from other parts that change a part's frame", () => {
         name,
       ),
     ).toEqual(["its positionX is 4 to 9 pixels right of the fan's positionX"]);
+    expect(placeWords([{ offset: 0x1e, shift: 0, low: 0, high: 8 }], "teeter totter", name, "teeter-totter")).toEqual([
+      "its positionX is 0 to 8 pixels left of the teeter totter's left end (positionX)",
+    ]);
+    expect(placeWords([{ offset: 0x1e, shift: 74, low: 0, high: 8 }], "teeter totter", name, "teeter-totter")).toEqual([
+      "its positionX is 0 to 8 pixels left of the teeter totter's right end (positionX + 74)",
+    ]);
+    // Another shift of the same part isn't an end.
+    expect(placeWords([{ offset: 0x1e, shift: 30, low: 0, high: 8 }], "teeter totter", name, "teeter-totter")).toEqual([
+      "its positionX is 0 to 8 pixels left of the teeter totter's positionX + 30",
+    ]);
     expect(placeWords([{ offset: 0x1e, shift: -6, low: 3 }], "fan", name)).toEqual([
       "the fan's positionX - 6 minus its positionX is at least 3",
     ]);

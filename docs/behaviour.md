@@ -1201,8 +1201,10 @@ a per-member outcome of the run that names the consumer, and the hits and the pa
 
 A test of where the part lies from the end compares two places, which a walk doesn't follow. Such a test, the end
 plus a number minus the part's own field of the same kind, is said in words in the walk's name, for example "Hit by a
-teeter totter, when its positionX is 0 to 8 pixels left of the teeter totter's positionX + 74", and the walk keeps
-the part's own tests, like whether it is mirrored. Walks with different places stay apart. The mouse motor's and the
+teeter totter, when its positionX is 0 to 8 pixels left of the teeter totter's right end (positionX + 74)", and the
+walk keeps the part's own tests, like whether it is mirrored. Walks with different places stay apart. The two points
+the teeter-totter measures from are named: `positionX + 74` is its right end and `positionX` its left end, as seen on
+screen (decided on 2026-11-07; the code itself doesn't name them). The mouse motor's and the
 fish bowl's paths test no place, so they join the walks the alligator, boxing glove, explosion and others already
 give. The teeter-totter's own tests on the way to the call (which frame it has just come to, the answer along its
 ropes) are its own business and are left out, as for any run's list.
