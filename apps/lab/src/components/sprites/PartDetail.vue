@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { compose, drawOrder, type Part, type Placement, type SpriteOf, type TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
-import { computed, nextTick, reactive, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, reactive, ref, useId, watch, watchEffect } from "vue";
 import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import { outlineShape } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
@@ -15,6 +15,7 @@ import LabFacts from "../LabFacts.vue";
 import LabSlider from "../LabSlider.vue";
 import LabTable, { type Column } from "../LabTable.vue";
 import LabTabs from "../LabTabs.vue";
+import { tabPanel } from "../tabs.ts";
 import LabToggle from "../LabToggle.vue";
 import LabIcon from "../LabIcon.vue";
 import LabHints from "../LabHints.vue";
@@ -73,6 +74,8 @@ const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
 const side = ref<"frame" | "behaviour" | "record">("frame");
+const stripId = useId();
+const sideId = useId();
 
 const { colorsOf, choose, options } = usePalettes();
 const spriteOf: SpriteOf = (sheet, sprite) => props.sheetSprites(sheet)?.[sprite];
@@ -373,9 +376,9 @@ const sideTabs = computed(() => [
           </div>
         </FrameStepper>
 
-        <LabStrip>
+        <LabStrip :panel="tabPanel(stripId, strip)">
           <template #header>
-            <LabTabs v-model="strip" label="Frames or sprites" :options="stripTabs">
+            <LabTabs :id="stripId" v-model="strip" label="Frames or sprites" :options="stripTabs">
               <LabHints
                 :hints="[
                   [['F'], 'frames'],
@@ -441,9 +444,9 @@ const sideTabs = computed(() => [
             : emit('viewBytes', sheetFile(opened.sheet))
         "
       />
-      <LabTabs v-model="side" label="Part data" :options="sideTabs" />
+      <LabTabs :id="sideId" v-model="side" label="Part data" :options="sideTabs" />
 
-      <LabPanelBody :key="side">
+      <LabPanelBody :key="side" v-bind="tabPanel(sideId, side)">
         <BehaviourPanel
           v-if="side === 'behaviour'"
           :result="behaviour"
