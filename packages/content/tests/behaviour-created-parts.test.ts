@@ -83,6 +83,18 @@ describe("parts a routine makes with the part factory", () => {
     ]);
   });
 
+  it("gives the evidence of the factory's type store only, not another instruction at the same displacement", () => {
+    const compare = { address: 0x88, bytes: [0x83, 0x7f, 0x04, 0x14], text: "cmp word [bx+0x04], 0x14" };
+    const busy = { ...factory, evidence: [compare, ...fact.evidence] };
+    const created = findCreatedParts([routine([0xb8, 0x14, 0x00])], [busy], 4);
+    expect(created[0]!.evidence.map((item) => item.text)).toEqual([
+      "mov ax, 0x0014",
+      "push ax",
+      "call 0x0000:0x0080",
+      "mov word [si+0x04], di",
+    ]);
+  });
+
   it("claims no type when the pushed word is not a number", () => {
     // mov ax, word [si+0x0c]
     expect(findCreatedParts([routine([0x8b, 0x44, 0x0c])], [factory], 4)).toEqual([]);
