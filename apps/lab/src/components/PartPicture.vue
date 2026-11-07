@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
-import type { Composition } from "../parts.ts";
+import type { Composition } from "@opentim/content";
 import { compositionCanvas } from "./pixels.ts";
 
 /** Draws a frame of a part at its own size; CSS scales it up with sharp pixels. It is drawn once it scrolls into view. */

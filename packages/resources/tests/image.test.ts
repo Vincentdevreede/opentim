@@ -51,6 +51,8 @@ describe("decodeScn", () => {
     expect(() => decodeScn(Uint8Array.of(0, 0x82, 1), 1, 1)).toThrow(/past the frame/);
     expect(() => decodeScn(Uint8Array.of(0, 0xc2), 2, 1)).toThrow(/Truncated/);
     expect(() => decodeScn(Uint8Array.of(0, 0x81, 1), 1, 1)).toThrow(/doesn't end/);
+    // A line move of 5 on a frame 4 wide goes back above the first line.
+    expect(() => decodeScn(Uint8Array.of(0, 0x05, 0x40), 4, 2)).toThrow(/past the frame/);
   });
 });
 

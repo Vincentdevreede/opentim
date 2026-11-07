@@ -29,6 +29,8 @@ export interface FindFirstLoop {
   passCalls: { register: string; callee: EngineSummary }[];
   /** True when every path to the list's first member crosses a search that leaves out the owner. */
   excludesOwner: boolean;
+  /** The field the loop follows from member to member, which is also the list head the search fills. */
+  nextField: number;
   evidence: Evidence[];
 }
 
@@ -220,6 +222,7 @@ export function discoverFindFirstLoops(
       passWrites,
       passCalls,
       excludesOwner,
+      nextField,
       evidence: [evidence(guard), evidence(branch), evidence(advance)],
     });
   }

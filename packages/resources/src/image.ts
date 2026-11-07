@@ -181,7 +181,7 @@ export function decodeScn(data: Uint8Array, width: number, height: number): Fram
         break;
     }
     // The last line move may point just past the frame, before the end command.
-    if (output > size + width) throw new FormatError("SCN moves past the frame", command);
+    if (output < 0 || output > size + width) throw new FormatError("SCN moves past the frame", command);
   }
   throw new FormatError("SCN frame doesn't end with 0x40", data.length);
 }

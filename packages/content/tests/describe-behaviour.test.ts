@@ -1507,11 +1507,22 @@ describe("creation defaults and related input conditions", () => {
         returnValue: constant(0),
       },
     ];
+    data.routines[2]!.returnPathsComplete = true;
     const creates = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
     expect(creates).toContain(
       "Creates a bullet (type 20) at positionX = its positionX - 32 and positionY = its positionY + 3, moving at velocityX = -12288 (kept within the bullet's speed limit). It also sets 0x22 to its positionX - 8 and changes its 0x06.",
     );
     expect(creates.join(" ")).not.toContain("object it creates");
+    // A way that stops early has no line, so its writes to the new part stay as they are.
+    data.routines[2]!.returnPathsComplete = false;
+    const partly = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(partly).toContain("Sets field 0x1e of the object it creates at 0x1b3a1.");
+    data.routines[2]!.returnPathsComplete = true;
+    // Nor does a way whose effects aren't all known, since a call there may have taken the field off its line.
+    data.routines[2]!.outcomes = [{ ...data.routines[2]!.outcomes[0]!, effectsComplete: false }];
+    const unknown = describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description);
+    expect(unknown).toContain("Sets field 0x1e of the object it creates at 0x1b3a1.");
+    data.routines[2]!.outcomes = [{ ...data.routines[2]!.outcomes[0]!, effectsComplete: true }];
     // The line keeps the evidence of the store whose value it gives for a field the speed limit wrote last.
     const store = { address: 0x1b390, bytes: [0xc7], text: "mov word [si+0x36], 0xd000" };
     data.routines[2]!.writes = made.map((item, n) => (n === 2 ? { ...item, evidence: [store] } : item));
