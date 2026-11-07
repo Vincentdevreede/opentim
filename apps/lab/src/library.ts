@@ -2,7 +2,7 @@
 
 import { MAP_NAME, installLanguage, isArchiveName, isLanguagePackageName } from "@opentim/resources";
 import { ref, shallowRef, watch } from "vue";
-import { stopBehaviourRead } from "./behaviour.ts";
+import { readBehaviourInBackground, stopBehaviourRead } from "./behaviour.ts";
 import { detectEdition, isProgramName, sha256, type Edition } from "./edition.ts";
 import {
   ImportError,
@@ -19,6 +19,7 @@ import {
   type Requirement,
   type Resource,
 } from "./importer.ts";
+import { listIdOf, readLoadedParts } from "./parts.ts";
 import { loadLibrary, removeLibrary, saveLibrary } from "./storage.ts";
 
 export type { Edition } from "./edition.ts";
@@ -276,6 +277,15 @@ function load(staged: Staging): void {
   failure.value = undefined;
   staging.value = undefined;
   phase.value = "loaded";
+  // The behaviour takes a while to read, so it starts once the files are loaded rather than when Parts opens. Parts
+  // then shows the same read. It waits a moment, so the loaded files show first.
+  const loaded = program.value;
+  if (loaded)
+    setTimeout(() => {
+      if (program.value !== loaded) return;
+      const parts = readLoadedParts(listIdOf(staged.edition), staged.resources, loaded)?.program;
+      if (parts) readBehaviourInBackground(loaded.data, parts);
+    });
 }
 
 /**
