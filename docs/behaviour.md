@@ -976,6 +976,13 @@ distance of 1 pixel reads in the singular.
 
 Missing pairs: Even More 23 → 18, TIM 1 9 → 8.
 
+The fan, the bellows and the teapot push Mel and the bullet, whose rules read the velocity they set. That velocity is
+kept within the part's speed limit, the word at +0x0a of its type record, which the game works out for each level
+(`0x107dc` and `0x1084c` in Even More write it), so a walk has no number to follow. The pair check now says so ("its
+rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a
+walk can't follow it") instead of the reason it gave when it found no other: these pairs, and the bullet's velocityY
+the trampoline, the alligator and the vacuum cleaner leave unsaid.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

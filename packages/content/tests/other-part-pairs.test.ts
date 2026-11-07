@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
+import {
+  choose,
+  type BehaviourReport,
+  type Expression,
+  type FieldWrite,
+  type Predicate,
+} from "../src/read/behaviour.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
@@ -9,6 +15,7 @@ import {
   CONSUMER_UNREAD,
   CONTACT_SEARCH,
   HELPER_VALUE,
+  LIMIT_RULE_FIELD,
   otherPartPairs,
   renderOtherPartPairs,
   SOURCE_VALUE,
@@ -402,6 +409,23 @@ describe("the pairs of other parts", () => {
     expect(
       run(member(M, 0x700, isCat, unknownSet("Symbolic expression size budget reached")), "inferred"),
     ).toMatchObject({ reasons: [BUDGET_VALUE] });
+    // A velocity kept within the part's own speed limit, which the cat's rules read: a walk can't follow it.
+    const limit: Expression = {
+      kind: "table",
+      segment: 0x2ef1,
+      offset: 0x0a,
+      index: bin("*", f(M, 4), c(58)),
+      width: 16,
+    };
+    const negative = bin("-", c(0), limit);
+    const speed = bin("+", f(M, 0x36), c(0x200));
+    const test = (operator: string, right: Expression) =>
+      ({ kind: "compare", operator, left: speed, right, signed: true }) as Extract<Predicate, { kind: "compare" }>;
+    const kept = choose(test(">", limit), limit, choose(test("<", negative), negative, speed));
+    expect(run(member(M, 0x700, isCat, [write(M, 0x36, kept)]), "inferred")).toMatchObject({
+      status: "missing",
+      reasons: [LIMIT_RULE_FIELD],
+    });
   });
 
   it("describes a consumer read path by path apart from the run's own list", () => {

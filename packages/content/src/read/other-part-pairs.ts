@@ -115,6 +115,8 @@ export const SOURCE_VALUE = "a value it sets depends on the source's own fields,
 export const TABLE_VALUE =
   "a value it sets reads a table word the part's type doesn't settle, like one picked by an angle";
 export const RESPONSE_FIELDS = "a contact response after the bounce may change every field the part's rules read";
+export const LIMIT_RULE_FIELD =
+  "its rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a walk can't follow it";
 export const UNDECIDED_TEST =
   "a test of the part's own fields isn't settled by its type, and the source names no type and its search's flag tests aren't all read";
 export const UNCLASSIFIED = "not described, for a reason this check doesn't name";
@@ -354,7 +356,9 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         continue;
       }
       // The value as the line says it: the overlap its search stored, the type's words and the part's speed limit.
-      const settled = settleForType(w.value, member, typeOffset!, type, report.typeTable, { table: false }).value;
+      const { value: settled, kept } = settleForType(w.value, member, typeOffset!, type, report.typeTable, {
+        table: false,
+      });
       const value = objects(settled);
       if (value.unknown) {
         const left = openCalls([w.value], kindAt);
@@ -369,6 +373,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
       if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;
+      if (kept && readsRule(w)) return LIMIT_RULE_FIELD;
     }
     if (searched) return CONTACT_SEARCH;
     if (
