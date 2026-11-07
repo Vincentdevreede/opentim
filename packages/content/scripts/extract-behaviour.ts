@@ -19,6 +19,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
 import { readBehaviour, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
+import { partSemantics } from "../src/read/behaviour-build-comparison.ts";
 import { readProgramParts } from "../src/read/parts.ts";
 
 function readResources(folder: string): Map<string, Uint8Array> {
@@ -28,91 +29,6 @@ function readResources(folder: string): Map<string, Uint8Array> {
   for (const name of readdirSync(at).filter(isArchiveName).sort())
     for (const entry of readArchive(readFileSync(join(at, name)), name)) files.set(entry.name, entry.data);
   return files;
-}
-
-/** Hides code and data addresses in a value's name (they move between builds), keeping offsets after a `+`. */
-const withoutAddresses = (text: string) =>
-  text.replace(/\b(at|by|helper|destination|table) 0x[0-9a-f]+/gi, "$1 <address>");
-
-/** Removes evidence locations from semantic comparisons while keeping part field offsets. */
-function semantic(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    const items = value.map(semantic);
-    return [...new Map(items.map((item) => [JSON.stringify(item), item])).entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([, item]) => item);
-  }
-  if (value === null || typeof value !== "object") return value;
-  const item = value as Record<string, unknown>;
-  // These give the same value with their sides swapped. A build whose code is laid out the other way round writes a
-  // choice's two ways in the other order (the dynamite plunger in the Even More CD build).
-  if (item.kind === "binary" && ["+", "*", "&", "|", "^"].includes(item.operator as string)) {
-    const [left, right] = [semantic(item.left), semantic(item.right)].sort((a, b) =>
-      JSON.stringify(a).localeCompare(JSON.stringify(b)),
-    );
-    return { ...item, left, right };
-  }
-  return Object.fromEntries(
-    Object.entries(item)
-      .filter(
-        ([key]) =>
-          !["evidence", "routine", "address", "segment", "assumptions", "uncertainties"].includes(key) &&
-          !(item.kind === "table" && key === "offset"),
-      )
-      .map(([key, child]) => [
-        key,
-        ["reason", "object"].includes(key) && typeof child === "string"
-          ? withoutAddresses(child)
-          : key === "runValues" && Array.isArray(child)
-            ? semantic(child.map((name) => (typeof name === "string" ? withoutAddresses(name) : name)))
-            : semantic(child),
-      ]),
-  );
-}
-
-function unresolved(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(unresolved);
-  if (value === null || typeof value !== "object") return false;
-  const item = value as Record<string, unknown>;
-  if (
-    item.confidence === "unresolved" ||
-    item.kind === "unknown" ||
-    item.kind === "table" ||
-    (item.kind === "field" && item.object === "data")
-  )
-    return true;
-  return Object.entries(item).some(
-    ([key, child]) => !["evidence", "assumptions", "uncertainties"].includes(key) && unresolved(child),
-  );
-}
-
-function partSemantics(part: BehaviourReport["parts"][number], report: BehaviourReport) {
-  const findings: Record<string, unknown[]> = {
-    routines: part.routines.map(({ slot, role, shared, sharedDefault, confidence }) => ({
-      slot,
-      role,
-      shared,
-      sharedDefault,
-      confidence,
-    })),
-    stateWrites: part.stateWrites,
-    transitions: part.transitions,
-    counters: part.counters,
-    reset: part.reset,
-    visibleEffects: part.visibleEffects,
-    triggers: part.triggers,
-    creation: (report.creation ?? [])
-      .filter((source) => source.partType === part.type)
-      .map(({ source, fields, confidence }) => ({ source, fields, confidence })),
-  };
-  return {
-    resolved: Object.fromEntries(
-      Object.entries(findings).map(([key, items]) => [key, semantic(items.filter((item) => !unresolved(item)))]),
-    ),
-    unresolved: Object.fromEntries(
-      Object.entries(findings).map(([key, items]) => [key, semantic(items.filter(unresolved))]),
-    ),
-  };
 }
 
 function timingSemantics(timing: BehaviourReport["timing"]) {

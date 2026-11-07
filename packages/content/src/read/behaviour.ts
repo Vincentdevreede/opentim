@@ -364,7 +364,7 @@ export function binary(
 }
 
 type Comparison = Extract<Predicate, { kind: "compare" }>;
-const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
+export const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", "<=": ">", ">": "<=" };
 const ORDER = ["<", "<=", ">", ">="];
 /**
  * A test as a value, 1 when it holds and 0 when it doesn't. The value operators compare as unsigned numbers, so a

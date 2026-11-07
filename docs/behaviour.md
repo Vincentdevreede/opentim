@@ -271,10 +271,21 @@ What differs between the builds, and why it doesn't change a part:
   engine routines: Even More 889 (floppy), 940 (CD), 845 (demo), 886 (French and German); TIM 1 830 (English) and 832
   (French and German). The part callbacks and every count in the table are the same.
 - Globals and data tables sit at other addresses. A rule that reads a global (a brick wall's test of a value in the
-  data segment, for example) reads it at another offset in another build. The build comparison counts these as
-  unresolved differences, as it says it would: they can't show a difference in behaviour. The same goes for some
-  rules of the cat and other parts that test a run value: their choices come out nested in another order where the
-  code is laid out differently.
+  data segment, for example) reads it at another offset in another build, and nothing in one build says which global
+  of another it is. The build comparison numbers each part's globals in the order its findings use them ("global 1"
+  is the first), so two builds compare equal when they use their globals in the same places. Which global it is in
+  each build stays out of the comparison.
+- The same value comes out written another way where the code is laid out differently, and the comparison writes each
+  one way (`behaviour-build-comparison.ts`):
+  - a choice is compared as its cases, each with the tests it takes and the value it gives, and two cases with the
+    same value that differ in one test taken both ways are one case. The cat's rules in the Even More CD build test
+    their conditions in another order;
+  - two findings that are the same but for one test, taken one way in one and the other way in the other, are one
+    finding without that test. The CD build's vacuum cleaner tests whether its frame changed and then draws the same
+    either way;
+  - a chain of `+`, `*`, `&`, `|` or `^` is compared flat with its terms sorted, and two shifts by numbers as one
+    shift (the teeter-totter's reset tables in TIM 1 French and German shift twice by 1 where English shifts by 2);
+  - the code address of a call is left out, like the other addresses.
 - The names of run values carry the address of the query or search that gives them (for example "answer of the query
   at 0x1d2af"). The build comparison now leaves those addresses out, like the addresses in other names.
 - In the CD build the dynamite plunger's rules write a choice with its two ways in the other order (what the new part
@@ -283,10 +294,12 @@ What differs between the builds, and why it doesn't change a part:
 - The demo has the same 63 part types as the full game but only 12 levels; the CD build has 172 levels, 9 more than
   the floppy.
 
-After the last two changes, the comparison of builds within each game finds no difference in what the analysis
-resolves (before them, the teeter-totter and the balloon differed in every other executable, and the dynamite
-plunger in the CD build). Every part has the same counts of rules of each kind, the same resting frames, the same
-reset kind and the same number of walks in every build of its game.
+With these, the comparison of builds within each game finds no difference at all, in what the analysis resolves and
+in what it leaves unresolved: 0 differences over all eleven builds (on 2026-11-07; before, 19 parts differed in
+unresolved findings in TIM 1 French and German, 27 in the Even More demo, 8 in the CD and 6 in the French and German
+Even More builds). Every part has the same counts of rules of each kind, the same resting frames, the same reset kind
+and the same number of walks in every build of its game. The comparison takes about a minute longer for all eleven
+builds.
 
 ## Descriptions and conditional frame walks
 
