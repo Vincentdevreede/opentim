@@ -61,12 +61,15 @@ Why the missing ones are missing (a pair can have several reasons):
       by what it is where the code shows it ("in front of the nozzle", "above the left end"). Done when no pair is
       missing for a test of where the part is.
       Found so far: the vacuum cleaner's 1,148 ways on what it finds are 760 unresolved because their values outgrow
-      the expression size limit, not because the code isn't read. The vacuum pulls velocityY up by a multiple of
-      overlapY (kept within the speed limit, at most 1024 upward) and moves velocityX toward its nozzle in steps held
-      within ±512. The limit is reached in a helper write that holds only when its tests do (`choose` at the
-      engine's conditional exact writes), whose old value is already about 750 terms; the speed limit's clip is not
-      the cause (a compact clip was tried and changed nothing). Next: read what the vacuum's own helpers `0x1e84e`
-      and `0x1e8bb` write, and why the value is that large before them.
+      what the analysis keeps, not because the code isn't read. Its helpers are plain: `0x1e84e` gives the pull from
+      the found part's mass (below 2: 0x0C00, below 6: 0x0A00, below 10: 0x0800, below 21: 0x0600, below 121: 0x0400,
+      below 151: 0x0200, below 201: 0x0100, else 0x0080), and `0x1e8bb` swallows a part at the nozzle (a balloon
+      pops, the mouse and every other part go out of play with goal mark 0x0100, the mouse with sound 13). The pull
+      is written as a sum over its seven mass tests, so the mass word appears seven times before the multiply, the
+      clips and the conditional writes repeat it again. For a known type the mass is a number and all of it folds.
+      Tried and changed nothing: a compact clip for the speed limit, and size limits of 256 and 4096. Next: keep a
+      helper's answer that depends only on the found part's type as one value until the type is known, and fold it
+      for each type in the line and the pair check.
 - [ ] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
