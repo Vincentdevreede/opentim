@@ -114,6 +114,13 @@ Why the missing ones are missing (a pair can have several reasons):
 - [ ] **A4. The values the analysis doesn't know.** The teeter-totter's launch speed, the explosion's split of a wall,
       the fan's and the jack-in-the-box's last ones. Name each one, like the run values in the last plan, or give its
       formula from the source's fields.
+      The teeter-totter's launch speed (2026-11-07): read past the rope pull and the contact search, so its pairs are
+      partly described with the speed by the part's mass as lines (Even More 84 → 23 missing, TIM 1 59 → 9). See
+      "Where the teeter-totter's launch stops being known". The fan has none left (its last are A5's tests). Left: the
+      explosion's split of a wall (`0x1a8ae`: a hole from 32 pixels left of the explosion's centre to 24 right, on a
+      16-pixel grid, with a copy of the wall for the far piece), and the jack-in-the-box's push of a teeter-totter
+      (`0x1badd`: it tilts the plank by which side of its positionX + 36, 40 or 44 the jack-in-the-box's centre X is,
+      by the plank's frame; the analysis stops at its size budget there).
 - [ ] **A5. The few left.** The alligator's and jack-in-the-box's values from their own place, the explosion's and
       pinball bumper's direction, the conveyor belt's contact response.
 - [ ] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable

@@ -260,7 +260,7 @@ describe("the pairs of other parts", () => {
     expect(renderOtherPartPairs(pairs)).toContain(CONSUMER_UNREAD);
   });
 
-  it("names the rope pull or the contact search where a loop's way stops", () => {
+  it("reads a loop's way past the rope pull, and names the contact search where it stops", () => {
     const data = report();
     const M = "overlap candidate at 0x700";
     data.helpers!.push(
@@ -298,9 +298,28 @@ describe("the pairs of other parts", () => {
         "unresolved",
       ),
     ).toMatchObject({ reasons: [CONTACT_SEARCH] });
-    // The rope pull's answer, or the tilt after it, decides whether the part is launched.
-    const pulled = and(isCat, compare(unresolved("part after the query at 0x610", 0x12), "==", c(1)));
-    expect(run(member(M, 0x700, pulled, launch), "unresolved")).toMatchObject({ reasons: [CONNECTION_QUERY] });
+    // The rope pull's answer, or the tilt after it, decides whether the part is launched: the line reads it as the
+    // source's test, and a found part's width after the pull as its own. Only the contact search's fields stay unsaid.
+    const pulled = and(
+      isCat,
+      compare(unresolved("part after the query at 0x610", 0x12), "==", c(1)),
+      compare(unresolved(`${M} after field effect at 0x610`, 0x44), "!=", c(0)),
+    );
+    expect(run(member(M, 0x700, pulled, launch), "unresolved")).toMatchObject({
+      status: "partly described",
+      undescribedFields: [0x20],
+      reasons: [CONTACT_SEARCH],
+    });
+    const [line] = effectsFromOthers(data, evaluateBehaviourCondition).get(12)!.effects;
+    expect(line).toMatchObject({ searched: [0x20], confidence: "inferred" });
+    expect(line!.description).toContain("Then it runs the contact search on it, which may change its field 0x20");
+    expect(JSON.stringify(line!.condition)).not.toContain("after field effect");
+    expect(JSON.stringify(line!.sourceCondition)).toContain("part after the query at 0x610");
+    // The cat's rules read its velocityX: it needs a walk, which doesn't read past the rope pull.
+    expect(run(member(M, 0x700, pulled, [write(M, 0x36, c(0x400))]), "unresolved")).toMatchObject({
+      status: "missing",
+      reasons: [CONNECTION_QUERY],
+    });
     // The same unknowns after another call, or anything else unknown, keep the general reasons.
     expect(
       run(

@@ -17,7 +17,7 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, onlyStoredOverlapsOpen, speedLimitOf } from "./behaviour.ts";
+import { binary, callKinds, openCalls, speedLimitOf } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import {
   compareWords,
@@ -241,6 +241,11 @@ export interface OtherPartEffect extends Finding {
   /** When it sets both velocities to numbers: where that moves the part on the screen, like "up and to the left". */
   velocityDirection?: string;
   /**
+   * The fields the source leaves to the contact search it then runs on this part, like the teeter-totter sweeping a
+   * part it launches: what that search finds there only the run knows, so the line names them without a value.
+   */
+  searched?: number[];
+  /**
    * Where this part must lie from the source, like the vacuum cleaner's "its positionY is at least 47 pixels below the
    * vacuum cleaner's positionY". Its words are in `conditionWords`.
    */
@@ -275,6 +280,9 @@ const constant = (value: number, width = 16): Expression => ({ kind: "constant",
 const wrap = (value: number, width: number) => ((value % 2 ** width) + 2 ** width) % 2 ** width;
 export const terms = (predicate: Predicate): Predicate[] =>
   predicate.kind === "and" ? predicate.terms.flatMap(terms) : predicate.kind === "true" ? [] : [predicate];
+/** Names in a list: "a", "a and b", "a, b and c". */
+const listWords = (names: string[]) =>
+  names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 const conjunction = (list: Predicate[]): Predicate =>
   list.length === 0 ? { kind: "true" } : list.length === 1 ? list[0]! : { kind: "and", terms: list };
 
@@ -398,6 +406,63 @@ export function withOwnOverlaps(e: Expression, member: string): Expression {
   if (e.kind === "table") return { ...e, index: withOwnOverlaps(e.index, member) };
   return e;
 }
+/** A found part's field a loop reads after a connection query of the source's, like "<member> after field effect at 0x1d2af". */
+const AFTER_EFFECT = / after field effect at (0x[0-9a-f]+)$/;
+/**
+ * A value with a found part's field read after the source's rope pull (a connection query) read as the part's own
+ * field: the loop reads the part as it is then, which is how a line reads it, as with the overlap its search stored.
+ */
+export function afterQueries(
+  e: Expression,
+  member: string,
+  kindAt: (instruction: number) => string | undefined,
+): Expression {
+  if (e.kind === "field" && e.unresolved && e.object.startsWith(`${member} after field effect at `)) {
+    const at = AFTER_EFFECT.exec(e.object);
+    if (at && kindAt(Number(at[1])) === "connection-query")
+      return { kind: "field", object: member, offset: e.offset, width: e.width };
+  }
+  if (e.kind === "binary")
+    return { ...e, left: afterQueries(e.left, member, kindAt), right: afterQueries(e.right, member, kindAt) };
+  if (e.kind === "table") return { ...e, index: afterQueries(e.index, member, kindAt) };
+  return e;
+}
+export const afterQueriesIn = (
+  p: Predicate,
+  member: string,
+  kindAt: (instruction: number) => string | undefined,
+): Predicate =>
+  p.kind === "compare"
+    ? { ...p, left: afterQueries(p.left, member, kindAt), right: afterQueries(p.right, member, kindAt) }
+    : p.kind === "and"
+      ? { ...p, terms: p.terms.map((t) => afterQueriesIn(t, member, kindAt)) }
+      : p;
+/**
+ * Whether a test reads only the source: its own fields, and what its rope pull (a connection query) answers or its
+ * own fields after it, with at least one of the latter. Only the run knows those, so the test stays the source's.
+ */
+export function sourceRun(term: Predicate, kindAt: (instruction: number) => string | undefined): boolean {
+  let run = false,
+    other = false;
+  const visit = (v: Expression | Predicate) => {
+    if (v.kind === "unknown") other = true;
+    else if (v.kind === "field") {
+      if (!v.unresolved) {
+        if (v.object !== "part") other = true;
+        return;
+      }
+      const at = /^(?:answer of the query|part after the query) at (0x[0-9a-f]+)$/.exec(v.object);
+      if (at && kindAt(Number(at[1])) === "connection-query") run = true;
+      else other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  visit(term);
+  return run && !other;
+}
 /**
  * A value a source sets on a found part of the type, settled as far as the type allows: the overlap its search just
  * stored in the part reads as the part's own field, words of the type record the type settles are numbers, and a value
@@ -462,6 +527,12 @@ export function tidyArithmetic(e: Expression): Expression {
   if (e.operator === "&" && number(e.right) === 0xffff && e.left.kind === "binary" && e.left.operator === "s/")
     return tidyArithmetic(e.left);
   if (e.operator === "s/") return { ...e, operator: "÷", left, right };
+  // A type settled to a number leaves products by a test's 1 or 0, like `(type != 8) * x` for a type other than 8.
+  if (e.operator === "*" && (number(left) === 0 || number(right) === 0)) return constant(0, e.width);
+  if (e.operator === "*" && number(left) === 1) return right;
+  if (e.operator === "*" && number(right) === 1) return left;
+  if (e.operator === "+" && number(left) === 0) return right;
+  if ((e.operator === "+" || e.operator === "-") && number(right) === 0) return left;
   return left === e.left && right === e.right ? e : { ...e, left, right };
 }
 
@@ -553,7 +624,11 @@ interface Candidate {
   member: string;
   outcome: Finding & { condition: Predicate; fields: FieldWrite[] };
   writes: FieldWrite[];
+  /** The fields the contact search the source runs on the part leaves as only the run knows. */
+  searched: number[];
   sourceTerms: Predicate[];
+  /** Whether the source's tests read a word of its own type record. */
+  sourceTable: boolean;
   memberTerms: Predicate[];
   /** The tests of where the part lies from the source. */
   place: PlaceTest[];
@@ -1119,18 +1194,29 @@ export function effectsFromOthers(
             list.map((outcome) => ({ outcome, onlyType: Number(type) as number | undefined })),
           )
         : (code?.iterationOutcomes ?? []).map((outcome) => ({ outcome, onlyType: undefined as number | undefined }));
+      const kindAt = callKinds(report, callback.address);
       for (const { outcome, onlyType } of ways) {
         // What a list consumer does to a member tests where it lies from the source, which a line can't say yet: it
-        // comes as a walk (`describe-hits.ts`).
+        // comes as a walk (`describe-hits.ts`). A way is read when it is open only at the overlap its search stored in
+        // the part, at a rope pull of the source's (a connection query) or at the contact search it runs on the part.
         if (
           !outcome.effectsComplete ||
-          (outcome.confidence === "unresolved" && !onlyStoredOverlapsOpen(outcome)) ||
-          outcome.listConsumer
+          outcome.listConsumer ||
+          (outcome.confidence === "unresolved" &&
+            openCalls([outcome.condition, ...outcome.fields.flatMap((f) => [f.value, f.condition])], kindAt).other)
         )
           continue;
         const member = outcome.object;
-        const writes = outcome.fields.filter((f) => f.object === member);
-        if (!writes.length || writes.length !== outcome.fields.length) continue;
+        const all = outcome.fields.filter((f) => f.object === member);
+        if (!all.length || all.length !== outcome.fields.length) continue;
+        // What the contact search leaves on the part, and a value read from it after, only the run knows: the line
+        // names those fields and sets the others.
+        const searched = all.filter((w) => {
+          const open = openCalls([w.value], kindAt);
+          return open.contactSearch && !open.connectionQuery && !open.other;
+        });
+        const writes = all.filter((w) => !searched.includes(w));
+        if (!writes.length) continue;
         // Every field set needs a number for the part's type, a formula of its own fields, or the speed the speed setter
         // was given: so a value may read only the member and the type table.
         if (
@@ -1144,10 +1230,28 @@ export function effectsFromOthers(
           memberTerms: Predicate[] = [],
           place: PlaceTest[] = [];
         let open = false;
-        for (const term of terms(outcome.condition).map((t) => withOwnOverlapsIn(t, member))) {
+        // The source's own type is known when the callback is its type's alone: its type and its type record's words
+        // are numbers in its tests, like the half width of the teeter-totter's frame.
+        const sourceUsed = { table: false };
+        const ownType = (t: Predicate) =>
+          callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
+        for (const term of terms(outcome.condition).map((t) =>
+          ownType(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt)),
+        )) {
           const { objects: read, unknown } = objects(term);
+          // A test the source's type settles says nothing when it holds, and rules the way out when it fails.
+          if (!read.size && !unknown && term.kind === "compare") {
+            const value = evaluate(term, []);
+            if (value === true) continue;
+            if (value === false) {
+              open = true;
+              break;
+            }
+          }
           const placed = unknown ? undefined : placeTest(term, member);
-          if (unknown || term.kind === "unknown") open = true;
+          // A test of what the source's rope pull answers, or of its own fields after it, is the source's.
+          if (sourceRun(term, kindAt)) sourceTerms.push(term);
+          else if (unknown || term.kind === "unknown") open = true;
           else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
           // A test of where the part lies from the source, like the vacuum cleaner's nozzle below it.
@@ -1170,12 +1274,14 @@ export function effectsFromOthers(
           named,
           ...(search ? { search } : {}),
           sourceWords: sourceTerms.flatMap((t) => drawingFlagWords(t, report) ?? []),
+          sourceTable: sourceUsed.table,
           sourceType: source.type,
           sourcePart: source.id,
           routine: callback.address,
           member,
           outcome,
           writes,
+          searched: [...new Set(searched.map((w) => w.offset))].sort((a, b) => a - b),
           sourceTerms,
           memberTerms,
           place,
@@ -1293,9 +1399,12 @@ export function effectsFromOthers(
       const placeSaid = placeWords(c.place, name, fieldName, c.sourcePart);
       words.push(...placeSaid);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*its /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
+      const searchedSaid = c.searched.length
+        ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
+        : "";
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*its /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
       // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
-      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid]);
+      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
       if (prior) {
@@ -1313,6 +1422,7 @@ export function effectsFromOthers(
         conditionWords: words,
         ...(velocityDirection ? { velocityDirection } : {}),
         ...(c.place.length ? { place: c.place } : {}),
+        ...(c.searched.length ? { searched: c.searched } : {}),
         description,
         // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
         confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
@@ -1320,7 +1430,7 @@ export function effectsFromOthers(
           ...new Set([
             ...c.outcome.assumptions,
             ...c.writes.flatMap((w) => w.assumptions),
-            ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
             ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
             ...proofs,
             ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),

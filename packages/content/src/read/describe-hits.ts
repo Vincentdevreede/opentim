@@ -23,6 +23,7 @@ import {
   offMovingList,
   onlyAnswersOpen,
   partFields,
+  tidyArithmetic,
   predicateForType,
   readsAnswer,
   rename,
@@ -326,7 +327,7 @@ export function placeWords(
     const name = memberHalf === undefined ? fieldName : centre;
     const plain = { field, of: (_: string, what: string) => what };
     const base = half === undefined ? fieldName : `${fieldName} + ${field(half)} / 2`;
-    const formula = extra ? `${base} + ${formulaOf(extra, plain, true)}` : base;
+    const formula = extra ? `${base} + ${formulaOf(tidyArithmetic(extra), plain, true)}` : base;
     const at = `${formula}${shift > 0 ? ` + ${shift}` : shift < 0 ? ` - ${-shift}` : ""}`;
     const end = sourceId === undefined || extra ? undefined : NAMED_POINTS[sourceId]?.[`${fieldName}:${shift}`];
     const point =

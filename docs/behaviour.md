@@ -900,23 +900,42 @@ When it tilts, the teeter-totter (`0x1d27a` in Even More) launches each part on 
 finds is read: it gives a part a launch speed by the part's mass (`0x1d735`: 0x1C00 below a mass of 2, then 0x1A00,
 0x1800, 0x1600, 0x1400, 0x1200 and 0x1000 from 151 on) as velocityY, with a quarter of it as velocityX, the signs set
 by the side of the plank the part's centre X is on and the way the plank tilts. Two calls leave the rest to the run,
-and the pair check now names them instead of "a test or value on it isn't read":
+and the pair check used to say only "a test or value on it isn't read" for them:
 
 - Before the loop it pulls its ropes (`0x1d638`, called at `0x1d2af` and `0x1d2d1`): it asks the part at the other
   end of each rope, through that part's type's rope callback, whether it gives way. The analysis reads it as a
   connection query, which changes only the part at the other end and its records. Its answer decides whether the plank
-  moves, and the tilt and a found part's width are read after it, so a way through it tests values only the run knows.
-  The pair check says "the path tests what the source's rope pull answers, or reads a field after it".
+  moves, and the tilt and a found part's width are read after it, so these ways test values only the run knows.
 - After setting the speeds it runs the contact search (`0x4fd`) on the part twice. The search sweeps a part from its
   previous place to its place, and the teeter-totter sets the part's previousY 16 pixels above its positionY and then
   16 below (`0x1d3c2` and `0x1d3d7` for a part launched up; below first, at `0x1d405` and `0x1d41a`, for one launched
   down). It then sets previousY and the fine positionY to whatever positionY the search leaves. The search may change
-  the part's place, its drawing place and frame size, its list flags and its contact record, but not its speeds. The
-  pair check says "the source runs the contact search on the part".
+  the part's place, its drawing place and frame size, its list flags and its contact record, but not its speeds.
 
 The analysis takes these from the engine summaries of the calls (`connection-query` and `contact-search`), not from
-the teeter-totter's addresses. Pairs stay where they were: Even More 84 missing and TIM 1 59, now with these two
-reasons for the teeter-totter's 63 and 51.
+the teeter-totter's addresses, and the lines now read past both:
+
+- A test of what the rope pull answers, or of the source's own fields after it, is a test of the source. It stays in
+  the line's source condition as it is, naming the call.
+- A found part's field read after the rope pull is the part's own field, as the loop reads it then. This is how a
+  line already reads the overlap a search stored in the part: the line is about the part when the source acts on it.
+- The fields the contact search leaves, and those set from them after it, are listed without a value: "Then it runs
+  the contact search on it, which may change its positionX, positionY, ...; what that search finds there, only the
+  run knows." The pair check says "the source runs the contact search on the part" for them.
+- When the callback is its source's type's alone, the source's own type is folded in its tests, as the found part's
+  is: the teeter-totter's test of its own type and the words of its type record become numbers, and products by the 1
+  or 0 they leave drop out of the words.
+
+The balloon now gets 36 lines from the teeter-totter: one for each of the four ways it can be launched in each of 9
+cases of the teeter-totter's own fields, which the Lab joins into four rows: "A teeter-totter that reaches it sets its
+velocity up and to the right (velocityX 1792, velocityY -7168). Only when its centre X is at or right of the
+teeter-totter's positionX + ...". The speeds are its mass's (0x1C00 for a balloon) and a quarter of it. The
+teeter-totter's half width still reads as its frame list formula; A6 is to word it.
+
+Missing pairs: Even More 84 → 23, TIM 1 59 → 9. The teeter-totter's pairs are partly described (61 and 50), with only
+the contact search's fields unsaid. The bullet and Mel stay missing: their rules read the velocity the teeter-totter
+sets, so they need a walk, and the walks don't read past the rope pull ("its rules read a field the source sets, so it
+needs a walk, and a walk doesn't read past the source's rope pull").
 
 ### The push's direction
 

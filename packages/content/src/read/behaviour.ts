@@ -740,6 +740,20 @@ export function openCalls(
   values.forEach(visit);
   return open;
 }
+/** The kind of engine summary each call instruction of a routine calls, like `contact-search`. */
+export function callKinds(
+  report: Pick<BehaviourReport, "routines" | "helpers">,
+  routine: number,
+): (instruction: number) => string | undefined {
+  const helpers = new Map((report.helpers ?? []).map((h) => [h.address, h.kind]));
+  const kinds = new Map(
+    (report.routines.find((r) => r.address === routine)?.engineCalls ?? []).map((c) => [
+      c.instruction,
+      helpers.get(c.summary),
+    ]),
+  );
+  return (instruction) => kinds.get(instruction);
+}
 /** Whether a value has an unknown other than the overlap a search stored in the part it found. */
 function unknownBesidesOverlaps(e: Expression): boolean {
   return (

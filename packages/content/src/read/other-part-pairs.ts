@@ -16,7 +16,7 @@
  * counted apart.
  */
 import type { BehaviourReport, FieldWrite, Predicate, RoutineOutcome } from "./behaviour.ts";
-import { onlyStoredOverlapsOpen, openCalls } from "./behaviour.ts";
+import { callKinds, openCalls } from "./behaviour.ts";
 import {
   effectsFromOthers,
   type Evaluate,
@@ -30,6 +30,8 @@ import {
   predicateForType,
   settleForType,
   withOwnOverlapsIn,
+  afterQueriesIn,
+  sourceRun,
   readsAnswer,
   readsTableBesidesSpeedLimit,
   terms,
@@ -97,7 +99,7 @@ export interface OtherPartPairs {
 export const NO_COMPLETE_EFFECTS = "the path's effects aren't complete, so the analysis doesn't know all it writes";
 export const UNRESOLVED_PATH = "the path is unresolved: a test or value on it isn't read";
 export const CONNECTION_QUERY =
-  "the path tests what the source's rope pull answers, or reads a field after it: the source asks the part at the other end of each rope, which only the run knows";
+  "its rules read a field the source sets, so it needs a walk, and a walk doesn't read past the source's rope pull: the source asks the part at the other end of each rope, which only the run knows";
 export const CONTACT_SEARCH =
   "the source runs the contact search on the part: where that leaves the part, with its contact record and list flags, only the run knows";
 export const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
@@ -151,13 +153,6 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   if (typeOffset === undefined || stateOffset === undefined) return result;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const helpers = new Map((report.helpers ?? []).map((h) => [h.address, h]));
-  /** The kind of engine summary each call instruction of a routine calls, like `contact-search`. */
-  const callKinds = (routine: number) => {
-    const kinds = new Map(
-      (routines.get(routine)?.engineCalls ?? []).map((c) => [c.instruction, helpers.get(c.summary)?.kind]),
-    );
-    return (instruction: number) => kinds.get(instruction);
-  };
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
@@ -292,30 +287,30 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
     // A loop's test of where the member lies from the source is said in words.
     const placed = (term: Predicate) => !touch && placeTest(term, member) !== undefined;
     if (!outcome.effectsComplete) return NO_COMPLETE_EFFECTS;
+    const kindAt = callKinds(report, path.routine);
+    // A loop's way the lines read: open only at the overlap its search stored, the source's rope pull or the contact
+    // search it runs on the part.
+    const open =
+      way === "overlap list" && "scope" in outcome
+        ? openCalls([outcome.condition, ...outcome.fields.flatMap((f) => [f.value, f.condition])], kindAt)
+        : undefined;
     if (
       outcome.confidence === "unresolved" &&
       !(touch && onlyAnswersOpen(outcome)) &&
-      !(way === "overlap list" && "scope" in outcome && onlyStoredOverlapsOpen(outcome)) &&
+      !(open && !open.other) &&
       !(
         way === "list consumer" &&
         terms(outcome.condition).every((t) => placed(t) || !objects(t).unknown) &&
         outcome.fields.every((f) => !objects(f.value).unknown)
       )
-    ) {
-      // A way a loop leaves open only at a call that names it: the source's rope pull before the loop, or the contact
-      // search it runs on the part.
-      if ("scope" in outcome && !outcome.listConsumer) {
-        const open = openCalls(
-          [outcome.condition, ...outcome.fields.flatMap((f) => [f.value, f.condition])],
-          callKinds(path.routine),
-        );
-        if (!open.other && open.connectionQuery) return CONNECTION_QUERY;
-        if (!open.other && open.contactSearch) return CONTACT_SEARCH;
-      }
+    )
       return UNRESOLVED_PATH;
-    }
     if (outcome.fields.some((f) => f.object !== member && !(touch && f.object === "part"))) return OTHER_OBJECTS;
-    for (const term of terms(outcome.condition).map((t) => withOwnOverlapsIn(t, path.member))) {
+    for (const term of terms(outcome.condition).map((t) =>
+      afterQueriesIn(withOwnOverlapsIn(t, path.member), member, kindAt),
+    )) {
+      // What the source's rope pull answers, and its own fields after it, are the source's tests.
+      if (!touch && sourceRun(term, kindAt)) continue;
       const read = objects(term);
       if (touch && term.kind === "compare" && readsAnswer(term) && !read.objects.has(member)) continue;
       if (placed(term)) continue;
@@ -341,13 +336,15 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       const settled = settleForType(w.value, member, typeOffset!, type, report.typeTable, { table: false }).value;
       const value = objects(settled);
       if (value.unknown) {
-        const open = openCalls([w.value], callKinds(path.routine));
-        if (!open.other && !open.connectionQuery && open.contactSearch) {
+        const left = openCalls([w.value], kindAt);
+        if (!left.other && !left.connectionQuery && left.contactSearch) {
           searched = true;
           continue;
         }
         return UNKNOWN_VALUE;
       }
+      // A field its rules read needs a walk, which can't follow the rope pull's answer.
+      if (readsRule(w) && open?.connectionQuery) return CONNECTION_QUERY;
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
       if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;
