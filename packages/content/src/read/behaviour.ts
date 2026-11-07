@@ -711,7 +711,15 @@ interface AbstractState {
   havocAt?: number;
   globalHavocAt?: number;
   partMemoryHavocAt?: number;
-  fieldHavoc?: { offset: number; width: number; address: number; exceptOwner: boolean; ownerOnly?: boolean }[];
+  fieldHavoc?: {
+    offset: number;
+    width: number;
+    address: number;
+    exceptOwner: boolean;
+    ownerOnly?: boolean;
+    /** What the helper stores there, when it is a value of its own, like an overlap search's overlap. */
+    named?: string;
+  }[];
   observationOnly?: boolean;
   observationHeader?: number;
   observationExit?: number;
@@ -1256,7 +1264,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (scoped)
         return tracked(
           {
-            ...field(`${l.object} after field effect at ${hex(scoped.address)}`, l.offset, l.width),
+            ...field(
+              scoped.named && scoped.offset === l.offset && scoped.width === l.width
+                ? `${scoped.named} the query at ${hex(scoped.address)} found for ${l.object}`
+                : `${l.object} after field effect at ${hex(scoped.address)}`,
+              l.offset,
+              l.width,
+            ),
             unresolved: true,
           } as Expression,
           l.evidence,
@@ -1732,10 +1746,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     selectedCondition?: Predicate,
     /** What the helper writes in a field of the parts it selects, when its summary names it. */
     selectedValue?: (effect: { offset: number; width: number }) => Expression | undefined,
+    /** The name of what the helper stores in a field of the parts it selects, by offset. */
+    named?: (offset: number) => string | undefined,
   ) => {
     for (const effect of fields) {
       const exceptOwner = preserveOwner.has(effect.offset);
-      s.fieldHavoc = [...(s.fieldHavoc ?? []), { ...effect, address: i.address, exceptOwner }];
+      const storedName = named?.(effect.offset);
+      s.fieldHavoc = [
+        ...(s.fieldHavoc ?? []),
+        { ...effect, address: i.address, exceptOwner, ...(storedName ? { named: storedName } : {}) },
+      ];
       for (const key of s.memory.keys()) {
         const parts = key.split(":"),
           width = Number(parts.pop()),
@@ -2267,6 +2287,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               ),
               unresolved: true,
             }) as Expression,
+          // Its other stores, besides the link, are the overlap it works out for that part.
+          (offset) => (offset === engine.list!.nextField ? undefined : "overlap"),
         );
       }
     }
@@ -4683,7 +4705,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
  * ordered insertion links a part between, or the angle between two parts' centres.
  */
 const RUN_VALUE =
-  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
+  /^(answer of the query|overlap the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
