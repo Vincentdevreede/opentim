@@ -17,7 +17,7 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, callKinds, openCalls, speedLimitOf } from "./behaviour.ts";
+import { binary, callKinds, choiceOf, openCalls, speedLimitOf } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import {
   compareWords,
@@ -405,6 +405,66 @@ export function withOwnOverlaps(e: Expression, member: string): Expression {
     return { ...e, left: withOwnOverlaps(e.left, member), right: withOwnOverlaps(e.right, member) };
   if (e.kind === "table") return { ...e, index: withOwnOverlaps(e.index, member) };
   return e;
+}
+const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", ">": "<=", "<=": ">" };
+/**
+ * A value that picks between values by tests that read the source, like the jack-in-the-box's push tilting the
+ * bellows by which side of it the jack-in-the-box's centre is on, as cases: each with its tests and the value it picks.
+ * A choice that reads only the part stays one value, like a velocity kept within its speed limit. A value that reads
+ * the source in another way stays as it is, as one case without tests. Undefined past `limit` cases.
+ */
+export function sourceChoices(value: Expression, limit = 32): { tests: Predicate[]; value: Expression }[] | undefined {
+  const split = (e: Expression): { tests: Predicate[]; value: Expression }[] => {
+    const choice = objects(e).objects.has("part") ? choiceOf(e) : undefined;
+    if (!choice) return [{ tests: [], value: e }];
+    const opposite = { ...choice.test, operator: OPPOSITE[choice.test.operator]! };
+    return [
+      ...split(choice.then).map((c) => ({ ...c, tests: [choice.test, ...c.tests] })),
+      ...split(choice.otherwise).map((c) => ({ ...c, tests: [opposite, ...c.tests] })),
+    ];
+  };
+  const cases = split(value);
+  return cases.length > limit ? undefined : cases;
+}
+/**
+ * A loop's way with each value that picks by the source's tests split into its cases: one way for each, with the
+ * case's tests added to the way's and the value it picks. A case that leaves the field as it was writes nothing.
+ */
+export function splitBySource<T extends { condition: Predicate; fields: FieldWrite[] }>(
+  outcome: T,
+  member: string,
+): T[] {
+  let ways: { tests: Predicate[]; fields: FieldWrite[] }[] = [{ tests: [], fields: [] }];
+  for (const w of outcome.fields) {
+    const cases = w.object === member ? sourceChoices(w.value) : undefined;
+    if (!cases || cases.length === 1) {
+      ways = ways.map((way) => ({ ...way, fields: [...way.fields, w] }));
+      continue;
+    }
+    ways = ways.flatMap((way) =>
+      cases.map((c) => {
+        const unchanged = c.value.kind === "field" && c.value.object === member && c.value.offset === w.offset;
+        return {
+          tests: [...way.tests, ...c.tests],
+          fields: unchanged ? way.fields : [...way.fields, { ...w, value: c.value }],
+        };
+      }),
+    );
+    if (ways.length > 64) return [outcome];
+  }
+  if (ways.length === 1) return [outcome];
+  // A case whose tests contradict each other, or the way's, never happens: a nested choice brings back tests the case
+  // already made, the same or opposite.
+  const key = (t: Predicate) => JSON.stringify(t);
+  const opposite = (t: Predicate) =>
+    t.kind === "compare" && OPPOSITE[t.operator] ? key({ ...t, operator: OPPOSITE[t.operator]! }) : undefined;
+  return ways.flatMap((way) => {
+    const all = [...terms(outcome.condition), ...way.tests];
+    const keys = new Set(all.map(key));
+    if (all.some((t) => keys.has(opposite(t) ?? ""))) return [];
+    const once = all.filter((t, n) => all.findIndex((u) => key(u) === key(t)) === n);
+    return [{ ...outcome, condition: conjunction(once), fields: way.fields }];
+  });
 }
 /** A found part's field a loop reads after a connection query of the source's, like "<member> after field effect at 0x1d2af". */
 const AFTER_EFFECT = / after field effect at (0x[0-9a-f]+)$/;
@@ -1259,7 +1319,9 @@ export function effectsFromOthers(
           )
         : (code?.iterationOutcomes ?? []).map((outcome) => ({ outcome, onlyType: undefined as number | undefined }));
       const kindAt = callKinds(report, callback.address);
-      for (const { outcome, onlyType } of ways) {
+      for (const { outcome, onlyType } of ways.flatMap((way) =>
+        splitBySource(way.outcome, way.outcome.object).map((outcome) => ({ ...way, outcome })),
+      )) {
         // What a list consumer does to a member tests where it lies from the source, which a line can't say yet: it
         // comes as a walk (`describe-hits.ts`). A way is read when it is open only at the overlap its search stored in
         // the part, at a rope pull of the source's (a connection query) or at the contact search it runs on the part.

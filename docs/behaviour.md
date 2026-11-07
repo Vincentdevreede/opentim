@@ -990,6 +990,23 @@ speed limit". Their pairs were partly described with the velocity left out; now 
 described (Even More 389 → 430 described, TIM 1 200 → 215), and no pair is left "for a reason this check doesn't
 name". The Lab reads an added number with its speed limit as well.
 
+### Values that pick by where the source is
+
+The jack-in-the-box and the alligator push a bellows, a pair of scissors or a teeter-totter by where they are: the
+value they set is a choice between values by tests of their own place against the part's, like "stateDelta becomes
+1 when the jack-in-the-box's centre X is past the bellows' positionX + 12, else stays". The analysis writes such a
+value as `(test) * a + (!test) * b`, which a walk can't follow, since it reads the source. A value that picks by tests
+reading the source is now split into its cases, each a way of its own with the case's tests added to the way's and
+the value it picks, so the place tests among them read as places. A case that leaves the field as it was writes
+nothing; a case whose tests contradict each other or the way's, which a nested choice brings back, never happens and
+is dropped. A choice by the part's own fields alone stays one value, like a velocity kept within its speed limit.
+
+So the jack-in-the-box squeezes a bellows at frame 0 "when its positionX is at least 13 pixels left of the
+jack-in-the-box's centre X (positionX + frameWidth / 2)" if the bellows is mirrored, and "at most 43 pixels left" if
+not; the alligator tilts a teeter-totter by which side of it the teeter-totter's positionX lies. Missing pairs: Even
+More 18 → 13, TIM 1 8 → 6. The jack-in-the-box's push of a teeter-totter stays missing: its value grew past the size
+budget before it could be split.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

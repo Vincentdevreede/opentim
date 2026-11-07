@@ -23,6 +23,7 @@ import {
   offMovingList,
   onlyAnswersOpen,
   partFields,
+  splitBySource,
   tidyArithmetic,
   predicateForType,
   readsAnswer,
@@ -492,7 +493,8 @@ export function hitsFromOthers(
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
       const iterations = routines.get(callback.address)?.iterationOutcomes ?? [];
-      for (const outcome of [...iterations, ...touches(callback)]) {
+      // A value that picks by the source's tests, like where the jack-in-the-box is from the bellows, is its cases.
+      for (const outcome of [...iterations.flatMap((o) => splitBySource(o, o.object)), ...touches(callback)]) {
         const member = outcome.object;
         const touch = member === "collider";
         const consumed = "listConsumer" in outcome && !!outcome.listConsumer;

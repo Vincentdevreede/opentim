@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { choose, type BehaviourReport, type Expression, type Predicate } from "../src/read/behaviour.ts";
-import { settleForType, tidyArithmetic, withOwnOverlaps } from "../src/read/describe-effects.ts";
+import {
+  settleForType,
+  sourceChoices,
+  splitBySource,
+  tidyArithmetic,
+  withOwnOverlaps,
+} from "../src/read/describe-effects.ts";
 
 const MEMBER = "overlap candidate at 0x1ac7e";
 const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
@@ -96,5 +102,44 @@ describe("arithmetic as the words say it", () => {
   it("reads the low word of a signed quotient as the quotient, written ÷", () => {
     const quotient = binary("s/", word, constant(40, 32), 32);
     expect(tidyArithmetic(binary("&", quotient, constant(0xffff), 16))).toEqual({ ...quotient, operator: "÷" });
+  });
+});
+
+describe("values that pick by the source's tests", () => {
+  const delta = field(0x12);
+  const mirrored = (set: boolean) => compare(set ? "!=" : "==", binary("&", field(8), constant(0x10)), constant(0));
+  // The jack-in-the-box tilts the bellows by which side of the bellows' positionX + 12 its centre X is on.
+  const near = compare("<", binary("+", field(0x1e), constant(12)), field(0x1e, "part"));
+  const tilt = choose(near, constant(1), delta);
+  const value = choose(mirrored(true), tilt, choose(mirrored(false), constant(1), delta));
+
+  it("splits a value by the tests that read the source, and keeps one that reads only the part", () => {
+    expect(sourceChoices(tilt)).toEqual([
+      { tests: [near], value: constant(1) },
+      { tests: [{ ...near, operator: ">=" }], value: delta },
+    ]);
+    const kept = choose(compare(">", delta, constant(4)), constant(4), delta);
+    expect(sourceChoices(kept)).toEqual([{ tests: [], value: kept }]);
+  });
+
+  it("gives a way for each case, without one that changes nothing or whose tests contradict", () => {
+    const outcome = {
+      condition: compare("==", field(4), constant(16)),
+      fields: [{ object: MEMBER, offset: 0x12, width: 16, value, condition: { kind: "true" } }],
+    } as unknown as Parameters<typeof splitBySource>[0];
+    const ways = splitBySource(outcome, MEMBER);
+    const flag = (operator: string) => ({ ...mirrored(true), operator, signed: false });
+    expect(ways.map((w) => w.condition)).toEqual([
+      { kind: "and", terms: [outcome.condition, flag("!="), near] },
+      { kind: "and", terms: [outcome.condition, flag("!="), { ...near, operator: ">=" }] },
+      { kind: "and", terms: [outcome.condition, flag("==")] },
+    ]);
+    // Past the bellows it tilts it; short of it, it leaves stateDelta as it was; not mirrored, the inner choice reads
+    // only the bellows and stays one value.
+    expect(ways.map((w) => w.fields.map((f) => f.value))).toEqual([
+      [constant(1)],
+      [],
+      [choose(mirrored(false), constant(1), delta)],
+    ]);
   });
 });

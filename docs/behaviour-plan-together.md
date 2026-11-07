@@ -133,6 +133,9 @@ Why the missing ones are missing (a pair can have several reasons):
       Touch lines take the part's own speed limit (the trampoline's launch, the alligator's snap): described Even More
       389 → 430, TIM 1 200 → 215. Pairs whose rules read a velocity kept within the speed limit (Mel and the bullet)
       name that as their reason.
+      Values that pick by the source's place are split into their cases (see "Values that pick by where the source
+      is"): the jack-in-the-box's and alligator's pushes of the bellows, scissors and teeter-totter are walks now.
+      Missing: Even More 18 → 13, TIM 1 8 → 6.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The
