@@ -109,6 +109,9 @@ Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
       all eleven builds and 1,281 level files, and every one is still stated by the findings that use it. One earlier
       note was corrected: two belts in L21 have width 40, off the 16 grid, on the frame that width gives. See "Recheck
       of the decided assumptions" in `docs/behaviour-assumptions.md`.
+- [x] **F3. Record the Even More CD build** (you asked for it on 2026-11-07). The recorder from Sprite Lab v25 runs on
+      the CD with the CD's own addresses and gives the floppy's frames in all 644 clips; every CD walk is complete
+      against it, and its 16 prefixes are gone. See "All eleven builds".
 
 ## G. Close
 

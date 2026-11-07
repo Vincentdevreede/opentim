@@ -223,7 +223,7 @@ image builds have the same `TIM.EXE`, and so do the two French Even More builds.
 | TIM 1 French                   | `4a54cc37` |    51 |               0 of 764 |         122 |              0 |                 181 |               33 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | 552 of 552 complete      |
 | TIM 1 German                   | `8aec613a` |    51 |               0 of 764 |         122 |              0 |                 181 |               33 |                  0 |                 0 |                     36 |                      4 | 1,154 of 1,154 |     89 | none for this executable |
 | Even More English floppy       | `b11cf18e` |    63 |               0 of 925 |         128 |              0 |                 193 |               41 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | 648 of 648 complete      |
-| Even More English CD           | `2557edb3` |    63 |               0 of 925 |         128 |              0 |                 193 |               41 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    172 | none for this executable |
+| Even More English CD           | `2557edb3` |    63 |               0 of 925 |         128 |              0 |                 193 |               41 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    172 | 644 of 644 complete      |
 | Even More English demo         | `605e9c0a` |    63 |               0 of 925 |         128 |              0 |                 193 |               41 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |     12 | none for this executable |
 | Even More French               | `9b15a150` |    63 |               0 of 925 |         128 |              0 |                 193 |               41 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
 | Even More French (with German) | `9b15a150` |    63 |               0 of 925 |         128 |              0 |                 193 |               41 |                  0 |                 0 |                     41 |                      5 | 1,338 of 1,338 |    163 | none for this executable |
@@ -243,6 +243,25 @@ every recording, like the recorded ones. The Even More CD and demo builds and th
 the recordings that need a search the recorder skipped (16 and 12): the recording names that search by its address in
 the recorded executable, and in these builds the search sits elsewhere, so those walks stop where the search is and
 count as prefixes. None differs.
+
+The Even More CD build was recorded later, on 2026-11-07, so that its skipped searches are checked at its own
+addresses. The recorder is Sprite Lab v25's `research/v24/verify_animations.py`, run unchanged except for what it
+knows about the build:
+
+- The CD's callbacks, data segment (`0x32f7`) and type table (`0x30900`) come from its own `TIM.EXE`; the frames and
+  sizes of the parts come from the floppy's model, and `extract-parts` gives the same 63 parts for both builds.
+- The recorder runs only code in the floppy's part segment `0x190f` and returns 0 from every other call. The CD gives
+  each part's code its own segment, so the rule becomes the stretch of the image that holds that segment's code: the
+  floppy's segment runs from `0x190f0` to `0x1ee50`, and in the CD the same 185 routines lie from `0x190c0` to
+  `0x1eb40`. 103 of them match one routine by their first bytes in both directions and none lies outside; the others
+  start with bytes that occur more than once.
+- Run the same way on the floppy, with its own stretch, the recorder gives the floppy's recording exactly (all 34 parts
+  it covers; the bowling ball's entry comes from a separate static check).
+
+The CD recording has the same 644 clips as the floppy's, with the same frames in every clip; only the addresses of the
+callbacks and of the skipped searches differ. Against it, every CD walk is complete: 644 of 644, 68 of them through
+the recorder's fields and 16 through a search the recorder skipped, the same counts as the floppy. The 16 prefixes
+above are gone for the CD; the demo and the English TIM 1 builds still have no recording of their own.
 
 What differs between the builds, and why it doesn't change a part:
 
