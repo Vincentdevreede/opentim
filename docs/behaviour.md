@@ -154,6 +154,12 @@ Repeat the game options for every build. Resources can be in the executable fold
 and failures to the output folder. Reports are derived from the games and should not be committed. Large reports
 are written incrementally. The library itself returns plain data that the browser can consume.
 
+`extract-behaviour`, `list-assumptions`, `list-other-part-pairs` and `check-level-frames` read the builds side by
+side, each on its own worker thread, and print what they find in the order the builds were given. By default they
+read one build per core but one, as far as free memory allows (an Even More build takes up to 1.7 GB). `--jobs <n>`
+sets how many at once; give `--jobs 1` to `extract-behaviour` when its times are to be compared, because a build read
+next to others takes longer. Over all eleven builds `list-assumptions --check` takes about a minute instead of five.
+
 Validation reads the saved v25 sequences only as an oracle. Its adjacent `models` folder supplies exact source
 hashes; `--models` can override that folder. Reports from a different executable are never silently matched to an
 oracle. Each changed-state edge and loop closure is checked against the run graph; unchanged steps need an explicit
