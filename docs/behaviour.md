@@ -2882,9 +2882,20 @@ part and for every value of the drawing flag bits the reset tests, and records w
 pointer. A run gives up at an instruction it doesn't know, a read of a part field other than the frame, the outline
 pointer and a tested flag, a write to the data segment, or a call before the outline is set, and the copy only counts
 when every corner byte was read from the data segment. In Even More each copy has as many corners as the type table's
-outline point count (`0x1e`) makes room for. This finds 27 more parts in Even More and 19 in TIM 1. The wood incline
-is left out: its reset picks the table by its state, but the part list gives it no frames to run it for. The lab draws
+outline point count (`0x1e`) makes room for. This finds 28 more parts in Even More and 20 in TIM 1. The lab draws
 the table for the frame and flip shown.
+
+The wood incline has no frame list, since the program draws it, so its reset is run for the frames [decided assumption
+21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame) gives it, the ones its width picks. Its reset
+(`0x1b7d1` in Even More, English floppy) picks a table from the list at `0x2f06` by its frame, or from the list at
+`0x2f2e` when it is flipped left to right, and copies 4 corners. On frames 0 to 3 (widths 16 to 64) the outline is a
+slab 16 pixels thick as wide as the incline, from its top left down to its bottom right: (0, 0), (w − 1, 15),
+(w − 1, 31), (0, 16) for a width w, and mirrored when flipped. Frame -1, which an incline of width 0 has in two Even
+More levels, is left out: a list indexed by it gives the word before the list, which points at no table the program
+ships (`0x1000` and `0x1f00`). A part the program draws gets no other outline this way: the other ones with decided
+frames write their corners as numbers or don't read their frame. The game loads such a part's frame N from sprite N
+of its one sheet (the frame sizes the analysis reads from the sheet), so the lab draws the incline's outline on the
+sprite shown.
 
 The parts whose type has no outline points (the pulley, belt, rope, rope end, eye hook, light bulb, magnifying glass,
 solar panel, explosion and Mel's house) have no outline to read.

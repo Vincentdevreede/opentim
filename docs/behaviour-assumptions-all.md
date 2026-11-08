@@ -17,7 +17,7 @@ Program addresses are written as `<address>`, since they differ between builds. 
 findings stating the assumption in one build, then in how many of the builds read it appears. Parts are those whose
 own findings or routines state it; `none, shared` means only shared helpers and report-wide findings do.
 
-Read from 5 TIM 1 and 6 Even More builds: 270 assumptions, most used first.
+Read from 5 TIM 1 and 6 Even More builds: 271 assumptions, most used first.
 
 | Assumption | TIM 1 | Even More | Parts |
 | --- | --- | --- | --- |
@@ -200,8 +200,8 @@ Read from 5 TIM 1 and 6 Even More builds: 270 assumptions, most used first.
 | Operations are an ordered mathematical relation. Captures read the current storage after earlier writes; named stages are computed values. If both participant pointers are equal, the later store wins, both limiter calls still occur in order, and separation gates observe the aliased stored velocities. No distinct-part assumption or fixed runtime contact is supplied. | 28 · 5/5 | 28 · 6/6 | none, shared |
 | The argument and recorded contact pointer name complete valid part objects. Their storage is either identical or disjoint, never partially overlapping. Private stack, program tables and resource storage are separate. Runtime types index the discovered records, and table storage remains stable during the call. | 28 · 5/5 | 28 · 6/6 | none, shared |
 | Word and long results wrap to their declared width before later comparisons; signed products and quotients are integer operations, not host floating-point multiplication of unsigned long bit patterns. Right shifts are arithmetic. The exact resource-wrapper condition and unresolved backend globals remain part of this normal-return contract. | 28 · 5/5 | 28 · 6/6 | none, shared |
+| The outline tables keep the bytes the program ships with: no instruction found writes to them directly. | 22 · 5/5 | 30 · 6/6 | none, shared |
 | This destination is a field of the newly allocated object, not a field of the existing owner. | 26 · 5/5 | 26 · 6/6 | none, shared |
-| The outline tables keep the bytes the program ships with: no instruction found writes to them directly. | 21 · 5/5 | 29 · 6/6 | none, shared |
 | Each return alternative retains the branch predicates and the routine's calling convention. | 20 · 5/5 | 20 · 6/6 | none, shared |
 | The two complete part objects and private stack are valid and separate from code and lookup storage. Centres use signed arithmetic shifts of current frame dimensions; sums and differences wrap to words before sign extension. The backend is called with those sign-extended word differences, inside its certified bounded domain. | 20 · 5/5 | 20 · 6/6 | none, shared |
 | The two signed masses are summed as a long. A zero sum reaches division by zero and establishes no normal return. The generic analyser does not yet compose this gate, so the exchange relation remains metadata-only and supplies no caller state-preservation shortcut. | 18 · 5/5 | 18 · 6/6 | none, shared |
@@ -245,6 +245,7 @@ Read from 5 TIM 1 and 6 Even More builds: 270 assumptions, most used first.
 | A node is known to have received the earlier clear only if list membership stayed valid between phases or its initialization supplied the same flags. A clear-loop exit dominating this pass does not establish that fact for newly inserted nodes. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | A stored state is restored and a discovered context counter is cleared before the type reset callback. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | A transition describes the final symbolic state along one acyclic control flow path. Loops, aliasing and unsupported effects remain unresolved. | 1 · 5/5 | 1 · 6/6 | none, shared |
+| **decided** A wood incline starts on the frame its width gives: its width divided by 16, less 1. That is frame 0 to 3 for the widths 16 to 64 the editor allows, and frame -1 for an incline of width 0, which two Even More levels have ("Ambulance Driver", L117, and "Rocket Launcher", L143) though the editor can't make it. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | A zero test establishes a gate here; a counter interpretation is not assumed in this part. | – | 2 · 6/6 | none, shared |
 | All addresses are relative to the unpacked load image, with the DOS relocation load base removed. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | At the pre-scan movement snapshot only the root is nonzero among all checked nodes. Its word a is neither zero nor \<address>, so a and its modular negation are distinct. | 1 · 5/5 | 1 · 6/6 | gear |

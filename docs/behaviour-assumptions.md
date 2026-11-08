@@ -868,7 +868,9 @@ Not proved: a level file made outside the game could save another width or anoth
 its width gives. Its run rests on each of the five, so it now has resting frames (frame -1 is listed as 65535, the
 word the rules read) and 25 more walks in each build, a run and four callback walks from each resting frame, all of
 which end. The walks can't tie the frame to the width, so they start from all five. The saved frame check
-(`check-level-frames`) checks each incline's frame against its width.
+(`check-level-frames`) checks each incline's frame against its width. Since 2026-11-08 its reset is also run for
+frames 0 to 3, which gives its outline for each width (see [Outlines](behaviour.md#outlines)); frame -1 picks no table
+the program ships.
 
 **How to recheck.**
 
