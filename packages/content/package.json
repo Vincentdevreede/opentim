@@ -17,7 +17,8 @@
     "compare-behaviour": "node scripts/compare-behaviour.ts",
     "list-assumptions": "node scripts/list-assumptions.ts",
     "check-level-frames": "node scripts/check-level-frames.ts",
-    "list-other-part-pairs": "node scripts/list-other-part-pairs.ts"
+    "list-other-part-pairs": "node scripts/list-other-part-pairs.ts",
+    "record-cpu-cases": "node scripts/record-cpu-cases.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"
