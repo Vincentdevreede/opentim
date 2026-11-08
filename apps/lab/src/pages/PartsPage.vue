@@ -22,7 +22,7 @@ import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
 import { readBehaviourInBackground, walksAfterPerType, type BehaviourResult, type WalksResult } from "../behaviour.ts";
 import { edition, program, resources, selected } from "../library.ts";
-import { findParts, listIdOf, partName, readLoadedParts, sheetFile, type PartOrder } from "../parts.ts";
+import { findParts, listIdOf, partName, readLoadedParts, sheetFile, whyNoFrames, type PartOrder } from "../parts.ts";
 import { decode, isImage } from "../sprites.ts";
 import { crumb, openAt, openSprite, selectedPart } from "../ui.ts";
 
@@ -184,13 +184,13 @@ onBeforeUnmount(() => (crumb.value = []));
                 v-if="differs.has(p.type)"
                 status="partial"
                 class="absolute top-1.5 right-1.5"
-                :title="`Not the same as in our list${p.frames.length ? '' : '. No frames in the list yet'}`"
+                :title="['Not the same as in our list.', whyNoFrames(list.id, p)].filter(Boolean).join(' ')"
               />
               <LabDot
                 v-else-if="!p.frames.length"
                 status="unsupported"
                 class="absolute top-1.5 right-1.5"
-                title="No frames in the list yet"
+                :title="`No frames. ${whyNoFrames(list.id, p)}`"
               />
             </LabPicture>
             <span class="flex flex-col px-0.5 pb-px">
@@ -213,6 +213,7 @@ onBeforeUnmount(() => (crumb.value = []));
       :walks="walks"
       :no-behaviour="noBehaviour"
       :part-names="partNames"
+      :no-frames="whyNoFrames(list.id, currentPart)"
       :gallery-palette="AUTO"
       @open-sheet="openSheet"
       @view-bytes="viewBytes"

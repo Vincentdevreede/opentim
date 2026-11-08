@@ -58,6 +58,8 @@ const props = defineProps<{
   noBehaviour?: string;
   /** The names of the parts, by type. */
   partNames?: ReadonlyMap<number, string>;
+  /** Why the part has no frames, when it has none. */
+  noFrames?: string;
 }>();
 const emit = defineEmits<{ openSheet: [file: string, sprite: number]; viewBytes: [file: string] }>();
 
@@ -266,7 +268,7 @@ const sideTabs = computed(() => [
           v-else
           status="unsupported"
           label="no frames yet"
-          title="The program draws this part its own way, so the list has no frames for it yet. Its sprites are shown instead."
+          :title="`${noFrames ?? 'The list has no frames for this part yet.'} Its sprites are shown instead.`"
         />
       </LabToolbar>
 
