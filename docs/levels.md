@@ -180,8 +180,10 @@ The parts bin is the third list, the one the list head routine picks by the bit 
 English floppy, `[0x5257]` in TIM 1, French): after loading it holds the file's bin parts in the file's order, in 157
 of the 160 Even More puzzles, and their fields go where a placed part's do (tallied as `bin: <field>`), with the first
 state value also at `0x0c`. In puzzle 105 the list stops after the first of its two ropes (5 of 14 parts), and in
-puzzles 106 and 115, with 47 and 15 parts in the bin, it is empty after loading. Why isn't read yet; these are among
-the levels with the most parts in the bin.
+puzzles 106 and 115, with 47 and 15 parts in the bin, it is empty after loading. Why isn't read yet. It isn't the
+emulator's memory: loading these makes the same one failed DOS request as every puzzle (for `0xffff` paragraphs, to
+learn the largest block). Puzzle 105's 72 placed parts reach `0xf9ea`, near the end of the data segment where the
+part records are, so it may be out of room; puzzle 106's records end at `0xdd62`, so it isn't that there.
 
 The header's numbers go to one block of words. Searched at every byte below `0x8000`, each one is in all puzzles only
 in its word below, apart from the scroll limits: they are -8 in every shipped puzzle, so they could be either of their
