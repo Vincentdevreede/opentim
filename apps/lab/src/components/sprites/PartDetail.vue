@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { Part, Placement, TypeRecord } from "@opentim/content";
+import { compose, drawOrder, type Part, type Placement, type SpriteOf, type TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
-import { computed, nextTick, reactive, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, reactive, ref, useId, watch, watchEffect } from "vue";
 import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import { outlineShape } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
-import { compose, drawOrder, partName, sheetFile, type SpriteOf } from "../../parts.ts";
+import { partName, sheetFile } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -15,6 +15,7 @@ import LabFacts from "../LabFacts.vue";
 import LabSlider from "../LabSlider.vue";
 import LabTable, { type Column } from "../LabTable.vue";
 import LabTabs from "../LabTabs.vue";
+import { tabPanel } from "../tabs.ts";
 import LabToggle from "../LabToggle.vue";
 import LabIcon from "../LabIcon.vue";
 import LabHints from "../LabHints.vue";
@@ -73,6 +74,8 @@ const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
 const side = ref<"frame" | "behaviour" | "record">("frame");
+const stripId = useId();
+const sideId = useId();
 
 const { colorsOf, choose, options } = usePalettes();
 const spriteOf: SpriteOf = (sheet, sprite) => props.sheetSprites(sheet)?.[sprite];
@@ -144,13 +147,18 @@ const choice = computed(() =>
 );
 const colors = computed(() => colorsOf(choice.value?.name));
 
-/** The outline the part's reset routine sets, on the stage: its points, and each edge's number outside it. */
+/**
+ * The outline the part's reset routine sets for the shown frame and flip, on the stage: its points, and each edge's
+ * number outside it.
+ */
 const shape = computed(() => {
   // The points start at the part's position, which only a frame places.
   if (props.behaviour?.status !== "done" || !frame.value) return undefined;
   const summary = props.behaviour.summary.parts[props.part.type];
   const { x, y, width, height } = composition.value.bounds;
-  const points = summary && outlineShape(summary, { width, height });
+  const points =
+    summary &&
+    outlineShape(summary, { width, height }, { frame: frame.value.id, flipX: flipX.value, flipY: flipY.value });
   if (!points) return undefined;
   const z = zoom.value;
   const at = points.map((p) => ({ x: (p.x - x + 0.5) * z, y: (p.y - y + 0.5) * z }));
@@ -265,15 +273,15 @@ const sideTabs = computed(() => [
         >
         <LabToggle
           v-model="outline"
-          :disabled="!shape || flipX || flipY"
+          :disabled="!shape"
           :title="
-            !shape
-              ? frame
-                ? 'The analysis has no outline points for this part: its reset doesn’t write each one as a number'
-                : 'Only a frame places the outline, and this part has no frames'
-              : flipX || flipY
-                ? 'The outline is the one reset sets for the part as placed, not mirrored'
-                : `The outline reset sets, ${shape.source.length} points, with each edge’s number (O)`
+            shape
+              ? `The outline reset sets, ${shape.source.length} points, with each edge’s number (O)`
+              : !frame
+                ? 'Only a frame places the outline, and this part has no frames'
+                : flipX || flipY
+                  ? 'The reset doesn’t say which outline the part has mirrored like this'
+                  : 'The analysis has no outline for this part: its reset neither writes each point as a number nor copies it from a table it can read'
           "
           >Outline</LabToggle
         >
@@ -296,7 +304,7 @@ const sideTabs = computed(() => [
             />
             <div v-if="grid && zoom >= 3" class="pointer-events-none absolute inset-0" :style="gridStyle(zoom)"></div>
             <svg
-              v-if="outline && shape && !flipX && !flipY"
+              v-if="outline && shape"
               class="pointer-events-none absolute top-0 left-0 overflow-visible"
               :width="composition.bounds.width * zoom"
               :height="composition.bounds.height * zoom"
@@ -373,9 +381,9 @@ const sideTabs = computed(() => [
           </div>
         </FrameStepper>
 
-        <LabStrip>
+        <LabStrip :panel="tabPanel(stripId, strip)">
           <template #header>
-            <LabTabs v-model="strip" label="Frames or sprites" :options="stripTabs">
+            <LabTabs :id="stripId" v-model="strip" label="Frames or sprites" :options="stripTabs">
               <LabHints
                 :hints="[
                   [['F'], 'frames'],
@@ -441,9 +449,9 @@ const sideTabs = computed(() => [
             : emit('viewBytes', sheetFile(opened.sheet))
         "
       />
-      <LabTabs v-model="side" label="Part data" :options="sideTabs" />
+      <LabTabs :id="sideId" v-model="side" label="Part data" :options="sideTabs" />
 
-      <LabPanelBody :key="side">
+      <LabPanelBody :key="side" v-bind="tabPanel(sideId, side)">
         <BehaviourPanel
           v-if="side === 'behaviour'"
           :result="behaviour"

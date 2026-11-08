@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
-import { readOutlineTables } from "../src/read/behaviour-outline-tables.ts";
+import { pickOutlineTable, readOutlineTables } from "../src/read/behaviour-outline-tables.ts";
 import { outlineTableWords } from "../src/read/describe-outline.ts";
 
 // The electric switch's reset in Even More (English floppy, at 0x1a64a): it picks a table by whether the frame is
@@ -57,5 +57,12 @@ describe("outline tables", () => {
     image.set([0xc6, 0x06, 0x5c, 0x2e, 0x00, 0xcb], 0x100);
     const writer = readRoutineCode(image, { segment: 0, offset: 0x100, address: 0x100 }, 0);
     expect(read(image, [writer])).toBeUndefined();
+  });
+
+  it("picks the table whose frame tests hold", () => {
+    const copy = read(program())!;
+    expect(pickOutlineTable(copy, 2, 0)?.address).toBe(0x2e5a);
+    expect(pickOutlineTable(copy, 5, 0)?.address).toBe(0x2e62);
+    expect(pickOutlineTable(copy, Number.NaN, 0)).toBeUndefined();
   });
 });

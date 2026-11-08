@@ -11,11 +11,14 @@ import {
   type Part,
   type PartList,
   type Placement,
+  compose,
+  type Bounds,
+  type Composition,
+  type SpriteOf,
 } from "@opentim/content";
 import type { Edition } from "./edition.ts";
 import type { Resource } from "./importer.ts";
 import type { Confidence } from "./kinds.ts";
-import { compose, type Bounds, type Composition, type SpriteOf } from "./parts.ts";
 
 export interface LevelEntry {
   resource: Resource;

@@ -4,6 +4,10 @@
  * is repeated.
  */
 
+/** A real-mode DOS program can't address more than 1 MiB, so a larger image only comes from damaged data. */
+const MAX_IMAGE = 1024 * 1024;
+const TOO_LARGE = "The unpacked program is larger than 1 MiB";
+
 /** The unpacked load image of a program packed with LZEXE 0.91: its code and data, without the EXE header. */
 export function unpackLzexe(exe: Uint8Array): Uint8Array {
   const view = new DataView(exe.buffer, exe.byteOffset, exe.byteLength);
@@ -30,6 +34,7 @@ export function unpackLzexe(exe: Uint8Array): Uint8Array {
 
   for (;;) {
     if (bit()) {
+      if (out.length >= MAX_IMAGE) throw new Error(TOO_LARGE);
       out.push(byte());
       continue;
     }
@@ -51,6 +56,7 @@ export function unpackLzexe(exe: Uint8Array): Uint8Array {
       }
     }
     if (out.length + span < 0) throw new Error("The packed data refers back before its start");
+    if (out.length + length > MAX_IMAGE) throw new Error(TOO_LARGE);
     for (let i = 0; i < length; i++) out.push(out[out.length + span]!);
   }
   return Uint8Array.from(out);

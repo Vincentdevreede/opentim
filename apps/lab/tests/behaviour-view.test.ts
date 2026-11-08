@@ -326,6 +326,69 @@ describe("outlineShape", () => {
       ),
     ).toBeUndefined();
   });
+
+  // Like the bellows: a table per frame, and another per frame when flipped left to right.
+  const copying = {
+    ...part([]),
+    outlineTables: {
+      confidence: "inferred" as const,
+      assumptions: [],
+      evidence: [],
+      flips: { horizontal: 0x10, vertical: 0x20 },
+      tables: [
+        {
+          when: [["frame == 0", "flags & 0x10 == 0"]],
+          corners: [
+            [0, 0],
+            [8, 0],
+            [0, 8],
+          ] as [number, number][],
+        },
+        {
+          when: [["frame == 0", "flags & 0x10 != 0"]],
+          corners: [
+            [8, 0],
+            [0, 0],
+            [8, 8],
+          ] as [number, number][],
+        },
+        {
+          when: [["frame == 1"]],
+          corners: [
+            [1, 1],
+            [7, 1],
+            [1, 7],
+          ] as [number, number][],
+        },
+      ],
+    },
+  } as PartSummary;
+  const size = { width: 9, height: 9 };
+
+  it("takes the table the reset copies for the shown frame and flip", () => {
+    expect(outlineShape(copying, size, { frame: 0 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+      { x: 0, y: 8 },
+    ]);
+    expect(outlineShape(copying, size, { frame: 0, flipX: true })?.[0]).toEqual({ x: 8, y: 0 });
+    expect(outlineShape(copying, size, { frame: 1 })?.[0]).toEqual({ x: 1, y: 1 });
+    // The reset was run flipped and not, and gave the same table on frame 1.
+    expect(outlineShape(copying, size, { frame: 1, flipX: true })?.[0]).toEqual({ x: 1, y: 1 });
+  });
+
+  it("gives nothing for a frame no table is for, or a flip the reset doesn't test", () => {
+    expect(outlineShape(copying, size, { frame: 2 })).toBeUndefined();
+    expect(outlineShape(copying, size)).toBeUndefined();
+    expect(outlineShape(copying, size, { frame: 0, flipY: true })).toBeUndefined();
+  });
+
+  it("gives nothing when a table is chosen by a drawing flag other than the flips", () => {
+    const other = structuredClone(copying);
+    other.outlineTables!.tables[2]!.when = [["frame == 1", "flags & 0x4 == 0"]];
+    expect(outlineShape(other, size, { frame: 0 })).toBeUndefined();
+    expect(outlineShape(other, size, { frame: 1 })).toBeUndefined();
+  });
 });
 
 describe("walkGroups", () => {

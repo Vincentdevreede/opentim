@@ -3,7 +3,7 @@
  * one row, conditions lose the terms that say nothing, and a target that depends only on the state is worked out.
  */
 
-import type { Confidence } from "@opentim/content";
+import { pickOutlineTable, type Confidence } from "@opentim/content";
 import {
   NAMED_TERMS,
   rangeText,
@@ -224,10 +224,39 @@ function outlinePoints(list: readonly Write[]): string[] | undefined {
 }
 
 /**
- * The outline a part's reset routine sets, as points from the part's position, for a frame of this size. The points
- * are bytes, so `frameWidth + 0xff` is one less than the width. Undefined when reset doesn't write every point.
+ * The outline a part's reset copies from a table for this frame and flip, or undefined. A flip the copy doesn't test
+ * gives nothing: the reset doesn't say the outline stays the same then. So does a test of a drawing flag other than the
+ * flips, as the lab doesn't know that flag.
  */
-export function outlineShape(part: PartSummary, size: { width: number; height: number }) {
+function tableShape(part: PartSummary, frame: number | undefined, flipX: boolean, flipY: boolean) {
+  const copy = part.outlineTables;
+  if (!copy) return undefined;
+  const tests = copy.tables.flatMap((t) => t.when.flat());
+  const testedBits = tests.flatMap((test) => {
+    const bit = /^flags & 0x([0-9a-f]+) /.exec(test)?.[1];
+    return bit === undefined ? [] : [parseInt(bit, 16)];
+  });
+  if (testedBits.some((bit) => bit !== copy.flips.horizontal && bit !== copy.flips.vertical)) return undefined;
+  const tested = (bit: number | undefined) => bit !== undefined && testedBits.includes(bit);
+  if ((flipX && !tested(copy.flips.horizontal)) || (flipY && !tested(copy.flips.vertical))) return undefined;
+  const flags = (flipX ? copy.flips.horizontal! : 0) | (flipY ? copy.flips.vertical! : 0);
+  const table = pickOutlineTable(copy, frame ?? Number.NaN, flags);
+  return table && table.corners.length > 1 ? table.corners.map(([x, y]) => ({ x, y })) : undefined;
+}
+
+/**
+ * The outline a part's reset routine sets, as points from the part's position, for a frame of this size: the points it
+ * writes, or the table it copies for this frame and flip. The points are bytes, so `frameWidth + 0xff` is one less than
+ * the width. Undefined when reset doesn't write every point or copy a table that fits.
+ */
+export function outlineShape(
+  part: PartSummary,
+  size: { width: number; height: number },
+  shown: { frame?: number; flipX?: boolean; flipY?: boolean } = {},
+) {
+  const flipped = !!shown.flipX || !!shown.flipY;
+  const table = tableShape(part, shown.frame, !!shown.flipX, !!shown.flipY);
+  if (table || flipped) return table;
   const points = outlinePoints(part.reset.filter((w) => OUTLINE.test(w.target)));
   if (!points || points.length < 2) return undefined;
   const values: Record<string, number> = { frameWidth: size.width, frameHeight: size.height };

@@ -33,6 +33,34 @@ export interface OutlineTables extends Finding {
   tables: OutlineTableChoice[];
 }
 
+/**
+ * The table a copy takes for a part on this frame with these drawing flags: the one whose tests hold on one of its
+ * paths. Undefined when no table or more than one fits, or a test isn't a frame or drawing flag test.
+ */
+export function pickOutlineTable<Table extends Pick<OutlineTableChoice, "when">>(
+  copy: { tables: Table[] },
+  frame: number,
+  flags: number,
+): Table | undefined {
+  const holds = (test: string): boolean | undefined => {
+    const flag = /^flags & 0x([0-9a-f]+) (==|!=) 0$/.exec(test);
+    if (flag) return ((flags & parseInt(flag[1]!, 16)) !== 0) === (flag[2] === "!=");
+    const range = /^frame (==|!=|<|<=|>|>=) (-?\d+)$/.exec(test);
+    if (!range) return undefined;
+    const value = Number(range[2]);
+    return {
+      "==": frame === value,
+      "!=": frame !== value,
+      "<": frame < value,
+      "<=": frame <= value,
+      ">": frame > value,
+      ">=": frame >= value,
+    }[range[1]!];
+  };
+  const fits = copy.tables.filter((table) => table.when.some((tests) => tests.every((test) => holds(test) === true)));
+  return fits.length === 1 ? fits[0] : undefined;
+}
+
 export const OUTLINE_TABLE_ASSUMPTION =
   "The outline tables keep the bytes the program ships with: no instruction found writes to them directly.";
 
@@ -138,6 +166,23 @@ function copyLoop(code: RoutineCode, outlineOffset: number) {
   return undefined;
 }
 
+/** The data segment addresses an instruction writes by address, in any routine the analysis read. */
+export function dataWrites(allCodes: Iterable<RoutineCode>): Set<number> {
+  const writes = new Set<number>();
+  for (const code of allCodes)
+    for (const i of code.instructions) {
+      const target = memory(i.operands[0]);
+      if (
+        target &&
+        target.base.length === 0 &&
+        target.segment === "ds" &&
+        !["cmp", "test", "push"].includes(i.mnemonic)
+      )
+        for (let k = 0; k < target.width / 8; k++) writes.add((target.displacement + k) & 0xffff);
+    }
+  return writes;
+}
+
 /**
  * Reads a routine's outline table copy, with the frame tests that pick each table. `image` and `dataSegment` give the
  * table bytes. Returns undefined when the routine has no such copy or a path to it does anything else.
@@ -219,17 +264,7 @@ export function readOutlineTables(
   };
   if (!visit(0, [], undefined, [], 0) || !paths.length) return undefined;
   // No instruction the analysis read writes into a table by its address.
-  const writes = [...allCodes].flatMap((other) =>
-    other.instructions.flatMap((i) => {
-      const target = memory(i.operands[0]);
-      return target &&
-        target.base.length === 0 &&
-        target.segment === "ds" &&
-        !["cmp", "test", "push"].includes(i.mnemonic)
-        ? [target.displacement & 0xffff]
-        : [];
-    }),
-  );
+  const writes = [...dataWrites(allCodes)];
   if (paths.some((path) => writes.some((at) => at >= path.table && at < path.table + loop.count * 2))) return undefined;
   const base = dataSegment * 16;
   const tables = new Map<number, OutlineTableChoice & { proof: Instruction[] }>();

@@ -2,7 +2,7 @@
 
 import { MAP_NAME, installLanguage, isArchiveName, isLanguagePackageName } from "@opentim/resources";
 import { ref, shallowRef, watch } from "vue";
-import { stopBehaviourRead } from "./behaviour.ts";
+import { readBehaviourInBackground, stopBehaviourRead } from "./behaviour.ts";
 import { detectEdition, isProgramName, sha256, type Edition } from "./edition.ts";
 import {
   ImportError,
@@ -19,6 +19,7 @@ import {
   type Requirement,
   type Resource,
 } from "./importer.ts";
+import { listIdOf, readLoadedParts } from "./parts.ts";
 import { loadLibrary, removeLibrary, saveLibrary } from "./storage.ts";
 
 export type { Edition } from "./edition.ts";
@@ -265,6 +266,7 @@ async function stage(
   };
 }
 
+/** Shows the staged files as the loaded ones, and starts reading the behaviour of their program. */
 function load(staged: Staging): void {
   resources.value = staged.resources;
   archives.value = staged.files.map(({ name, size }) => ({ name, size }));
@@ -276,6 +278,18 @@ function load(staged: Staging): void {
   failure.value = undefined;
   staging.value = undefined;
   phase.value = "loaded";
+  // The behaviour takes a while to read, so it starts once the files are loaded rather than when Parts opens. Parts
+  // then shows the same read. Reading the parts takes a moment, so it waits until the loaded files are painted: a
+  // frame callback runs before the paint, and a task queued from it runs after.
+  const loaded = program.value;
+  if (loaded)
+    void nextFrame().then(() =>
+      setTimeout(() => {
+        if (program.value !== loaded) return;
+        const parts = readLoadedParts(listIdOf(staged.edition), staged.resources, loaded)?.program;
+        if (parts) readBehaviourInBackground(loaded.data, parts);
+      }),
+    );
 }
 
 /**

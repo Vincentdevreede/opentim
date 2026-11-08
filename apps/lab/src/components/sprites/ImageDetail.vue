@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, watchEffect } from "vue";
+import { computed, ref, useId, watch, watchEffect } from "vue";
 import { download, sheetCanvas } from "../../export.ts";
 import type { Resource } from "../../importer.ts";
 import { badgeOf, colorCounts, type Decoded } from "../../sprites.ts";
@@ -10,6 +10,7 @@ import LabCard from "../LabCard.vue";
 import LabFact from "../LabFact.vue";
 import LabFacts from "../LabFacts.vue";
 import LabTabs from "../LabTabs.vue";
+import { tabPanel } from "../tabs.ts";
 import LabToggle from "../LabToggle.vue";
 import LabIcon from "../LabIcon.vue";
 import LabHints from "../LabHints.vue";
@@ -50,6 +51,7 @@ const flip = ref(false);
 const grid = ref(false);
 const onion = ref(false);
 const tab = ref<"details" | "colours">("details");
+const tabsId = useId();
 const highlight = ref<number>();
 const hover = ref<{ x: number; y: number; index?: number }>();
 const detailPalette = ref(AUTO);
@@ -269,9 +271,9 @@ const DATA_TABS = [
     <LabSidePanel aria-label="Image file data">
       <LabPanelHeader title="Image file" :meta="resource.name" />
       <LabOpenIn :targets="['files']" @open="emit('viewBytes', resource)" />
-      <LabTabs v-model="tab" label="Image file data" :options="DATA_TABS" />
+      <LabTabs :id="tabsId" v-model="tab" label="Image file data" :options="DATA_TABS" />
 
-      <LabPanelBody>
+      <LabPanelBody v-bind="tabPanel(tabsId, tab)">
         <template v-if="tab === 'details'">
           <LabFacts>
             <LabFact label="File">

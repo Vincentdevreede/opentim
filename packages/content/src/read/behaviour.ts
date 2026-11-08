@@ -5,7 +5,8 @@
  */
 
 import { maskValue } from "./behaviour-list-masks.ts";
-import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
+import { dataWrites, readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
+import { runOutlineTables } from "./behaviour-outline-run.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { settleRopeDispatch } from "./behaviour-rope-dispatch.ts";
 import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
@@ -876,6 +877,11 @@ interface AbstractState {
   observationGuard?: Predicate;
   /** The heads of find-first walks this path follows for any member. */
   findFirst?: Set<number>;
+  /**
+   * The list heads whose last search may have listed the owner: one that keeps its argument, or one that leaves it out
+   * but was asked by something not proved to be the owner.
+   */
+  ownerMayBeListed?: Set<number>;
   assumptions: string[];
 }
 interface Location {
@@ -945,6 +951,7 @@ const clone = (s: AbstractState): AbstractState => ({
   assumptions: [...s.assumptions],
   fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
   findFirst: s.findFirst && new Set(s.findFirst),
+  ownerMayBeListed: s.ownerMayBeListed && new Set(s.ownerMayBeListed),
 });
 const wordOfByte: Record<string, string> = {
   al: "ax",
@@ -2791,6 +2798,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         )
           continue;
         const merged = queued.state;
+        // Either path's searches may have left the owner in a list, so the joined path keeps both.
+        const heads = new Set([...(merged.ownerMayBeListed ?? []), ...(s.ownerMayBeListed ?? [])]);
+        merged.ownerMayBeListed = heads.size ? heads : undefined;
         merged.conditions = left.filter((t) => rightIds.has(textOf(t)));
         merged.visited = new Set([...merged.visited, ...s.visited]);
         const joinEvidence = uniqueEvidence(
@@ -3046,7 +3056,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     for (const call of loop.passCalls)
       for (const write of call.callee.writes)
         if (write.root === "argument" && !add(call.register, write.offset, write.width)) return undefined;
-    if (member.length && !loop.excludesOwner) return undefined;
+    // The search only leaves out the owner when the owner asked it.
+    if (member.length && (!loop.excludesOwner || s.ownerMayBeListed?.has(loop.nextField))) return undefined;
     return { owner, member };
   };
   while (queue.length && visits++ < maxVisits) {
@@ -4004,6 +4015,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         summary.outcomes.length <= 24 &&
         summary.outcomes.every((outcome) => outcome.fields.every((effect) => composableObject(effect.object)))
       );
+      if (engineBefore?.list) {
+        // A later search replaces the head an earlier one filled, so only the last search of a head counts.
+        const asking = formalArgument(args, engineBefore.argumentOffset, engineBefore.argumentOffset).value;
+        const asksOwner = asking.kind === "pointer" && asking.object === "part" && asking.displacement === 0;
+        const heads = new Set(s.ownerMayBeListed);
+        if (engineBefore.list.excludesArgument && asksOwner) heads.delete(engineBefore.list.headField);
+        else heads.add(engineBefore.list.headField);
+        s.ownerMayBeListed = heads.size ? heads : undefined;
+      }
       let engine = i.target && options.engineSummaries?.get(i.target.address);
       const listScope = listConsumerCalls.get(i.address);
       const listOwner = engine?.listConsumer
@@ -4649,7 +4669,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             ? engine
             : undefined;
         const finals = new Map<number, { value: Tracked; width: number }>();
+        /** Fields the relation also writes, even one byte of, through another argument, which may be the owner when passed twice. */
+        const aliased = new Set<number>();
+        const bytesOf = (w: { offset: number; width: number }) => ({ from: w.offset, to: w.offset + w.width / 8 });
         for (const offset of new Set(possibleWrites.map((w) => w.offset))) {
+          const field = {
+            from: offset,
+            to: Math.max(...possibleWrites.filter((w) => w.offset === offset).map((w) => bytesOf(w).to)),
+          };
+          if (
+            relation?.writes.some((w) => {
+              if (w.root !== "argument" || w.path.length) return false;
+              if ((w.argumentOffset ?? relation.argumentOffset) === relation.argumentOffset) return false;
+              const bytes = bytesOf(w);
+              return bytes.from < field.to && field.from < bytes.to;
+            })
+          ) {
+            aliased.add(offset);
+            continue;
+          }
           const exact = relation?.writes.filter((w) => w.root === "argument" && !w.path.length && w.offset === offset);
           if (exact?.length !== 1 || exact[0]!.condition.kind !== "true") continue;
           const value = formalValue(exact[0]!.value, args, relation!.argumentOffset, s);
@@ -4675,6 +4713,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             );
             s.registers.delete("__summary_part");
           } else if (
+            !aliased.has(offset) &&
             effects.length === 1 &&
             effects[0]!.condition.kind === "true" &&
             effects[0]!.value.kind === "constant"
@@ -5928,22 +5967,30 @@ export function readBehaviourInSteps(
     }
   const collisionDispatch = discoverCollisionDispatch(image, codes, layout, list, engineSummaries);
   const outlineField = layout.fields.find((f) => f.name === "outlinePoints")?.offset;
-  const outlineTables =
-    outlineField === undefined
-      ? []
-      : [...new Set(parts.flatMap((part) => part.routines.map((routine) => routine.address)))].flatMap((address) => {
-          const code = codes.get(address);
-          const tables =
-            code &&
-            readOutlineTables(
-              code,
-              image,
-              list.dataSegment,
-              { outline: outlineField, state: stateOffset },
-              codes.values(),
-            );
-          return tables ? [tables] : [];
-        });
+  const flagsField = layout.fields.find((f) => f.name === "drawingFlags")?.offset;
+  const written = dataWrites(codes.values());
+  const outlineTables: OutlineTables[] = [];
+  if (outlineField !== undefined)
+    for (const part of parts)
+      for (const routine of part.routines) {
+        const code = codes.get(routine.address);
+        if (!code || outlineTables.some((item) => item.routine === routine.address)) continue;
+        const fields = { outline: outlineField, state: stateOffset };
+        const tables =
+          readOutlineTables(code, image, list.dataSegment, fields, codes.values()) ??
+          // A shared routine is run only for a part of its own, as the frames it runs for are that part's.
+          (routine.shared
+            ? undefined
+            : runOutlineTables(
+                code,
+                image,
+                list.dataSegment,
+                { ...fields, ...(flagsField === undefined ? {} : { flags: flagsField }) },
+                part.frameCount ?? 0,
+                written,
+              ));
+        if (tables) outlineTables.push(tables);
+      }
   if (!collisionDispatch.length)
     for (const part of parts)
       part.uncertainties.push(
