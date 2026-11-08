@@ -452,8 +452,9 @@ export function choiceOf(e: Expression): { test: Comparison; then: Expression; o
 }
 /**
  * One value from the ways through a routine, each with its tests and its value, when the ways split like a tree: some
- * test is on every way, as itself or as its opposite, and so on down to one way. Undefined when they don't, when a
- * side is empty, or when a test isn't a comparison: then a way the tests allow may be missing.
+ * test is on every way, as itself or as its opposite, and so on down to one way. The test to split on may be any of the
+ * ways' tests, as the code may make them in another order on each side. Undefined when they don't split, when a side is
+ * empty, or when a test isn't a comparison: then a way the tests allow may be missing.
  */
 export function chooseByTests(
   ways: { tests: Predicate[]; value: Expression }[],
@@ -461,17 +462,23 @@ export function chooseByTests(
 ): Expression | undefined {
   if (!ways.length || ways.some((way) => way.tests.some((test) => test.kind !== "compare"))) return undefined;
   if (ways.length === 1) return ways[0]!.tests.length ? undefined : ways[0]!.value;
-  const test = ways[0]!.tests[0] as Comparison | undefined;
-  if (!test) return undefined;
-  const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
-  const holds = ways.filter((way) => way.tests.some((t) => same(t, test)));
-  const fails = ways.filter((way) => way.tests.some((t) => same(t, opposite)));
-  if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) return undefined;
   const without = (list: typeof ways, drop: Predicate) =>
     list.map((way) => ({ ...way, tests: way.tests.filter((t) => !same(t, drop)) }));
-  const then = chooseByTests(without(holds, test), width);
-  const otherwise = then && chooseByTests(without(fails, opposite), width);
-  return otherwise && choose(test, then, otherwise, width);
+  const tried: Comparison[] = [];
+  for (const way of ways)
+    for (const candidate of way.tests as Comparison[]) {
+      if (tried.some((t) => same(t, candidate))) continue;
+      tried.push(candidate);
+      const opposite: Comparison = { ...candidate, operator: OPPOSITE[candidate.operator]! };
+      tried.push(opposite);
+      const holds = ways.filter((w) => w.tests.some((t) => same(t, candidate)));
+      const fails = ways.filter((w) => w.tests.some((t) => same(t, opposite)));
+      if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) continue;
+      const then = chooseByTests(without(holds, candidate), width);
+      const otherwise = then && chooseByTests(without(fails, opposite), width);
+      if (otherwise) return choose(candidate, then, otherwise, width);
+    }
+  return undefined;
 }
 /**
  * The speed and the limit of a value the speed limit made: `limit if speed > limit, else -limit if speed < -limit,
@@ -1701,6 +1708,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (object === "part") return formalArgument(args, base, ownerOffset);
     if (object === consumerMember) return tracked({ kind: "pointer", object, displacement: 0, width: 16 });
     const nested = /^referenced-by\((.*)\+0x([0-9a-f]+)\)$/.exec(object);
+    // The part another argument of the helper points at, like the explosion the wall split gets: the caller's argument.
+    if (nested?.[1] === "argument") return formalArgument(args, base, parseInt(nested[2]!, 16));
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
   };
@@ -1800,6 +1809,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         return tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
+      // Whether a helper's allocation found room, like the wall split's copy: only the run knows, so it is named.
+      const allocation = /^nullable allocation result at (0x[0-9a-f]+)$/.exec(expression.object);
+      if (allocation)
+        return tracked({
+          kind: "field",
+          object: `allocation answer of the call at ${allocation[1]}`,
+          offset: expression.offset,
+          width: expression.width,
+          unresolved: true,
+        } as Expression);
       // A consumer's member is read as it is when the consumer gets it.
       if (expression.object === consumerMember) return tracked(expression);
       if (expression.object === "data")
@@ -2216,8 +2235,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       for (const offset of effect.path) pointer = memoryAt(pointer, offset, 16, s);
       const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
       if (!possible(conjunction([...s.conditions, condition]))) continue;
-      // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound.
-      const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : undefined;
+      // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound. So is the
+      // one value a relation's field ends with, a choice by the tests of its ways, like the wall split's cut.
+      const chosen =
+        (engine.kind === "owner-field-relation" || engine.kind === "owner-and-outline-relation") &&
+        effect.condition.kind === "true";
+      const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : chosen ? 8192 : undefined;
       const links = engine.orderedLinks;
       const link =
         links && !effect.path.length && effect.width === 16
@@ -4960,10 +4983,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
 /**
  * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
  * found list, what a call writes to parts it selects, the part's own field after such a call, the neighbours an
- * ordered insertion links a part between, or the angle between two parts' centres.
+ * ordered insertion links a part between, the angle between two parts' centres, or whether a helper's allocation found
+ * room.
  */
 const RUN_VALUE =
-  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
+  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer|allocation answer of the call) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {

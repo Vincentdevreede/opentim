@@ -240,6 +240,9 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       these as described (see "The contact response after a bounce"). Missing: Even More 5 → 4, TIM 1 4 → 3. What is
       left is what the user chose to leave: the explosion's split of a wall, the jack-in-the-box's push of a
       teeter-totter and the teeter-totter's launch of Mel.
+      The explosion's split of a wall (2026-11-08, after A5, on the user's ask): the wall's values reach the explosion's
+      loop as one value each (see "The wall split in the explosion's loop"). Next: lines that say values of where the
+      explosion is.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

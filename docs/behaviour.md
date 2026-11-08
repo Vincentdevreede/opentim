@@ -1207,6 +1207,34 @@ missing now is what A4 named and the user chose to leave: the explosion's split 
 jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
 and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
 
+### The wall split in the explosion's loop
+
+The explosion's wall split (`0x1a8ae`, Even More, English floppy; `0x18f4a` in TIM 1, French) was read as a relation
+with every store to the wall and its test, but the explosion's loop still called the wall's fields "a conditional
+effect". Four things kept them apart, now changed:
+
+- A relation's field only got one value when every way through the helper stored something in it. A way that stores
+  nothing in a field leaves it as it was, and every way's effects are complete, so that way's value is now the field
+  itself (`finalOwnerFields`).
+- The ways had to split like a tree on the first test of the first way. The wall split tests "the wall starts at or
+  after the hole" on one side before "the wall ends inside it", and in the other order on the other, so `chooseByTests`
+  now splits on any test every way makes, as itself or its opposite. It still gives up when none does.
+- Its values read the explosion through its second argument (`referenced-by(argument+0x8)`), which a caller didn't map.
+  It is now the argument the caller passes, here the explosion.
+- When the game can't allocate the copy for the far piece (`0x1a91c`), the wall is only cut on one side. That answer is
+  only the run's, so it is named, "allocation answer of the call at 0x1a91c", like the other run values.
+
+A relation's chosen value, a choice by the tests of its ways, gets the same larger size bound as a frame drawing value
+does in the caller, and more: the wall's width and drawing flags reach 1,431 nodes. Reading a build takes as long as
+before (13 seconds for Even More, English floppy). The explosion's own effect lines now say it may put a part out of
+play: "May set another part's out-of-play flag 0x2000 in drawing flags …: it does on the ways its tests pick, and leaves
+them as they were on the others."
+
+The wall's pairs stay missing for now, with a new reason: Even More's says its values depend on the explosion's own
+fields, TIM 1's that one isn't known (the allocation answer). Lines that say a value of where the explosion is come
+next. No pair, walk or recording changes: Even More 402 described, 4 missing; TIM 1 219 and 3; walks 1,473 and 1,223,
+every one ends; recordings 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

@@ -58,7 +58,7 @@ describe("the value a routine leaves in a field", () => {
     expect(writes[0]!.condition).toEqual({ kind: "true" });
     expect(writes[0]!.value.kind).toBe("binary");
   });
-  it("keeps the conditional writes of a field that one way leaves alone", () => {
+  it("gives a field one way leaves alone its value as it was on that way", () => {
     // test byte [si+8], 0x10; jz; mov byte [si+0x72], 62; ret
     const image = Uint8Array.from([
       0x55, 0x8b, 0xec, 0x8b, 0x76, 6, 0xf6, 0x44, 8, 0x10, 0x74, 4, 0xc6, 0x44, 0x72, 62, 0x5d, 0xcb,
@@ -67,7 +67,22 @@ describe("the value a routine leaves in a field", () => {
     const engine = engineFromObjectRelation(routine, layout, new Map());
     const writes = engine?.writes.filter((write) => write.offset === 0x72) ?? [];
     expect(writes).toHaveLength(1);
-    expect(writes[0]!.condition.kind).not.toBe("true");
+    expect(writes[0]!.condition).toEqual({ kind: "true" });
+    // A choice between 62 and the field itself.
+    expect(JSON.stringify(writes[0]!.value)).toContain('"object":"part","offset":114');
+  });
+  it("splits on any test the ways all make, in whatever order the code makes them", () => {
+    const other: Predicate = { ...flag, left: { kind: "field", object: "part", offset: 10, width: 16 } };
+    // The first way's first test isn't on the last way, but the second test is on every way.
+    const value = chooseByTests(
+      [
+        { tests: [other, flag], value: number(1) },
+        { tests: [not(other), flag], value: number(2) },
+        { tests: [not(flag)], value: number(3) },
+      ],
+      16,
+    );
+    expect(value?.kind).toBe("binary");
   });
   it("gives a caller the field exactly when the helper also makes a part and changes the state", () => {
     const copy: EngineSummary = {

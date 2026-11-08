@@ -3601,6 +3601,30 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
         return `May ${may.join(", and may ")}, through a helper that does nothing else to them.`;
       }
     }
+    // A choice between setting bits and leaving the flags as they were, like the wall split putting a wall that lies
+    // inside its hole out of play: on the ways its tests pick it sets them.
+    const options = (function leaves(e: Expression): Expression[] {
+      const choice = choiceOf(e);
+      return choice ? [...leaves(choice.then), ...leaves(choice.otherwise)] : [e];
+    })(write.value);
+    const optionBits = options.map(bitsOf);
+    const setBits = [...new Set(optionBits.flatMap((b) => (b && (b.set || b.clear) ? [JSON.stringify(b)] : [])))];
+    if (
+      options.length > 1 &&
+      optionBits.every((b) => b) &&
+      optionBits.some((b) => !b!.set && !b!.clear) &&
+      setBits.length === 1 &&
+      !JSON.parse(setBits[0]!).clear
+    ) {
+      const bits: number = JSON.parse(setBits[0]!).set;
+      const each = [...Array(16).keys()].filter((b) => bits & (1 << b)).map((b) => 1 << b);
+      const words = each.map(
+        (bit) =>
+          flagWords(write.offset, bit, true, subject)?.replace(/^sets /, "set ") ??
+          `set flag 0x${bit.toString(16)} of ${subject} drawing flags`,
+      );
+      return `May ${words.join(", and may ")}: it does on the ways its tests pick, and leaves them as they were on the others.`;
+    }
     const changed = bitsOf(write.value);
     if (changed && (changed.set || changed.clear)) {
       const masks = report.layout.fields.find((field) => field.offset === write.offset)?.masks ?? [];
