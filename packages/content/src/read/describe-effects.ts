@@ -39,6 +39,7 @@ import {
   placeTest,
   placeWords,
   searchTests,
+  searchesOnlyMovingList,
   type PlaceTest,
   type SearchTest,
 } from "./describe-hits.ts";
@@ -62,6 +63,14 @@ export const FIXED_LIST_ASSUMPTION =
  */
 export const BULLET_LIST_ASSUMPTION =
   "A jack-in-the-box never punches a bullet: a bullet never has 0x1000 in its list flags at 0x06, which the analysis calls being on the moving list. The gun doesn't give the bullets it makes that flag, and no shipped level saves a bullet.";
+/**
+ * A search that walks only the list at `0x4d7d` (Even More, English floppy) finds no part of a fixed type. That list is
+ * the one the routine at `0x6469` puts a dropped part on when its type lacks `0x4000`, and the one the contact dispatch
+ * walks. Part code links rope ends, pinballs and bullets into it itself, none of a fixed type, and no shipped level
+ * stores a part of a fixed type in its moving group. Decided with the user on 2026-11-08, to be checked again later.
+ */
+export const MOVING_SEARCH_ASSUMPTION =
+  "A search that walks only the moving list (the list the contact dispatch walks) finds no part of a fixed type. The game puts a dropped part there only when its type isn't fixed, the parts part code links there itself (rope ends, pinballs, bullets) aren't of a fixed type, and no shipped level stores a part of a fixed type among its moving parts.";
 /**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
@@ -765,6 +774,8 @@ interface Candidate {
    */
   named: boolean;
   search?: SearchTest[];
+  /** Every search the part's list comes from walks only the moving list. */
+  movingOnly: boolean;
 }
 
 /** The part that touched the source, as the bounce callback gets it; `part` is the source, the part it touched. */
@@ -930,6 +941,7 @@ export function effectsFromOthers(
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const fixedType = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
 
   const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
   /** Whether a new part of the type gets the bits: from the factory's table, or from its constructor's first run. */
@@ -1402,6 +1414,7 @@ export function effectsFromOthers(
         candidates.push({
           ...(onlyType === undefined ? {} : { onlyType }),
           named,
+          movingOnly: searchesOnlyMovingList(report, callback.address, outcome.header),
           ...(search ? { search } : {}),
           sourceWords: sourceTerms.flatMap((t) => drawingFlagWords(t, report) ?? []),
           sourceTable: sourceUsed.table,
@@ -1522,6 +1535,12 @@ export function effectsFromOthers(
       // The part would get this line but for its list: a decided assumption keeps it off the moving list.
       if (byList) {
         assumptions.add(offList!);
+        continue;
+      }
+      // Or but for the list its source searches: a part of a fixed type is never on the moving list.
+      if (c.movingOnly && fixedType(part.type)) {
+        assumptions.add(FIXED_LIST_ASSUMPTION);
+        assumptions.add(MOVING_SEARCH_ASSUMPTION);
         continue;
       }
       const name = nameOf(c.sourcePart);

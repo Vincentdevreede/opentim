@@ -943,6 +943,8 @@ sets, so they need a walk. Walks read past the rope pull too since "Walks past t
 walk also needs the source to name the part's type or the tests its search makes on the part, and the teeter-totter's
 search names none: the pair check says "its rules read a field the source sets, so it needs a walk, and a walk needs the
 source to name the part's type or the tests its search makes on the part, which aren't read for this search".
+Since "The lists a search walks" the search's tests are read (it makes none on the parts' flags), and the bullet's
+walk is described.
 
 ### Words for the Behaviour tab
 
@@ -1018,12 +1020,46 @@ redrew reads by its name, and a value takes the words of the part's type record 
 limit, which has no number for a walk). The fan's walk of the windmill needed the overlap: Even More 435 → 436
 described, TIM 1 217 → 218.
 
-The teeter-totter's search (`0x437d`) tests nothing on the parts it finds. It walks a list its flags argument picks
-(`0x682f`: 0x2000 the list at `0x4e1f`, 0x1000 the moving list at `0x4d7d`, 0x0800 the one at `0x4cdb`), and the
-teeter-totter passes 0x1000. So it finds only parts on the moving list, which by the decided assumption is no part of
-a fixed type. The analysis doesn't read that choice of list yet: it lets the teeter-totter reach fixed parts, like a
-brick wall, and gives those launch lines, and it gives the bullet and Mel no walk ("which aren't read for this
-search"). Reading the list a search walks from the flags its call passes is the next step.
+### The lists a search walks
+
+Every overlap search walks the parts lists through two routines that take a mask (Even More, English floppy):
+
+- the list head routine (`0x682f`) returns the first nonempty list whose bit the mask has: `0x2000` the fixed list at
+  `0x4e1f`, `0x1000` the moving list at `0x4d7d`, `0x0800` the list at `0x4cdb`;
+- the list next routine (`0x686f`) returns a part's link, and at the end of a list goes on with the head routine with
+  its own mask, or with the list at `0x4cdb` after a moving part when its mask has `0x0800`.
+
+The searches give the head routine their caller's mask (`0x448e` gives `0x3000` itself) and the next routine that mask
+with only `0x1000` kept, so the fixed list comes first and the third list never. The analysis reads this from the code
+(`behaviour-list-masks.ts`): where each search's masks come from, the lists the two routines pick by each bit, and the
+masks each call passes. The calls pass:
+
+| Mask     | Lists                      | Searches                                                                                                                                             |
+| -------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0x3000` | the fixed and moving lists | the bellows, boxing glove, cat, explosion, fan, jack-in-the-box, magnifying glass, solar panel, teapot, and the candle's and rocket's first searches |
+| `0x1000` | the moving list            | the teeter-totter, mouse motor, mouse, Mel's house, vacuum cleaner, and the candle's and rocket's second searches                                    |
+| `0x2000` | the fixed list             | the alligator                                                                                                                                        |
+
+The moving list is the one the contact dispatch walks. By the [decided assumption on searches of the moving
+list](behaviour-assumptions.md#22-searches-of-the-moving-list), a search that walks only it never finds a part of a
+fixed type, so such a part gets no line or walk from it, states the assumption instead, and the pair check counts the
+pair as ruled out. Unlike the list flag `0x1000`, the list holds the bullet: the gun links it in itself. The fixed list
+only search of the alligator isn't used yet: whether a part of a type that isn't fixed is ever on the fixed list is a
+question of its own.
+
+The teeter-totter's search (`0x437d`) tests no flag of the parts it walks, only their outline, so its walks no longer
+wait for its tests: the bullet's walk of the launch is described. What changed, on all eleven builds (each game's
+builds agree):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              436 |           398 |          218 |       219 |
+| Partly described |               71 |            32 |           52 |        19 |
+| Ruled out        |              570 |           648 |          345 |       378 |
+| Missing          |               13 |            12 |            6 |         5 |
+
+The described and partly described pairs that went were lines the game can't give: the teeter-totter's launch and the
+vacuum cleaner's pull of walls, ramps, motors and the other fixed parts (39 each in Even More).
 
 ### Two values the pair check names
 

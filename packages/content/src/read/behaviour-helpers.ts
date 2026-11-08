@@ -27,6 +27,7 @@ import { addPartCopySummary } from "./behaviour-part-copy.ts";
 import { discoverDirectedVelocity, type DirectedVelocity } from "./behaviour-directed-velocity.ts";
 import { addCentreAngleSummaries, type CentreAngle } from "./behaviour-centre-angle.ts";
 import { addOutlineSearchSummary } from "./behaviour-outline-search.ts";
+import { addListMasks, type ListMask } from "./behaviour-list-masks.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
 import { addContactMotionAngleSummaries, type ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
@@ -247,7 +248,14 @@ export interface EngineSummary extends Finding {
      * them on: what the search's code computes from that part's position along X or along Y.
      */
     overlaps?: { offset: number; axis: "X" | "Y" }[];
+    /**
+     * The masks the search gives the list head and list next routines, which pick the parts lists it walks (see
+     * `behaviour-list-masks.ts`).
+     */
+    masks?: { head: ListMask; next: ListMask; headRoutine: number; nextRoutine: number };
   };
+  /** For the list next routine: the mask it gives the list head routine at the end of a list. */
+  listNext?: { head: ListMask; address: number };
   footprint: {
     complete: boolean;
     /** Every possible part store is represented, independently of unresolved driver or resource globals. */
@@ -2719,5 +2727,6 @@ export function discoverEngineSummaries(
   addRopeCutSummary(codes, summaries);
   addOutlineSearchSummary(codes, summaries);
   addPartCopySummary(codes, summaries);
+  addListMasks(codes, summaries);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

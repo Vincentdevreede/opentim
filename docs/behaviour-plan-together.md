@@ -22,16 +22,32 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    extend it to run the game's own step loop from TIM.EXE on a shipped level and save every part's frame and position
    after each step. Like the part recorder, it runs only the game's code, with nothing from other projects. It is the
    only way to check B without you playing every level by hand.
+
+   Answered (2026-11-08): yes.
+
 3. **May the teeter-totter's search count as finding only moving parts?** It looks only among the parts in the game's
    list the flag 0x1000 picks (`0x682f` gives the list at `0x4d7d` for it). The assumption you approved says a part
    of a fixed type, like a brick wall, is never on the moving list, but the analysis knows the moving list only as the
    flag 0x1000 in a part's field 0x06, and the gun puts its bullets in the list of moving parts without that flag. To
    rule out the teeter-totter launching a brick wall, I'd take the list at `0x4d7d` as that moving list: a fixed
    part is never in it, a bullet can be. That is a new game assumption, so it needs your yes.
+
+   Answered (2026-11-08): yes for now, to be checked again later. It is [decided assumption
+   22](behaviour-assumptions.md#22-searches-of-the-moving-list), and covers every search that walks only the moving
+   list, not just the teeter-totter's.
+
 4. **Which machines first?** I'd start with machines that don't need falling and bouncing: a motor turning a gear
    train, a belt from a motor to a conveyor belt, a rope over a pulley pulling a teeter-totter, and a switch that
    starts a fan. Do you have levels in mind that show these well, or shall I pick shipped levels with the fewest
    parts that use them?
+
+   Answered (2026-11-08): pick them myself.
+
+5. **Can a part of a type that isn't fixed be on the fixed list?** The alligator's search walks only the fixed list
+   (it passes `0x2000`). The game puts a dropped part there only when its type is fixed, and no shipped level stores
+   one of another type among its fixed parts (apart from type 55 in each Even More title level, which its constructor
+   makes fixed). If you agree that it never happens, the alligator's search would find only fixed parts, like the
+   electric switch, and never a ball. Until then the analysis lets it find any part.
 
 ## The starting point
 
@@ -59,26 +75,26 @@ Why the missing ones are missing (a pair can have several reasons):
 
 ## Where it stands
 
-After A6 and part of A5 (2026-11-08), from `list-other-part-pairs` on all eleven builds (each game's builds agree):
+After the lists a search walks (2026-11-08), from `list-other-part-pairs` on all eleven builds (each game's builds
+agree):
 
 |                                   | Even More (start) | Even More (now) | TIM 1 (start) | TIM 1 (now) |
 | --------------------------------- | ----------------: | --------------: | ------------: | ----------: |
 | Pairs of parts the code lets meet |             1,090 |           1,090 |           621 |         621 |
-| Described                         |               227 |             436 |           135 |         218 |
-| Partly described                  |                46 |              71 |            17 |          52 |
-| Ruled out (they can never meet)   |               570 |             570 |           345 |         345 |
-| Missing                           |               247 |              13 |           124 |           6 |
+| Described                         |               227 |             398 |           135 |         219 |
+| Partly described                  |                46 |              32 |            17 |          19 |
+| Ruled out (they can never meet)   |               570 |             648 |           345 |         378 |
+| Missing                           |               247 |              12 |           124 |           5 |
 
 Every missing pair names why. In Even More:
 
 - Mel or the bullet need a walk, and the walk has nothing to follow: a velocity kept within the part's speed limit (the
-  fan, bellows, teapot), one whose direction depends on where both parts are (the explosion, the pinball bumper), a
-  contact response after the touch (the conveyor belt), or a search whose tests aren't read (the teeter-totter).
+  fan, bellows, teapot, trampoline), one whose direction depends on where both parts are (the explosion, the pinball
+  bumper), a contact response after the touch (the conveyor belt), or the contact search the teeter-totter runs on
+  Mel.
 - The explosion's split of a wall makes a new part; the jack-in-the-box's push of a teeter-totter grew past the size
   budget.
 
-Next: read the list a search walks from the flags its call passes. The teeter-totter's search finds only parts on the
-moving list, which would rule out its fixed-type pairs (they get launch lines now) and let the bullet's walk through.
 Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchanged.
 
 ## A. What parts do to each other, where it depends on where they are
@@ -172,6 +188,11 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       the teeter-totter's search `0x437d` walks only the list its flags argument picks (the moving list for 0x1000),
       which the analysis doesn't read yet, so it still allows the teeter-totter to reach fixed parts and gives them
       lines. Next: read a search's list from the flags its call passes.
+      Done (2026-11-08): the analysis reads the lists each search's call walks from the masks it passes (see "The lists
+      a search walks"). With decided assumption 22, a search of the moving list only finds no part of a fixed type:
+      Even More 78 pairs and TIM 1 33 pairs are ruled out, most of them launch lines the game can't give. The
+      teeter-totter's search tests no flags, so the bullet's walk is described. Missing: Even More 13 → 12, TIM 1
+      6 → 5.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

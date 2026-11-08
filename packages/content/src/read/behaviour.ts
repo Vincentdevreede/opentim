@@ -4,6 +4,7 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
+import { maskValue } from "./behaviour-list-masks.ts";
 import { readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { settleRopeDispatch } from "./behaviour-rope-dispatch.ts";
@@ -176,7 +177,14 @@ export interface RoutineAnalysis extends RoutineCode {
   iterationOutcomesByType?: Record<number, IterationOutcome[]>;
   /** Every decoded path has a recorded return relation; memory effects may still be unresolved. */
   returnPathsComplete?: boolean;
-  engineCalls?: (Finding & { instruction: number; summary: number; purpose: string; listContext?: ListConsumerCall })[];
+  engineCalls?: (Finding & {
+    instruction: number;
+    summary: number;
+    purpose: string;
+    listContext?: ListConsumerCall;
+    /** For an overlap search: the masks the call gives the list routines, which pick the lists it walks. */
+    listMasks?: { head: number; next: number };
+  })[];
   controlFlowJoins?: (Finding & { address: number; liveRegisters: string[]; conditions: Predicate[][] })[];
   loops?: LoopSummary[];
   listLoops?: ListLoopSummary[];
@@ -2151,6 +2159,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     s.assumptions = [...new Set([...s.assumptions, ...engine.assumptions])];
     s.evidence.push(evidenceOf(i), ...(engine.listConsumerScope?.evidence ?? []));
+    const masks = engine.list?.masks;
+    const passedWord = (offset: number) => {
+      const value = formalArgument(args, engine.argumentOffset, offset).value;
+      return value.kind === "constant" ? value.value & 0xffff : undefined;
+    };
+    const headMask = masks && maskValue(masks.head, passedWord);
+    const nextMask = masks && maskValue(masks.next, passedWord);
     engineCalls.push({
       instruction: i.address,
       summary: engine.address,
@@ -2159,6 +2174,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       assumptions: engine.assumptions,
       evidence: [evidenceOf(i), ...(engine.listConsumerScope ? engine.evidence : engine.evidence.slice(0, 1))],
       ...(engine.listConsumerScope ? { listContext: engine.listConsumerScope } : {}),
+      ...(headMask !== undefined && nextMask !== undefined ? { listMasks: { head: headMask, next: nextMask } } : {}),
     });
     const globals = engine.writes
       .filter(

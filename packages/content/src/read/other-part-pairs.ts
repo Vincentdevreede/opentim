@@ -21,6 +21,7 @@ import {
   effectsFromOthers,
   type Evaluate,
   FIXED_LIST_ASSUMPTION,
+  MOVING_SEARCH_ASSUMPTION,
   FIXED_TYPE,
   LIST_FLAGS,
   objects,
@@ -44,6 +45,7 @@ import {
   LIGHTABLE_PARTS,
   placeTest,
   searchTests,
+  searchesOnlyMovingList,
 } from "./describe-hits.ts";
 
 export type PairWay = "touch" | "overlap list" | "list consumer";
@@ -412,6 +414,14 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       const ruled = new Set<string>();
       // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
       if (path.way === "touch" && fixed(target.type)) ruled.add(FIXED_LIST_ASSUMPTION);
+      // A search that walks only the moving list never finds one either, by a decided assumption.
+      if (
+        path.way === "overlap list" &&
+        path.header !== undefined &&
+        fixed(target.type) &&
+        searchesOnlyMovingList(report, path.routine, path.header)
+      )
+        ruled.add(MOVING_SEARCH_ASSUMPTION);
       const offList = offMovingList(target, startingFlags);
       const lightable = LIGHTABLE_PARTS.has(target.id);
       const known = [

@@ -7,6 +7,7 @@
  * An outcome must name the part's type, or its search's flag tests must be known and the part's type given every flag
  * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
+import { searchedLists } from "./behaviour-list-masks.ts";
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import { callKinds, openCalls } from "./behaviour.ts";
 import { formula as formulaOf } from "./describe-touch.ts";
@@ -14,6 +15,7 @@ import {
   ANSWER_ASSUMPTION,
   type Evaluate,
   FIXED_LIST_ASSUMPTION,
+  MOVING_SEARCH_ASSUMPTION,
   FIXED_TYPE,
   LIST_FLAGS,
   TYPE_TABLE_ASSUMPTION,
@@ -409,6 +411,30 @@ export function searchTests(report: BehaviourReport, routine: number, header: nu
 }
 
 /**
+ * Whether every search a loop's list comes from walks only the moving list: the list the contact dispatch walks, which
+ * the routine that puts a dropped part on a list (`0x6469` in Even More, English floppy) gives a part of a type without
+ * `0x4000`. False when a search's lists aren't known.
+ */
+export function searchesOnlyMovingList(report: BehaviourReport, routine: number, header: number): boolean {
+  const moving = new Set((report.collisionDispatch ?? []).flatMap((d) => d.list?.globalHead ?? []));
+  if (moving.size !== 1) return false;
+  const code = report.routines.find((r) => r.address === routine);
+  const loop = code?.listLoops?.find((l) => l.header === header && l.source === "overlap-query");
+  if (!loop?.queries.length) return false;
+  return loop.queries.every((query) => {
+    const calls = code!.engineCalls?.filter((c) => c.instruction === query) ?? [];
+    return (
+      calls.length > 0 &&
+      calls.every((call) => {
+        const search = report.helpers?.find((h) => h.address === call.summary && h.kind === "overlap-list");
+        const lists = search && call.listMasks && searchedLists(report.helpers!, search, call.listMasks);
+        return !!lists?.length && lists.every((head) => moving.has(head));
+      })
+    );
+  });
+}
+
+/**
  * After a bounce returns anything but 0, the contact dispatch may go on to a contact response, picked by the touching
  * part's flags. What such a response stores on the touching part is unknown after the touch. `undefined` when a
  * response has no relation, so what it may change isn't known.
@@ -451,6 +477,8 @@ interface Candidate {
   touch: boolean;
   /** Without a named type: the flag tests of the search that found the member, which the walk keeps. */
   search?: SearchTest[];
+  /** Every search the member's list comes from walks only the moving list. */
+  movingOnly: boolean;
   /** For a touch: what the bounce returns on the path, when it is a number. */
   returns?: number;
   /** For a touch: the source's tests left out, like those comparing the two parts or a query's answer. */
@@ -572,6 +600,8 @@ export function hitsFromOthers(
           types,
           touch,
           ...(search ? { search } : {}),
+          movingOnly:
+            !touch && searchesOnlyMovingList(report, callback.address, "header" in outcome ? outcome.header : 0),
           ...(touch && "returnValue" in outcome && outcome.returnValue.kind === "constant"
             ? { returns: outcome.returnValue.value }
             : {}),
@@ -671,6 +701,12 @@ export function hitsFromOthers(
       // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
       if (c.touch && fixed(part.type)) {
         assumptions.add(FIXED_LIST_ASSUMPTION);
+        continue;
+      }
+      // A search that walks only the moving list never finds a part of a fixed type, by a decided assumption.
+      if (c.movingOnly && fixed(part.type)) {
+        assumptions.add(FIXED_LIST_ASSUMPTION);
+        assumptions.add(MOVING_SEARCH_ASSUMPTION);
         continue;
       }
       if (ruledBy.size) {
