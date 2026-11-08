@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readBehaviourInBackground, type BehaviourMessage } from "../src/behaviour.ts";
+import {
+  readBehaviourInBackground,
+  readingPerType,
+  walksAfterPerType,
+  type BehaviourMessage,
+} from "../src/behaviour.ts";
 import { program } from "../src/library.ts";
 
 /** A worker that never answers by itself, so a test decides what it says and sees when it ends. */
@@ -106,4 +111,21 @@ it("keeps the walks when the program is replaced while the loops are still read 
   expect(FakeWorker.all[0]!.ended).toBe(true);
   await expect(reading.walks).resolves.toBe(walks);
   await expect(reading.perType).resolves.toEqual({ status: "error", message: "The program was replaced." });
+});
+
+it("keeps the first walks when the loops per type can't be read, and stops showing them as still being read", () => {
+  const walks = { status: "done", walks: {}, effects: {}, rests: {}, doings: {}, seconds: 1, perType: false } as const;
+  expect(readingPerType(walks)).toBe(true);
+
+  const after = walksAfterPerType(walks, { status: "error", message: "Out of memory." });
+
+  expect(after).toEqual({ ...walks, perTypeError: "Out of memory." });
+  expect(readingPerType(after)).toBe(false);
+  // When the loops per type are read, their walks replace the first ones.
+  const perType = { ...walks, perType: true } as const;
+  expect(walksAfterPerType(walks, perType)).toBe(perType);
+  expect(readingPerType(perType)).toBe(false);
+  // When the first walks failed too, their error stays.
+  const failed = { status: "error", message: "The program was replaced." } as const;
+  expect(walksAfterPerType(failed, { status: "error", message: "Out of memory." })).toBe(failed);
 });

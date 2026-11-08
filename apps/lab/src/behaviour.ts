@@ -1216,8 +1216,27 @@ export type WalksResult =
        * more of what other parts do to it, like the vacuum cleaner's pull. That takes longest, so it comes last.
        */
       perType: boolean;
+      /** Why the loops couldn't be read per type, when that failed after these walks came: no more lines will come. */
+      perTypeError?: string;
     }
   | { status: "error"; message: string };
+
+/**
+ * The walks to show once the loops per type were read: the new walks, or when that failed, the first walks with why,
+ * so they no longer show as still being read.
+ */
+export function walksAfterPerType(
+  first: WalksResult | { status: "reading" } | undefined,
+  perType: WalksResult,
+): WalksResult | { status: "reading" } | undefined {
+  if (perType.status === "done") return perType;
+  return first?.status === "done" ? { ...first, perTypeError: perType.message } : first;
+}
+
+/** Whether the loops over found parts are still being read per type, which can add what other parts do. */
+export function readingPerType(walks: WalksResult | { status: "reading" } | undefined): boolean {
+  return walks?.status === "done" && !walks.perType && walks.perTypeError === undefined;
+}
 
 /** What the worker is asked: the program as it ships, and what was read from it before. */
 export interface BehaviourRequest {
