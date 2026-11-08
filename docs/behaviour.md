@@ -1145,6 +1145,34 @@ Pairs, Even More (English floppy): described 393 → 396, missing 11 → 8. TIM 
 were. The vacuum cleaner's pull of Mel stays partly described for its other reasons. Walks in Even More go from 1,459
 to 1,468, and every one ends; the recordings match as before: 648 and 552 complete.
 
+### Pushes along the line between the centres
+
+The explosion pushes a part it hits with a speed of 4096, and the pinball bumper throws a part that touches it with
+7168, each along the line from its own centre to the part's (see [the push's direction](#the-pushs-direction)). Which
+way that is depends on where the two parts are, so a walk had no number to follow when the part's rules read the
+velocity. Now the push is split into the directions the part's rules tell apart (`directionClasses` in
+`describe-hits.ts`):
+
+- Every answer the centre angle can give, with the true directions it stands for, gives the velocity the setter
+  stores, from the program's own tables (`directionCases`, which `directionError` now uses too).
+- The part's rules must read the two velocity fields only in tests of those fields alone, and store them back only as
+  they were, moved by a number (like the bullet's bounce taking 1 from velocityX on an electric switch), or chosen by
+  such tests. Each direction gets the answers of those tests, also at each moved velocity.
+- The directions with the same answers are one case. A case must be one stretch of how far the line between the
+  centres is from level, the same on every side, so the words can say it. Centres at the same point give the whole
+  speed to velocityY, by the assumption the lines already state, and that velocity must fall in one case too.
+- The walk takes the velocity of one direction of each case, the one halfway through its stretch, below level to the
+  right, and states that every direction of the case gives the same frames.
+
+Mel Schlemming's rules ask whether he moves up or down faster than 1536, and his bounce whether faster than 7168. So
+the explosion gives him two walks: "the line from the explosion's centre to its centre is at most 22.1 degrees from
+level" and "is more than 22.1 degrees from level, or the two centres are the same point". The bumper gives two at 12.4
+degrees. The bullet's rules ask whether velocityX is 12288 or -12288, which no direction of the bumper's 7168 gives,
+before or after its bounce takes 1 off, so the bumper gives it one walk with no place in it.
+
+Pairs, Even More (English floppy): described 396 → 399, missing 8 → 5; TIM 1 has neither part. Walks in Even More go
+from 1,468 to 1,473, and every one ends; the recordings match as before: 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

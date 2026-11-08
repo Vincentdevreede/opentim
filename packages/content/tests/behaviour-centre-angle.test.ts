@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
-import { addCentreAngleSummaries, directionError } from "../src/read/behaviour-centre-angle.ts";
+import { addCentreAngleSummaries, directionCases, directionError } from "../src/read/behaviour-centre-angle.ts";
 import type { ContactMotionAngle } from "../src/read/behaviour-contact-motion-angle.ts";
 import type { DirectedVelocity } from "../src/read/behaviour-directed-velocity.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
@@ -97,5 +97,19 @@ describe("the centre angle", () => {
     // A table that points the other way is caught, and so is a missing lookup.
     expect(directionError(backend(), velocity(-1), 4096)).toBeGreaterThan(179);
     expect(directionError(backend([]), velocity(), 4096)).toBeUndefined();
+  });
+
+  it("gives every answer's velocity with the directions it stands for, the same way on every side", () => {
+    const cases = directionCases(backend(), velocity(), 4096)!;
+    expect(cases).toHaveLength(4100);
+    // Straight down gives the whole speed to velocityY, straight right to velocityX.
+    const at = (degrees: number) => cases.find((c) => c.from <= degrees && degrees <= c.to)!;
+    expect(Math.abs(at(89.99).vy - 4096)).toBeLessThan(8);
+    expect(Math.abs(at(0.01).vx - 4096)).toBeLessThan(8);
+    // How far from level velocityY passes 1536 is the same on every side.
+    const level = (d: number) => (Math.abs(d) <= 90 ? Math.abs(d) : 180 - Math.abs(d));
+    const fast = cases.filter((c) => Math.abs(c.vy) > 1536).map((c) => Math.min(level(c.from), level(c.to)));
+    const slow = cases.filter((c) => Math.abs(c.vy) <= 1536).map((c) => Math.max(level(c.from), level(c.to)));
+    expect(Math.max(...slow)).toBeLessThanOrEqual(Math.min(...fast) + 1e-9);
   });
 });

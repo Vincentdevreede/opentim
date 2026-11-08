@@ -230,6 +230,10 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       set, 0 to 128) every other type's limit lies from 7680 to 9728, which Mel's rules can't tell apart (see "Mel
       Schlemming's speed limit"). The fan's, the bellows' and the teapot's pushes of Mel are described. Missing: Even
       More 11 → 8.
+      The direction by where the parts are (2026-11-08): the explosion's and the pinball bumper's pushes are split
+      into the directions the part's rules tell apart, said as how far from level the line between the centres is
+      (see "Pushes along the line between the centres"). Mel gets two walks from each, the bullet one from the bumper.
+      Missing: Even More 8 → 5.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

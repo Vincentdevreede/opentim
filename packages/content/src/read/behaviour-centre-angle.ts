@@ -140,18 +140,29 @@ const signed = (value: number) => (value >= 0x8000 ? value - 0x10000 : value);
 const toPi = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
 
 /**
- * The largest angle, in degrees, between the velocity the speed setter gives for `speed` and the direction from the
- * first part's centre to the second's, over every angle the centre angle can return, or undefined without the loaded
- * tables. Each answer of the helper covers a range of true directions: a ratio index t stands for every smaller to
- * larger difference ratio from t/512 to (t+1)/512. The check runs over the program's own table words and the helper's
- * folds; host trigonometry only gives the true direction each range stands for. Centres at the same point have no
- * direction and are left out.
+ * One answer of the centre angle and what the speed setter makes of it: the velocity (`vx`, `vy`, as the setter stores
+ * them) and the true directions of the line from the first part's centre to the second's it stands for, in degrees
+ * from `from` to `to` going clockwise on the screen (0 is right, 90 down, 180 left, -90 up).
  */
-export function directionError(
+export interface DirectionCase {
+  vx: number;
+  vy: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * Every answer the centre angle can give and the velocity the setter gives for `speed`, or undefined without the
+ * loaded tables. Each answer of the helper covers a range of true directions: a ratio index t stands for every smaller
+ * to larger difference ratio from t/512 to (t+1)/512. The velocities come from the program's own table words, the
+ * helper's folds and the setter's integer arithmetic; host trigonometry only gives the true directions each range
+ * stands for. Centres at the same point have no direction and are left out.
+ */
+export function directionCases(
   angle: ContactMotionAngle,
   velocity: DirectedVelocity,
   speed: number,
-): number | undefined {
+): DirectionCase[] | undefined {
   const lookup = angle.lookup.initialImageWords;
   const table = velocity.coefficients.vertical.table.initialImageWords;
   if (lookup?.length !== 512 || table.length !== 2049 || !Number.isInteger(speed) || speed < 0 || speed > 0x7fff)
@@ -161,14 +172,15 @@ export function directionError(
     return signed(table[quantised & 0x800 ? 0x1000 - quantised : quantised]!);
   };
   // The helper's answer before its folds, for a first-quadrant direction from `low` to `high` radians.
-  const cases: [number, number, number][] = [[512, Math.PI / 4, Math.PI / 4]];
+  const answers: [number, number, number][] = [[512, Math.PI / 4, Math.PI / 4]];
   for (let t = 0; t < 512; t++) {
     const low = Math.atan(t / 512),
       high = Math.atan((t + 1) / 512);
-    cases.push([lookup[t]!, low, high], [1024 - lookup[t]!, Math.PI / 2 - high, Math.PI / 2 - low]);
+    answers.push([lookup[t]!, low, high], [1024 - lookup[t]!, Math.PI / 2 - high, Math.PI / 2 - low]);
   }
-  let worst = 0;
-  for (const [answer, low, high] of cases)
+  const degrees = (radians: number) => (toPi(radians) * 180) / Math.PI;
+  const cases: DirectionCase[] = [];
+  for (const [answer, low, high] of answers)
     for (const negativeX of [false, true])
       for (const negativeY of [false, true]) {
         let folded = negativeX ? 2048 - answer : answer;
@@ -177,14 +189,38 @@ export function directionError(
         // The setter's products, shifted right by 14 as signed longs.
         const vx = Math.floor((speed * coefficient(value, 0xc000)) / 16384),
           vy = Math.floor((speed * coefficient(value, 0)) / 16384);
-        if (!vx && !vy) return undefined;
-        const set = Math.atan2(vy, vx);
-        for (const quadrant of [low, high]) {
-          // The helper gets x = from - to and y = to - from, so the line from `from` to `to` runs along (-x, y).
+        // The helper gets x = from - to and y = to - from, so the line from `from` to `to` runs along (-x, y): its
+        // direction is pi minus the helper's angle.
+        const ends = [low, high].map((quadrant) => {
           let phi = negativeX ? Math.PI - quadrant : quadrant;
           phi = negativeY ? -phi : phi;
-          worst = Math.max(worst, Math.abs(toPi(set - (Math.PI - phi))));
-        }
+          return degrees(Math.PI - phi);
+        });
+        const [a, b] = ends as [number, number];
+        // Clockwise from the smaller end, unless the range crosses the left (180 to -180).
+        const [from, to] = Math.abs(a - b) > 180 ? [Math.max(a, b), Math.min(a, b)] : [Math.min(a, b), Math.max(a, b)];
+        cases.push({ vx, vy, from, to });
       }
+  return cases;
+}
+
+/**
+ * The largest angle, in degrees, between the velocity the speed setter gives for `speed` and the direction from the
+ * first part's centre to the second's, over every angle the centre angle can return (`directionCases`), or undefined
+ * without the loaded tables or when some answer gives no velocity.
+ */
+export function directionError(
+  angle: ContactMotionAngle,
+  velocity: DirectedVelocity,
+  speed: number,
+): number | undefined {
+  const cases = directionCases(angle, velocity, speed);
+  if (!cases) return undefined;
+  let worst = 0;
+  for (const { vx, vy, from, to } of cases) {
+    if (!vx && !vy) return undefined;
+    const set = Math.atan2(vy, vx);
+    for (const end of [from, to]) worst = Math.max(worst, Math.abs(toPi(set - (end * Math.PI) / 180)));
+  }
   return (worst * 180) / Math.PI;
 }

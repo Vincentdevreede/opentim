@@ -173,7 +173,7 @@ export function offMovingList(
   if (startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0) return FIXED_LIST_ASSUMPTION;
   return part.id === "bullet" ? BULLET_LIST_ASSUMPTION : undefined;
 }
-const CENTRES_ASSUMPTION =
+export const CENTRES_ASSUMPTION =
   "The two centres are less than 32768 apart across and down, so the word differences the centre angle takes are the true ones. When they are the same point there is no direction, and the setter puts the whole speed into velocityY.";
 /**
  * Which way a velocity moves a part on the screen. The code shows that a velocity has the sign of the change of the
