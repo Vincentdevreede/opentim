@@ -895,7 +895,7 @@ interface Location {
  * The words of a type record the game writes while it runs (Even More, English floppy: the acceleration at +0x08 and
  * the speed limit at +0x0a at 0x369c, the frame list at +0x14 at 0x107dc), so the program's word isn't theirs.
  */
-const TYPE_RECORD_WRITTEN = [0x08, 0x0a, 0x14];
+export const TYPE_RECORD_WRITTEN = [0x08, 0x0a, 0x14];
 /** The parts a loop finds: the overlap query's candidates and the members a list loop walks. */
 const FOUND_PART = /^(overlap candidate at|member found by the loop at) 0x[0-9a-f]+$/;
 
@@ -5192,16 +5192,13 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
   return report;
 }
 
-/**
- * The report without the loops read per type, and the step that adds them to its routines: every type, or only the
- * types given.
- */
+/** The report without the loops read per type, and the step that adds them to its routines. */
 export function readBehaviourInSteps(
   program: Uint8Array,
   list: ProgramParts,
-): { report: BehaviourReport; readLoopsPerType(only?: number[]): void } {
+): { report: BehaviourReport; readLoopsPerType(): void } {
   /** The loops over found parts to read once for each type, after the rest. */
-  const loopsPerType: ((only?: number[]) => void)[] = [];
+  const loopsPerType: (() => void)[] = [];
   const image = unpackLzexe(program);
   for (const record of list.records) {
     if (!record.bytes.every((byte, index) => image[record.at + index] === byte))
@@ -5429,11 +5426,10 @@ export function readBehaviourInSteps(
       ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, 58)) &&
       ways.some((o) => outgrown(o.condition) || o.fields.some((f) => outgrown(f.value) || outgrown(f.condition)))
     )
-      loopsPerType.push((only) => {
+      loopsPerType.push(() => {
         const byType: Record<number, IterationOutcome[]> = {};
         for (let type = 0; type < list.records.length; type++) {
           if (!list.records[type]!.bytes.length) continue;
-          if (only && !only.includes(type)) continue;
           const typed = analyseRoutine(image, entry, {
             ...routineOptions,
             foundType: {
@@ -6026,5 +6022,5 @@ export function readBehaviourInSteps(
     ],
   };
   // `only` limits the types read, to look at a few of them quickly.
-  return { report, readLoopsPerType: (only) => loopsPerType.splice(0).forEach((read) => read(only)) };
+  return { report, readLoopsPerType: () => loopsPerType.splice(0).forEach((read) => read()) };
 }
