@@ -626,7 +626,7 @@ describe("summariseEffects", () => {
       sets: [{ what: "speed", value: "4096" }],
       when: ["moving list"],
       sourceWhen: [],
-      sourceCondition: "state + 1 == 2",
+      sourceConditions: ["state + 1 == 2"],
       confidence: "inferred",
     });
   });
@@ -650,6 +650,59 @@ describe("summariseEffects", () => {
     expect(vacuum!.sets[2]).toEqual({ what: "velocityY", value: "velocityY + 2048" });
   });
 
+  it("writes a formula another part adds, and a velocity it only keeps within the part's speed limit", () => {
+    const push = (words: string, offset: number) => ({
+      kind: "expression",
+      offset,
+      width: 16,
+      value: field(offset),
+      words,
+    });
+    const fan = {
+      parts: [
+        {
+          type: 12,
+          effectsFromOthers: [
+            effect({
+              sourceType: 50,
+              sourcePart: "fan",
+              sets: [
+                push("keeps velocityY within its speed limit", 0x38),
+                push("adds 16 * (256 - |overlapX|) to velocityX, kept within its speed limit", 0x36),
+                push("adds 1536 to velocityX, kept within its speed limit", 0x36),
+              ],
+            }),
+          ],
+        },
+      ],
+    } as unknown as BehaviourDescription;
+    expect(summariseEffects(report, fan)[12]![0]!.sets).toEqual([
+      { what: "velocityY", value: "kept within its speed limit" },
+      { what: "velocityX", value: "velocityX + 16 * (256 - |overlapX|), kept within its speed limit" },
+      { what: "velocityX", value: "velocityX + 1536, kept within its speed limit" },
+    ]);
+  });
+
+  it("names the fields a contact search after the effect may change", () => {
+    const launch = {
+      parts: [
+        {
+          type: 12,
+          effectsFromOthers: [
+            effect({
+              sourceType: 3,
+              sourcePart: "teeter-totter",
+              sets: [{ kind: "field", offset: 0x38, width: 16, value: 0xe400 }],
+              searched: [0x12, 0x40],
+            }),
+          ],
+        },
+      ],
+    } as unknown as BehaviourDescription;
+    expect(summariseEffects(report, launch)[12]![0]!.searched).toEqual(["stateDelta", "part+0x40"]);
+    expect(summariseEffects(report, description)[12]![0]!.searched).toBeUndefined();
+  });
+
   it("says a flag bit with a proved meaning by its name, and both words of the fine position as one", () => {
     expect(trampoline!.sets).toEqual([
       { what: "contactPart", value: "0" },
@@ -660,6 +713,26 @@ describe("summariseEffects", () => {
       { what: "out-of-play flag", value: "set" },
       { what: "goal mark 0x0100", value: "set" },
     ]);
+  });
+
+  it("joins effects of one part that say the same, keeping the condition of each way", () => {
+    const way = (value: number, assumption: string, address: number) =>
+      effect({
+        sourceType: 13,
+        sourcePart: "jack-in-the-box",
+        sourceCondition: compare("<=", field(0x0c), constant(value)),
+        sets: [{ kind: "speed", fields: [0x36, 0x38], speed: 4096, setter: 0x7d97 }],
+        assumptions: [assumption],
+        evidence: [{ address, bytes: "90", text: "nop" }],
+      });
+    const twice = {
+      parts: [{ type: 12, effectsFromOthers: [way(7, "One.", 0x10), way(18, "Two.", 0x20)] }],
+    } as unknown as BehaviourDescription;
+    const [joined, ...rest] = summariseEffects(report, twice)[12]!;
+    expect(rest).toEqual([]);
+    expect(joined!.sourceConditions).toEqual(["state <= 7", "state <= 18"]);
+    expect(joined!.assumptions).toEqual(["One.", "Two."]);
+    expect(joined!.evidence.map((e) => e.address)).toEqual([0x10, 0x20]);
   });
 });
 

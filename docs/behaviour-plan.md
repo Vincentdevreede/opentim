@@ -128,4 +128,5 @@ Now 648 of 648 complete in Even More and 552 of 552 in TIM 1, none different.
 ## Not in this plan
 
 Several parts working together (a gear train, a belt and two motors, a rope over pulleys) is the next kind of work: it
-needs a model of the whole machine, not one part at a time. Section C is where this plan stops on that side.
+needs a model of the whole machine, not one part at a time. Section C is where this plan stops on that side. The next
+plan is `docs/behaviour-plan-together.md`.

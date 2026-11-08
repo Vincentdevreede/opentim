@@ -4,6 +4,7 @@
  * is an input variable, and loops and unknown calls lose information rather than being run with invented inputs.
  */
 
+import { maskValue } from "./behaviour-list-masks.ts";
 import { dataWrites, readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { runOutlineTables } from "./behaviour-outline-run.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
@@ -168,9 +169,23 @@ export interface RoutineAnalysis extends RoutineCode {
   comparisons: (Finding & { predicate: Predicate })[];
   outcomes?: RoutineOutcome[];
   iterationOutcomes?: IterationOutcome[];
+  /**
+   * The same loops analysed once for each type a found part can have, when some generic way stays unresolved: with the
+   * type known, the words of its type record are numbers, so a value picked by its mass or a test of its type folds.
+   * A field of these ways holds when its way does: its own condition is left `true`, and its evidence is a few
+   * instructions, as is the way's.
+   */
+  iterationOutcomesByType?: Record<number, IterationOutcome[]>;
   /** Every decoded path has a recorded return relation; memory effects may still be unresolved. */
   returnPathsComplete?: boolean;
-  engineCalls?: (Finding & { instruction: number; summary: number; purpose: string; listContext?: ListConsumerCall })[];
+  engineCalls?: (Finding & {
+    instruction: number;
+    summary: number;
+    purpose: string;
+    listContext?: ListConsumerCall;
+    /** For an overlap search: the masks the call gives the list routines, which pick the lists it walks. */
+    listMasks?: { head: number; next: number };
+  })[];
   controlFlowJoins?: (Finding & { address: number; liveRegisters: string[]; conditions: Predicate[][] })[];
   loops?: LoopSummary[];
   listLoops?: ListLoopSummary[];
@@ -303,8 +318,7 @@ export function binary(
   budget = 96,
 ): Expression {
   if (left.kind === "unknown" || right.kind === "unknown") return unknown(`Unresolved operand in ${operator}`, width);
-  if (expressionSize(left) + expressionSize(right) > budget)
-    return unknown("Symbolic expression size budget reached", width);
+  if (expressionSize(left) + expressionSize(right) > budget) return unknown(SIZE_BUDGET_REACHED, width);
   if (left.kind === "constant" && right.kind === "constant") {
     const a = unsigned(left.value, left.width);
     const b = unsigned(right.value, right.width);
@@ -314,7 +328,8 @@ export function binary(
         : operator === "-"
           ? a - b
           : operator === "*"
-            ? a * b
+            ? // Exact in every width: two 32-bit words multiply past what a double keeps.
+              Number((BigInt(a) * BigInt(b)) % 2n ** BigInt(width))
             : operator === "&"
               ? a & b
               : operator === "|"
@@ -641,6 +656,141 @@ function containsUnknown(expression: Expression): boolean {
     (expression.kind === "table" && containsUnknown(expression.index))
   );
 }
+/** Why a value the analysis gave up on, because it grew too large, is unknown. */
+export const SIZE_BUDGET_REACHED = "Symbolic expression size budget reached";
+/** Whether a value or test has a value the analysis gave up on because it grew too large. */
+const outgrown = (x: Expression | Predicate): boolean =>
+  x.kind === "unknown"
+    ? x.reason === SIZE_BUDGET_REACHED
+    : x.kind === "and"
+      ? x.terms.some(outgrown)
+      : x.kind === "compare" || x.kind === "binary"
+        ? outgrown(x.left) || outgrown(x.right)
+        : x.kind === "table" && outgrown(x.index);
+/**
+ * Whether a loop's way reads a word of the type record of the part it found: a table read in the type table (`table`,
+ * `stride` bytes a record) whose index reads that part's type field.
+ */
+function readsTypeRecordOf(
+  outcome: IterationOutcome,
+  member: string,
+  typeField: number,
+  table: number,
+  stride: number,
+): boolean {
+  const ofType = (e: Expression): boolean =>
+    e.kind === "field"
+      ? e.object === member && e.offset === typeField
+      : e.kind === "binary"
+        ? ofType(e.left) || ofType(e.right)
+        : e.kind === "table" && ofType(e.index);
+  const reads = (e: Expression): boolean => {
+    if (e.kind === "table") {
+      const at = e.segment * 16 + e.offset;
+      return (at >= table && at < table + stride && ofType(e.index)) || reads(e.index);
+    }
+    return e.kind === "binary" && (reads(e.left) || reads(e.right));
+  };
+  const test = (p: Predicate): boolean =>
+    p.kind === "and" ? p.terms.some(test) : p.kind === "compare" && (reads(p.left) || reads(p.right));
+  return test(outcome.condition) || outcome.fields.some((f) => reads(f.value) || test(f.condition));
+}
+/** The overlap an overlap search stores in a part it finds, read where the loop over its finds reads it. */
+const STORED_OVERLAP = /^overlap[XY] the query at 0x[0-9a-f]+ found for /;
+
+/** What leaves a loop's way open, by the call that makes it so. */
+export interface OpenCalls {
+  /**
+   * The contact search the routine runs on the part (engine summary kind `contact-search`): what it changes there,
+   * like the part's place, contact record and list flags, and a value read from those after it.
+   */
+  contactSearch: boolean;
+  /**
+   * A connection query the routine makes (kind `connection-query`), like the teeter-totter pulling its ropes: what the
+   * part at the other end answers, and a field of the source or the part read after it.
+   */
+  connectionQuery: boolean;
+  /** Anything else the analysis doesn't know. */
+  other: boolean;
+}
+/**
+ * Which calls leave these values open, given the kind of engine summary each call instruction of the routine calls.
+ * A stored overlap is known (see `onlyStoredOverlapsOpen`).
+ */
+export function openCalls(
+  values: readonly (Expression | Predicate)[],
+  kindAt: (instruction: number) => string | undefined,
+): OpenCalls {
+  const open: OpenCalls = { contactSearch: false, connectionQuery: false, other: false };
+  const at = (object: string, pattern: RegExp) => {
+    const match = pattern.exec(object);
+    return match ? kindAt(Number(match[1])) : undefined;
+  };
+  const visit = (v: Expression | Predicate): void => {
+    if (v.kind === "unknown") {
+      if (/^Conditional contact-search effect on field /.test(v.reason)) open.contactSearch = true;
+      else open.other = true;
+    } else if (v.kind === "field") {
+      if (!v.unresolved || STORED_OVERLAP.test(v.object)) return;
+      if (at(v.object, / after unresolved write at (0x[0-9a-f]+)$/) === "contact-search") open.contactSearch = true;
+      else if (
+        at(v.object, /^answer of the query at (0x[0-9a-f]+)$/) === "connection-query" ||
+        at(v.object, /^part after the query at (0x[0-9a-f]+)$/) === "connection-query" ||
+        at(v.object, / after field effect at (0x[0-9a-f]+)$/) === "connection-query"
+      )
+        open.connectionQuery = true;
+      else open.other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  values.forEach(visit);
+  return open;
+}
+/** The kind of engine summary each call instruction of a routine calls, like `contact-search`. */
+export function callKinds(
+  report: Pick<BehaviourReport, "routines" | "helpers">,
+  routine: number,
+): (instruction: number) => string | undefined {
+  const helpers = new Map((report.helpers ?? []).map((h) => [h.address, h.kind]));
+  const kinds = new Map(
+    (report.routines.find((r) => r.address === routine)?.engineCalls ?? []).map((c) => [
+      c.instruction,
+      helpers.get(c.summary),
+    ]),
+  );
+  return (instruction) => kinds.get(instruction);
+}
+/** Whether a value has an unknown other than the overlap a search stored in the part it found. */
+function unknownBesidesOverlaps(e: Expression): boolean {
+  return (
+    e.kind === "unknown" ||
+    (e.kind === "field" && e.unresolved === true && !STORED_OVERLAP.test(e.object)) ||
+    (e.kind === "binary" && (unknownBesidesOverlaps(e.left) || unknownBesidesOverlaps(e.right))) ||
+    (e.kind === "table" && unknownBesidesOverlaps(e.index))
+  );
+}
+function predicateUnknownBesidesOverlaps(p: Predicate): boolean {
+  return (
+    p.kind === "unknown" ||
+    (p.kind === "and" && p.terms.some(predicateUnknownBesidesOverlaps)) ||
+    (p.kind === "compare" && (unknownBesidesOverlaps(p.left) || unknownBesidesOverlaps(p.right)))
+  );
+}
+/**
+ * Whether a loop's way over a found part is unresolved only because it reads the overlap the search stored in that
+ * part, like the vacuum cleaner's pull, harder the less the part overlaps it: the part holds that overlap in its own
+ * fields, so the way is as known as the part.
+ */
+export function onlyStoredOverlapsOpen(outcome: IterationOutcome): boolean {
+  return (
+    outcome.effectsComplete &&
+    !predicateUnknownBesidesOverlaps(outcome.condition) &&
+    outcome.fields.every((f) => !unknownBesidesOverlaps(f.value) && !predicateUnknownBesidesOverlaps(f.condition))
+  );
+}
 function uncertainPredicate(predicate: Predicate): boolean {
   return (
     predicate.kind === "unknown" ||
@@ -711,7 +861,15 @@ interface AbstractState {
   havocAt?: number;
   globalHavocAt?: number;
   partMemoryHavocAt?: number;
-  fieldHavoc?: { offset: number; width: number; address: number; exceptOwner: boolean; ownerOnly?: boolean }[];
+  fieldHavoc?: {
+    offset: number;
+    width: number;
+    address: number;
+    exceptOwner: boolean;
+    ownerOnly?: boolean;
+    /** What the helper stores there, when it is a value of its own, like an overlap search's overlap. */
+    named?: string;
+  }[];
   observationOnly?: boolean;
   observationHeader?: number;
   observationExit?: number;
@@ -733,7 +891,20 @@ interface Location {
   uncertain: boolean;
   evidence: Evidence[];
 }
+/**
+ * The words of a type record the game writes while it runs (Even More, English floppy: the acceleration at +0x08 and
+ * the speed limit at +0x0a at 0x369c, the frame list at +0x14 at 0x107dc), so the program's word isn't theirs.
+ */
+export const TYPE_RECORD_WRITTEN = [0x08, 0x0a, 0x14];
+/** The parts a loop finds: the overlap query's candidates and the members a list loop walks. */
+const FOUND_PART = /^(overlap candidate at|member found by the loop at) 0x[0-9a-f]+$/;
+
 export interface RoutineOptions {
+  /**
+   * Analyse the loops over found parts as if every found part had this type: its type field reads as the type, and a
+   * word of its type record that the game never writes while it runs reads as the program's.
+   */
+  foundType?: { type: number; typeOffset: number; table: number; stride: number; records: number; written: number[] };
   codes?: Map<number, RoutineCode>;
   layout?: BehaviourLayout;
   dataSegment?: number;
@@ -1247,6 +1418,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (frameOffset > 0) return tracked(field("argument", frameOffset, operand.width), l.evidence);
     }
     if (l) {
+      const found = options.foundType;
+      if (found && l.offset === found.typeOffset && l.width === 16 && FOUND_PART.test(l.object))
+        return tracked(constant(found.type), l.evidence);
       const scoped =
         !["stack", "data"].includes(l.object) &&
         [...(s.fieldHavoc ?? [])]
@@ -1262,7 +1436,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (scoped)
         return tracked(
           {
-            ...field(`${l.object} after field effect at ${hex(scoped.address)}`, l.offset, l.width),
+            ...field(
+              scoped.named && scoped.offset === l.offset && scoped.width === l.width
+                ? `${scoped.named} the query at ${hex(scoped.address)} found for ${l.object}`
+                : `${l.object} after field effect at ${hex(scoped.address)}`,
+              l.offset,
+              l.width,
+            ),
             unresolved: true,
           } as Expression,
           l.evidence,
@@ -1292,6 +1472,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const base = operand.base.map((r) => registerRead(r, s));
     if (seg.kind === "constant" && base.every((v) => v.value.kind !== "stack")) {
       const index = base.reduce<Expression>((a, b) => binary("+", a, asExpression(b.value)), constant(0));
+      const word = typeRecordWord(seg.value, operand.displacement, index, operand.width);
+      if (word) return tracked(word.value, [...base.flatMap((v) => v.evidence), ...word.evidence]);
       if (operand.segment === "cs" && index.kind === "constant") {
         const at = seg.value * 16 + unsigned(index.value + operand.displacement, 16);
         if (operand.width <= 16 && at + operand.width / 8 <= image.length) {
@@ -1515,6 +1697,38 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
   };
+  /**
+   * A word of a type record read for a known type, in a loop read for one found part type: the program's word, unless
+   * the game writes it while it runs.
+   */
+  const typeRecordWord = (
+    segment: number,
+    displacement: number,
+    index: Expression,
+    width: number,
+  ): { value: Expression; evidence: Evidence[] } | undefined => {
+    const found = options.foundType;
+    if (!found || index.kind !== "constant" || width !== 16) return undefined;
+    const at = segment * 16 + unsigned(index.value + displacement, 16);
+    const within = at - found.table;
+    if (
+      within < 0 ||
+      within % 2 !== 0 ||
+      within >= found.records * found.stride ||
+      found.written.includes(within % found.stride)
+    )
+      return undefined;
+    return {
+      value: constant(image[at]! | (image[at + 1]! << 8), 16),
+      evidence: [
+        {
+          address: at,
+          bytes: [image[at]!, image[at + 1]!],
+          text: `type record word at +0x${(within % found.stride).toString(16)} of type ${Math.floor(within / found.stride)}`,
+        },
+      ],
+    };
+  };
   const formalValue = (
     expression: Expression,
     args: Tracked[],
@@ -1609,6 +1823,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
     }
     const index = formalValue(expression.index, args, base, s, ownerOffset, budget);
+    const word = typeRecordWord(expression.segment, expression.offset, asExpression(index.value), expression.width);
+    if (word) return tracked(word.value, [...index.evidence, ...word.evidence]);
     return tracked({ ...expression, index: asExpression(index.value) }, index.evidence);
   };
   const formalPredicate = (
@@ -1738,10 +1954,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     selectedCondition?: Predicate,
     /** What the helper writes in a field of the parts it selects, when its summary names it. */
     selectedValue?: (effect: { offset: number; width: number }) => Expression | undefined,
+    /** The name of what the helper stores in a field of the parts it selects, by offset. */
+    named?: (offset: number) => string | undefined,
   ) => {
     for (const effect of fields) {
       const exceptOwner = preserveOwner.has(effect.offset);
-      s.fieldHavoc = [...(s.fieldHavoc ?? []), { ...effect, address: i.address, exceptOwner }];
+      const storedName = named?.(effect.offset);
+      s.fieldHavoc = [
+        ...(s.fieldHavoc ?? []),
+        { ...effect, address: i.address, exceptOwner, ...(storedName ? { named: storedName } : {}) },
+      ];
       for (const key of s.memory.keys()) {
         const parts = key.split(":"),
           width = Number(parts.pop()),
@@ -1788,6 +2010,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         !engine.contactResponseFirst &&
         !engine.contactResponsePair &&
         !engine.numeric &&
+        !engine.arithmetic &&
         !["angle-sector", "saved-angle-gate", "contact-motion-angle"].includes(engine.kind))
     )
       return true;
@@ -1798,9 +2021,31 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const convention = engine.returnConvention;
     return (
       !!convention &&
-      !convention.stackBytes &&
+      convention.stackBytes === (engine.arithmetic?.stackBytes ?? 0) &&
       (convention.kind === "far" ? !!(i.far || farBridge) : !i.far && !segmentPush)
     );
+  };
+  /**
+   * The 32-bit value of a low and a high word. Words split from one 32-bit value, `x & 0xffff` and
+   * `(x >>> 16) & 0xffff`, give that value back, so a value passed from one 32-bit helper to the next keeps its size.
+   */
+  const joinWords = (low: Expression, high: Expression): Expression => {
+    const halfOf = (word: Expression) =>
+      word.kind === "binary" && word.operator === "&" && word.right.kind === "constant" && word.right.value === 0xffff
+        ? word.left
+        : undefined;
+    const whole = halfOf(low),
+      upper = halfOf(high);
+    if (
+      whole?.width === 32 &&
+      upper?.kind === "binary" &&
+      upper.operator === ">>>" &&
+      upper.right.kind === "constant" &&
+      upper.right.value === 16 &&
+      same(upper.left, whole)
+    )
+      return whole;
+    return binary("|", binary("<<", high, constant(16), 32), low, 32);
   };
   const applyEngine = (engine: EngineSummary, args: Tracked[], s: AbstractState, i: Instruction): boolean => {
     if (!angleFrameMatches(engine, i)) return false;
@@ -1856,9 +2101,40 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         );
     }
     const first = args.at(-1)?.value;
-    if (!engine.numeric && engine.argumentKind === "scalar" && (first?.kind === "pointer" || first?.kind === "stack"))
+    if (
+      !engine.numeric &&
+      !engine.arithmetic &&
+      engine.argumentKind === "scalar" &&
+      (first?.kind === "pointer" || first?.kind === "stack")
+    )
       return false;
     let numericResult: { low: Tracked; high: Tracked } | undefined;
+    if (engine.arithmetic) {
+      // The caller pushes the high word first, so the low word of each 32-bit value is nearer the top.
+      const words = args.slice(-(engine.arithmetic.operation === "multiply16" ? 2 : 4)).reverse();
+      const sign = (word: Tracked) =>
+        binary("-", binary("^", asExpression(word.value), constant(0x8000), 32), constant(0x8000), 32);
+      const pair = (low: Tracked, high: Tracked) => joinWords(asExpression(low.value), asExpression(high.value));
+      let result: Expression | undefined;
+      if (engine.arithmetic.operation === "multiply16" && words.length === 2)
+        result = binary("*", sign(words[0]!), sign(words[1]!), 32);
+      else if (engine.arithmetic.operation === "divide32" && words.length === 4) {
+        const { signed, remainder } = engine.arithmetic;
+        result = binary(
+          `${signed ? "s" : ""}${remainder ? "%" : "/"}`,
+          pair(words[0]!, words[1]!),
+          pair(words[2]!, words[3]!),
+          32,
+        );
+      }
+      if (result && result.kind !== "unknown") {
+        const proof = uniqueEvidence([...words.flatMap((w) => w.evidence), evidenceOf(i), ...engine.evidence]);
+        numericResult = {
+          low: tracked(binary("&", result, constant(0xffff), 16), proof),
+          high: tracked(binary("&", binary(">>>", result, constant(16), 32), constant(0xffff), 16), proof),
+        };
+      }
+    }
     if (engine.numeric) {
       const count = registerRead(engine.numeric.count, s);
       if (
@@ -1868,12 +2144,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ) {
         const low = registerRead(engine.numeric.low, s),
           high = registerRead(engine.numeric.high, s);
-        const combined = binary(
-          "|",
-          binary("<<", asExpression(high.value), constant(16), 32),
-          asExpression(low.value),
-          32,
-        );
+        const combined = joinWords(asExpression(low.value), asExpression(high.value));
         const shifted = binary(
           engine.numeric.operation === "leftShift32" ? "<<" : ">>",
           combined,
@@ -1895,6 +2166,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     s.assumptions = [...new Set([...s.assumptions, ...engine.assumptions])];
     s.evidence.push(evidenceOf(i), ...(engine.listConsumerScope?.evidence ?? []));
+    const masks = engine.list?.masks;
+    const passedWord = (offset: number) => {
+      const value = formalArgument(args, engine.argumentOffset, offset).value;
+      return value.kind === "constant" ? value.value & 0xffff : undefined;
+    };
+    const headMask = masks && maskValue(masks.head, passedWord);
+    const nextMask = masks && maskValue(masks.next, passedWord);
     engineCalls.push({
       instruction: i.address,
       summary: engine.address,
@@ -1903,6 +2181,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       assumptions: engine.assumptions,
       evidence: [evidenceOf(i), ...(engine.listConsumerScope ? engine.evidence : engine.evidence.slice(0, 1))],
       ...(engine.listConsumerScope ? { listContext: engine.listConsumerScope } : {}),
+      ...(headMask !== undefined && nextMask !== undefined ? { listMasks: { head: headMask, next: nextMask } } : {}),
     });
     const globals = engine.writes
       .filter(
@@ -2224,6 +2503,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
               ),
               unresolved: true,
             }) as Expression,
+          // Its other stores, besides the link, are the overlap it works out for that part.
+          (offset) =>
+            offset === engine.list!.nextField
+              ? undefined
+              : `overlap${engine.list!.overlaps?.find((o) => o.offset === offset)?.axis ?? ""}`,
         );
       }
     }
@@ -3881,6 +4165,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         !engine.globalObjectWrites?.length &&
         !engine.returns.length &&
         !engine.numeric &&
+        !engine.arithmetic &&
         summary &&
         !summary.uncertainEffects &&
         summary.outcomes?.length &&
@@ -4671,7 +4956,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
  * ordered insertion links a part between, or the angle between two parts' centres.
  */
 const RUN_VALUE =
-  /^(answer of the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
+  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
@@ -4896,7 +5181,24 @@ export function inferDispatchedObjectArgument(
 }
 
 /** Reads behaviour from an unmodified packed program and its searched type table. No game-specific address is used. */
+/**
+ * Reads the parts' behaviour from the program. Reading the loops over found parts once for each type a found part can
+ * have takes most of the time, so it is a step of its own, which `readBehaviour` takes at once and the Lab after the
+ * rest is on the page.
+ */
 export function readBehaviour(program: Uint8Array, list: ProgramParts): BehaviourReport {
+  const { report, readLoopsPerType } = readBehaviourInSteps(program, list);
+  readLoopsPerType();
+  return report;
+}
+
+/** The report without the loops read per type, and the step that adds them to its routines. */
+export function readBehaviourInSteps(
+  program: Uint8Array,
+  list: ProgramParts,
+): { report: BehaviourReport; readLoopsPerType(): void } {
+  /** The loops over found parts to read once for each type, after the rest. */
+  const loopsPerType: (() => void)[] = [];
   const image = unpackLzexe(program);
   for (const record of list.records) {
     if (!record.bytes.every((byte, index) => image[record.at + index] === byte))
@@ -5094,7 +5396,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
         else helpers[at] = conditional;
       }
     }
-    const routine = analyseRoutine(image, entry, {
+    const routineOptions: RoutineOptions = {
       dataSegment: list.dataSegment,
       stateOffset,
       argumentOffset,
@@ -5110,7 +5412,91 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       layout.callbacks[0]?.objectSource?.path.length === 1
         ? { objectArgument: "collider" as const, ownerLink: layout.callbacks[0].objectSource.path[0] }
         : {}),
-    });
+    };
+    const routine = analyseRoutine(image, entry, routineOptions);
+    // A part's loop over the parts it finds is read again for each type the found part can have when its unresolved
+    // ways read a word of the found part's type record and have values the analysis gave up on for their size, like
+    // the vacuum cleaner's pull, picked by the found part's mass. With the type known, that word is a number and such
+    // a value stays small. Only those: that is all the reading per type adds, and it is slow.
+    const typeField = layout.fields.find((f) => f.name === "type")?.offset;
+    const ways = routine.iterationOutcomes?.filter((o) => o.confidence === "unresolved") ?? [];
+    if (
+      counts.has(address) &&
+      typeField !== undefined &&
+      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, 58)) &&
+      ways.some((o) => outgrown(o.condition) || o.fields.some((f) => outgrown(f.value) || outgrown(f.condition)))
+    )
+      loopsPerType.push(() => {
+        const byType: Record<number, IterationOutcome[]> = {};
+        for (let type = 0; type < list.records.length; type++) {
+          if (!list.records[type]!.bytes.length) continue;
+          const typed = analyseRoutine(image, entry, {
+            ...routineOptions,
+            foundType: {
+              type,
+              typeOffset: typeField,
+              table: list.table,
+              stride: 58,
+              records: list.records.length,
+              written: TYPE_RECORD_WRITTEN,
+            },
+          });
+          // The ways this type resolves, with a few instructions as their evidence. A way left unresolved for a known
+          // type says nothing the generic one doesn't, so each loop keeps one such way, with the fields it writes and
+          // nothing else, to say there is one.
+          const ways: IterationOutcome[] = [];
+          const open = new Map<string, IterationOutcome>();
+          for (const o of typed.iterationOutcomes ?? []) {
+            if (o.confidence !== "unresolved" || onlyStoredOverlapsOpen(o)) {
+              // Each field holds when the way does, so its own copy of the way's condition is left out.
+              ways.push({
+                ...o,
+                fields: o.fields.map((f) => ({ ...f, condition: { kind: "true" }, evidence: f.evidence.slice(0, 4) })),
+                assumptions: [...new Set([...o.assumptions, TYPE_TABLE_ASSUMPTION])],
+                evidence: o.evidence.slice(0, 8),
+              });
+              continue;
+            }
+            // The found part's own tests stay, so a pair the part's flags rule out stays ruled out.
+            const own = (o.condition.kind === "and" ? o.condition.terms : [o.condition]).filter(
+              (t) =>
+                t.kind === "compare" &&
+                !predicateUnknownBesidesOverlaps(t) &&
+                !JSON.stringify(t).includes('"unresolved":true') &&
+                [...JSON.stringify(t).matchAll(/"object":"([^"]+)"/g)].every((m) => m[1] === o.object),
+            );
+            const key = `${o.header}:${o.object}:${o.listConsumer?.call}:${JSON.stringify(own)}`;
+            const kept = open.get(key);
+            const fields = new Map((kept?.fields ?? []).map((f) => [`${f.offset}:${f.width}`, f]));
+            for (const f of o.fields)
+              fields.set(`${f.offset}:${f.width}`, {
+                object: f.object,
+                offset: f.offset,
+                width: f.width,
+                value: unknown("A value of a way left unresolved for this type", f.width),
+                condition: { kind: "true" },
+                routine: f.routine,
+                confidence: "unresolved",
+                assumptions: [],
+                evidence: f.evidence.slice(0, 2),
+              });
+            open.set(key, {
+              scope: o.scope,
+              header: o.header,
+              object: o.object,
+              condition: conjunction(own),
+              fields: [...fields.values()],
+              effectsComplete: (kept?.effectsComplete ?? true) && o.effectsComplete,
+              ...(o.listConsumer ? { listConsumer: o.listConsumer } : {}),
+              confidence: "unresolved",
+              assumptions: [],
+              evidence: kept?.evidence ?? o.evidence.slice(0, 8),
+            });
+          }
+          byType[type] = [...ways, ...open.values()];
+        }
+        routine.iterationOutcomesByType = byType;
+      });
     summaries.set(address, routine);
     // A consumer's member outcomes count only when its analysis went over every path within its budget, and they
     // write every member field its footprint has: a member path the analysis lost would leave one out.
@@ -5606,7 +5992,7 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       part.uncertainties.push(
         "The complete contact-processing region was not found; callback selection and response routing remain unresolved.",
       );
-  return {
+  const report: BehaviourReport = {
     listId: list.list.id,
     ...(gearScheduling.length ? { gearScheduling } : {}),
     collisionDispatch,
@@ -5635,4 +6021,6 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
       ...(pending.length ? ["The call graph routine budget was reached; omitted callees remain unresolved."] : []),
     ],
   };
+  // `only` limits the types read, to look at a few of them quickly.
+  return { report, readLoopsPerType: () => loopsPerType.splice(0).forEach((read) => read()) };
 }

@@ -20,7 +20,7 @@ import PartPicture from "../components/PartPicture.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import PartDetail from "../components/sprites/PartDetail.vue";
 import { fitScale } from "../components/sprites/player.ts";
-import { readBehaviourInBackground, type BehaviourResult, type WalksResult } from "../behaviour.ts";
+import { readBehaviourInBackground, walksAfterPerType, type BehaviourResult, type WalksResult } from "../behaviour.ts";
 import { edition, program, resources, selected } from "../library.ts";
 import { findParts, listIdOf, partName, readLoadedParts, sheetFile, type PartOrder } from "../parts.ts";
 import { decode, isImage } from "../sprites.ts";
@@ -61,6 +61,10 @@ watch(
     });
     void reading.walks.then((result) => {
       if (program.value?.data === data) walks.value = result;
+    });
+    // The walks again with the loops read per type: they replace the first ones; if that fails, the first ones stay.
+    void reading.perType.then((result) => {
+      if (program.value?.data === data) walks.value = walksAfterPerType(walks.value, result);
     });
   },
   { immediate: true },

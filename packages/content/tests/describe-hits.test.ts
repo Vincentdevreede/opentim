@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { describeBehaviour, evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
-import { hitsFromOthers, LIGHTABLE_ASSUMPTION, placeWords } from "../src/read/describe-hits.ts";
+import { hitsFromOthers, LIGHTABLE_ASSUMPTION, placeTest, placeWords } from "../src/read/describe-hits.ts";
 
 const MEMBER = "overlap candidate at 0x1a819";
 const proof = {
@@ -445,6 +445,118 @@ describe("walks from other parts that change a part's frame", () => {
     expect(scissors[0]!.assumptions.join(" ")).toContain("the walk doesn't follow where parts are");
   });
 
+  it("walks what a search's own list does to a part only within reach of the source, in words", () => {
+    const data = report();
+    data.layout.fields.push(
+      { name: "positionX", offset: 0x1e, ...proof } as never,
+      { name: "frameWidth", offset: 0x44, ...proof } as never,
+    );
+    data.parts.push(
+      part("electric-switch", 21, [rule(c(1), compare(f("part", 0x0c), ">=", c(4)))]) as never,
+      part("jack-in-the-box", 13, [], [901]) as never,
+    );
+    // The jack-in-the-box flips a switch whose positionX - 2 is left of its own centre X.
+    const centre: Expression = {
+      kind: "binary",
+      operator: "+",
+      left: f("part", 0x1e),
+      right: { kind: "binary", operator: ">>", left: f("part", 0x44), right: c(1), width: 16 },
+      width: 16,
+    };
+    const reach: Predicate = {
+      kind: "compare",
+      operator: "<",
+      left: { kind: "binary", operator: "+", left: f(MEMBER, 0x1e), right: c(0xfffe), width: 16 },
+      right: centre,
+      signed: true,
+    };
+    data.routines.push({
+      address: 901,
+      writes: [],
+      ...proof,
+      iterationOutcomes: [outcome(and(isType(21), reach), [write(MEMBER, 0x0c, c(4))])],
+    } as never);
+    const [flip] = hitsFromOthers(data, evaluateBehaviourCondition).get(21)!.hits;
+    expect(flip).toMatchObject({
+      sources: [{ type: 13, part: "jack-in-the-box", routine: 901 }],
+      placeWords: [
+        "its positionX is at most 1 pixel right of the jack-in-the-box's centre X (positionX + frameWidth / 2)",
+      ],
+    });
+    expect(flip!.assumptions.join(" ")).toContain("Two parts' places differ by less than 32,768 pixels");
+  });
+
+  it("reads the overlap a search stored in the part as its own, and a type record word its type settles", () => {
+    const data = report();
+    data.parts.push(
+      part("windmill", 40, [rule(c(1), compare(f("part", 0x12), "!=", c(0)))]) as never,
+      part("fan", 50, [], [902]) as never,
+    );
+    // Record words of 0x3a bytes from 0x2ef10; the windmill's word at +0x02 is 3.
+    (data as { typeTable?: unknown }).typeTable = {
+      address: 0x2ef10,
+      stride: 0x3a,
+      words: Array.from({ length: 60 }, (_, type) =>
+        Array.from({ length: 29 }, (_, n) => (n === 1 && type === 40 ? 3 : 0)),
+      ),
+    };
+    const stored: Expression = {
+      ...f(`overlapX the query at 0x1abc7 found for ${MEMBER}`, 0x7a),
+      unresolved: true,
+    } as Expression;
+    const word: Expression = {
+      kind: "table",
+      segment: 0x2ef1,
+      offset: 2,
+      index: { kind: "binary", operator: "*", left: f(MEMBER, 4), right: c(0x3a), width: 16 },
+      width: 16,
+    };
+    data.routines.push({
+      address: 902,
+      writes: [],
+      ...proof,
+      iterationOutcomes: [
+        {
+          ...outcome(and(isType(40), { kind: "compare", operator: "<", left: stored, right: c(200), signed: true }), [
+            write(MEMBER, 0x12, word),
+          ]),
+          confidence: "unresolved" as const,
+        },
+      ],
+    } as never);
+    const [turn] = hitsFromOthers(data, evaluateBehaviourCondition).get(40)!.hits;
+    expect(turn).toMatchObject({
+      sources: [{ type: 50, part: "fan", routine: 902 }],
+      writes: [{ object: "part", offset: 0x12, value: c(3) }],
+    });
+    expect(JSON.stringify(turn!.condition)).toContain('"object":"part","offset":122');
+  });
+
+  it("walks past the source's rope pull, leaving what it answers to the source", () => {
+    const data = report();
+    data.parts.push(
+      part("windmill", 40, [rule(c(1), compare(f("part", 0x12), "!=", c(0)))]) as never,
+      part("teeter-totter", 3, [], [903]) as never,
+    );
+    (data.helpers as unknown[]).push({ ...proof, address: 0x1d638, kind: "connection-query", purpose: "rope pull" });
+    const answer: Expression = { ...f("answer of the query at 0x610", 0), unresolved: true } as Expression;
+    data.routines.push({
+      address: 903,
+      writes: [],
+      ...proof,
+      engineCalls: [{ ...proof, instruction: 0x610, summary: 0x1d638, purpose: "rope pull" }],
+      iterationOutcomes: [
+        {
+          ...outcome(and(isType(40), compare(answer, "==", c(0))), [write(MEMBER, 0x12, c(1))]),
+          confidence: "unresolved" as const,
+        },
+      ],
+    } as never);
+    expect(hitsFromOthers(data, evaluateBehaviourCondition).get(40)!.hits).toMatchObject([
+      { sources: [{ type: 3, part: "teeter-totter", routine: 903 }], writes: [{ offset: 0x12, value: c(1) }] },
+    ]);
+  });
+
   it("puts place tests in words by the side the part lies on", () => {
     const name = (offset: number) => (offset === 0x1e ? "positionX" : "?");
     expect(
@@ -468,7 +580,111 @@ describe("walks from other parts that change a part's frame", () => {
       "its positionX is 0 to 8 pixels left of the teeter-totter's positionX + 30",
     ]);
     expect(placeWords([{ offset: 0x1e, shift: -6, low: 3 }], "fan", name)).toEqual([
-      "the fan's positionX - 6 minus its positionX is at least 3",
+      "its positionX is at least 3 pixels left of the fan's positionX - 6",
     ]);
+    // One pixel or more is simply to that side.
+    expect(placeWords([{ offset: 0x1e, shift: 0, low: 1 }], "fan", name)).toEqual([
+      "its positionX is left of the fan's positionX",
+    ]);
+    expect(placeWords([{ offset: 0x1e, shift: 0, high: -1 }], "fan", name)).toEqual([
+      "its positionX is right of the fan's positionX",
+    ]);
+  });
+
+  it("says a place down the screen as above or below, and a centre with its formula", () => {
+    const name = (offset: number) => ({ 0x1e: "positionX", 0x20: "positionY", 0x44: "frameWidth" })[offset] ?? "?";
+    expect(placeWords([{ offset: 0x20, shift: 0, high: -47 }], "vacuum cleaner", name)).toEqual([
+      "its positionY is at least 47 pixels below the vacuum cleaner's positionY",
+    ]);
+    expect(placeWords([{ offset: 0x20, shift: 0, low: -46, high: -45 }], "vacuum cleaner", name)).toEqual([
+      "its positionY is 45 to 46 pixels below the vacuum cleaner's positionY",
+    ]);
+    expect(
+      placeWords(
+        [
+          { offset: 0x1e, half: 0x44, memberHalf: 0x44, shift: 0, low: -4 },
+          { offset: 0x1e, half: 0x44, memberHalf: 0x44, shift: 0, high: 4 },
+        ],
+        "vacuum cleaner",
+        name,
+      ),
+    ).toEqual(["its centre X is within 4 pixels of the vacuum cleaner's centre X (positionX + frameWidth / 2)"]);
+    // The jack-in-the-box measures from the part's positionX to its own centre X.
+    expect(placeWords([{ offset: 0x1e, half: 0x44, shift: 0, low: 20 }], "jack-in-the-box", name)).toEqual([
+      "its positionX is at least 20 pixels left of the jack-in-the-box's centre X (positionX + frameWidth / 2)",
+    ]);
+    expect(placeWords([{ offset: 0x20, shift: 0, low: 0 }], "fan", name)).toEqual([
+      "its positionY is at or above the fan's positionY",
+    ]);
+  });
+
+  it("reads a test comparing the two parts' places as the distance between them", () => {
+    const signed = (left: Expression, operator: string, right: Expression): Predicate => ({
+      kind: "compare",
+      operator,
+      left,
+      right,
+      signed: true,
+    });
+    const plus = (left: Expression, right: Expression): Expression => ({
+      kind: "binary",
+      operator: "+",
+      left,
+      right,
+      width: 16,
+    });
+    const half = (object: string): Expression => ({
+      kind: "binary",
+      operator: ">>",
+      left: f(object, 0x44),
+      right: c(1),
+      width: 16,
+    });
+    // The vacuum cleaner at 0x1e6c4 (Even More, English floppy): `cmp [di+0x20], ax; jg` with ax its positionY + 44.
+    expect(placeTest(signed(f(MEMBER, 0x20), ">", plus(f("part", 0x20), c(0x2c))), MEMBER)).toEqual({
+      offset: 0x20,
+      shift: 0,
+      high: -45,
+      compared: true,
+    });
+    // Its centre X less 4 at most the member's centre X: the member is at most 4 pixels left of it.
+    const centre = (object: string) => plus(f(object, 0x1e), half(object));
+    expect(placeTest(signed(plus(centre("part"), c(0xfffc)), "<=", centre(MEMBER)), MEMBER)).toEqual({
+      offset: 0x1e,
+      half: 0x44,
+      memberHalf: 0x44,
+      shift: 0,
+      high: 4,
+      compared: true,
+    });
+    // The jack-in-the-box at 0x19f70: the part's positionX + 20 at most its centre X.
+    expect(placeTest(signed(plus(f(MEMBER, 0x1e), c(0x14)), "<=", centre("part")), MEMBER)).toEqual({
+      offset: 0x1e,
+      half: 0x44,
+      shift: 0,
+      low: 20,
+      compared: true,
+    });
+    // The teeter-totter adds a value of its own fields to its positionX, like half its new frame's width.
+    const own: Expression = { kind: "table", segment: 0x2fe1, offset: 6, index: f("part", 0x0c), width: 16 };
+    const halfOwn: Expression = { kind: "binary", operator: ">>", left: own, right: c(1), width: 16 };
+    expect(placeTest(signed(centre(MEMBER), "<", plus(f("part", 0x1e), halfOwn)), MEMBER)).toEqual({
+      offset: 0x1e,
+      memberHalf: 0x44,
+      extra: halfOwn,
+      shift: 0,
+      low: 1,
+      compared: true,
+    });
+    // A value that reads the member, or something unknown, isn't the source's own.
+    const theirs: Expression = { ...own, index: f(MEMBER, 0x0c) };
+    expect(
+      placeTest(signed(centre(MEMBER), "<", plus(f("part", 0x1e), { ...halfOwn, left: theirs } as Expression)), MEMBER),
+    ).toBeUndefined();
+    // Two different places, or a part's place against a number, aren't a place test.
+    expect(placeTest(signed(f(MEMBER, 0x20), ">", plus(f("part", 0x1e), c(4))), MEMBER)).toBeUndefined();
+    expect(placeTest(signed(f(MEMBER, 0x20), ">", c(4)), MEMBER)).toBeUndefined();
+    // Nor is an unsigned test.
+    expect(placeTest(compare(f(MEMBER, 0x20), ">", f("part", 0x20)), MEMBER)).toBeUndefined();
   });
 });

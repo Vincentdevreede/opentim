@@ -37,6 +37,7 @@ export { decodeInstruction, operandText, type CodeAddress, type Instruction, typ
 export { readRoutineCode, type RoutineCode } from "./read/behaviour-code.ts";
 export {
   readBehaviour,
+  readBehaviourInSteps,
   analyseRoutine,
   choiceOf,
   type BehaviourReport,

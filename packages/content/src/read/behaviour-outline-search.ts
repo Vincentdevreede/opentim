@@ -113,6 +113,8 @@ export function addOutlineSearchSummary(
         excludesArgument: false,
         confidence: "checked",
         evidence: stores(code),
+        // It tests no flag of the parts it walks, only their outline.
+        memberTests: [],
         assumptions: [
           "The list describes the parts accepted during this search; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],

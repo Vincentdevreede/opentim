@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive } from "vue";
-import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
+import { readingPerType as stillReadingPerType, type BehaviourResult, type WalksResult } from "../../behaviour.ts";
 import {
   outlineSides,
   routineGroups,
@@ -70,6 +70,10 @@ const walkList = computed(() => {
 });
 /** What other parts do to this one without changing its frame, which comes with the walks. */
 const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
+/** Whether the loops over found parts are still being read per type, which can add lines here. */
+const readingPerType = computed(() => stillReadingPerType(props.walks));
+/** Why the loops couldn’t be read per type, when that failed: the lines here may miss some. */
+const perTypeError = computed(() => (props.walks?.status === "done" ? props.walks.perTypeError : undefined));
 /** How the reset leaves its frame and where it comes to rest, which also comes with the walks. */
 const rest = computed(() => (props.walks?.status === "done" ? props.walks.rests[props.type] : undefined));
 /** What the part does: the parts it creates, then what it does to itself and to other parts. */
@@ -399,7 +403,14 @@ const more = computed(() => {
         <BehaviourRest :rest="rest" :frames="frames" @show-frame="emit('showFrame', $event)" />
       </LabSection>
 
-      <LabSection v-if="effects.length" title="From other parts">
+      <LabSection v-if="effects.length || readingPerType || perTypeError" title="From other parts">
+        <p v-if="readingPerType" class="flex items-center gap-2 pb-2 text-muted">
+          <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
+          Reading what other parts do to each type. More may come.
+        </p>
+        <p v-else-if="perTypeError" class="pb-2 text-muted">
+          Couldn’t read what other parts do to each type, so some may be missing: {{ perTypeError }}
+        </p>
         <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
           <BehaviourEffect v-for="(e, i) in effects" :key="i" :effect="e" :name="nameOf(e.sourceType)" />
         </div>

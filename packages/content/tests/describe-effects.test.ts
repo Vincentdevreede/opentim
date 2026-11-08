@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
+import { choose } from "../src/read/behaviour.ts";
+import { PLACE_DIFFERENCE_ASSUMPTION } from "../src/read/describe-hits.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import {
   ANSWER_ASSUMPTION,
@@ -438,6 +440,30 @@ describe("effects of parts that touch", () => {
     expect(line!.assumptions).toContain(TOUCH_ASSUMPTION);
   });
 
+  it("takes a velocity the bounce keeps within the part's own speed limit, like the trampoline's launch", () => {
+    const limit: Expression = {
+      kind: "table",
+      segment: 0x2ef1,
+      offset: 0x0a,
+      index: { kind: "binary", operator: "*", left: f(TOUCHER, 4), right: c(0x3a), width: 16 },
+      width: 16,
+    };
+    const negative: Expression = { kind: "binary", operator: "-", left: c(0), right: limit, width: 16 };
+    const launched: Expression = { kind: "binary", operator: "-", left: reversed, right: c(0x400), width: 16 };
+    const test = (operator: string, right: Expression) =>
+      ({ kind: "compare", operator, left: launched, right, signed: true }) as Extract<Predicate, { kind: "compare" }>;
+    const kept = choose(test(">", limit), limit, choose(test("<", negative), negative, launched));
+    const trampoline = {
+      ...report,
+      typeTable: { address: 0x2ef10, stride: 0x3a, words: Array.from({ length: 62 }, () => Array(29).fill(0)) },
+      routines: [{ address: 0x1da61, outcomes: [outcome([edge(0)], [touchWrite(0x38, kept)])] }],
+    } as unknown as BehaviourReport;
+    const [line] = effectsFromOthers(trampoline, evaluateBehaviourCondition).get(12)!.effects;
+    expect(line!.description).toBe(
+      "An alligator it touches sets velocityY to -|velocityY| - 1024, kept within its speed limit. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
+    );
+  });
+
   it("keeps a test that names another type, and says when a contact response may follow", () => {
     const mouse = touches(42);
     expect(mouse.map((e) => e.description)).toEqual([
@@ -521,6 +547,88 @@ describe("effects of parts that touch", () => {
         "An alligator it touches, when the answer of the query at 0x1d12a is not 0, sets +0x84 to 0. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
     });
     expect(cat[0]!.assumptions).toContain(ANSWER_ASSUMPTION);
+  });
+});
+
+type Comparison = Extract<Predicate, { kind: "compare" }>;
+
+describe("what a source does to a part that lies in a place from it", () => {
+  it("says where the part must be and reads its speed limit, for a way read for its type", () => {
+    const limit: Expression = { kind: "table", segment: 0x2ef1, offset: 0x0a, index: c(4 * 58), width: 16 };
+    const minus = (left: Expression, right: Expression): Expression => ({
+      kind: "binary",
+      operator: "-",
+      left,
+      right,
+      width: 16,
+    });
+    const plus = (left: Expression, right: Expression): Expression => ({
+      kind: "binary",
+      operator: "+",
+      left,
+      right,
+      width: 16,
+    });
+    const signed = (left: Expression, operator: string, right: Expression) => compare(left, operator, right, true);
+    // The game's speed limit routine keeps velocityX within the type's limit, as the vacuum cleaner calls it.
+    const kept = choose(
+      signed(f(MEMBER, 0x36), ">", limit) as Comparison,
+      limit,
+      choose(signed(f(MEMBER, 0x36), "<", minus(c(0), limit)) as Comparison, minus(c(0), limit), f(MEMBER, 0x36)),
+    );
+    const overlapY: Expression = {
+      kind: "field",
+      object: `overlapY the query at 0x1e690 found for ${MEMBER}`,
+      offset: 0x7c,
+      width: 16,
+      unresolved: true,
+    };
+    const way = {
+      ...finding,
+      confidence: "unresolved",
+      scope: "one overlap-list member",
+      header: 0x1e7ee,
+      object: MEMBER,
+      effectsComplete: true,
+      condition: {
+        kind: "and",
+        terms: [
+          compare(f(MEMBER, 4), "==", c(4)),
+          // The vacuum cleaner at 0x1e6c4: the part's positionY more than 44 below the vacuum cleaner's.
+          signed(f(MEMBER, 0x20), ">", plus(f("part", 0x20), c(0x2c))),
+          signed(kept, "<", c(0x200)),
+        ],
+      },
+      fields: [write(0x38, minus(f(MEMBER, 0x38), overlapY))],
+    };
+    const vacuum = report();
+    (vacuum.parts as unknown[]).push({
+      id: "vacuum-cleaner",
+      type: 57,
+      routines: [
+        { slot: 1, field: 0x26, address: 0x1e643, segment: 0, offset: 0, shared: false, sharedDefault: false },
+      ],
+      transitions: [],
+    });
+    vacuum.layout.fields.push({ offset: 0x20, name: "positionY" } as never);
+    (vacuum.routines as unknown[]).push({ address: 0x1e643, iterationOutcomesByType: { 4: [way] } });
+    const balloon = effectsFromOthers(vacuum, evaluateBehaviourCondition)
+      .get(4)!
+      .effects.filter((e) => e.sourcePart === "vacuum-cleaner");
+    expect(balloon).toHaveLength(1);
+    expect(balloon[0]!.confidence).toBe("inferred");
+    expect(balloon[0]!.conditionWords).toEqual([
+      "its velocityX kept within its speed limit is below 512",
+      "its positionY is at least 45 pixels below the vacuum cleaner's positionY",
+    ]);
+    expect(balloon[0]!.place).toEqual([{ offset: 0x20, shift: 0, high: -45, compared: true }]);
+    expect(balloon[0]!.assumptions).toContain(PLACE_DIFFERENCE_ASSUMPTION);
+    // Read for the balloon only: the cat gets nothing from it.
+    expect(
+      effectsFromOthers(vacuum, evaluateBehaviourCondition)
+        .get(12)!
+        .effects.some((e) => e.sourcePart === "vacuum-cleaner"),
+    ).toBe(false);
   });
 });
 

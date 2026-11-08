@@ -1,6 +1,9 @@
-/** Reads the behaviour of the parts away from the page, because it takes seconds, and then the walks from them. */
+/**
+ * Reads the behaviour of the parts away from the page, because it takes seconds, then the walks from them, then the
+ * loops over found parts once for each type, which takes longest, and the walks again with what that adds.
+ */
 
-import { describeBehaviour, readBehaviour, type BehaviourReport } from "@opentim/content";
+import { describeBehaviour, readBehaviourInSteps, type BehaviourReport } from "@opentim/content";
 import {
   summariseBehaviour,
   summariseDoings,
@@ -9,16 +12,31 @@ import {
   summariseWalks,
   type BehaviourMessage,
   type BehaviourRequest,
+  type WalksResult,
 } from "./behaviour.ts";
 
 const post = (message: BehaviourMessage) => (self as unknown as Worker).postMessage(message);
 
+/** The walks, effects, rests and doings of the report as it stands. */
+function walksOf(report: BehaviourReport, started: number, perType: boolean): WalksResult {
+  const description = describeBehaviour(report);
+  return {
+    status: "done",
+    walks: summariseWalks(report, description),
+    effects: summariseEffects(report, description),
+    rests: summariseRests(report, description),
+    doings: summariseDoings(report, description),
+    seconds: (performance.now() - started) / 1000,
+    perType,
+  };
+}
+
 self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   let started = performance.now();
-  let report: BehaviourReport;
+  let steps: ReturnType<typeof readBehaviourInSteps>;
   try {
-    report = readBehaviour(data.program, data.parts);
-    const summary = summariseBehaviour(report);
+    steps = readBehaviourInSteps(data.program, data.parts);
+    const summary = summariseBehaviour(steps.report);
     post({ kind: "behaviour", result: { status: "done", summary, seconds: (performance.now() - started) / 1000 } });
   } catch (error) {
     post({ kind: "behaviour", result: { status: "error", message: (error as Error).message } });
@@ -26,16 +44,16 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   }
   started = performance.now();
   try {
-    const description = describeBehaviour(report);
-    const walks = summariseWalks(report, description);
-    const effects = summariseEffects(report, description);
-    const rests = summariseRests(report, description);
-    const doings = summariseDoings(report, description);
-    post({
-      kind: "walks",
-      result: { status: "done", walks, effects, rests, doings, seconds: (performance.now() - started) / 1000 },
-    });
+    post({ kind: "walks", result: walksOf(steps.report, started, false) });
   } catch (error) {
     post({ kind: "walks", result: { status: "error", message: (error as Error).message } });
+    return;
+  }
+  started = performance.now();
+  try {
+    steps.readLoopsPerType();
+    post({ kind: "per type", result: walksOf(steps.report, started, true) });
+  } catch (error) {
+    post({ kind: "per type", result: { status: "error", message: (error as Error).message } });
   }
 };

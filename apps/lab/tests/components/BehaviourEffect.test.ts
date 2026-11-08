@@ -14,7 +14,7 @@ const effect: OtherEffect = {
   sets: [{ what: "speed", value: "4096" }],
   when: ["moving list"],
   sourceWhen: [],
-  sourceCondition: "state + 1 == 2",
+  sourceConditions: ["state + 1 == 2"],
   description: "An explosion that reaches it sets its speed to 4096. Only when it is on the moving list.",
 };
 const text = async (e: OtherEffect, name = "Explosion") =>
@@ -77,4 +77,13 @@ it("reads a flag another part sets and the fine position it puts the part on in 
   );
   const trampoline = { ...vacuum, sets: [{ what: "fine Y", value: "positionY × 512" }], sourceWhen: [] };
   expect(await text(trampoline, "Trampoline")).toBe("Trampoline fine Y positionY × 512 touching");
+});
+
+it("shows how many ways the source does the same, and each way's condition in the tip", async () => {
+  const two = { ...effect, sourceConditions: ["state <= 7", "state > 7 and state != 18"] };
+  expect(await text(two)).toBe("Explosion speed 4096 2 ways moving list");
+  const html = await renderToString(
+    createSSRApp({ render: () => h(BehaviourEffect, { effect: two, name: "Explosion" }) }),
+  );
+  expect(html).toContain("When the explosion has one of:\n1. state &lt;= 7\n2. state &gt; 7 and state != 18");
 });

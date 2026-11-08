@@ -133,11 +133,19 @@ export interface OtherEffect extends Finding {
   awayWithin?: number;
   /** What this part must be, in a few words, like `moving list`. */
   when: string[];
-  /** What the source must be, in a few words, like `mirrored`, and its whole condition as text. */
+  /**
+   * What the source must be, in a few words, like `mirrored`, and its whole condition as text: one for each way the
+   * source does the same, like the jack-in-the-box's push, which tests its frame on each way.
+   */
   sourceWhen: string[];
-  sourceCondition: string;
+  sourceConditions: string[];
   /** When it does this on paths whose tests can't be said as one: each path's tests in words. */
   cases?: string[];
+  /**
+   * The fields the source leaves to the contact search it then runs on this part, by name, like the teeter-totter's
+   * launch: what that search finds there only the run knows.
+   */
+  searched?: string[];
   /** The analysis's own sentence. */
   description: string;
 }
@@ -1035,8 +1043,14 @@ function settingOf(
   const word = / to the (low|high) word of (.+)$/.exec(s.words);
   if (fine && word) return { what: `${fine} ${word[1]}`, value: word[2]! };
   const field = write.place("part", s.offset);
-  const add = /^(adds|subtracts) (\d+) (?:to|from) /.exec(s.words);
-  if (add) return { what: field, value: `${field} ${add[1] === "adds" ? "+" : "-"} ${add[2]}` };
+  // A number or a formula added, like the fan's push: "adds 16 * (256 - |overlapX|) to velocityX, kept within its speed
+  // limit".
+  const added = /^(adds|subtracts) (.+) (?:to|from) (?:field 0x[0-9a-f]+|\w+)(, kept within its speed limit)?$/.exec(
+    s.words,
+  );
+  if (added) return { what: field, value: `${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}` };
+  if (/^keeps (?:field 0x[0-9a-f]+|\w+) within its speed limit$/.test(s.words))
+    return { what: field, value: "kept within its speed limit" };
   if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
   if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
   const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
@@ -1056,6 +1070,32 @@ function joinFine(sets: { what: string; value: string }[]) {
   });
 }
 
+/**
+ * Effects that say the same, from the same part, as one: the analysis keeps a line for each test its source makes (the
+ * jack-in-the-box's push on each of its frames), and the row keeps each of those conditions. It is as sure as the
+ * least sure of them, and keeps what each assumes and the instructions that show it.
+ */
+function joinSameEffects(effects: OtherEffect[]): OtherEffect[] {
+  const joined = new Map<string, OtherEffect>();
+  for (const e of effects) {
+    const key = JSON.stringify([e.sourceType, e.touch, e.sets, e.when, e.sourceWhen, e.cases, e.description]);
+    const line = joined.get(key);
+    if (!line) {
+      joined.set(key, { ...e, assumptions: [...e.assumptions], evidence: [...e.evidence] });
+      continue;
+    }
+    for (const c of e.sourceConditions) if (!line.sourceConditions.includes(c)) line.sourceConditions.push(c);
+    if (e.confidence === "unresolved" || (e.confidence === "inferred" && line.confidence === "checked"))
+      line.confidence = e.confidence;
+    for (const a of e.assumptions) if (!line.assumptions.includes(a)) line.assumptions.push(a);
+    for (const i of e.evidence)
+      if (line.evidence.length < MAX_EVIDENCE && !line.evidence.some((x) => x.address === i.address))
+        line.evidence.push(i);
+    if (e.awayWithin !== undefined) line.awayWithin = Math.max(line.awayWithin ?? 0, e.awayWithin);
+  }
+  return [...joined.values()];
+}
+
 /** What other parts do to each part without changing its frame, by type, from the report's description. */
 export function summariseEffects(
   report: BehaviourReport,
@@ -1067,49 +1107,52 @@ export function summariseEffects(
   return Object.fromEntries(
     description.parts.map((d) => [
       d.type,
-      d.effectsFromOthers.map((e): OtherEffect => {
-        const fieldValue = (offset: number) =>
-          e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
-        const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
-        // Both velocities read as one pair, across then down.
-        // Where both velocities move the part on the screen, when the analysis says it; the numbers are in the tip.
-        const pair =
-          x && y
-            ? [
-                e.velocityDirection
-                  ? { what: "", value: e.velocityDirection }
-                  : { what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` },
-              ]
-            : [];
-        const sets = [
-          ...pair,
-          ...e.sets.flatMap((s) =>
-            s.kind === "speed"
-              ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
-              : s.kind === "expression"
-                ? // A value of the part's own fields, like a touch that halves its velocityX.
-                  [settingOf(s, write)]
-                : pair.length && (s.offset === 0x36 || s.offset === 0x38)
-                  ? []
-                  : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
-          ),
-        ];
-        return {
-          confidence: e.confidence,
-          assumptions: e.assumptions,
-          evidence: instructions(e.evidence),
-          ...awayWithin(e.sets),
-          sourceType: e.sourceType,
-          source: e.sourcePart,
-          ...(e.touch ? { touch: true } : {}),
-          sets: joinFine(sets),
-          when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
-          sourceWhen: e.sourceConditionWords,
-          sourceCondition: write.predicate(e.sourceCondition),
-          ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
-          description: e.description,
-        };
-      }),
+      joinSameEffects(
+        d.effectsFromOthers.map((e): OtherEffect => {
+          const fieldValue = (offset: number) =>
+            e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
+          const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
+          // Both velocities read as one pair, across then down.
+          // Where both velocities move the part on the screen, when the analysis says it; the numbers are in the tip.
+          const pair =
+            x && y
+              ? [
+                  e.velocityDirection
+                    ? { what: "", value: e.velocityDirection }
+                    : { what: "velocity", value: `${signedText(x.value)}, ${signedText(y.value)}` },
+                ]
+              : [];
+          const sets = [
+            ...pair,
+            ...e.sets.flatMap((s) =>
+              s.kind === "speed"
+                ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
+                : s.kind === "expression"
+                  ? // A value of the part's own fields, like a touch that halves its velocityX.
+                    [settingOf(s, write)]
+                  : pair.length && (s.offset === 0x36 || s.offset === 0x38)
+                    ? []
+                    : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
+            ),
+          ];
+          return {
+            confidence: e.confidence,
+            assumptions: e.assumptions,
+            evidence: instructions(e.evidence),
+            ...awayWithin(e.sets),
+            sourceType: e.sourceType,
+            source: e.sourcePart,
+            ...(e.touch ? { touch: true } : {}),
+            sets: joinFine(sets),
+            when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
+            sourceWhen: e.sourceConditionWords,
+            sourceConditions: [write.predicate(e.sourceCondition)],
+            ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
+            ...(e.searched?.length ? { searched: e.searched.map((offset) => write.place("part", offset)) } : {}),
+            description: e.description,
+          };
+        }),
+      ),
     ]),
   );
 }
@@ -1168,8 +1211,32 @@ export type WalksResult =
       rests: Record<number, RestSummary>;
       doings: Record<number, Doing[]>;
       seconds: number;
+      /**
+       * Whether the loops over the parts a part finds were read once for each type a found part can have, which gives
+       * more of what other parts do to it, like the vacuum cleaner's pull. That takes longest, so it comes last.
+       */
+      perType: boolean;
+      /** Why the loops couldn't be read per type, when that failed after these walks came: no more lines will come. */
+      perTypeError?: string;
     }
   | { status: "error"; message: string };
+
+/**
+ * The walks to show once the loops per type were read: the new walks, or when that failed, the first walks with why,
+ * so they no longer show as still being read.
+ */
+export function walksAfterPerType(
+  first: WalksResult | { status: "reading" } | undefined,
+  perType: WalksResult,
+): WalksResult | { status: "reading" } | undefined {
+  if (perType.status === "done") return perType;
+  return first?.status === "done" ? { ...first, perTypeError: perType.message } : first;
+}
+
+/** Whether the loops over found parts are still being read per type, which can add what other parts do. */
+export function readingPerType(walks: WalksResult | { status: "reading" } | undefined): boolean {
+  return walks?.status === "done" && !walks.perType && walks.perTypeError === undefined;
+}
 
 /** What the worker is asked: the program as it ships, and what was read from it before. */
 export interface BehaviourRequest {
@@ -1177,11 +1244,17 @@ export interface BehaviourRequest {
   parts: ProgramParts;
 }
 
-/** What the worker answers: first the behaviour, then the walks. */
-export type BehaviourMessage = { kind: "behaviour"; result: BehaviourResult } | { kind: "walks"; result: WalksResult };
+/** What the worker answers: first the behaviour, then the walks, then the walks again with the loops read per type. */
+export type BehaviourMessage =
+  | { kind: "behaviour"; result: BehaviourResult }
+  | { kind: "walks"; result: WalksResult }
+  | { kind: "per type"; result: WalksResult };
 
 /** The behaviour and the walks of a program, once per program: a later call gets the same answers, unless one failed. */
-const results = new WeakMap<Uint8Array, { result: Promise<BehaviourResult>; walks: Promise<WalksResult> }>();
+const results = new WeakMap<
+  Uint8Array,
+  { result: Promise<BehaviourResult>; walks: Promise<WalksResult>; perType: Promise<WalksResult> }
+>();
 
 /** How to stop the read of a program while its worker still runs. */
 const running = new Map<Uint8Array, (message: string) => void>();
@@ -1195,20 +1268,22 @@ export function stopBehaviourRead(program: Uint8Array): void {
 }
 
 /**
- * Reads the behaviour of a program in a worker, then the walks from its triggers. The behaviour comes first, so it can
- * show while the walks are still being read.
+ * Reads the behaviour of a program in a worker, then the walks from its triggers, then the walks again with the loops
+ * over found parts read per type. The behaviour comes first, so it can show while the rest is still being read.
  */
 export function readBehaviourInBackground(
   program: Uint8Array,
   parts: ProgramParts,
-): { result: Promise<BehaviourResult>; walks: Promise<WalksResult> } {
+): { result: Promise<BehaviourResult>; walks: Promise<WalksResult>; perType: Promise<WalksResult> } {
   let reading = results.get(program);
   if (!reading) {
     let resolveResult!: (r: BehaviourResult) => void;
     let resolveWalks!: (r: WalksResult) => void;
+    let resolvePerType!: (r: WalksResult) => void;
     reading = {
       result: new Promise((resolve) => (resolveResult = resolve)),
       walks: new Promise((resolve) => (resolveWalks = resolve)),
+      perType: new Promise((resolve) => (resolvePerType = resolve)),
     };
     let worker: Worker | undefined;
     const end = () => {
@@ -1218,6 +1293,7 @@ export function readBehaviourInBackground(
     const stop = (message: string) => {
       resolveResult({ status: "error", message });
       resolveWalks({ status: "error", message });
+      resolvePerType({ status: "error", message });
       end();
       if (results.get(program) === reading) results.delete(program);
     };
@@ -1230,8 +1306,11 @@ export function readBehaviourInBackground(
         if (data.kind === "behaviour") {
           resolveResult(data.result);
           if (data.result.status === "error") stop(data.result.message);
-        } else {
+        } else if (data.kind === "walks") {
           resolveWalks(data.result);
+          if (data.result.status === "error") stop(data.result.message);
+        } else {
+          resolvePerType(data.result);
           end();
         }
       };
@@ -1247,6 +1326,7 @@ export function readBehaviourInBackground(
     };
     void reading.result.then(forget);
     void reading.walks.then(forget);
+    void reading.perType.then(forget);
   }
   return reading;
 }

@@ -119,6 +119,17 @@ describe("selected overlap candidates", () => {
       });
     }
   });
+  it("names the overlap the query stores in a found part, when the routine reads it from that part", () => {
+    const summary = query();
+    summary.list = { ...summary.list!, excludesArgument: true, confidence: "checked" };
+    summary.writes = [...summary.writes, { ...summary.writes[1]!, offset: 0x7a }];
+    // After the query: take the first part found and copy its field 0x7a to the owner's 0x12.
+    const result = analyse([...call, 0x8b, 0x7c, 0x60, 0x8b, 0x45, 0x7a, 0x89, 0x44, 0x12], summary);
+    const copied = result.writes.find((w) => w.object === "part" && w.offset === 0x12)!.value;
+    expect(copied).toMatchObject({ kind: "field", offset: 0x7a, unresolved: true });
+    expect((copied as { object: string }).object).toMatch(/^overlap the query at 0x8 found for /);
+  });
+
   it("keeps the owner's fields when the query skips the part that asks", () => {
     const skipping = (excludesArgument: boolean) => {
       const summary = query();

@@ -3,7 +3,12 @@
  * on every finding that uses it, and explained in docs/behaviour-assumptions.md so it can be rechecked later.
  */
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
-import { BULLET_LIST_ASSUMPTION, FIXED_LIST_ASSUMPTION, SCREEN_DIRECTION_ASSUMPTION } from "./describe-effects.ts";
+import {
+  BULLET_LIST_ASSUMPTION,
+  FIXED_LIST_ASSUMPTION,
+  MOVING_SEARCH_ASSUMPTION,
+  SCREEN_DIRECTION_ASSUMPTION,
+} from "./describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "./describe-hits.ts";
 import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
 import { OUTLINE_SEARCH_ASSUMPTIONS } from "./behaviour-outline-search.ts";
@@ -50,4 +55,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Parts that hold a rope record", assumptions: [ROPE_HOLDER_ASSUMPTION] },
   { title: "Flipping a part with a loose belt end", assumptions: [FLIP_BELT_ASSUMPTION] },
   { title: "The wood incline's starting frame", assumptions: [WOOD_INCLINE_ASSUMPTION] },
+  { title: "Searches of the moving list", assumptions: [MOVING_SEARCH_ASSUMPTION] },
 ];

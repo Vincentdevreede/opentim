@@ -54,7 +54,15 @@ the rest when it is opened.
   frame 65535 reads -1, here and in the walks.
 - **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
   "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
-  positionY × 512"), and a number added or a halving reads in words.
+  positionY × 512"), and a number added or a halving reads in words. Lines of one part that say the same are one
+  row with how many ways give it, and each way's condition when the row is opened: the analysis keeps a line for
+  each test its source makes, so the jack-in-the-box's push on the cat is two rows of 5 ways (mirrored and not)
+  instead of ten. In Even More the 1,192 lines become 875 rows. A formula the source adds reads as a sum, like the
+  fan's "velocityX + 16 * (256 - |overlapX|), kept within its speed limit", and a velocity the source only keeps
+  within the part's speed limit says so. A condition too long for a chip, like where the part must be ("its centre X is
+  left of the teeter-totter's centre X (positionX + frameWidth / 2)"), is a line under the row that wraps. A row whose
+  source then runs the contact search on the part, like the teeter-totter's launch, has a "then contact search" chip,
+  and its tip names the fields that search may change.
 - **Creates.** Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
   where the new part starts and how fast it moves. The lab keeps its own name for part 43 elsewhere.
 - **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
@@ -150,6 +158,12 @@ Repeat the game options for every build. Resources can be in the executable fold
 `extract-parts`. Extraction writes compact JSON reports, source hashes, per-part Markdown findings, build comparisons
 and failures to the output folder. Reports are derived from the games and should not be committed. Large reports
 are written incrementally. The library itself returns plain data that the browser can consume.
+
+`extract-behaviour`, `list-assumptions`, `list-other-part-pairs` and `check-level-frames` read the builds side by
+side, each on its own worker thread, and print what they find in the order the builds were given. By default they
+read one build per core but one, as far as free memory allows (an Even More build takes up to 1.7 GB). `--jobs <n>`
+sets how many at once; give `--jobs 1` to `extract-behaviour` when its times are to be compared, because a build read
+next to others takes longer. Over all eleven builds `list-assumptions --check` takes about a minute instead of five.
 
 Validation reads the saved v25 sequences only as an oracle. Its adjacent `models` folder supplies exact source
 hashes; `--models` can override that folder. Reports from a different executable are never silently matched to an
@@ -784,6 +798,294 @@ These effects of other parts are left out, so they are known gaps:
 Describing a build takes as long as before (about 6 seconds for Even More and 5.5 for TIM 1), and no walk changes.
 The lab shows the lines in the Behaviour tab, under "From other parts": one row each, with the other part's name, what
 it sets and the value, and a chip for what either part must be.
+
+### The fan, the bellows and the teapot push what they find
+
+The three search a box beside them with the overlap search at `0x417e` (Even More, English floppy; TIM 1 French
+`0x3597`) and push every part on the moving list it finds. Their push went through three helpers of the compiler's
+runtime, which the analysis now reads, recognised by their exact code (the same bytes in all eleven builds):
+
+- `0x2bdb3`: `mov bx, sp`, `mov ax, [bx+4]`, `imul word [bx+6]`, `retf`. It multiplies the two signed words on the
+  stack into the 32-bit product in DX:AX.
+- `0xc9d5` and its sister entries: a 145-byte body that divides the 32-bit word pair on the stack by the next one and
+  pops both (`retf 8`). Its entry sets CX: bit 0 makes it unsigned and bit 1 gives the remainder. A signed division
+  truncates toward zero and a remainder takes the dividend's sign, as the analysis's own `s/` and `s%` do. A divisor
+  of 0 would fault, so a running game never has one there (an assumption on the summary).
+- `0xcaa4`, the 32-bit shift the analysis already knew.
+
+A 32-bit value passed from one helper to the next is split into its two words and joined again; the analysis joins
+`x & 0xffff` and `(x >>> 16) & 0xffff` back into `x`, so the value keeps its size. Multiplying folds exactly in every
+width (two 32-bit words multiply past what a double keeps).
+
+The search stores in each part it finds, besides the link at 0x78, the overlap at 0x7a and 0x7c. The search's code
+gives each its axis: the stored local starts from the found part's positionX for 0x7a and its positionY for 0x7c, so
+they are named overlapX and overlapY. Along X it is how far the part lies outside the box: the gap past the box's
+right edge, at least 1, or the gap before its left edge as a negative number, at most -1, whichever edge is nearer.
+A value read from a found part after the search names it as a run value, "overlapX the query at 0x1abc7 found for"
+that part.
+
+The fan's box is 256 pixels long on the side it blows to (right, or left when flipped) and overlaps the part's height,
+with 10 pixels to spare above. For each part it finds, the fan adds 16 × (256 − |overlapX|) ÷ the part's mass to its
+velocityX (−16 when flipped), and then keeps both velocities within the part's speed limit. The bellows does the same
+with 8. The teapot, when it pours, pushes a part that moves slower than 1536 by 1536 (or 1024) up and to the side it
+faces, also kept within the part's speed limit. The mass is the type's word at +0x02; the speed limit is the word at
++0x0a, which the game works out for every type from the level's air pressure and gravity, so a line says "kept within
+its speed limit" rather than a number.
+
+The lines and the pair check settle each value for the found part's type the same way (`settleForType`): the overlap
+reads as the part's own field, the type's settled words are numbers, and the speed limit's clamp is taken out with
+"kept within its speed limit". The words write the arithmetic plainly (`tidyArithmetic`): a sign extended word is the
+word, `(4096 × x) >> 8` is `16 × x`, and the low word of the quotient is the quotient, which fits a word here because
+the box keeps 256 − |overlapX| between 0 and 255.
+
+With this, no pair is missing for a table word any more: Even More goes from 247 missing pairs to 145, TIM 1 from
+124 to 59. Four pairs of these three (one in TIM 1) stay missing because a test of the found part isn't settled by its
+type. The scoreboard and every recording are unchanged.
+
+### The vacuum cleaner pulls what lies under its nozzle
+
+The vacuum cleaner's run (`0x1e643`, Even More, English floppy) calls the overlap search `0x417e` with a box of 0, 0,
+0 and 64: it finds the parts that overlap it across and lie at most 64 pixels below its bottom, and keeps only parts
+whose flag 0x2000 at +0x08 is clear. That test of the search was not read before: the search stores the overlaps in a
+part after linking it, so a part it skips jumps past those stores too, and the reader now steps over them. For each
+part it finds, the vacuum cleaner:
+
+- goes on only when the part's positionY is more than 44 pixels below its own; then it clears the part's contact
+  flag, and when the part is less than 47 pixels below, it swallows it (`0x1e8bb`: a balloon pops, every other part
+  goes out of play);
+- when the part's velocityY is above -1024, works out the pull from the part's mass (`0x1e84e`: 0x0C00 below 2 down
+  to 0x0080 from 201) times 80 − |overlapY|, divided by 64, subtracts it from velocityY, keeps both velocities within
+  the part's speed limit and velocityY at -1024 or more;
+- unless the part's positionY equals its field 0x28, puts Mel Schlemming (type 0x36) below frame 6 on frame 6, and
+  moves the part's velocityX by half the pull toward its own centre X: up to 512 when the part's centre X is more
+  than 4 pixels left of its own, down to -512 when more than 4 pixels right, and toward 0 when within 4 pixels;
+- and in every case puts out a candle (type 0x2d): it clears the candle's fields 0x9c and 0x12 and its state.
+
+For a balloon the pull is 48 × (80 − |overlapY|). When the part's velocityY is already -1024 or less, the vacuum
+cleaner doesn't work out a pull, and the velocityX step uses the pull still in its local from the part before (or
+whatever the stack held). That value is one for A4 of the plan; the lines leave those ways out.
+
+Reading this took four changes:
+
+- The loop is read again for each type a found part can have (`readBehaviourInSteps`, `readLoopsPerType`). The
+  found part's type field is that type, and a word of its type record the game never writes while it runs is the
+  program's word, also when a helper reads it, like the mass in `0x1e84e`. The ways that type resolves are kept with
+  a few instructions as evidence; the rest of a loop's unresolved ways are kept as one way per loop and set of the
+  part's own tests, with the fields they write, so a pair they allow still counts as missing and one the part's flags
+  rule out stays ruled out. Only a loop whose unresolved ways read a word of the found part's type record and have
+  values the analysis gave up on for their size is read this way: that is what knowing the type fixes. In the eleven
+  builds that is the vacuum cleaner's loop alone. The teeter-totter's also reads the found part's mass, for its launch
+  speed, but its ways stay open at the contact search whatever the type, and reading it for every type changed no
+  pair while it took three minutes a build. The step takes about 24 seconds for Even More, English floppy, against 13
+  seconds for the rest: the Lab takes it after the walks are on the page, and adds the lines it gives when it is done.
+  `extract-behaviour` leaves it out of its reports. Written out, the vacuum cleaner's ways would be far over a
+  gigabyte, as the speed limit's clamp repeats the value inside it; in memory they share it.
+  `list-other-part-pairs`, `list-assumptions` and `check-level-frames` take the step.
+- A way that is unresolved only because it reads the overlap the search stored (`onlyStoredOverlapsOpen`) counts: the
+  part holds that overlap in its own fields, as the fan's push already reads it.
+- A test comparing a place of the part with the same place of the source, like the part's positionY against the vacuum
+  cleaner's positionY plus 44, or the two centres X (`positionX + frameWidth / 2`), is a place test. Its words say how
+  far, above or below for Y and left or right for X: "its positionY is at least 45 pixels below the vacuum cleaner's
+  positionY", "its centre X is within 4 pixels of the vacuum cleaner's centre X (positionX + frameWidth / 2)". Each side
+  may be its own point along the axis, like the jack-in-the-box's test of the part's positionX + 20 against its own
+  centre X, and the source's point may add a value of its own fields: the teeter-totter, after it tilts and redraws
+  itself, compares the part's centre X with its positionX plus half the width of its new frame, which the analysis reads
+  through its frame list. Reading the distance from such a comparison states that two parts' places differ by less than
+  32,768 pixels.
+- A test or value may read the part's own speed limit, the word at +0x0a of its type record, as it would read one of
+  its fields. The words say it: "its velocityX kept within its speed limit is below 512".
+
+The balloon now gets 25 lines from the vacuum cleaner. Even More goes from 145 missing pairs to 84; TIM 1, which has
+no vacuum cleaner, stays at 59. The teeter-totter's search is left missing at its rope pull and its contact search, see
+"Where the teeter-totter's launch stops being known".
+
+### Where the teeter-totter's launch stops being known
+
+When it tilts, the teeter-totter (`0x1d27a` in Even More) launches each part on its plank. Its loop over the parts it
+finds is read: it gives a part a launch speed by the part's mass (`0x1d735`: 0x1C00 below a mass of 2, then 0x1A00,
+0x1800, 0x1600, 0x1400, 0x1200 and 0x1000 from 151 on) as velocityY, with a quarter of it as velocityX, the signs set
+by the side of the plank the part's centre X is on and the way the plank tilts. Two calls leave the rest to the run,
+and the pair check used to say only "a test or value on it isn't read" for them:
+
+- Before the loop it pulls its ropes (`0x1d638`, called at `0x1d2af` and `0x1d2d1`): it asks the part at the other
+  end of each rope, through that part's type's rope callback, whether it gives way. The analysis reads it as a
+  connection query, which changes only the part at the other end and its records. Its answer decides whether the plank
+  moves, and the tilt and a found part's width are read after it, so these ways test values only the run knows.
+- After setting the speeds it runs the contact search (`0x4fd`) on the part twice. The search sweeps a part from its
+  previous place to its place, and the teeter-totter sets the part's previousY 16 pixels above its positionY and then
+  16 below (`0x1d3c2` and `0x1d3d7` for a part launched up; below first, at `0x1d405` and `0x1d41a`, for one launched
+  down). It then sets previousY and the fine positionY to whatever positionY the search leaves. The search may change
+  the part's place, its drawing place and frame size, its list flags and its contact record, but not its speeds.
+
+The analysis takes these from the engine summaries of the calls (`connection-query` and `contact-search`), not from
+the teeter-totter's addresses, and the lines now read past both:
+
+- A test of what the rope pull answers, or of the source's own fields after it, is a test of the source. It stays in
+  the line's source condition as it is, naming the call.
+- A found part's field read after the rope pull is the part's own field, as the loop reads it then. This is how a
+  line already reads the overlap a search stored in the part: the line is about the part when the source acts on it.
+- The fields the contact search leaves, and those set from them after it, are listed without a value: "Then it runs
+  the contact search on it, which may change its positionX, positionY, ...; what that search finds there, only the
+  run knows." The pair check says "the source runs the contact search on the part" for them.
+- When the callback is its source's type's alone, the source's own type is folded in its tests, as the found part's
+  is: the teeter-totter's test of its own type and the words of its type record become numbers, and products by the 1
+  or 0 they leave drop out of the words.
+
+The balloon now gets 36 lines from the teeter-totter: one for each of the four ways it can be launched in each of 9
+cases of the teeter-totter's own fields, which the Lab joins into four rows: "A teeter-totter that reaches it sets its
+velocity up and to the right (velocityX 1792, velocityY -7168). Only when its centre X is at or right of the
+teeter-totter's centre X (positionX + frameWidth / 2)". The speeds are its mass's (0x1C00 for a balloon) and a quarter
+of it.
+
+Missing pairs: Even More 84 → 23, TIM 1 59 → 9. The teeter-totter's pairs are partly described (61 and 50), with only
+the contact search's fields unsaid. The bullet and Mel stay missing: their rules read the velocity the teeter-totter
+sets, so they need a walk. Walks read past the rope pull too since "Walks past the rope pull and the overlap", but a
+walk also needs the source to name the part's type or the tests its search makes on the part, and the teeter-totter's
+search names none: the pair check says "its rules read a field the source sets, so it needs a walk, and a walk needs the
+source to name the part's type or the tests its search makes on the part, which aren't read for this search".
+Since "The lists a search walks" the search's tests are read (it makes none on the parts' flags), and the bullet's
+walk is described.
+
+### Words for the Behaviour tab
+
+Step A6 of the plan makes "From other parts" readable at a glance on the fan, the vacuum cleaner and the
+teeter-totter, checked in a browser on the balloon.
+
+- A source that redraws itself and then reads its own frame width reads the value the frame-position helper
+  (`0x68aa` in Even More) writes in frameWidth: a word of its frame list picked by its state, or its baseWidth. The
+  lines say that value by its name when it is the helper's value with each of the part's fields standing for the same
+  value throughout, so the teeter-totter, which steps its frame before it redraws, reads at the frame it stepped to.
+  Its launch then says "its centre X is left of the teeter-totter's centre X (positionX + frameWidth / 2)" instead of
+  the frame list formula. A source whose callback is its type's alone has its type folded in its tests, and products
+  by the 1 or 0 that leaves drop out.
+- The words drop a division by 1 (a push divided by a mass of 1) and a low-word mask inside 16-bit arithmetic that
+  wraps anyway, so the vacuum cleaner's pull reads "velocityY - (48 * (80 - |overlapY|))". Before a shift right, a
+  division or a comparison the mask stays, since there the high word of a 32-bit product would count:
+  `((48 * x) & 0xffff) >> 1` is not `24 * x` once 48 × x passes 32,767.
+- A place at least 1 pixel to one side reads "left of" or "below", not "at least 1 pixels".
+- The lab reads a formula added, a velocity only kept within the speed limit, long conditions as lines, and the
+  contact search after a launch, as "The Behaviour tab" says.
+
+### Walks within reach of the source
+
+A walk from what another part does read a test of where the part lies from the source only for a list consumer, like
+the teeter-totter's ends. The lines read such tests for a search's own list since A2, and the walks now do too. The
+jack-in-the-box and the alligator flip an electric switch only when its positionX - 2 is left of their centre X and
+its positionX + 20 is right of it: "its positionX is at most 1 pixel right of the jack-in-the-box's centre X (positionX +
+frameWidth / 2)". The switch's rules read its frame and sockets, which the flip sets, so it is a walk: 8 of them from
+each. The vacuum cleaner's walks of the candle (put out), the cat and the mouse (swallowed at the nozzle) need the
+nozzle's place too, so those pairs are partly described now, with only the velocities from the pull left unsaid. A
+walk with a test comparing two places states, as a line does, that the places differ by less than 32,768 pixels. A
+distance of 1 pixel reads in the singular.
+
+Missing pairs: Even More 23 → 18, TIM 1 9 → 8.
+
+The fan, the bellows and the teapot push Mel and the bullet, whose rules read the velocity they set. That velocity is
+kept within the part's speed limit, the word at +0x0a of its type record, which the game works out for each level
+(`0x107dc` and `0x1084c` in Even More write it), so a walk has no number to follow. The pair check now says so ("its
+rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a
+walk can't follow it") instead of the reason it gave when it found no other.
+
+A touch line now takes a velocity kept within the part's own speed limit too, as the lines from a search's list have
+since A2: the line's settings settle the type record's words for the part's type and keep the speed limit as its own.
+So the trampoline's launch reads "sets velocityY to -|velocityY| - 1024, kept within its speed limit", and the
+alligator's snap "sets velocityY to -5632, kept within its speed limit and adds 1536 to velocityX, kept within its
+speed limit". Their pairs were partly described with the velocity left out; now every part but the bullet is
+described (Even More 389 → 430 described, TIM 1 200 → 215), and no pair is left "for a reason this check doesn't
+name". The Lab reads an added number with its speed limit as well.
+
+### Values that pick by where the source is
+
+The jack-in-the-box and the alligator push a bellows, a pair of scissors or a teeter-totter by where they are: the
+value they set is a choice between values by tests of their own place against the part's, like "stateDelta becomes
+1 when the jack-in-the-box's centre X is past the bellows' positionX + 12, else stays". The analysis writes such a
+value as `(test) * a + (!test) * b`, which a walk can't follow, since it reads the source. A value that picks by tests
+reading the source is now split into its cases, each a way of its own with the case's tests added to the way's and
+the value it picks, so the place tests among them read as places. A case that leaves the field as it was writes
+nothing; a case whose tests contradict each other or the way's, which a nested choice brings back, never happens and
+is dropped. A choice by the part's own fields alone stays one value, like a velocity kept within its speed limit.
+
+So the jack-in-the-box squeezes a bellows at frame 0 "when its positionX is at least 13 pixels left of the
+jack-in-the-box's centre X (positionX + frameWidth / 2)" if the bellows is mirrored, and "at most 43 pixels left" if
+not; the alligator tilts a teeter-totter by which side of it the teeter-totter's positionX lies. Missing pairs: Even
+More 18 → 13, TIM 1 8 → 6. The jack-in-the-box's push of a teeter-totter stays missing: its value grew past the size
+budget before it could be split.
+
+### Walks past the rope pull and the overlap
+
+The walks read a search's own list as the lines do: a way open only at the overlap the search stored in the part, at
+the source's rope pull or at the contact search it runs on the part is read, the part's field after the rope pull is
+its own, the rope pull's answer and the source's fields after it are the source's tests, a frame width the source
+redrew reads by its name, and a value takes the words of the part's type record its type settles (not its speed
+limit, which has no number for a walk). The fan's walk of the windmill needed the overlap: Even More 435 → 436
+described, TIM 1 217 → 218.
+
+### The lists a search walks
+
+Every overlap search walks the parts lists through two routines that take a mask (Even More, English floppy):
+
+- the list head routine (`0x682f`) returns the first nonempty list whose bit the mask has: `0x2000` the fixed list at
+  `0x4e1f`, `0x1000` the moving list at `0x4d7d`, `0x0800` the list at `0x4cdb`;
+- the list next routine (`0x686f`) returns a part's link, and at the end of a list goes on with the head routine with
+  its own mask, or with the list at `0x4cdb` after a moving part when its mask has `0x0800`.
+
+The searches give the head routine their caller's mask (`0x448e` gives `0x3000` itself) and the next routine that mask
+with only `0x1000` kept, so the fixed list comes first and the third list never. The analysis reads this from the code
+(`behaviour-list-masks.ts`): where each search's masks come from, the lists the two routines pick by each bit, and the
+masks each call passes. The calls pass:
+
+| Mask     | Lists                      | Searches                                                                                                                                             |
+| -------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0x3000` | the fixed and moving lists | the bellows, boxing glove, cat, explosion, fan, jack-in-the-box, magnifying glass, solar panel, teapot, and the candle's and rocket's first searches |
+| `0x1000` | the moving list            | the teeter-totter, mouse motor, mouse, Mel's house, vacuum cleaner, and the candle's and rocket's second searches                                    |
+| `0x2000` | the fixed list             | the alligator                                                                                                                                        |
+
+The moving list is the one the contact dispatch walks. By the [decided assumption on searches of the moving
+list](behaviour-assumptions.md#22-searches-of-the-moving-list), a search that walks only it never finds a part of a
+fixed type, so such a part gets no line or walk from it, states the assumption instead, and the pair check counts the
+pair as ruled out. Unlike the list flag `0x1000`, the list holds the bullet: the gun links it in itself. The fixed list
+only search of the alligator isn't used yet: whether a part of a type that isn't fixed is ever on the fixed list is a
+question of its own.
+
+The teeter-totter's search (`0x437d`) tests no flag of the parts it walks, only their outline, so its walks no longer
+wait for its tests: the bullet's walk of the launch is described. What changed, on all eleven builds (each game's
+builds agree):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              436 |           398 |          218 |       219 |
+| Partly described |               71 |            32 |           52 |        19 |
+| Ruled out        |              570 |           648 |          345 |       378 |
+| Missing          |               13 |            12 |            6 |         5 |
+
+The described and partly described pairs that went were lines the game can't give: the teeter-totter's launch and the
+vacuum cleaner's pull of walls, ramps, motors and the other fixed parts (39 each in Even More).
+
+### Two values the pair check names
+
+After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the
+analysis". Both are read here from the code, and the pair check now names why a line can't give them:
+
+- The explosion splits a brick wall or a wood wall (Even More `0x1a73a`, its type table sends types 1 and 0x30 to
+  `0x1a8ae`). It cuts a hole on a 16-pixel grid around its centre X (cx, its positionX + frameWidth / 2), from
+  `((cx - 32) & ~15) + 8` to `((cx + 24) & ~15) + 8`, along the wall's longer side (in Y with cy for a wall no wider than
+  it is tall). A wall that reaches past both edges keeps the piece before the hole, and the game copies it
+  (`0x66aa`) for the piece after it, with 0x0010 in the copy's field 0x06. A wall that reaches past one edge is cut
+  back to it. A wall inside the hole is put out of play (0x2000 in its drawingFlags). Each piece gets its outline
+  again (`0x1d8bc`). The analysis reads the helper's writes with their tests, but it allocates a part and links it
+  into a list, so its effect in the explosion's loop stays a "conditional effect". Read out, the values would still
+  come from the explosion's place, and the copy is a part of its own, which a line of the wall can't say. The pair
+  check says "a value it sets comes from a helper the source calls on the part, whose tests the analysis doesn't
+  carry into the loop".
+- The jack-in-the-box's push of a teeter-totter (Even More `0x1b888`, its type table sends type 3 to `0x1badd`) tilts
+  the plank by where the jack-in-the-box's centre X is: at frame 0 it tilts to 1 when the plank's positionX + 36 is
+  right of that centre, at frame 1 to 1 or -1 around positionX + 40, and at frame 2 to -1 when positionX + 44 is left
+  of it. The helper is read exactly, four writes of stateDelta with their tests, but folded one into another in the
+  jack-in-the-box's loop the value grows past the size the analysis keeps for one value. Read out, it would be a value
+  from the jack-in-the-box's place, which is A5. The pair check says "a value it sets grew past the size the analysis
+  keeps for one value".
+
+No pair in the eleven builds says "isn't known to the analysis" now. The missing ones stay at Even More 23 and TIM 1 9.
 
 ### The push's direction
 

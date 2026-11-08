@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
-import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
+import {
+  choose,
+  type BehaviourReport,
+  type Expression,
+  type FieldWrite,
+  type Predicate,
+} from "../src/read/behaviour.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import { effectsFromOthers, FIXED_LIST_ASSUMPTION } from "../src/read/describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "../src/read/describe-hits.ts";
-import { CONSUMER_UNREAD, otherPartPairs, renderOtherPartPairs, SOURCE_VALUE } from "../src/read/other-part-pairs.ts";
+import {
+  BUDGET_VALUE,
+  CONSUMER_UNREAD,
+  CONTACT_SEARCH,
+  HELPER_VALUE,
+  LIMIT_RULE_FIELD,
+  otherPartPairs,
+  renderOtherPartPairs,
+  SEARCH_UNREAD,
+  SOURCE_VALUE,
+  UNRESOLVED_PATH,
+  UNKNOWN_VALUE,
+} from "../src/read/other-part-pairs.ts";
 
 const GLOVE = "overlap candidate at 0x19732";
 const HOUSE = "overlap candidate at 0x1e29b";
@@ -207,6 +225,64 @@ describe("other parts' effects with values the type settles", () => {
     expect(mel!.sets).toContainEqual({ kind: "field", offset: 0x38, width: 16, value: 6656 });
   });
 
+  it("names the frame width a source just drew, even at the frame it stepped to", () => {
+    const data = report();
+    data.layout.fields.push(
+      { offset: 0x1e, name: "positionX" } as (typeof data.layout.fields)[number],
+      { offset: 0x44, name: "frameWidth" } as (typeof data.layout.fields)[number],
+    );
+    // The frame-position helper's frameWidth: a word of the frame list, picked by the part's state.
+    const width = (state: Expression): Expression => ({
+      kind: "table",
+      segment: 0x2fe1,
+      offset: 0,
+      index: bin("<<", state, c(1)),
+      width: 16,
+    });
+    data.helpers!.push({
+      ...finding,
+      address: 0x68aa,
+      kind: "frame-position",
+      purpose: "redraw",
+      writes: [
+        {
+          ...finding,
+          root: "argument",
+          path: [],
+          offset: 0x44,
+          width: 16,
+          value: bin("+", width(f("part", 12)), c(0)),
+          condition: { kind: "true" },
+        },
+      ],
+    } as unknown as NonNullable<BehaviourReport["helpers"]>[number]);
+    const M = "overlap candidate at 0x700";
+    const centre = (object: string, half: Expression) => bin("+", f(object, 0x1e), bin(">>", half, c(1)));
+    // The source stepped to its next frame and drew it: the test reads that frame's width.
+    const stepped = bin("+", width(bin("+", f("part", 12), c(1))), c(0));
+    const right: Predicate = {
+      kind: "compare",
+      operator: ">=",
+      left: centre(M, f(M, 0x44)),
+      right: centre("part", stepped),
+      signed: true,
+    };
+    data.routines.find((r) => r.address === 0x600)!.iterationOutcomes = [
+      member(M, 0x700, and(compare(f(M, 4), "==", c(12)), right), [write(M, 0x38, c(0x400))]),
+    ];
+    const [line] = effectsFromOthers(data, evaluateBehaviourCondition).get(12)!.effects;
+    expect(line!.description).toContain(
+      "its centre X is at or right of the teeter-totter's centre X (positionX + frameWidth / 2)",
+    );
+    // A width the helper doesn't draw stays a formula.
+    const other: Predicate = { ...right, right: centre("part", bin("*", f("part", 12), c(3))) };
+    data.routines.find((r) => r.address === 0x600)!.iterationOutcomes = [
+      member(M, 0x700, and(compare(f(M, 4), "==", c(12)), other), [write(M, 0x38, c(0x400))]),
+    ];
+    const [plain] = effectsFromOthers(data, evaluateBehaviourCondition).get(12)!.effects;
+    expect(plain!.description).not.toContain("frameWidth / 2)");
+  });
+
   it("keeps a test of the part's own fields when the source names its type", () => {
     const [house] = lines.get(54)!.effects.filter((e) => e.sourcePart === "mels-house");
     expect(house!.description).toBe(
@@ -249,6 +325,113 @@ describe("the pairs of other parts", () => {
       { sourceType: 3, sourcePart: "teeter-totter", routine: 0x600, consumer: 0x1d797, calls: [0x650], fields: [0x12] },
     ]);
     expect(renderOtherPartPairs(pairs)).toContain(CONSUMER_UNREAD);
+  });
+
+  it("reads a loop's way past the rope pull, and names the contact search where it stops", () => {
+    const data = report();
+    const M = "overlap candidate at 0x700";
+    data.helpers!.push(
+      ...([
+        { ...finding, address: 0x1d638, kind: "connection-query", purpose: "rope pull", writes: [] },
+        { ...finding, address: 0x4fd, kind: "contact-search", purpose: "contact search", writes: [] },
+      ] as unknown as NonNullable<BehaviourReport["helpers"]>),
+    );
+    const loop = data.routines.find((r) => r.address === 0x600)!;
+    loop.engineCalls!.push(
+      { ...finding, instruction: 0x610, summary: 0x1d638, purpose: "rope pull" },
+      { ...finding, instruction: 0x680, summary: 0x4fd, purpose: "contact search" },
+      { ...finding, instruction: 0x690, summary: 0x1d797, purpose: "consumer" },
+    );
+    const run = (outcome: ReturnType<typeof member>, confidence: "inferred" | "unresolved") => {
+      loop.iterationOutcomes = [{ ...outcome, confidence }];
+      return otherPartPairs(data, evaluateBehaviourCondition).pairs.find(
+        (p) => p.sourcePart === "teeter-totter" && p.targetPart === "cat",
+      );
+    };
+    const isCat = compare(f(M, 4), "==", c(12));
+    const unresolved = (object: string, offset: number): Expression =>
+      ({ kind: "field", object, offset, width: 16, unresolved: true }) as Expression;
+    const searched: Expression = {
+      kind: "unknown",
+      reason: "Conditional contact-search effect on field 0x20",
+      width: 16,
+    };
+    // Launched, then swept by the contact search: its place after it is the run's, and so is a value read from it.
+    const launch = [write(M, 0x38, c(0x1c00)), write(M, 0x20, searched)];
+    expect(run(member(M, 0x700, isCat, launch), "inferred")).toMatchObject({ reasons: [CONTACT_SEARCH] });
+    expect(
+      run(
+        member(M, 0x700, isCat, [write(M, 0x24, unresolved(`${M} after unresolved write at 0x680`, 0x20))]),
+        "unresolved",
+      ),
+    ).toMatchObject({ reasons: [CONTACT_SEARCH] });
+    // The rope pull's answer, or the tilt after it, decides whether the part is launched: the line reads it as the
+    // source's test, and a found part's width after the pull as its own. Only the contact search's fields stay unsaid.
+    const pulled = and(
+      isCat,
+      compare(unresolved("part after the query at 0x610", 0x12), "==", c(1)),
+      compare(unresolved(`${M} after field effect at 0x610`, 0x44), "!=", c(0)),
+    );
+    expect(run(member(M, 0x700, pulled, launch), "unresolved")).toMatchObject({
+      status: "partly described",
+      undescribedFields: [0x20],
+      reasons: [CONTACT_SEARCH],
+    });
+    const [line] = effectsFromOthers(data, evaluateBehaviourCondition).get(12)!.effects;
+    expect(line).toMatchObject({ searched: [0x20], confidence: "inferred" });
+    expect(line!.description).toContain("Then it runs the contact search on it, which may change its field 0x20");
+    expect(JSON.stringify(line!.condition)).not.toContain("after field effect");
+    expect(JSON.stringify(line!.sourceCondition)).toContain("part after the query at 0x610");
+    // The cat's rules read its velocityX, and this test names its type: a walk reads past the rope pull.
+    expect(run(member(M, 0x700, pulled, [write(M, 0x36, c(0x400))]), "unresolved")).toMatchObject({
+      status: "described",
+      walks: 1,
+    });
+    // Without its type named, a walk needs the search's tests, which this loop's search doesn't have read.
+    const anyType = and(...(pulled as Extract<Predicate, { kind: "and" }>).terms.filter((t) => t !== isCat));
+    expect(run(member(M, 0x700, anyType, [write(M, 0x36, c(0x400))]), "unresolved")).toMatchObject({
+      status: "missing",
+      reasons: [SEARCH_UNREAD],
+    });
+    // The same unknowns after another call, or anything else unknown, keep the general reasons.
+    expect(
+      run(
+        member(M, 0x700, isCat, [write(M, 0x24, unresolved(`${M} after unresolved write at 0x690`, 0x20))]),
+        "unresolved",
+      ),
+    ).toMatchObject({ reasons: [UNRESOLVED_PATH] });
+    expect(
+      run(member(M, 0x700, isCat, [write(M, 0x38, { kind: "unknown", reason: "Other", width: 16 })]), "inferred"),
+    ).toMatchObject({ reasons: [UNKNOWN_VALUE] });
+    // A helper's effect the loop doesn't carry, like the explosion's split of a wall, and a value past the size
+    // budget, like the jack-in-the-box's push of a teeter-totter, say so.
+    const unknownSet = (reason: string) => [write(M, 0x38, { kind: "unknown", reason, width: 16 })];
+    expect(
+      run(
+        member(M, 0x700, isCat, unknownSet("Conditional owner-and-outline-relation effect on field 0x38")),
+        "inferred",
+      ),
+    ).toMatchObject({ reasons: [HELPER_VALUE] });
+    expect(
+      run(member(M, 0x700, isCat, unknownSet("Symbolic expression size budget reached")), "inferred"),
+    ).toMatchObject({ reasons: [BUDGET_VALUE] });
+    // A velocity kept within the part's own speed limit, which the cat's rules read: a walk can't follow it.
+    const limit: Expression = {
+      kind: "table",
+      segment: 0x2ef1,
+      offset: 0x0a,
+      index: bin("*", f(M, 4), c(58)),
+      width: 16,
+    };
+    const negative = bin("-", c(0), limit);
+    const speed = bin("+", f(M, 0x36), c(0x200));
+    const test = (operator: string, right: Expression) =>
+      ({ kind: "compare", operator, left: speed, right, signed: true }) as Extract<Predicate, { kind: "compare" }>;
+    const kept = choose(test(">", limit), limit, choose(test("<", negative), negative, speed));
+    expect(run(member(M, 0x700, isCat, [write(M, 0x36, kept)]), "inferred")).toMatchObject({
+      status: "missing",
+      reasons: [LIMIT_RULE_FIELD],
+    });
   });
 
   it("describes a consumer read path by path apart from the run's own list", () => {

@@ -879,6 +879,54 @@ which end. The walks can't tie the frame to the width, so they start from all fi
 in the full Even More builds, 78 in the demo) is saved on the frame its width gives, on frames 0 to 3 apart from the two
 of width 0 on frame -1.
 
+## 22. Searches of the moving list
+
+Decided on 2026-11-08 with the user, for now: to be checked again later. In the code: `MOVING_SEARCH_ASSUMPTION` in
+`packages/content/src/read/describe-effects.ts`, used with `searchesOnlyMovingList` in
+`packages/content/src/read/describe-hits.ts`. Explained in
+[the lists a search walks](behaviour.md#the-lists-a-search-walks).
+
+**The question.** The teeter-totter's search finds the parts whose outline crosses its plank, and its launch then sets
+their speed. It looks only in the list its mask picks, the moving list, but the analysis only knew a part's list
+flags at `0x06`, and a bullet is on that list without `0x1000`. Can the search find a part of a fixed type, like a
+brick wall?
+
+**What the code shows** (Even More, English floppy; TIM 1 French has the same code at other addresses):
+
+- Every overlap search starts at the list head routine (`0x682f`) and goes on with the list next routine (`0x686f`).
+  The head routine returns the first nonempty list whose bit the mask has: `0x2000` the list at `0x4e1f`, `0x1000`
+  the list at `0x4d7d`, `0x0800` the list at `0x4cdb`. At the end of a list the next routine goes on with the head
+  routine, and with the list at `0x4cdb` only for `0x0800`. The searches pass it their mask with only `0x1000` kept.
+- The teeter-totter passes `0x1000`, and so do the mouse motor, the mouse, Mel's house, the vacuum cleaner, and the
+  candle's and rocket's second search. The others pass `0x3000`, both lists, apart from the alligator, which passes
+  `0x2000`.
+- The routine that puts a dropped part on a list (`0x6469`) puts it on the list at `0x4d7d` only when its type's
+  starting flags lack `0x4000`, and on the list at `0x4e1f` otherwise. The contact dispatch walks the list at `0x4d7d`.
+- Part code links parts into the list at `0x4d7d` itself in four places: the rope maker's two rope ends (type 49),
+  the pinballs (type 43) and the gun's bullets (type 20). None is of a fixed type. The rope itself (type 10, a fixed
+  type) goes on the list at `0x4e1f`.
+- The level loader fills the lists from the level file's groups (`0x13bac`, `0x13bbb`). No shipped level of the
+  eleven builds stores a part of a fixed type among its moving parts: 459 moving parts in each TIM 1 build and 848 in
+  Even More (English floppy), none of a fixed type.
+
+**What we assume.**
+
+- A search that walks only the moving list (the list the contact dispatch walks) finds no part of a fixed type. The game puts a dropped part there only when its type isn't fixed, the parts part code links there itself (rope ends, pinballs, bullets) aren't of a fixed type, and no shipped level stores a part of a fixed type among its moving parts.
+
+Not proved: a level file made outside the game could store a part of a fixed type among its moving parts, and the
+places that save and restore the list heads (`0xffe7`, `0x12203`, `0x16b68`) were not read further.
+
+**What it gives.** A part of a fixed type gets no line or walk from a search that walks only the moving list, and the
+pair check counts such pairs as ruled out. Most of them were the teeter-totter's launch lines on walls, ramps and
+motors, which can't happen in the game. The parts it rules out state it in their description. Unlike
+[assumption 18](#18-the-bullet-and-the-jack-in-the-box), it doesn't rule out the bullet, which is on the moving list.
+
+**How to recheck.**
+
+- Look at levels saved by players for a part of a fixed type in the moving group.
+- Search the program again for code that links a part into the list at `0x4d7d` (and `0x52f9` in TIM 1), and read the
+  routines that save and restore the list heads.
+
 ## Recheck of the decided assumptions
 
 Rechecked on 2026-11-07 (step F2 of [the plan](behaviour-plan.md)) in all eleven builds and their 1,281 shipped level

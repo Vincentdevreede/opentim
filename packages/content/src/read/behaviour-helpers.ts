@@ -27,6 +27,7 @@ import { addPartCopySummary } from "./behaviour-part-copy.ts";
 import { discoverDirectedVelocity, type DirectedVelocity } from "./behaviour-directed-velocity.ts";
 import { addCentreAngleSummaries, type CentreAngle } from "./behaviour-centre-angle.ts";
 import { addOutlineSearchSummary } from "./behaviour-outline-search.ts";
+import { addListMasks, type ListMask } from "./behaviour-list-masks.ts";
 import { discoverContactSmall, type ContactSmallRelation } from "./behaviour-contact-small.ts";
 import { addContactOutlineSummaries, type ContactOutline } from "./behaviour-contact-outline.ts";
 import { addContactMotionAngleSummaries, type ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
@@ -221,6 +222,14 @@ export interface EngineSummary extends Finding {
     minimumCount: 0;
     maximumCount: 31;
   };
+  /**
+   * A compiler runtime helper for 32-bit arithmetic that takes its words on the stack: the signed 16 by 16 bit
+   * multiply that leaves the product in DX:AX, or the 32-bit division that leaves the quotient or the remainder there
+   * and pops its four words.
+   */
+  arithmetic?:
+    | { operation: "multiply16"; stackBytes: 0 }
+    | { operation: "divide32"; signed: boolean; remainder: boolean; stackBytes: 8 };
   list?: {
     headField: number;
     nextField: number;
@@ -234,7 +243,19 @@ export interface EngineSummary extends Finding {
      * present when the reader accounts for every such test.
      */
     memberTests?: (Finding & { offset: number; mask: number; set: boolean })[];
+    /**
+     * The words an overlap search stores in each part it finds besides the link, by the axis the search measures
+     * them on: what the search's code computes from that part's position along X or along Y.
+     */
+    overlaps?: { offset: number; axis: "X" | "Y" }[];
+    /**
+     * The masks the search gives the list head and list next routines, which pick the parts lists it walks (see
+     * `behaviour-list-masks.ts`).
+     */
+    masks?: { head: ListMask; next: ListMask; headRoutine: number; nextRoutine: number };
   };
+  /** For the list next routine: the mask it gives the list head routine at the end of a list. */
+  listNext?: { head: ListMask; address: number };
   footprint: {
     complete: boolean;
     /** Every possible part store is represented, independently of unresolved driver or resource globals. */
@@ -544,8 +565,18 @@ function candidateFlagTests(
   insertion: Instruction[],
 ): (Finding & { offset: number; mask: number; set: boolean })[] | undefined {
   const last = insertion.at(-1)!;
-  const skip = last.address + last.size;
   const byAddress = new Map(code.instructions.map((i) => [i.address, i]));
+  // Where a part the search doesn't keep goes on: after the insertion, and after any stores into the kept part that
+  // follow it, like the overlaps 0x417e stores in it (Even More, English floppy).
+  const skips = new Set([last.address + last.size]);
+  for (let at = last.address + last.size, step = byAddress.get(at); step; step = byAddress.get(at)) {
+    const [to, from] = step.operands;
+    const storesInPart = step.mnemonic === "mov" && isMemory(to, node) && from?.kind === "register";
+    const loadsLocal = step.mnemonic === "mov" && to?.kind === "register" && stackMemory(from);
+    if (step.flow !== "next" || !(storesInPart || loadsLocal)) break;
+    at = step.address + step.size;
+    skips.add(at);
+  }
   const before = new Map(code.instructions.map((i) => [i.address + i.size, i]));
   const tests: (Finding & { offset: number; mask: number; set: boolean })[] = [];
   for (const branch of code.instructions) {
@@ -563,11 +594,11 @@ function candidateFlagTests(
     const inverted =
       over?.flow === "jump" &&
       taken === over.address + over.size &&
-      code.edges.some((e) => e.from === over.address && e.to === skip) &&
+      code.edges.some((e) => e.from === over.address && e.to !== null && skips.has(e.to)) &&
       code.edges.filter((e) => e.from === over.address).length === 1 &&
       !code.edges.some((e) => e.to === over.address && e.from !== branch.address);
     if (
-      (taken === skip || inverted) &&
+      ((taken !== undefined && taken !== null && skips.has(taken)) || inverted) &&
       compare.mnemonic === "test" &&
       isMemory(tested, node) &&
       tested.width === 16 &&
@@ -582,7 +613,7 @@ function candidateFlagTests(
       });
       continue;
     }
-    if (taken === undefined || taken === null || taken === skip) return undefined;
+    if (taken === undefined || taken === null || skips.has(taken)) return undefined;
     // The other way must run straight into the taken one, storing only into the stack.
     let at = branch.address + branch.size;
     for (let steps = 0; at !== taken; steps++) {
@@ -809,6 +840,83 @@ function readonlyReturns(
   }
   if (pending.length) return [];
   return result;
+}
+
+/** The signed multiply: `mov bx, sp`, `mov ax, [bx+4]`, `imul word [bx+6]`, `retf`, the same in every build. */
+const MULTIPLY16 = "8bdc8b4704f76f06cb";
+/**
+ * The body of the 32-bit division, the same 145 bytes in every build. Its entries set CX first: bit 0 makes it unsigned
+ * and bit 1 makes it give the remainder instead of the quotient. A signed division truncates toward zero, and a
+ * remainder takes the dividend's sign.
+ */
+const DIVIDE32 =
+  "5556578bec8bf98b460a8b560c8b5e0e8b4e100bc975080bd274690bdb7465f7c70100751c0bd2790af7daf7d883da0083cf0c0bc9790af7d9" +
+  "f7db83d90083f7048be9b920005733ff33f6d1e0d1d2d1d6d1d73bfd720b77043bf372052bf31bfd40e2e75bf7c3020074068bc68bd7d1ebf7" +
+  "c304007407f7daf7d883da005f5e5dca0800f7f3f7c7020074019233d2ebed";
+const hexOf = (instructions: readonly Instruction[]) =>
+  instructions.map((i) => i.bytes.map((b) => b.toString(16).padStart(2, "0")).join("")).join("");
+
+/**
+ * The axis of each word an overlap search stores in a found part, other than its link. The search stores a local
+ * (`mov ax, [bp-k]`, then `mov [node+off], ax`); the local first gets a difference that starts from another local,
+ * and that one first gets the found part's position field: positionX for X, positionY for Y.
+ */
+function overlapAxes(
+  code: RoutineCode,
+  node: string,
+  link: number,
+  positionX: number | undefined,
+  positionY: number | undefined,
+): { offset: number; axis: "X" | "Y" }[] {
+  const i = [...code.instructions].sort((a, b) => a.address - b.address);
+  const local = (o: Operand | undefined) =>
+    o && isMemory(o) && o.base.length === 1 && o.base[0] === "bp" ? o.displacement : undefined;
+  const firstStore = (k: number) =>
+    i.findIndex((x) => x.mnemonic === "mov" && local(x.operands[0]) === k && isRegister(x.operands[1], "ax"));
+  const loadBefore = (n: number, from: (o: Operand) => boolean) => {
+    for (let k = n - 1; k >= 0; k--)
+      if (i[k]!.mnemonic === "mov" && isRegister(i[k]!.operands[0], "ax") && from(i[k]!.operands[1]!)) return k;
+    return -1;
+  };
+  const result: { offset: number; axis: "X" | "Y" }[] = [];
+  i.forEach((store, n) => {
+    const dest = store.operands[0];
+    if (store.mnemonic !== "mov" || !dest || !isMemory(dest, node) || !isRegister(store.operands[1], "ax")) return;
+    if (dest.displacement === link) return;
+    const stored = local(
+      i[n - 1]?.mnemonic === "mov" && isRegister(i[n - 1]!.operands[0], "ax") ? i[n - 1]!.operands[1] : undefined,
+    );
+    if (stored === undefined) return;
+    const difference = firstStore(stored);
+    const start = difference < 0 ? -1 : loadBefore(difference, (o) => local(o) !== undefined);
+    const edge = start < 0 ? -1 : firstStore(local(i[start]!.operands[1])!);
+    const position = edge < 0 ? -1 : loadBefore(edge, (o) => isMemory(o, node));
+    const field =
+      position < 0 ? undefined : (i[position]!.operands[1] as Extract<Operand, { kind: "memory" }>).displacement;
+    const axis = field === positionX ? "X" : field === positionY ? "Y" : undefined;
+    if (axis && field !== undefined) result.push({ offset: dest.displacement, axis });
+  });
+  return result;
+}
+
+/** The 32-bit arithmetic helper a routine is, recognised by its exact code. */
+function wideArithmetic(code: RoutineCode): EngineSummary["arithmetic"] | undefined {
+  const i = [...code.instructions].sort((a, b) => a.address - b.address);
+  if (hexOf(i) === MULTIPLY16) return { operation: "multiply16", stackBytes: 0 };
+  const [entry, jump] = i;
+  if (!entry || jump?.mnemonic !== "jmp" || !jump.target || jump.address !== entry.address + entry.size)
+    return undefined;
+  const variant =
+    entry.mnemonic === "xor" && isRegister(entry.operands[0], "cx") && isRegister(entry.operands[1], "cx")
+      ? 0
+      : entry.mnemonic === "mov" && isRegister(entry.operands[0], "cx") && entry.operands[1]?.kind === "immediate"
+        ? entry.operands[1].value
+        : undefined;
+  if (variant === undefined || variant > 3) return undefined;
+  const body = i.filter((x) => x.address >= jump.target!.address);
+  const contiguous = body.every((x, n) => n === 0 || body[n - 1]!.address + body[n - 1]!.size === x.address);
+  if (!contiguous || hexOf(body) !== DIVIDE32) return undefined;
+  return { operation: "divide32", signed: !(variant & 1), remainder: !!(variant & 2), stackBytes: 8 };
 }
 
 function wideShift(code: RoutineCode): EngineSummary["numeric"] | undefined {
@@ -1624,6 +1732,19 @@ export function discoverEngineSummaries(
         unknownEffects: [...direct.unknownEffects, ...code.uncertainties],
       },
     };
+    const arithmetic = wideArithmetic(code);
+    if (arithmetic) {
+      summary.kind = "wide-integer-arithmetic";
+      summary.arithmetic = arithmetic;
+      summary.purpose =
+        arithmetic.operation === "multiply16"
+          ? "Multiplies the two signed words on the stack into the 32-bit product in DX:AX."
+          : `Divides the ${arithmetic.signed ? "signed" : "unsigned"} 32-bit word pair on the stack by the next one and leaves the ${arithmetic.remainder ? "remainder" : "quotient"} in DX:AX, popping both.`;
+      if (arithmetic.operation === "divide32")
+        summary.assumptions.push(
+          "The divisor is not 0: the helper's own `div` faults on 0, which would stop the game, so a running game never divides by 0 here.",
+        );
+    }
     const numeric = wideShift(code);
     if (numeric) {
       summary.kind = "wide-integer-shift";
@@ -1724,6 +1845,13 @@ export function discoverEngineSummaries(
       summary.argumentKind = "object";
       const exclusion = excludesOwner(code, insertion.owner, insertion.node, insertion.instructions[0]!.address);
       const memberTests = candidateFlagTests(code, insertion.node, insertion.instructions);
+      const overlaps = overlapAxes(
+        code,
+        insertion.node,
+        insertion.offset,
+        layout?.fields.find((f) => f.name === "positionX")?.offset,
+        layout?.fields.find((f) => f.name === "positionY")?.offset,
+      );
       summary.list = {
         headField: insertion.offset,
         nextField: insertion.offset,
@@ -1734,6 +1862,7 @@ export function discoverEngineSummaries(
           "The list describes nodes accepted during this query; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],
         ...(memberTests ? { memberTests } : {}),
+        ...(overlaps.length ? { overlaps } : {}),
       };
       summary.purpose = pointBounds
         ? "Builds a linked list of other objects whose tested reference points lie inside the supplied bounds."
@@ -2598,5 +2727,6 @@ export function discoverEngineSummaries(
   addRopeCutSummary(codes, summaries);
   addOutlineSearchSummary(codes, summaries);
   addPartCopySummary(codes, summaries);
+  addListMasks(codes, summaries);
   return [...summaries.values()].sort((a, b) => a.address - b.address);
 }

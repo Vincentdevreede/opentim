@@ -312,7 +312,7 @@ describe("structural engine summaries", () => {
   });
 
   it("reads the flag tests an overlap query keeps a part by, like the candle's search", () => {
-    const query = (typeTest: boolean) => {
+    const query = (typeTest: boolean, stores = false) => {
       const image = new Uint8Array(0x800);
       head(image, 0x100);
       next(image, 0x180, 0x100);
@@ -337,6 +337,9 @@ describe("structural engine summaries", () => {
         b.branch(0x7c, "skip");
       }
       b.emit(0x8b, 0x45, 0x58, 0x89, 0x44, 0x58, 0x89, 0x75, 0x58);
+      // Like 0x417e (Even More, English floppy), a search may store what it found in the part after linking it:
+      // `mov ax, [bp-0x12]; mov [si+0x7a], ax`. A part it doesn't keep skips the stores too.
+      if (stores) b.emit(0x8b, 0x46, 0xee, 0x89, 0x44, 0x7a);
       b.label("skip");
       b.emit(0x0e);
       b.call(0x180);
@@ -357,6 +360,10 @@ describe("structural engine summaries", () => {
       { offset: 8, mask: 0x2000, set: false },
     ]);
     expect(query(true).list!.memberTests).toBeUndefined();
+    expect(query(false, true).list!.memberTests!.map(({ offset, mask, set }) => ({ offset, mask, set }))).toEqual([
+      { offset: 0x0a, mask: 4, set: true },
+      { offset: 8, mask: 0x2000, set: false },
+    ]);
   });
 
   it("bounds ordered insertion to its displaced forward and backward links", () => {

@@ -17,6 +17,7 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
+import { binary, callKinds, choiceOf, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import {
   compareWords,
@@ -34,7 +35,12 @@ import {
   isLightableTest,
   LIGHTABLE_ASSUMPTION,
   LIGHTABLE_PARTS,
+  PLACE_DIFFERENCE_ASSUMPTION,
+  placeTest,
+  placeWords,
   searchTests,
+  searchesOnlyMovingList,
+  type PlaceTest,
   type SearchTest,
 } from "./describe-hits.ts";
 
@@ -58,6 +64,14 @@ export const FIXED_LIST_ASSUMPTION =
 export const BULLET_LIST_ASSUMPTION =
   "A jack-in-the-box never punches a bullet: a bullet never has 0x1000 in its list flags at 0x06, which the analysis calls being on the moving list. The gun doesn't give the bullets it makes that flag, and no shipped level saves a bullet.";
 /**
+ * A search that walks only the list at `0x4d7d` (Even More, English floppy) finds no part of a fixed type. That list is
+ * the one the routine at `0x6469` puts a dropped part on when its type lacks `0x4000`, and the one the contact dispatch
+ * walks. Part code links rope ends, pinballs and bullets into it itself, none of a fixed type, and no shipped level
+ * stores a part of a fixed type in its moving group. Decided with the user on 2026-11-08, to be checked again later.
+ */
+export const MOVING_SEARCH_ASSUMPTION =
+  "A search that walks only the moving list (the list the contact dispatch walks) finds no part of a fixed type. The game puts a dropped part there only when its type isn't fixed, the parts part code links there itself (rope ends, pinballs, bullets) aren't of a fixed type, and no shipped level stores a part of a fixed type among its moving parts.";
+/**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
  */
@@ -80,12 +94,6 @@ export const SCREEN_DIRECTION_ASSUMPTION =
   "On the screen, a negative velocityX at 0x36 moves a part to the left and a negative velocityY at 0x38 moves it up. In the game, a jack-in-the-box that isn't flipped, which sets both negative, knocks a part up and to the left.";
 export const TYPE_TABLE_ASSUMPTION =
   "A type record keeps the words it has in the program while a level runs, so a word the code reads from it, like the mass at +0x02, is the one in TIM.EXE. Three words are left out: the game works out the acceleration at +0x08 and the speed limit at +0x0a for every type from the level's air pressure and gravity, and sets the frame list at +0x14 when it loads a part's pictures and clears it when it frees them.";
-/**
- * The words of a type record the game writes while it runs: the acceleration and the speed limit, worked out from the
- * level's air pressure and gravity (`0x369c` in Even More, English floppy), and the frame list, set and cleared with a
- * part's pictures.
- */
-export const TYPE_RECORD_WRITTEN = [0x08, 0x0a, 0x14];
 
 /**
  * What single flag bits of a part mean, by field and bit, from the code that reads them (addresses in Even More, English
@@ -236,6 +244,16 @@ export interface OtherPartEffect extends Finding {
   /** When it sets both velocities to numbers: where that moves the part on the screen, like "up and to the left". */
   velocityDirection?: string;
   /**
+   * The fields the source leaves to the contact search it then runs on this part, like the teeter-totter sweeping a
+   * part it launches: what that search finds there only the run knows, so the line names them without a value.
+   */
+  searched?: number[];
+  /**
+   * Where this part must lie from the source, like the vacuum cleaner's "its positionY is at least 47 pixels below the
+   * vacuum cleaner's positionY". Its words are in `conditionWords`.
+   */
+  place?: PlaceTest[];
+  /**
    * Set when this part touches the source: the contact dispatch calls the source's bounce with this part. `returns` is
    * what the bounce returns on these paths, which says whether the game goes on to a contact response, undefined when
    * it isn't a number.
@@ -265,6 +283,9 @@ const constant = (value: number, width = 16): Expression => ({ kind: "constant",
 const wrap = (value: number, width: number) => ((value % 2 ** width) + 2 ** width) % 2 ** width;
 export const terms = (predicate: Predicate): Predicate[] =>
   predicate.kind === "and" ? predicate.terms.flatMap(terms) : predicate.kind === "true" ? [] : [predicate];
+/** Names in a list: "a", "a and b", "a, b and c". */
+const listWords = (names: string[]) =>
+  names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 const conjunction = (list: Predicate[]): Predicate =>
   list.length === 0 ? { kind: "true" } : list.length === 1 ? list[0]! : { kind: "and", terms: list };
 
@@ -354,7 +375,8 @@ function forType(
   if (e.kind === "binary") {
     const left = forType(e.left, member, typeOffset, type, table, used),
       right = forType(e.right, member, typeOffset, type, table, used);
-    return left === e.left && right === e.right ? e : { ...e, left, right };
+    // Rebuilt with the analysis's own folding, so a test of two numbers the type settles is a number too.
+    return left === e.left && right === e.right ? e : binary(e.operator, left, right, e.width, Infinity);
   }
   if (e.kind === "table") {
     const index = numberOf(forType(e.index, member, typeOffset, type, table, used));
@@ -369,6 +391,285 @@ function forType(
   }
   return e;
 }
+/** The overlap an overlap search stored in a found part, like "overlapX the query at 0x1abc7 found for <member>". */
+const OVERLAP = /^overlap([XY]) the query at 0x[0-9a-f]+ found for (.+)$/;
+/** A test with the overlap its search stored in the member read as the member's own field. */
+export const withOwnOverlapsIn = (p: Predicate, member: string): Predicate =>
+  p.kind === "compare"
+    ? { ...p, left: withOwnOverlaps(p.left, member), right: withOwnOverlaps(p.right, member) }
+    : p.kind === "and"
+      ? { ...p, terms: p.terms.map((t) => withOwnOverlapsIn(t, member)) }
+      : p;
+/** A value with the overlap its search stored in the member read as the member's own field, which holds it now. */
+export function withOwnOverlaps(e: Expression, member: string): Expression {
+  if (e.kind === "field" && e.unresolved && OVERLAP.exec(e.object)?.[2] === member)
+    return { kind: "field", object: member, offset: e.offset, width: e.width };
+  if (e.kind === "binary")
+    return { ...e, left: withOwnOverlaps(e.left, member), right: withOwnOverlaps(e.right, member) };
+  if (e.kind === "table") return { ...e, index: withOwnOverlaps(e.index, member) };
+  return e;
+}
+const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", ">": "<=", "<=": ">" };
+/**
+ * A value that picks between values by tests that read the source, like the jack-in-the-box's push tilting the
+ * bellows by which side of it the jack-in-the-box's centre is on, as cases: each with its tests and the value it picks.
+ * A choice that reads only the part stays one value, like a velocity kept within its speed limit. A value that reads
+ * the source in another way stays as it is, as one case without tests. Undefined past `limit` cases.
+ */
+export function sourceChoices(value: Expression, limit = 32): { tests: Predicate[]; value: Expression }[] | undefined {
+  const split = (e: Expression): { tests: Predicate[]; value: Expression }[] => {
+    const choice = objects(e).objects.has("part") ? choiceOf(e) : undefined;
+    if (!choice) return [{ tests: [], value: e }];
+    const opposite = { ...choice.test, operator: OPPOSITE[choice.test.operator]! };
+    return [
+      ...split(choice.then).map((c) => ({ ...c, tests: [choice.test, ...c.tests] })),
+      ...split(choice.otherwise).map((c) => ({ ...c, tests: [opposite, ...c.tests] })),
+    ];
+  };
+  const cases = split(value);
+  return cases.length > limit ? undefined : cases;
+}
+/**
+ * A loop's way with each value that picks by the source's tests split into its cases: one way for each, with the
+ * case's tests added to the way's and the value it picks. A case that leaves the field as it was writes nothing.
+ */
+export function splitBySource<T extends { condition: Predicate; fields: FieldWrite[] }>(
+  outcome: T,
+  member: string,
+): T[] {
+  let ways: { tests: Predicate[]; fields: FieldWrite[] }[] = [{ tests: [], fields: [] }];
+  for (const w of outcome.fields) {
+    const cases = w.object === member ? sourceChoices(w.value) : undefined;
+    if (!cases || cases.length === 1) {
+      ways = ways.map((way) => ({ ...way, fields: [...way.fields, w] }));
+      continue;
+    }
+    ways = ways.flatMap((way) =>
+      cases.map((c) => {
+        const unchanged = c.value.kind === "field" && c.value.object === member && c.value.offset === w.offset;
+        return {
+          tests: [...way.tests, ...c.tests],
+          fields: unchanged ? way.fields : [...way.fields, { ...w, value: c.value }],
+        };
+      }),
+    );
+    if (ways.length > 64) return [outcome];
+  }
+  if (ways.length === 1) return [outcome];
+  // A case whose tests contradict each other, or the way's, never happens: a nested choice brings back tests the case
+  // already made, the same or opposite.
+  const key = (t: Predicate) => JSON.stringify(t);
+  const opposite = (t: Predicate) =>
+    t.kind === "compare" && OPPOSITE[t.operator] ? key({ ...t, operator: OPPOSITE[t.operator]! }) : undefined;
+  return ways.flatMap((way) => {
+    const all = [...terms(outcome.condition), ...way.tests];
+    const keys = new Set(all.map(key));
+    if (all.some((t) => keys.has(opposite(t) ?? ""))) return [];
+    const once = all.filter((t, n) => all.findIndex((u) => key(u) === key(t)) === n);
+    return [{ ...outcome, condition: conjunction(once), fields: way.fields }];
+  });
+}
+/**
+ * The values the frame-position helper writes in a part's own fields, like its frameWidth from its frame list: a
+ * source that redraws itself and then reads such a field reads that value, which a line or walk says by the field's
+ * name. The helper's value reads the part's fields as they are when it is called, so where the source changed one
+ * before, like the teeter-totter stepping its frame, the value holds what that field was then: each field of the
+ * helper's value may stand for any value of the source's own fields, the same one wherever it is read.
+ */
+export function drawnFieldsOf(report: Pick<BehaviourReport, "helpers">): (p: Predicate) => Predicate {
+  const drawn = (report.helpers ?? [])
+    .filter((h) => h.kind === "frame-position")
+    .flatMap((h) =>
+      (h.writes ?? []).flatMap((w) =>
+        "root" in w && w.root === "argument" && !w.path?.length && (w.condition?.kind ?? "true") === "true"
+          ? [
+              {
+                value: w.value,
+                field: { kind: "field", object: "part", offset: w.offset, width: w.width } as Expression,
+              },
+            ]
+          : [],
+      ),
+    );
+  const fits = (template: Expression, e: Expression, bound: Map<number, string>): boolean => {
+    if (template.kind === "field" && template.object === "part" && !template.unresolved) {
+      const key = JSON.stringify(e);
+      const prior = bound.get(template.offset);
+      if (prior !== undefined) return prior === key;
+      // A field may stand only for a value of the source's own fields.
+      const read = objects(e);
+      if (read.unknown || [...read.objects].some((o) => o !== "part")) return false;
+      bound.set(template.offset, key);
+      return true;
+    }
+    if (template.kind !== e.kind) return false;
+    if (template.kind === "binary" && e.kind === "binary")
+      return (
+        template.operator === e.operator && fits(template.left, e.left, bound) && fits(template.right, e.right, bound)
+      );
+    if (template.kind === "table" && e.kind === "table")
+      return template.segment === e.segment && template.offset === e.offset && fits(template.index, e.index, bound);
+    return JSON.stringify(template) === JSON.stringify(e);
+  };
+  const drawnValue = (e: Expression): Expression => {
+    const named = drawn.find((d) => d.value.kind === "binary" && fits(d.value, e, new Map()));
+    if (named) return named.field;
+    if (e.kind === "binary") return { ...e, left: drawnValue(e.left), right: drawnValue(e.right) };
+    return e;
+  };
+  const drawnFields = (p: Predicate): Predicate =>
+    p.kind === "compare"
+      ? { ...p, left: drawnValue(p.left), right: drawnValue(p.right) }
+      : p.kind === "and"
+        ? { ...p, terms: p.terms.map(drawnFields) }
+        : p;
+  return drawnFields;
+}
+/** A found part's field a loop reads after a connection query of the source's, like "<member> after field effect at 0x1d2af". */
+const AFTER_EFFECT = / after field effect at (0x[0-9a-f]+)$/;
+/**
+ * A value with a found part's field read after the source's rope pull (a connection query) read as the part's own
+ * field: the loop reads the part as it is then, which is how a line reads it, as with the overlap its search stored.
+ */
+export function afterQueries(
+  e: Expression,
+  member: string,
+  kindAt: (instruction: number) => string | undefined,
+): Expression {
+  if (e.kind === "field" && e.unresolved && e.object.startsWith(`${member} after field effect at `)) {
+    const at = AFTER_EFFECT.exec(e.object);
+    if (at && kindAt(Number(at[1])) === "connection-query")
+      return { kind: "field", object: member, offset: e.offset, width: e.width };
+  }
+  if (e.kind === "binary")
+    return { ...e, left: afterQueries(e.left, member, kindAt), right: afterQueries(e.right, member, kindAt) };
+  if (e.kind === "table") return { ...e, index: afterQueries(e.index, member, kindAt) };
+  return e;
+}
+export const afterQueriesIn = (
+  p: Predicate,
+  member: string,
+  kindAt: (instruction: number) => string | undefined,
+): Predicate =>
+  p.kind === "compare"
+    ? { ...p, left: afterQueries(p.left, member, kindAt), right: afterQueries(p.right, member, kindAt) }
+    : p.kind === "and"
+      ? { ...p, terms: p.terms.map((t) => afterQueriesIn(t, member, kindAt)) }
+      : p;
+/**
+ * Whether a test reads only the source: its own fields, and what its rope pull (a connection query) answers or its
+ * own fields after it, with at least one of the latter. Only the run knows those, so the test stays the source's.
+ */
+export function sourceRun(term: Predicate, kindAt: (instruction: number) => string | undefined): boolean {
+  let run = false,
+    other = false;
+  const visit = (v: Expression | Predicate) => {
+    if (v.kind === "unknown") other = true;
+    else if (v.kind === "field") {
+      if (!v.unresolved) {
+        if (v.object !== "part") other = true;
+        return;
+      }
+      const at = /^(?:answer of the query|part after the query) at (0x[0-9a-f]+)$/.exec(v.object);
+      if (at && kindAt(Number(at[1])) === "connection-query") run = true;
+      else other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  visit(term);
+  return run && !other;
+}
+/**
+ * A value a source sets on a found part of the type, settled as far as the type allows: the overlap its search just
+ * stored in the part reads as the part's own field, words of the type record the type settles are numbers, and a value
+ * kept within the part's speed limit is the value inside, with `kept` set. The speed limit is a word of the type record
+ * the game works out per level, so it stays a word, but it is the part's own.
+ */
+export function settleForType(
+  value: Expression,
+  member: string,
+  typeOffset: number,
+  type: number,
+  table: BehaviourReport["typeTable"],
+  used: { table: boolean },
+): { value: Expression; kept: boolean } {
+  const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
+  const kept = speedLimitOf(settled);
+  const limit = kept?.limit;
+  // The limit read for this part's type: through its type field, or, read for a known type, at that type's record.
+  const ownLimit =
+    !!table &&
+    limit?.kind === "table" &&
+    limit.segment * 16 + limit.offset === table.address + SPEED_LIMIT &&
+    (JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`) ||
+      (limit.index.kind === "constant" && limit.index.value === type * table.stride));
+  return ownLimit && kept ? { value: kept.speed, kept: true } : { value: settled, kept: false };
+}
+/** The speed limit's word in a type record, which the game works out for every type from the level's air and gravity. */
+const SPEED_LIMIT = 0x0a;
+
+/**
+ * A value as the words say it, the same number written plainly: a word sign extended to 32 bits is the word, a 32-bit
+ * number past 2^31 is negative, `(c × x) >> k` with c a multiple of 2^k is `(c / 2^k) × x` when the product can't wrap,
+ * the low word of a quotient
+ * is the quotient (a push's quotient fits a word), and a signed division reads ÷.
+ */
+export function tidyArithmetic(e: Expression): Expression {
+  if (e.kind === "constant" && e.width === 32 && e.value >= 2 ** 31)
+    return { kind: "binary", operator: "-", left: constant(0, 32), right: constant(2 ** 32 - e.value, 32), width: 32 };
+  if (e.kind !== "binary") return e;
+  const left = tidyArithmetic(e.left),
+    right = tidyArithmetic(e.right);
+  const number = (x: Expression) => (x.kind === "constant" ? x.value : undefined);
+  // (x ^ 0x8000) - 0x8000: the word x, sign extended.
+  if (
+    e.operator === "-" &&
+    number(e.right) === 0x8000 &&
+    e.left.kind === "binary" &&
+    e.left.operator === "^" &&
+    number(e.left.right) === 0x8000
+  )
+    return tidyArithmetic(e.left.left);
+  if (e.operator === ">>" && e.left.kind === "binary" && e.left.operator === "*" && number(e.right) !== undefined) {
+    const k = number(e.right)!;
+    const c = number(e.left.left);
+    // The number is signed: the arithmetic shift keeps its sign.
+    const signedC = c !== undefined && c >= 2 ** (e.left.left.width - 1) ? c - 2 ** e.left.left.width : c;
+    // Only when the product can't wrap: with a factor of w bits, |c| × 2^w must stay within the product's sign bit,
+    // or `(2 × x) >> 1` would read x where the game's product wraps.
+    const factor = tidyArithmetic(e.left.right);
+    const fits = signedC !== undefined && Math.abs(signedC) * 2 ** factor.width <= 2 ** (e.left.width - 1);
+    if (signedC !== undefined && fits && signedC % 2 ** k === 0) {
+      const scaled = signedC / 2 ** k;
+      const width = e.left.left.width;
+      return tidyArithmetic({ ...e.left, left: constant(scaled < 0 ? 2 ** width + scaled : scaled, width) });
+    }
+  }
+  if (e.operator === "&" && number(e.right) === 0xffff && e.left.kind === "binary" && e.left.operator === "s/")
+    return tidyArithmetic(e.left);
+  // A division by 1, like a push divided by a mass of 1, is the value itself.
+  if (e.operator === "s/" && number(right) === 1) return left;
+  // The low word of a value, in 16-bit arithmetic that wraps anyway, is the value: the mask says nothing there. Before
+  // a shift right, a division or a comparison the high word would count, so the mask stays.
+  const lowWord = (x: Expression) =>
+    x.kind === "binary" && x.operator === "&" && number(x.right) === 0xffff ? x.left : x;
+  if (e.width === 16 && ["+", "-", "*", "&", "|", "^", "<<"].includes(e.operator)) {
+    const [l, r] = [lowWord(left), lowWord(right)];
+    if (l !== left || r !== right) return tidyArithmetic({ ...e, left: l, right: r });
+  }
+  if (e.operator === "s/") return { ...e, operator: "÷", left, right };
+  // A type settled to a number leaves products by a test's 1 or 0, like `(type != 8) * x` for a type other than 8.
+  if (e.operator === "*" && (number(left) === 0 || number(right) === 0)) return constant(0, e.width);
+  if (e.operator === "*" && number(left) === 1) return right;
+  if (e.operator === "*" && number(right) === 1) return left;
+  if (e.operator === "+" && number(left) === 0) return right;
+  if ((e.operator === "+" || e.operator === "-") && number(right) === 0) return left;
+  return left === e.left && right === e.right ? e : { ...e, left, right };
+}
+
 export function predicateForType(
   p: Predicate,
   ...rest: [string, number, number, BehaviourReport["typeTable"], { table: boolean }]
@@ -448,6 +749,8 @@ export const named = (name: string, capital = false): string =>
   /^[A-Z]/.test(name) ? name : `${capital ? article(name) : article(name).toLowerCase()} ${name}`;
 
 interface Candidate {
+  /** Set when the way comes from reading the loop for one type of found part: it holds only for that type. */
+  onlyType?: number;
   sourceWords: string[];
   sourceType: number;
   sourcePart: string;
@@ -455,8 +758,14 @@ interface Candidate {
   member: string;
   outcome: Finding & { condition: Predicate; fields: FieldWrite[] };
   writes: FieldWrite[];
+  /** The fields the contact search the source runs on the part leaves as only the run knows. */
+  searched: number[];
   sourceTerms: Predicate[];
+  /** Whether the source's tests read a word of its own type record. */
+  sourceTable: boolean;
   memberTerms: Predicate[];
+  /** The tests of where the part lies from the source. */
+  place: PlaceTest[];
   /**
    * Whether the source names the part's type, or else the flag tests of the search that found it, when they are all
    * known. Only then may a line keep tests of the part's own fields that its type doesn't decide: a search may keep
@@ -464,6 +773,8 @@ interface Candidate {
    */
   named: boolean;
   search?: SearchTest[];
+  /** Every search the part's list comes from walks only the moving list. */
+  movingOnly: boolean;
 }
 
 /** The part that touched the source, as the bounce callback gets it; `part` is the source, the part it touched. */
@@ -472,12 +783,38 @@ export const TOUCH_ASSUMPTION =
   "The part touches the source, which is another part, and the fields of both meet the tests when the contact dispatch calls the source's bounce; that this happens in a level is not claimed.";
 
 /** Whether a value reads a table, which a line can't look up. */
-function readsTable(value: Expression | Predicate): boolean {
-  if (value.kind === "table") return true;
-  if (value.kind === "binary" || value.kind === "compare") return readsTable(value.left) || readsTable(value.right);
-  if (value.kind === "and") return value.terms.some(readsTable);
+function readsTable(
+  value: Expression | Predicate,
+  allowed?: (e: Extract<Expression, { kind: "table" }>) => boolean,
+): boolean {
+  if (value.kind === "table") return !allowed?.(value);
+  if (value.kind === "binary" || value.kind === "compare")
+    return readsTable(value.left, allowed) || readsTable(value.right, allowed);
+  if (value.kind === "and") return value.terms.some((t) => readsTable(t, allowed));
   return false;
 }
+/**
+ * Whether a table word is the speed limit of a part of the type: the game works it out for every type when a level
+ * starts, so it is the part's own, like a field, though it is no number before the level.
+ */
+export function isSpeedLimitOf(
+  e: Extract<Expression, { kind: "table" }>,
+  type: number,
+  table: BehaviourReport["typeTable"],
+): boolean {
+  return (
+    !!table &&
+    e.segment * 16 + e.offset === table.address + SPEED_LIMIT &&
+    e.index.kind === "constant" &&
+    e.index.value === type * table.stride
+  );
+}
+/** Whether a value reads a table word besides the speed limit of a part of the type. */
+export const readsTableBesidesSpeedLimit = (
+  value: Expression | Predicate,
+  type: number,
+  table: BehaviourReport["typeTable"],
+): boolean => readsTable(value, (e) => isSpeedLimitOf(e, type, table));
 
 /**
  * A query's answer, like the bounce pool's at `0x867c` (Even More, English floppy) that the teeter-totter asks whether a
@@ -546,9 +883,10 @@ function touchCandidate(
   const writes = outcome.fields.filter((f) => f.object === TOUCHER);
   // What the bounce does to the touched part itself is that part's own business.
   if (!writes.length || outcome.fields.some((f) => f.object !== TOUCHER && f.object !== "part")) return undefined;
+  // A table word goes on to the line's settings, which take one the part's type settles, or its own speed limit.
   const own = (value: Expression) => {
     const read = objects(value);
-    return !read.unknown && [...read.objects].every((o) => o === TOUCHER) && !readsTable(value);
+    return !read.unknown && [...read.objects].every((o) => o === TOUCHER);
   };
   if (writes.some((w) => !w.directedSpeed && !own(w.value))) return undefined;
   const toucherTerms: Predicate[] = [],
@@ -596,9 +934,13 @@ export function effectsFromOthers(
   if (typeOffset === undefined || stateOffset === undefined) return result;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const fieldNames = new Map(report.layout.fields.map((f) => [f.offset, f.name]));
+  // The words an overlap search stores in the parts it finds, named by the axis its code measures them on.
+  for (const h of report.helpers ?? [])
+    for (const o of h.list?.overlaps ?? []) if (!fieldNames.has(o.offset)) fieldNames.set(o.offset, `overlap${o.axis}`);
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const fixedType = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
 
   const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
   /** Whether a new part of the type gets the bits: from the factory's table, or from its constructor's first run. */
@@ -607,9 +949,15 @@ export function effectsFromOthers(
     !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
-  const settingWords = (offset: number, value: Expression) => {
+  const settingWords = (offset: number, raw: Expression, type?: number) => {
+    const table = (e: Extract<Expression, { kind: "table" }>) =>
+      type !== undefined && isSpeedLimitOf(e, type, report.typeTable) ? "speed limit" : undefined;
     const field = fieldName(offset);
+    const value = tidyArithmetic(raw);
     const own = (e: Expression) => e.kind === "field" && e.object === "part" && e.offset === offset && e.width === 16;
+    // A value added to the field's own, like a push.
+    if (value.kind === "binary" && value.operator === "+" && own(value.left) && value.right.kind !== "constant")
+      return `adds ${formula(value.right, { field: fieldName, of: (_, what) => what, table })} to ${field}`;
     const signedWord = (n: number) => (n >= 0x8000 ? n - 0x10000 : n);
     if (value.kind === "binary" && own(value.left) && value.right.kind === "constant") {
       const n = value.right.value;
@@ -632,7 +980,7 @@ export function effectsFromOthers(
     if (value.kind === "binary" && value.operator === "-" && value.left.kind === "constant" && value.left.value === 0) {
       if (own(value.right)) return `reverses ${field}`;
     }
-    const plain: Names = { field: fieldName, of: (_, what) => what };
+    const plain: Names = { field: fieldName, of: (_, what) => what, table };
     const long = longPart(value);
     if (long)
       return `sets ${field} to the ${long.high ? "high" : "low"} word of ${formula(long.word, plain)} × ${2 ** long.shift}`;
@@ -648,28 +996,41 @@ export function effectsFromOthers(
     const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
     for (const w of writes) {
       // A number, or a value the part's type settles, like a speed read from its type record.
-      const number = w.directedSpeed
+      // A number, a value of the part's own fields, or either one kept within the part's speed limit.
+      const settled = w.directedSpeed
         ? undefined
-        : numberOf(forType(w.value, member, typeOffset, type, report.typeTable, used));
-      if (number !== undefined) {
+        : settleForType(w.value, member, typeOffset, type, report.typeTable, used);
+      const number = settled && numberOf(settled.value);
+      if (settled && number !== undefined && !settled.kept) {
         sets.push({ kind: "field", offset: w.offset, width: w.width, value: number });
         continue;
       }
-      if (!w.directedSpeed) {
+      if (settled) {
         // Only a value of the part's own fields says something a line can repeat.
-        const read = objects(w.value);
-        if (read.unknown || readsTable(w.value) || [...read.objects].some((o) => o !== member)) return undefined;
+        const read = objects(settled.value);
+        if (
+          read.unknown ||
+          readsTableBesidesSpeedLimit(settled.value, type, report.typeTable) ||
+          [...read.objects].some((o) => o !== member)
+        )
+          return undefined;
         // A value worked out from the part's own fields, as a touch can set: like halving its velocityX.
-        const value = rename(w.value, member, "part");
+        const value = rename(settled.value, member, "part");
+        const unchanged = value.kind === "field" && value.object === "part" && value.offset === w.offset;
         sets.push({
           kind: "expression",
           offset: w.offset,
           width: w.width,
           value,
-          words: settingWords(w.offset, value),
+          words: settled.kept
+            ? unchanged
+              ? `keeps ${fieldName(w.offset)} within its speed limit`
+              : `${settingWords(w.offset, value, type)}, kept within its speed limit`
+            : settingWords(w.offset, value, type),
         });
         continue;
       }
+      if (!w.directedSpeed) continue;
       const speed = numberOf(forType(w.directedSpeed.speed, member, typeOffset, type, report.typeTable, used));
       if (speed === undefined) return undefined;
       const prior = sets.find(
@@ -959,35 +1320,83 @@ export function effectsFromOthers(
       evidence: uniqueEvidence(made.flatMap((item) => item.evidence)),
     };
   };
+  const drawnFields = drawnFieldsOf(report);
   const candidates: Candidate[] = [];
   const touches: TouchCandidate[] = [];
   for (const source of report.parts)
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
-      for (const outcome of routines.get(callback.address)?.iterationOutcomes ?? []) {
+      // A loop read for each type of found part gives each type's own ways, in place of the generic ones.
+      const code = routines.get(callback.address);
+      const ways = code?.iterationOutcomesByType
+        ? Object.entries(code.iterationOutcomesByType).flatMap(([type, list]) =>
+            list.map((outcome) => ({ outcome, onlyType: Number(type) as number | undefined })),
+          )
+        : (code?.iterationOutcomes ?? []).map((outcome) => ({ outcome, onlyType: undefined as number | undefined }));
+      const kindAt = callKinds(report, callback.address);
+      for (const { outcome, onlyType } of ways.flatMap((way) =>
+        splitBySource(way.outcome, way.outcome.object).map((outcome) => ({ ...way, outcome })),
+      )) {
         // What a list consumer does to a member tests where it lies from the source, which a line can't say yet: it
-        // comes as a walk (`describe-hits.ts`).
-        if (!outcome.effectsComplete || outcome.confidence === "unresolved" || outcome.listConsumer) continue;
+        // comes as a walk (`describe-hits.ts`). A way is read when it is open only at the overlap its search stored in
+        // the part, at a rope pull of the source's (a connection query) or at the contact search it runs on the part.
+        if (
+          !outcome.effectsComplete ||
+          outcome.listConsumer ||
+          (outcome.confidence === "unresolved" &&
+            openCalls([outcome.condition, ...outcome.fields.flatMap((f) => [f.value, f.condition])], kindAt).other)
+        )
+          continue;
         const member = outcome.object;
-        const writes = outcome.fields.filter((f) => f.object === member);
-        if (!writes.length || writes.length !== outcome.fields.length) continue;
+        const all = outcome.fields.filter((f) => f.object === member);
+        if (!all.length || all.length !== outcome.fields.length) continue;
+        // What the contact search leaves on the part, and a value read from it after, only the run knows: the line
+        // names those fields and sets the others.
+        const searched = all.filter((w) => {
+          const open = openCalls([w.value], kindAt);
+          return open.contactSearch && !open.connectionQuery && !open.other;
+        });
+        const writes = all.filter((w) => !searched.includes(w));
+        if (!writes.length) continue;
         // Every field set needs a number for the part's type, a formula of its own fields, or the speed the speed setter
         // was given: so a value may read only the member and the type table.
         if (
           writes.some((w) => {
-            const read = objects(w.value);
+            const read = objects(withOwnOverlaps(w.value, member));
             return !w.directedSpeed && (read.unknown || [...read.objects].some((o) => o !== member));
           })
         )
           continue;
         const sourceTerms: Predicate[] = [],
-          memberTerms: Predicate[] = [];
+          memberTerms: Predicate[] = [],
+          place: PlaceTest[] = [];
         let open = false;
-        for (const term of terms(outcome.condition)) {
+        // The source's own type is known when the callback is its type's alone: its type and its type record's words
+        // are numbers in its tests, like the half width of the teeter-totter's frame.
+        const sourceUsed = { table: false };
+        const ownType = (t: Predicate) =>
+          callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
+        for (const term of terms(outcome.condition).map((t) =>
+          ownType(drawnFields(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt))),
+        )) {
           const { objects: read, unknown } = objects(term);
-          if (unknown || term.kind === "unknown") open = true;
+          // A test the source's type settles says nothing when it holds, and rules the way out when it fails.
+          if (!read.size && !unknown && term.kind === "compare") {
+            const value = evaluate(term, []);
+            if (value === true) continue;
+            if (value === false) {
+              open = true;
+              break;
+            }
+          }
+          const placed = unknown ? undefined : placeTest(term, member);
+          // A test of what the source's rope pull answers, or of its own fields after it, is the source's.
+          if (sourceRun(term, kindAt)) sourceTerms.push(term);
+          else if (unknown || term.kind === "unknown") open = true;
           else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
+          // A test of where the part lies from the source, like the vacuum cleaner's nozzle below it.
+          else if (placed) place.push(placed);
           else open = true;
         }
         if (open) continue;
@@ -1002,17 +1411,22 @@ export function effectsFromOthers(
         );
         const search = named ? undefined : searchTests(report, callback.address, outcome.header);
         candidates.push({
+          ...(onlyType === undefined ? {} : { onlyType }),
           named,
+          movingOnly: searchesOnlyMovingList(report, callback.address, outcome.header),
           ...(search ? { search } : {}),
           sourceWords: sourceTerms.flatMap((t) => drawingFlagWords(t, report) ?? []),
+          sourceTable: sourceUsed.table,
           sourceType: source.type,
           sourcePart: source.id,
           routine: callback.address,
           member,
           outcome,
           writes,
+          searched: [...new Set(searched.map((w) => w.offset))].sort((a, b) => a - b),
           sourceTerms,
           memberTerms,
+          place,
         });
       }
       // The contact dispatch calls the bounce of the touched part's type with the part that touched it (`collider`).
@@ -1043,6 +1457,7 @@ export function effectsFromOthers(
       partFields(rule.to, read);
     }
     for (const c of candidates) {
+      if (c.onlyType !== undefined && c.onlyType !== part.type) continue;
       const used = { table: false };
       const conditionTerms: Predicate[] = [],
         words: string[] = [];
@@ -1085,7 +1500,13 @@ export function effectsFromOthers(
         const own = renamePredicate(typed, c.member, "part");
         // A test of the part's own fields that its type doesn't decide, like Mel's frame, stays as the line's condition,
         // in words, as for a touch: "its state is below 6".
-        if (!flag && (!(c.named || c.search) || own.kind !== "compare" || readsTable(own))) decided = false;
+        if (
+          !flag &&
+          (!(c.named || c.search) ||
+            own.kind !== "compare" ||
+            readsTableBesidesSpeedLimit(own, part.type, report.typeTable))
+        )
+          decided = false;
         conditionTerms.push(own);
         // A flag the search needs clear says its name, like "its out-of-play flag 0x2000 is clear".
         const cleared = clearNames.get(term);
@@ -1094,7 +1515,14 @@ export function effectsFromOthers(
             (cleared
               ? `its ${cleared} is clear`
               : own.kind === "compare"
-                ? compareWords(own, { field: fieldName, of: (_, what) => `its ${what}` })
+                ? compareWords(
+                    { ...own, left: tidyArithmetic(own.left), right: tidyArithmetic(own.right) },
+                    {
+                      field: fieldName,
+                      of: (_, what) => `its ${what}`,
+                      table: (e) => (isSpeedLimitOf(e, part.type, report.typeTable) ? "speed limit" : undefined),
+                    },
+                  )
                 : ""),
         );
       }
@@ -1108,12 +1536,23 @@ export function effectsFromOthers(
         assumptions.add(offList!);
         continue;
       }
+      // Or but for the list its source searches: a part of a fixed type is never on the moving list.
+      if (c.movingOnly && fixedType(part.type)) {
+        assumptions.add(FIXED_LIST_ASSUMPTION);
+        assumptions.add(MOVING_SEARCH_ASSUMPTION);
+        continue;
+      }
       const name = nameOf(c.sourcePart);
       const { said, velocityDirection } = sayings(sets, name);
+      const placeSaid = placeWords(c.place, name, fieldName, c.sourcePart);
+      words.push(...placeSaid);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (w.startsWith("its ") ? w : `it is ${w}`)).join(" and ")}.` : ""}`;
+      const searchedSaid = c.searched.length
+        ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
+        : "";
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*its /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
       // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
-      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms]);
+      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
       if (prior) {
@@ -1130,16 +1569,20 @@ export function effectsFromOthers(
         condition: conjunction(conditionTerms),
         conditionWords: words,
         ...(velocityDirection ? { velocityDirection } : {}),
+        ...(c.place.length ? { place: c.place } : {}),
+        ...(c.searched.length ? { searched: c.searched } : {}),
         description,
-        confidence: c.outcome.confidence,
+        // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
+        confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
         assumptions: [
           ...new Set([
             ...c.outcome.assumptions,
             ...c.writes.flatMap((w) => w.assumptions),
-            ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+            ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
             ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
             ...proofs,
             ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
+            ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
             "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
           ]),
         ],
