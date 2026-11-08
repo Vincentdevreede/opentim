@@ -17,7 +17,7 @@ Program addresses are written as `<address>`, since they differ between builds. 
 findings stating the assumption in one build, then in how many of the builds read it appears. Parts are those whose
 own findings or routines state it; `none, shared` means only shared helpers and report-wide findings do.
 
-Read from 5 TIM 1 and 6 Even More builds: 270 assumptions, most used first.
+Read from 5 TIM 1 and 6 Even More builds: 271 assumptions, most used first.
 
 | Assumption | TIM 1 | Even More | Parts |
 | --- | --- | --- | --- |
@@ -270,6 +270,7 @@ Read from 5 TIM 1 and 6 Even More builds: 270 assumptions, most used first.
 | The component describes the contact-building region after the common C helper normally returns with a valid owner base, frame and data segment. It does not assert that the helper preserves state, geometry or saved coordinates. | 1 · 5/5 | 1 · 6/6 | gear |
 | The coordinate colouring flips on each checked mode-two edge. First assignments label each zero target by the root word or its negation according to that colour; a later checked edge therefore cannot see equal nonzero source and target labels. Blocked or visited pruning cannot create a local conflict. This is a conditional theorem, not a claim that an arbitrary level meets its premises. | 1 · 5/5 | 1 · 6/6 | gear |
 | The field is added to the state in the matched routines; its producers and its meanings in other part types require separate analysis. | 1 · 5/5 | 1 · 6/6 | none, shared |
+| The game works out every type's speed limit with the routine at \<address> before any part moves: the level loader calls it after reading the air pressure, and the control panel after the player sets a new one. No other code writes a type record's speed limit, and the calls it makes (long multiplication and division) don't write the type records. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | The helper's call frequency and placement relative to simulation cycles require separate caller evidence. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | The identified simulation wait belongs to a routine that directly calls a dispatcher containing the discovered run callback calls. Object lists and flags still decide which callbacks run. | 1 · 5/5 | 1 · 6/6 | none, shared |
 | The installed IRQ handler advances this countdown once per PIT channel 0 interrupt. | 1 · 5/5 | 1 · 6/6 | none, shared |

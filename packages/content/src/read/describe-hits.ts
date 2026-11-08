@@ -27,6 +27,7 @@ import {
   offMovingList,
   onlyAnswersOpen,
   partFields,
+  keptWithin,
   settleForType,
   splitBySource,
   afterQueriesIn,
@@ -731,10 +732,16 @@ export function hitsFromOthers(
         responds && [...Array(w.width / 8).keys()].some((byte) => afterResponse!.has(w.offset + byte));
       const changes = c.writes.filter(readsField);
       // A value with the words of the part's type record its type settles, like a launch speed by its mass, and the
-      // overlap its search stored as its own field. A value kept within its speed limit has no number to follow.
+      // overlap its search stored as its own field. A value kept within its speed limit has a number to follow only
+      // when the limit is the same number in every level, like the bullet's.
+      let limited = false;
       const own = (w: FieldWrite) => {
         const settled = settleForType(w.value, c.member, typeOffset, part.type, report.typeTable, used);
-        return settled.kept ? undefined : ownValue(settled.value, c.member);
+        if (!settled.kept) return ownValue(settled.value, c.member);
+        if (settled.limit === undefined) return undefined;
+        const value = ownValue(keptWithin(settled.value, settled.limit), c.member);
+        if (value) limited = true;
+        return value;
       };
       // A number, or a value of the part's own fields as the touch found them, in a field the rules read gives the walk
       // something to follow; a field a response may change again is unknown, and at least one other must be known.
@@ -803,6 +810,7 @@ export function hitsFromOthers(
         ...c.outcome.assumptions,
         ...c.writes.flatMap((w) => w.assumptions),
         ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+        ...(limited ? report.typeTable!.speedLimits!.assumptions : []),
         ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
         ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
         ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),

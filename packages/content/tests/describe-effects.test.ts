@@ -462,6 +462,15 @@ describe("effects of parts that touch", () => {
     expect(line!.description).toBe(
       "An alligator it touches sets velocityY to -|velocityY| - 1024, kept within its speed limit. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
     );
+    // A type whose speed limit is the same number in every level, like the bullet, gets the number.
+    const bullet = {
+      ...trampoline,
+      typeTable: { ...trampoline.typeTable, speedLimits: { fixed: [{ type: 12, limit: 12288 }] } },
+    } as unknown as BehaviourReport;
+    const [fixed] = effectsFromOthers(bullet, evaluateBehaviourCondition).get(12)!.effects;
+    expect(fixed!.description).toBe(
+      "An alligator it touches sets velocityY to -|velocityY| - 1024, kept within its speed limit of 12288. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
+    );
   });
 
   it("keeps a test that names another type, and says when a contact response may follow", () => {

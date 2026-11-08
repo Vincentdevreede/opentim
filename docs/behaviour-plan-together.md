@@ -220,6 +220,12 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       Even More 78 pairs and TIM 1 33 pairs are ruled out, most of them launch lines the game can't give. The
       teeter-totter's search tests no flags, so the bullet's walk is described. Missing: Even More 13 → 12, TIM 1
       6 → 5.
+      What is left falls in three groups: the speed limit (the bullet and Mel Schlemming, whose rules read the velocity
+      a push keeps within it), the direction by where the parts are (the explosion and the pinball bumper), and the
+      contact response after a bounce (the conveyor belt and the gear).
+      The bullet's speed limit (2026-11-08): the analysis reads the routine that works out every type's limit, which
+      gives the bullet 12288 in every level (see "The bullet's speed limit"). The fan's, the trampoline's and the
+      alligator's pushes of the bullet are described. Missing: Even More 12 → 11, TIM 1 5 → 4.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

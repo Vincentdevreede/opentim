@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { choose, type BehaviourReport, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import {
+  keptWithin,
   settleForType,
   sourceChoices,
   splitBySource,
   tidyArithmetic,
   withOwnOverlaps,
 } from "../src/read/describe-effects.ts";
+import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 
 const MEMBER = "overlap candidate at 0x1ac7e";
 const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
@@ -67,6 +69,40 @@ describe("settling a value for the found part's type", () => {
       choose(compare("<", speed, negativeOther), negativeOther, speed),
     );
     expect(settleForType(elsewhere, MEMBER, 4, 4, table, { table: false }).kept).toBe(false);
+  });
+
+  it("gives the limit as a number for a type whose limit is the same in every level", () => {
+    const speed = binary("+", field(0x36), constant(1536));
+    const limit = record(0x0a);
+    const negative = binary("-", constant(0), limit);
+    const kept = choose(compare(">", speed, limit), limit, choose(compare("<", speed, negative), negative, speed));
+    const withLimits = {
+      ...table,
+      speedLimits: { fixed: [{ type: 4, limit: 12288 }] },
+    } as unknown as BehaviourReport["typeTable"];
+    expect(settleForType(kept, MEMBER, 4, 4, withLimits, { table: false })).toEqual({
+      value: speed,
+      kept: true,
+      limit: 12288,
+    });
+    // Another type's limit is still worked out for each level.
+    expect(settleForType(kept, MEMBER, 4, 5, withLimits, { table: false }).limit).toBeUndefined();
+  });
+
+  it("keeps a value within a limit that is a number as the speed limit routine does", () => {
+    const value = keptWithin(field(0x36, "part"), 12288);
+    const word = (n: number) => ((n % 0x10000) + 0x10000) % 0x10000;
+    // Whether the value is `expected` when velocityX is `speed`.
+    const is = (speed: number, expected: number) =>
+      evaluateBehaviourCondition({ ...compare("==", value, constant(word(expected))), signed: false }, [
+        { object: "part", offset: 0x36, width: 16, value: word(speed), knownMask: 0xffff },
+      ]);
+    expect(is(12288 + 1536, 12288)).toBe(true);
+    expect(is(12288, 12288)).toBe(true);
+    expect(is(100, 100)).toBe(true);
+    expect(is(-12288, -12288)).toBe(true);
+    expect(is(-12288 - 1536, -12288)).toBe(true);
+    expect(is(12288 - 1536, 12288)).toBe(false);
   });
 });
 

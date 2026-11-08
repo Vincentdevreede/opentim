@@ -1085,6 +1085,44 @@ builds agree):
 The described and partly described pairs that went were lines the game can't give: the teeter-totter's launch and the
 vacuum cleaner's pull of walls, ramps, motors and the other fixed parts (39 each in Even More).
 
+### The bullet's speed limit
+
+The routine that works out every type's speed limit (`0x369c` in Even More, English floppy; `0x2af1` in TIM 1,
+French) walks the type records in a loop. For type 20 (the bullet) and type 43 it stores `0x3000` (12288) at +0x0a;
+for every other type it stores `0x2600` (9728) minus a value of the level's air pressure: half of it below 70, else 16
+times it. The level loader calls the routine after it reads the air pressure, and the control panel calls it after the
+player sets a new one (Even More `0x12593`, which keeps the setting from 0 to 128). So the bullet's limit is 12288 in
+every level, and every other type's lies between 7680 and 9728.
+
+The analysis now reads the routine (`behaviour-speed-limits.ts`). It finds it by its structure: the stores to +0x0a
+through a pointer the loop works out as `type × 58 + table`, with the table the type records' own place, a loop that
+counts the type number from 0 to the number of records, and calls from elsewhere in the program. It then follows each
+way through the loop's body with the tests of the type number on it (`cmp` and `je` or `jne`), and gives a type the
+number the last store on every one of its ways leaves. A way that changes the type number or the pointer, or stores
+to a word it can't place, gives no result. All eleven builds give the same: 12288 for types 20 and 43, `9728 - air`
+for the rest. The type table keeps the result (`speedLimits`), with the assumption that no other code writes those
+words and that the routine's long multiplication and division calls leave the type records alone.
+
+For a type whose limit is a number in every level, a value kept within its speed limit is now that number's clamp, a
+value a walk can work out from its starting fields. The bullet's rules read whether `velocityX` is 12288 or -12288,
+which the clamp decides, so the alligator's push of ±1536, the trampoline's halving and the fan's push now give the
+bullet walks, and they all end. A line says the number: "kept within its speed limit of 12288". For the other types
+the limit stays a word of the level, and the pair check still names it.
+
+Pairs, on Even More (English floppy) and TIM 1 (French):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              390 |           393 |          215 |       217 |
+| Partly described |               31 |            29 |           18 |        17 |
+| Ruled out        |              657 |           657 |          383 |       383 |
+| Missing          |               12 |            11 |            5 |         4 |
+
+The fan's push, the trampoline's and the alligator's are described for the bullet in both games. The vacuum cleaner's
+pull of the bullet stays partly described: its tests read the pull left from an earlier part. Walks go from 1,447 to
+1,459 in Even More and from 1,217 to 1,223 in TIM 1, and every one of them ends. The recordings match as before: 648
+and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

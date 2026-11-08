@@ -383,7 +383,11 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         continue;
       }
       // The value as the line says it: the overlap its search stored, the type's words and the part's speed limit.
-      const { value: settled, kept } = settleForType(w.value, member, typeOffset!, type, report.typeTable, {
+      const {
+        value: settled,
+        kept,
+        limit,
+      } = settleForType(w.value, member, typeOffset!, type, report.typeTable, {
         table: false,
       });
       const value = objects(settled);
@@ -406,7 +410,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
       if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;
-      if (kept && readsRule(w)) return LIMIT_RULE_FIELD;
+      if (kept && limit === undefined && readsRule(w)) return LIMIT_RULE_FIELD;
     }
     if (searched) return CONTACT_SEARCH;
     if (

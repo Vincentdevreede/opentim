@@ -17,7 +17,7 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, callKinds, choiceOf, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
+import { binary, callKinds, choiceOf, choose, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import {
   compareWords,
@@ -604,7 +604,7 @@ export function settleForType(
   type: number,
   table: BehaviourReport["typeTable"],
   used: { table: boolean },
-): { value: Expression; kept: boolean } {
+): { value: Expression; kept: boolean; limit?: number } {
   const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
   const kept = speedLimitOf(settled);
   const limit = kept?.limit;
@@ -615,7 +615,35 @@ export function settleForType(
     limit.segment * 16 + limit.offset === table.address + SPEED_LIMIT &&
     (JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`) ||
       (limit.index.kind === "constant" && limit.index.value === type * table.stride));
-  return ownLimit && kept ? { value: kept.speed, kept: true } : { value: settled, kept: false };
+  if (!ownLimit || !kept) return { value: settled, kept: false };
+  // A type whose limit is the same number in every level, like the bullet's 12288.
+  const fixed = table?.speedLimits?.fixed.find((f) => f.type === type)?.limit;
+  return fixed === undefined ? { value: kept.speed, kept: true } : { value: kept.speed, kept: true, limit: fixed };
+}
+/** A speed limit that is a number in every level, as the words give it after "its speed limit". */
+const limitWords = (limit: number | undefined) => (limit === undefined ? "" : ` of ${limit}`);
+/**
+ * A value kept within a speed limit that is a number: `limit if speed > limit, else -limit if speed < -limit, else
+ * speed`, signed, as the speed limit routine leaves it.
+ */
+export function keptWithin(speed: Expression, limit: number): Expression {
+  const number = constant(limit),
+    negative = constant(wrap(-limit, 16));
+  const above: Extract<Predicate, { kind: "compare" }> = {
+    kind: "compare",
+    operator: ">",
+    left: speed,
+    right: number,
+    signed: true,
+  };
+  const below: Extract<Predicate, { kind: "compare" }> = {
+    kind: "compare",
+    operator: "<",
+    left: speed,
+    right: negative,
+    signed: true,
+  };
+  return choose(above, number, choose(below, negative, speed, 16), 16);
 }
 /** The speed limit's word in a type record, which the game works out for every type from the level's air and gravity. */
 const SPEED_LIMIT = 0x0a;
@@ -1033,8 +1061,8 @@ export function effectsFromOthers(
           value,
           words: settled.kept
             ? unchanged
-              ? `keeps ${fieldName(w.offset)} within its speed limit`
-              : `${settingWords(w.offset, value, type)}, kept within its speed limit`
+              ? `keeps ${fieldName(w.offset)} within its speed limit${limitWords(settled.limit)}`
+              : `${settingWords(w.offset, value, type)}, kept within its speed limit${limitWords(settled.limit)}`
             : settingWords(w.offset, value, type),
         });
         continue;
