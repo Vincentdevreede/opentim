@@ -118,7 +118,8 @@ checked. The demo's 10 puzzles are its own.
 
 Some words a goal reads aren't named yet: the step count (`0x4aab` in Even More, English floppy, which the level
 recorder knows as the run loop's counter, and `0x5027` in TIM 1, French) and `0x4a8b` in Even More puzzle 70, which
-must be at least 308 for the goal to be met.
+must be at least 308 for the goal to be met: a second count of steps (see
+[what the loader keeps](#what-the-loader-keeps)).
 
     pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
 
@@ -187,6 +188,11 @@ two words (the file's order puts x first), and in TIM 1 three other words are -8
 | scroll limits  | `0x4cbb`, `0x4cbd`        | `0x5237`, `0x5239` |
 | music          | `0x4cbf`                  | `0x523b`           |
 
-The counts of parts aren't kept as such. The word `0x4a8b` that Even More puzzle 70's goal reads isn't one of these.
+The counts of parts aren't kept as such. The word `0x4a8b` that Even More puzzle 70's goal reads isn't one of these:
+it is a second count of steps. The run loop calls `0x1497` every step, after running and moving the parts, and
+`0x1497` adds 1 to it and sets it back to `0x1c00` when it reaches `0x2a00`; the routine at `0x0ecc:0x1ee2` sets it
+to 0 with the words next to it (`0x4a6b`, `0x4a8d` to `0x4a97`). It is 0 right after the puzzle loader in puzzle 70.
+So puzzle 70's goal needs at least 308 steps without a broken fishbowl, the way TIM 1's puzzle 76 waits for step 130
+on the other count. Where the game calls `0x0ecc:0x1ee2` isn't read yet.
 
     pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]

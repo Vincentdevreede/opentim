@@ -256,7 +256,8 @@ game does with the fields whose meaning isn't known.
       the second size is the base size, the position, state and drawing flags go to the saved words, and `extra` to
       `0x96`, the belt's parts to the belt record at `0x54`, and the links to `0x5a` to `0x60`, apart from
       gear to gear links, which the loader leaves out; a rope's tied parts go to the rope record at `0x66`, and the
-      header to one block of words (`0x4cb3` to `0x4cbf`). Next: the pulley's rope, the parts bin and `0x4a8b`.
+      header to one block of words (`0x4cb3` to `0x4cbf`). `0x4a8b` is a second count of steps.
+      Next: the pulley's rope and the parts bin.
 - [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
       and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
       recorded builds.
