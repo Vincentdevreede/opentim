@@ -39,6 +39,7 @@ import {
   placeTest,
   placeWords,
   searchTests,
+  madeIntoFixedList,
   searchesOnlyMovingList,
   type PlaceTest,
   type SearchTest,
@@ -71,6 +72,14 @@ export const BULLET_LIST_ASSUMPTION =
  */
 export const MOVING_SEARCH_ASSUMPTION =
   "A search that walks only the moving list (the list the contact dispatch walks) finds no part of a fixed type. The game puts a dropped part there only when its type isn't fixed, the parts part code links there itself (rope ends, pinballs, bullets) aren't of a fixed type, and no shipped level stores a part of a fixed type among its moving parts.";
+/**
+ * A part of a type that only part code makes and links into the fixed list, the explosion, is never on the moving list.
+ * Its two makers (`0x190f:0x32a9` and `0x16ca:0x3792` in Even More, English floppy) link it into the list at `0x4e1f`,
+ * and no shipped level stores one. Decided with the user on 2026-11-08: an explosion only happens after another part's
+ * action, so a level never stores one.
+ */
+export const MADE_FIXED_ASSUMPTION =
+  "An explosion is never on the moving list, so it touches nothing and no search of the moving list finds it. Only part code makes explosions, and it links them into the fixed list; an explosion only happens after another part's action, so no level stores one.";
 /**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
@@ -1165,6 +1174,10 @@ export function effectsFromOthers(
         assumptions.add(FIXED_LIST_ASSUMPTION);
         continue;
       }
+      if (madeIntoFixedList(report).has(part.type)) {
+        assumptions.add(MADE_FIXED_ASSUMPTION);
+        continue;
+      }
       const tests = testsOf(kept);
       if (!tests || impossible(tests)) continue;
       const key = JSON.stringify([c.routine, settings.sets, c.returns ?? null]);
@@ -1540,6 +1553,10 @@ export function effectsFromOthers(
       if (c.movingOnly && fixedType(part.type)) {
         assumptions.add(FIXED_LIST_ASSUMPTION);
         assumptions.add(MOVING_SEARCH_ASSUMPTION);
+        continue;
+      }
+      if (c.movingOnly && madeIntoFixedList(report).has(part.type)) {
+        assumptions.add(MADE_FIXED_ASSUMPTION);
         continue;
       }
       const name = nameOf(c.sourcePart);

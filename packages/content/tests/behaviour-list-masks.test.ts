@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
-import { maskValue, pushedWord, searchedLists } from "../src/read/behaviour-list-masks.ts";
+import { maskValue, pushedWord, searchedLists, typesLinkedInto } from "../src/read/behaviour-list-masks.ts";
 import type { Expression, Predicate } from "../src/read/behaviour.ts";
 
 /** A routine at 0x100 from its bytes, with a far return at 0x200 for its calls to land on. */
@@ -237,5 +237,68 @@ describe("a search of the moving list only", () => {
     expect(searchesOnlyMovingList(report(0x3000), 0x1d27a, 0x1d340)).toBe(false);
     // Another loop of the routine isn't this search's.
     expect(searchesOnlyMovingList(report(0x1000), 0x1d27a, 0x1d400)).toBe(false);
+  });
+});
+
+describe("the parts part code links into a list itself", () => {
+  const helpers = [
+    { address: 0x300, kind: "part-factory" },
+    { address: 0x340, kind: "ordered-part-insertion" },
+  ] as EngineSummary[];
+  /**
+   * A routine that makes a part and links it into a list, the way TIM 1 makes an explosion: push bp; mov bp, sp;
+   * push si; mov ax, 0x29; push ax; call factory; pop cx; mov si, <part>; or ax, ax; jne link; jmp end;
+   * link: mov ax, 0x4e1f; push ax; push si; call insertion; pop cx; pop cx; end: pop si; pop bp; retf
+   */
+  const maker = (part: number[]) => {
+    const code = routine([
+      0x55,
+      0x8b,
+      0xec,
+      0x56,
+      0xb8,
+      0x29,
+      0x00,
+      0x50,
+      ...call(0x108),
+      0x59,
+      ...part,
+      0x0b,
+      0xc0,
+      0x75,
+      0x02,
+      0xeb,
+      0x0b,
+      0xb8,
+      0x1f,
+      0x4e,
+      0x50,
+      0x56,
+      ...call(0x11a),
+      0x59,
+      0x59,
+      0x5e,
+      0x5d,
+      0xcb,
+    ]);
+    return {
+      ...code,
+      engineCalls: [
+        { instruction: 0x109, summary: 0x300 },
+        { instruction: 0x11b, summary: 0x340 },
+      ],
+    };
+  };
+
+  it("reads the type of a part made with the factory, past the check of its result", () => {
+    // mov si, ax
+    const made = maker([0x8b, 0xf0]);
+    expect(typesLinkedInto([made], helpers, 0x4e1f)).toEqual({ types: new Set([0x29]), unknown: 0 });
+    expect(typesLinkedInto([made], helpers, 0x4d7d)).toEqual({ types: new Set(), unknown: 0 });
+  });
+
+  it("counts a part that doesn't come from the factory as unknown", () => {
+    // mov si, di: a part from elsewhere, like the copy of a wall
+    expect(typesLinkedInto([maker([0x8b, 0xf7])], helpers, 0x4e1f)).toEqual({ types: new Set(), unknown: 1 });
   });
 });

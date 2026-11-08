@@ -1052,6 +1052,21 @@ game's own runs show the same (see the check in the [decided
 assumption](behaviour-assumptions.md#22-searches-of-the-moving-list)): explosions join the fixed list in 7 shipped
 puzzles of Even More and 4 of TIM 1.
 
+The analysis reads which types part code links into each list itself (`typesLinkedInto`): a call of the list
+insertion that pushes a list head as a constant and, as the part, a register loaded from the part factory's result
+just after a call that pushes the type as a constant. Both games give the explosion for the fixed list (and the two
+wall split copies, whose type it doesn't read) and the rope ends, pinballs and bullets for the moving list. By the
+[decided assumption on explosions](behaviour-assumptions.md#23-explosions), a type that part code links only into the
+fixed list and that isn't fixed, the explosion, is never on the moving list: it gets no touch lines and no search of
+the moving list finds it. Pairs, on Even More (English floppy) and TIM 1 (French):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              398 |           390 |          219 |       215 |
+| Partly described |               32 |            31 |           19 |        18 |
+| Ruled out        |              648 |           657 |          378 |       383 |
+| Missing          |               12 |            12 |            5 |         5 |
+
 The teeter-totter's search (`0x437d`) tests no flag of the parts it walks, only their outline, so its walks no longer
 wait for its tests: the bullet's walk of the launch is described. What changed, on all eleven builds (each game's
 builds agree):

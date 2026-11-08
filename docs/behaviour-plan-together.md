@@ -62,6 +62,11 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    does something only to six named types of a fixed type (see "What the user saw of the alligator" in
    `docs/behaviour.md`).
 
+   The run also showed that the explosion was given touch lines it can't have, being on the fixed list. The user: an
+   explosion only happens after another part's action, so a level never stores one. That is [decided assumption
+   23](behaviour-assumptions.md#23-explosions): an explosion is never on the moving list. Even More 9 and TIM 1 5 pairs
+   are ruled out.
+
 ## The starting point
 
 From `list-other-part-pairs` on Even More (English floppy) and TIM 1 (French), on 758726e:
