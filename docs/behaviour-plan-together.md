@@ -254,7 +254,8 @@ game does with the fields whose meaning isn't known.
       Started (2026-11-08): `check-level-fields` loads every shipped puzzle with the game's loader and finds where
       each field of a placed part goes, in both recorded builds (see [the levels](levels.md#what-the-loader-keeps)):
       the second size is the base size, the position, state and drawing flags go to the saved words, and `extra` to
-      `0x96`. Next: the links to ropes and belts, Even More's third flag word, the header words and the parts bin.
+      `0x96`, the belt's parts to the belt record at `0x54`, and most links to `0x5a` to `0x60`. Next: the links that
+      go elsewhere, the rope records, the header words and the parts bin.
 - [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
       and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
       recorded builds.

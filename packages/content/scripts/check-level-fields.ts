@@ -30,6 +30,8 @@ interface FieldTally {
   values: number[];
   /** Offsets of the record whose word equals the value in every pair so far. */
   offsets: number[];
+  /** For each offset, the pairs it holds the value in, to show the nearest when none holds it in all. */
+  agree: Map<number, number>;
 }
 
 interface PuzzleResult {
@@ -37,7 +39,10 @@ interface PuzzleResult {
   error?: string;
   parts: number;
   paired: number;
-  /** The fields of every paired part: key, value and size, and the record's bytes and place. */
+  /**
+   * The fields of every paired part: key, value and size, and the record's bytes and place; for a link, the words of
+   * the record that point at a record holding the linked part, as "offset+k".
+   */
   pairs: {
     index: number;
     type: number;
@@ -45,6 +50,7 @@ interface PuzzleResult {
     fields: [string, number, number][];
     record: number[];
     at: number;
+    through: [string, string[]][];
   }[];
 }
 
@@ -109,8 +115,26 @@ function runOne(folder: string, level: Uint8Array, puzzle: number, byType: boole
           ),
         record: pick.bytes,
         at: pick.at,
+        through: [],
       });
     }
+    // A link to another part may be kept in a record the part points at, like the belt record at 0x54.
+    const segment = loaded.dataSegment;
+    const word = (address: number) => segment[address & 0xffff]! | (segment[(address + 1) & 0xffff]! << 8);
+    const places = new Map(result.pairs.map((pair) => [pair.index, pair.at]));
+    for (const pair of result.pairs)
+      for (const [key, value] of pair.fields) {
+        if (!LINK.test(key) || value === 0xffff || !places.has(value)) continue;
+        const target = places.get(value)!;
+        const found: string[] = [];
+        for (let offset = 0; offset < PART_RECORD; offset += 2) {
+          const pointer = word(pair.at + offset);
+          if (pointer < 0x100) continue;
+          for (let k = 0; k < 0x10; k += 2)
+            if (word(pointer + k) === target) found.push(`0x${offset.toString(16)}+${k}`);
+        }
+        pair.through.push([key, found]);
+      }
   } catch (problem) {
     result.error = problem instanceof Error ? problem.message : String(problem);
   }
@@ -183,20 +207,18 @@ if (!isMainThread) {
   for (const r of results) {
     const places = new Map(r.pairs.map((pair) => [pair.index, pair.at]));
     for (const pair of r.pairs)
-      for (const [key, value, size] of pair.fields) {
+      for (const [field, value, size] of pair.fields) {
         // A link to another part is that part's record, when it is paired; -1 is none.
-        const link = LINK.test(key);
+        const link = LINK.test(field);
         if (link && value !== 0xffff && !places.has(value)) continue;
         const expected = link ? (value === 0xffff ? 0 : places.get(value)!) : value;
+        // A link to none and a link to a part are tallied apart: the loader may fill a link the file leaves as none.
+        const key = link && value === 0xffff ? `${field} (none)` : field;
         let tally = tallies.get(key);
         if (!tally) {
           const step = size === 1 ? 1 : 2;
-          tally = {
-            pairs: 0,
-            nonZero: 0,
-            values: [],
-            offsets: Array.from({ length: PART_RECORD / step }, (_, k) => k * step),
-          };
+          const offsets = Array.from({ length: PART_RECORD / step }, (_, k) => k * step);
+          tally = { pairs: 0, nonZero: 0, values: [], offsets, agree: new Map(offsets.map((o) => [o, 0])) };
           tallies.set(key, tally);
         }
         tally.pairs++;
@@ -205,8 +227,22 @@ if (!isMainThread) {
         const at = (offset: number) =>
           size === 1 ? pair.record[offset]! : pair.record[offset]! | (pair.record[offset + 1]! << 8);
         tally.offsets = tally.offsets.filter((offset) => at(offset) === expected);
+        for (const offset of tally.agree.keys())
+          if (at(offset) === expected) tally.agree.set(offset, tally.agree.get(offset)! + 1);
       }
   }
+  // Links kept one record further: the "offset+k" ways that hold the linked part in every pair with such a link.
+  const through = new Map<string, { pairs: number; ways: string[] }>();
+  for (const r of results)
+    for (const pair of r.pairs)
+      for (const [key, found] of pair.through) {
+        const tally = through.get(key);
+        if (!tally) through.set(key, { pairs: 1, ways: found });
+        else {
+          tally.pairs++;
+          tally.ways = tally.ways.filter((way) => found.includes(way));
+        }
+      }
   const failed = results.filter((r) => r.error);
   const parts = results.reduce((n, r) => n + r.parts, 0);
   const paired = results.reduce((n, r) => n + r.paired, 0);
@@ -216,11 +252,23 @@ if (!isMainThread) {
   for (const r of failed) console.error(`Puzzle ${r.puzzle}: ${r.error}`);
   const hex = (n: number) => `0x${n.toString(16)}`;
   for (const [key, tally] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
-    const where = tally.offsets.length ? tally.offsets.map(hex).join(", ") : "nowhere";
+    const nearest = [...tally.agree]
+      .filter(([, n]) => n >= tally.pairs / 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([offset, n]) => `${hex(offset)} in ${n}`)
+      .join(", ");
+    const where = tally.offsets.length
+      ? tally.offsets.slice(0, 8).map(hex).join(", ") +
+        (tally.offsets.length > 8 ? `, ... (${tally.offsets.length})` : "")
+      : `no word in every pair${nearest ? `; nearest ${nearest}` : ""}`;
     console.log(
       `${key.padEnd(24)} ${String(tally.pairs).padStart(5)} pairs, ${String(tally.nonZero).padStart(5)} not 0, ` +
         `values ${tally.values.map(hex).join(" ")}${tally.values.length >= 6 ? " ..." : ""}: in the record at ${where}`,
     );
   }
+  console.log("Links kept in a record the part points at (record word + place in that record):");
+  for (const [key, tally] of [...through].sort(([a], [b]) => a.localeCompare(b)))
+    console.log(`${key.padEnd(24)} ${String(tally.pairs).padStart(5)} links: ${tally.ways.join(", ") || "nowhere"}`);
   if (failed.length) process.exitCode = 1;
 }

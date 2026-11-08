@@ -113,7 +113,8 @@ function startPuzzle(
 
 /**
  * Loads puzzle `puzzle` with the game's puzzle loader and gives the parts on both lists right after it, before the run
- * button's preparation, with the data segment's words at `words` (each a word address).
+ * button's preparation, with the data segment's words at `words` (each a word address) and a copy of the whole data
+ * segment, for records the parts point at.
  */
 export function loadPuzzle(
   exe: Uint8Array,
@@ -121,9 +122,13 @@ export function loadPuzzle(
   puzzle: number,
   words: readonly number[] = [],
   build: GameBuild | undefined = GAME_BUILDS.get(exeHash(exe)),
-): { parts: StepParts["parts"]; words: Map<number, number> } {
+): { parts: StepParts["parts"]; words: Map<number, number>; dataSegment: Uint8Array } {
   const { cpu, data, parts } = startPuzzle(exe, file, puzzle, build);
-  return { parts: parts(), words: new Map(words.map((w) => [w, cpu.read16(data, w)])) };
+  return {
+    parts: parts(),
+    words: new Map(words.map((w) => [w, cpu.read16(data, w)])),
+    dataSegment: cpu.memory.slice(data * 16, data * 16 + 0x10000),
+  };
 }
 
 /**

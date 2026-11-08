@@ -137,7 +137,7 @@ with `--by-type`). For each field it then lists the words of the record that hol
 | type                          | `0x04` type                                                      |           4,448 |       2,211 |
 | flags, first word             | `0x06` (the list bits and more)                                  |           4,448 |       2,211 |
 | flags, second word            | `0x08` drawingFlags and `0x94` savedDrawingFlags                 |           4,448 |       2,211 |
-| flags, third word             | nowhere in Even More; `0x0a` in TIM 1                            |           4,448 |       2,211 |
+| flags, third word             | `0x0a`, in 4,438 Even More parts (see below)                     |           4,448 |       2,211 |
 | first state value             | `0x90` savedState                                                |           4,448 |       2,211 |
 | size                          | `0x40`, `0x42` (the extents) and `0x44`, `0x46` (the frame size) |           4,448 |       2,211 |
 | second size                   | `0x50`, `0x52` baseWidth and baseHeight                          |           4,448 |       2,211 |
@@ -151,13 +151,23 @@ So the second size, which `level.ts` didn't know, is the part's base size, and t
 go to the saved words the run starts from. Pairing by type alone (`--by-type`, 833 pairs in Even More) finds the same
 places. The second plugged part shows only in Even More, where one shipped part has one; in TIM 1 it is always none.
 
+The check also counts, for a field no word holds in every pair, the words that hold it in most, and for a field that
+names another part it looks one record further, through each word of the record:
+
+- The belt's two parts are in the belt record the word `0x54` points at, at `+4` and `+6` (the belt part itself is
+  at `+2`), in all 15 Even More and 10 TIM 1 belts; each of the three parts points at that record.
+- The links go to `0x5a` and `0x5e` (the first) and `0x5c` and `0x60` (the second), as the linked part's record: in
+  270 of 310 and 152 of 176 Even More parts (TIM 1: 188 of 212 and 96 of 118). Which parts the others are, and why,
+  is the next thing to look at; the analysis knows these words as the rope links.
+- The third flag word is at `0x0a` in every TIM 1 part and in 4,438 of 4,448 Even More parts. In Even More `0x0a`
+  also has the goal marks, so the 10 others may be parts whose constructor sets one; not checked yet.
+
 Not found yet:
 
 - the second state value and the second rope slot are 0 in every shipped part, so they show nothing;
-- the links, the belt's two parts, the rope's two parts and the pulley's rope name other parts by their index in the
-  file, but no record word holds the paired record's place: they likely point at the rope and belt records the loader
-  makes (see the rope's and pulley's constructors in `docs/behaviour.md`), which this check doesn't pair yet;
-- Even More's third flag word, which TIM 1 keeps at `0x0a`, where Even More keeps its goal marks;
+- the rope's two parts and the pulley's rope: no word of the record, or of a record it points at, holds the linked
+  part in every pair; they likely go into the rope records the loader makes (see the rope's and pulley's
+  constructors in `docs/behaviour.md`);
 - the word before the parts bin, and the header's fields beyond gravity and air pressure (L2 goes on with the loader's
   code for these).
 
