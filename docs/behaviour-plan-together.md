@@ -244,6 +244,10 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       loop as one value each (see "The wall split in the explosion's loop"), and lines say values and tests of where
       the explosion is (see "Lines of where the source is"). Both walls are described in both games. Missing: Even
       More 4 → 2, TIM 1 3 → 1.
+      The jack-in-the-box's push of a teeter-totter (2026-11-09): a caller makes a helper's exact writes of one field
+      whose tests rule each other out one choice, as a tree (see "The jack-in-the-box's push of a teeter-totter"), so
+      the value stays within the size bound and the teeter-totter gets walks. Missing: Even More 2 → 1, TIM 1 1 → 0.
+      Left: the teeter-totter's launch of Mel (Even More).
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

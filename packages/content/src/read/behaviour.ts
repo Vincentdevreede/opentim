@@ -2441,10 +2441,84 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       engine.list.confidence === "checked" &&
       effect.offset === engine.list.headField &&
       effect.width === 16;
+    // Exact writes of one field whose tests rule each other out, like the jack-in-the-box's push of a teeter-totter by
+    // its frame and which side of its centre the plank is: one choice by all their tests, built as a tree, in place of
+    // a chain that copies the value so far into both sides of each test.
+    const exactTests = (effect: (typeof pending)[number]) =>
+      effect.exact && !effect.certain && !uncertainPredicate(effect.condition)
+        ? effect.condition.kind === "compare"
+          ? [effect.condition]
+          : effect.condition.kind === "and" && effect.condition.terms.every((term) => term.kind === "compare")
+            ? (effect.condition.terms as Comparison[])
+            : undefined
+        : undefined;
+    const fieldKey = (effect: (typeof pending)[number]) =>
+      `${JSON.stringify(effect.pointer.value)}:${effect.offset}:${effect.width}`;
+    const exclusive = new Map<string, (typeof pending)[number][]>();
     for (const effect of pending) {
+      if (!exactTests(effect)) continue;
+      exclusive.set(fieldKey(effect), [...(exclusive.get(fieldKey(effect)) ?? []), effect]);
+    }
+    const apart = (a: Comparison[], b: Comparison[]) =>
+      a.some((t) => b.some((u) => same(u, { ...t, operator: OPPOSITE[t.operator]! })));
+    for (const [key, list] of exclusive)
+      if (list.length < 2 || list.some((a, n) => list.some((b, m) => n < m && !apart(exactTests(a)!, exactTests(b)!))))
+        exclusive.delete(key);
+    const treeOf = (
+      cases: { tests: Comparison[]; value: Expression }[],
+      fallback: Expression,
+      width: number,
+    ): Expression => {
+      if (!cases.length) return fallback;
+      const done = cases.find((c) => !c.tests.length);
+      if (done) return done.value;
+      const test = cases[0]!.tests[0]!;
+      const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
+      const strip = (c: (typeof cases)[number], drop: Comparison) => ({
+        ...c,
+        tests: c.tests.filter((t) => !same(t, drop)),
+      });
+      const holds = cases.filter((c) => !c.tests.some((t) => same(t, opposite))).map((c) => strip(c, test));
+      const fails = cases.filter((c) => !c.tests.some((t) => same(t, test))).map((c) => strip(c, opposite));
+      return choose(test, treeOf(holds, fallback, width), treeOf(fails, fallback, width), width, 8192);
+    };
+    const merged = new Set<(typeof pending)[number]>();
+    for (const effect of pending) {
+      if (merged.has(effect)) continue;
+      const together = exclusive.get(fieldKey(effect));
       const temporary = "__engine_pointer";
       s.registers.set(temporary, effect.pointer);
       const before = memoryAt(effect.pointer, effect.offset, effect.width, s);
+      if (together) {
+        for (const other of together) merged.add(other);
+        const value = treeOf(
+          together.map((other) => ({ tests: exactTests(other)!, value: asExpression(other.value.value) })),
+          asExpression(before.value),
+          effect.width,
+        );
+        write(
+          {
+            kind: "memory",
+            segment: "ds",
+            base: [temporary],
+            displacement: effect.offset,
+            direct: false,
+            width: effect.width === 8 ? 8 : 16,
+          },
+          tracked(
+            value,
+            uniqueEvidence([
+              ...together.flatMap((other) => [...other.value.evidence, ...other.evidence]),
+              ...before.evidence,
+              evidenceOf(i),
+            ]),
+          ),
+          s,
+          i,
+        );
+        s.registers.delete(temporary);
+        continue;
+      }
       const store = directed?.stores.find((item) => item.field === effect.offset && effect.width === 16);
       const value =
         effect.certain || same(before.value, effect.value.value)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyseRoutine, chooseByTests, type Expression, type Predicate } from "../src/read/behaviour.ts";
+import { analyseRoutine, chooseByTests, choiceOf, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import { engineFromObjectRelation } from "../src/read/behaviour-geometry-relations.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
@@ -131,6 +131,69 @@ describe("the value a routine leaves in a field", () => {
     const field = caller.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x72)!;
     expect(field.value.kind).toBe("binary");
     expect(caller.transitions[0]!.to).toMatchObject({ kind: "constant", value: 5 });
+  });
+  it("makes one choice of a helper's exact writes to a field whose tests rule each other out", () => {
+    const state: Expression = { kind: "field", object: "part", offset: 12, width: 16 };
+    const x: Expression = { kind: "field", object: "part", offset: 0x1e, width: 16 };
+    const test = (left: Expression, operator: string, right: Expression): Predicate => ({
+      kind: "compare",
+      operator,
+      left,
+      right,
+      signed: true,
+    });
+    const exact = (condition: Predicate, value: number) => ({
+      ...proof,
+      root: "argument" as const,
+      argumentOffset: 6,
+      path: [],
+      offset: 0x12,
+      width: 16,
+      value: number(value),
+      condition,
+      exact: true as const,
+    });
+    // Like the jack-in-the-box's push of a teeter-totter: by the frame, then by which side of a place the part is.
+    const helper: EngineSummary = {
+      ...proof,
+      address: 0x100,
+      kind: "owner-field-update",
+      purpose: "Synthetic push.",
+      argumentOffset: 6,
+      argumentKind: "object",
+      writes: [
+        exact({ kind: "and", terms: [test(state, "==", number(0)), test(x, ">", number(36))] }, 1),
+        exact({ kind: "and", terms: [test(state, "!=", number(0)), test(x, "<=", number(40))] }, 0xffff),
+        exact({ kind: "and", terms: [test(state, "!=", number(0)), test(x, ">", number(40))] }, 1),
+      ],
+      returns: [],
+      calls: [],
+      returnConvention: { kind: "far", stackBytes: 0 },
+      footprint: {
+        complete: true,
+        partMemoryComplete: true,
+        preservesArgumentMemory: false,
+        preservesPartState: true,
+        unknownEffects: [],
+      },
+    };
+    const image = new Uint8Array(0x200);
+    image.set([0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0x56, 0x9a, 0, 1, 0, 0, 0x59, 0x5e, 0x5d, 0xcb]);
+    image[0x100] = 0xcb;
+    const caller = analyseRoutine(
+      image,
+      { address: 0, segment: 0, offset: 0 },
+      { engineSummaries: new Map([[0x100, helper]]) },
+    );
+    const field = caller.outcomes![0]!.fields.find((f) => f.object === "part" && f.offset === 0x12)!;
+    expect(field.value.kind).toBe("binary");
+    // One choice per test: the frame, then the place on each side; the field as it was where none writes.
+    expect(JSON.stringify(field.value)).toContain('"offset":18');
+    // The tree tests the frame once, at the top, and each side's place under it.
+    const top = choiceOf(field.value)!;
+    expect(top.test).toMatchObject({ operator: "==", left: { offset: 12 } });
+    expect(choiceOf(top.then)!.test).toMatchObject({ left: { offset: 0x1e }, right: { value: 36 } });
+    expect(choiceOf(top.otherwise)!.test).toMatchObject({ left: { offset: 0x1e }, right: { value: 40 } });
   });
   it("composes a large helper value into a caller, like a drawing position the frame drawing helper set", () => {
     // Helper at 0x100: [si+0x2a] = [si+0x10] + 45 times [si+0x12]. Caller at 0: [si+0x12] = [si+0x20] + [si+0x22], then

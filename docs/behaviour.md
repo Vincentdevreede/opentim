@@ -1258,6 +1258,26 @@ A wall taller than wide gets the same in Y. Pairs, on Even More (English floppy)
 jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
 and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
 
+### The jack-in-the-box's push of a teeter-totter
+
+The jack-in-the-box tilts a teeter-totter through a helper (`0x1badd`, Even More, English floppy) that writes its
+stateDelta exactly, four times, each under its own tests: by the plank's frame (0, 1 or 2) and by which side of the
+jack-in-the-box's centre X the plank's positionX + 36, 40 or 44 is. A caller put such writes in one after another, each
+as a choice between its value and the value so far, so every write copied the value so far into both sides of each of
+its tests. In the jack-in-the-box's loop that grew past the size the analysis keeps for one value.
+
+Now a caller that gets exact writes of one field whose tests rule each other out (every two writes have a test one
+makes and the other makes the opposite of) makes them one choice, built as a tree: it splits on a test, gives each side
+the writes that can still hold there, and ends with the field as it was where no write holds. The plank's frame is
+tested once, at the top, and each side's place under it. The value is 121 nodes in the loop instead of past the bound,
+and the split by where the source is gives the teeter-totter walks, like "Hit by a jack-in-the-box, when its positionX is
+at least 45 pixels left of the jack-in-the-box's centre X (positionX + frameWidth / 2)".
+
+Pairs, on Even More (English floppy) and TIM 1 (French): described 404 → 405 and 221 → 222, missing 2 → 1 and 1 → 0.
+The only pair missing in either game is Even More's teeter-totter launching Mel, whose launch stops at the contact
+search the teeter-totter runs on what it launches. Walks go from 1,473 to 1,477 and from 1,223 to 1,227, and every one
+ends; the recordings match as before: 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the
