@@ -1173,6 +1173,40 @@ before or after its bounce takes 1 off, so the bumper gives it one walk with no 
 Pairs, Even More (English floppy): described 396 → 399, missing 8 → 5; TIM 1 has neither part. Walks in Even More go
 from 1,468 to 1,473, and every one ends; the recordings match as before: 648 and 552 complete.
 
+### The contact response after a bounce
+
+The conveyor belt's and the gear's bounces set the speed of the part that touches them (the belt ±4096 or 4096 more
+or less in velocityX, the gear the same with 2048 and 4096 in both) and return 1. The contact dispatch calls a bounce
+only in one of its two passes, and each pass then picks a response by the touching part's flags and type: the first
+picks the response at `0x3980` when the part has `0x0001` in its list flags and isn't Mel, else the reflection at
+`0x3c1c`; the second always picks the exchange at `0x3df7` (Even More, English floppy). Every one of the three writes
+velocityX and velocityY on every way through it, from the angle the two parts touch at, which only the run knows. So
+when the part's rules read a speed the bounce sets, as the bullet's and Mel's do, the frame it shows next is up to the
+response, not the bounce.
+
+The analysis now checks this (`rewrittenByResponse` in `describe-effects.ts`): each pass's routes test only the
+touching part's flag bits and type, and for every value of those exactly one route holds; every response is described
+and its relation stores the field with no condition. The fields every response writes again are then the response's.
+A touch line may now name such a field, though the part's rules read it, and says what follows: "A conveyor belt it
+touches sets velocityX to 4096 … Its bounce returns 1 then, so the game always goes on to a contact response, which
+works velocityX out again from the angle they touch at: which frame it shows next is up to that response." As the
+check shows a response always follows a bounce that returns something other than 0, every such line now says
+"always goes on" in place of "may go on". The user chose to count these pairs as described: the bounce's own part is
+said in full, and what follows is the response every touch gets.
+
+Pairs, on Even More (English floppy) and TIM 1 (French):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              399 |           402 |          217 |       219 |
+| Partly described |               29 |            27 |           17 |        16 |
+| Missing          |                5 |             4 |            4 |         3 |
+
+The conveyor belt's touch of the bullet is described in both games, and the gear's of the bullet and of Mel. What is
+missing now is what A4 named and the user chose to leave: the explosion's split of a brick wall and a wood wall, the
+jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
+and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

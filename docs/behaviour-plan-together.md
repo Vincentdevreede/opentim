@@ -200,7 +200,7 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       names them instead of "isn't known": a helper's effect the loop doesn't carry (the wall split, which also makes a
       new part), and a value past the size budget (the push). Read out, both would be values from the source's place,
       which A5 is about. No pair says "isn't known to the analysis" now.
-- [ ] **A5. The few left.** The alligator's and jack-in-the-box's values from their own place, the explosion's and
+- [x] **A5. The few left.** The alligator's and jack-in-the-box's values from their own place, the explosion's and
       pinball bumper's direction, the conveyor belt's contact response.
       Walks read place tests of a search's own list now (2026-11-07, see "Walks within reach of the source"): the
       electric switch from the jack-in-the-box and the alligator is described, and the vacuum cleaner's candle, cat
@@ -234,6 +234,12 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       into the directions the part's rules tell apart, said as how far from level the line between the centres is
       (see "Pushes along the line between the centres"). Mel gets two walks from each, the bullet one from the bumper.
       Missing: Even More 8 → 5.
+      Done (2026-11-08), the contact response: after the conveyor belt's and the gear's bounces the game always runs a
+      contact response that works the speed out again from the angle the parts touch at, so their lines now name the
+      speed the bullet's and Mel's rules read and say the response decides the next frame; the user chose to count
+      these as described (see "The contact response after a bounce"). Missing: Even More 5 → 4, TIM 1 4 → 3. What is
+      left is what the user chose to leave: the explosion's split of a wall, the jack-in-the-box's push of a
+      teeter-totter and the teeter-totter's launch of Mel.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

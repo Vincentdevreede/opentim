@@ -511,6 +511,43 @@ describe("effects of parts that touch", () => {
     expect(touches(20)).toEqual([]);
   });
 
+  it("names a field the part's rules read when the contact response that always follows writes it again", () => {
+    const route = (condition: Predicate) => ({ condition, routine: 0x3980, argument: "collider" });
+    const marked = (set: boolean) => compare(and(f(TOUCHER, 6), 1), set ? "!=" : "==", c(0));
+    const responding = {
+      ...report,
+      helpers: [
+        ...report.helpers!,
+        {
+          address: 0x3980,
+          writes: [{ root: "argument", path: [], offset: 0x38, width: 16, condition: { kind: "true" } }],
+        },
+      ],
+      collisionDispatch: [
+        {
+          passes: [{ callbackNonzero: [route(marked(true)), route(marked(false))] }],
+          responses: [{ routine: 0x3980, status: "described", writes: [{ path: [], offset: 0x38, width: 16 }] }],
+        },
+      ],
+      routines: [{ address: 0x1da61, outcomes: [outcome([edge(0)], [touchWrite(0x38, c(0xfa00))], 1)] }],
+    } as unknown as BehaviourReport;
+    const bullet = effectsFromOthers(responding, evaluateBehaviourCondition)
+      .get(20)!
+      .effects.filter((e) => e.touch);
+    expect(bullet.map((e) => e.description)).toEqual([
+      "An alligator it touches sets velocityY to -1536. Only when its contactEdge is 0. Its bounce returns 1 then, so the game always goes on to a contact response, which works velocityY out again from the angle they touch at: which frame it shows next is up to that response.",
+    ]);
+    // Routes that can both be taken, or neither, don't make a response certain.
+    const unsure = {
+      ...responding,
+      collisionDispatch: [
+        { ...responding.collisionDispatch![0]!, passes: [{ callbackNonzero: [route(marked(true))] }] },
+      ],
+    } as unknown as BehaviourReport;
+    const none = effectsFromOthers(unsure, evaluateBehaviourCondition).get(20)?.effects ?? [];
+    expect(none.filter((e) => e.touch)).toEqual([]);
+  });
+
   it("keeps a query's answer as a test of the touched part, like the teeter-totter's bounce pool", () => {
     // The teeter-totter clears the contact part of what lands on it when the pool says the landing is new.
     const answer: Expression = {

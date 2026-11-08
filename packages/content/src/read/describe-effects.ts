@@ -163,6 +163,66 @@ export function rulesIgnoreLimit(
   return true;
 }
 /**
+ * The fields of the touching part every contact response writes again, when one always follows a bounce that returns
+ * something other than 0: each pass of the contact dispatch picks exactly one response, whatever the touching part's
+ * flags and type, and every response is described and writes the field on every way. Undefined otherwise.
+ */
+export function rewrittenByResponse(report: BehaviourReport, evaluate: Evaluate): Set<number> | undefined {
+  const dispatches = report.collisionDispatch ?? [];
+  if (!dispatches.length) return undefined;
+  let fields: Set<number> | undefined;
+  for (const dispatch of dispatches) {
+    for (const pass of dispatch.passes) {
+      // The routes test the touching part's list flags and type: each flag bit and type they name, one way or the other.
+      const read = new Map<number, Set<number>>();
+      const visit = (v: Expression | Predicate): boolean => {
+        if (v.kind === "compare" || v.kind === "binary") {
+          if (v.left.kind === "field" && v.right.kind === "constant") {
+            if (v.left.object !== "collider") return false;
+            read.set(v.left.offset, (read.get(v.left.offset) ?? new Set([0])).add(v.right.value));
+            return true;
+          }
+          return visit(v.left) && visit(v.right);
+        }
+        if (v.kind === "and") return v.terms.every(visit);
+        return v.kind === "true" || v.kind === "constant";
+      };
+      if (!pass.callbackNonzero.every((route) => visit(route.condition))) return undefined;
+      const offsets = [...read.keys()];
+      const choices = offsets.map((o) => [...read.get(o)!]);
+      if (choices.reduce((n, list) => n * list.length, 1) > 4096) return undefined;
+      const combine = (n: number, known: { offset: number; value: number }[]): boolean => {
+        if (n === offsets.length) {
+          const fieldsKnown = known.map((k) => ({
+            object: "collider",
+            offset: k.offset,
+            width: 16,
+            value: k.value & 0xffff,
+            knownMask: 0xffff,
+          }));
+          const taken = pass.callbackNonzero.filter((route) => evaluate(route.condition, fieldsKnown) === true);
+          const unsure = pass.callbackNonzero.some((route) => evaluate(route.condition, fieldsKnown) === undefined);
+          return !unsure && taken.length === 1;
+        }
+        return choices[n]!.every((value) => combine(n + 1, [...known, { offset: offsets[n]!, value }]));
+      };
+      if (!combine(0, [])) return undefined;
+    }
+    for (const response of dispatch.responses ?? []) {
+      if (response.status !== "described") return undefined;
+      const helper = report.helpers?.find((h) => h.address === response.routine);
+      if (!helper) return undefined;
+      const own = new Set<number>();
+      // Only stores the response makes on every way through it.
+      for (const w of helper.writes)
+        if (w.root === "argument" && !w.path?.length && w.condition.kind === "true")
+          for (let byte = 0; byte < w.width / 8; byte++) own.add(w.offset + byte);
+      fields = fields ? new Set([...fields].filter((f) => own.has(f))) : own;
+    }
+  }
+  return fields;
+}
+/**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
  */
@@ -1250,8 +1310,13 @@ export function effectsFromOthers(
    * The touch lines of a part: what the bounce of a part it touches sets on it. Paths that set the same, and return
    * the same, are joined where their tests allow it. `read` are the fields the part's own rules read.
    */
+  const rewritten = rewrittenByResponse(report, evaluate);
   const touchLines = (part: BehaviourReport["parts"][number], read: Set<number>, assumptions: Set<string>) => {
     const readsField = (w: FieldWrite) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte));
+    // A field the contact response that always follows a bounce returning nonzero writes again is that response's.
+    const responds = (c: TouchCandidate) => c.returns !== undefined && c.returns !== 0 && !!rewritten;
+    const redone = (w: FieldWrite) =>
+      [...Array(w.width / 8).keys()].every((byte) => rewritten?.has(w.offset + byte) ?? false);
     // The contact dispatch walks the moving list: a part of a fixed type is never on it, by a decided assumption.
     const fixed = !!startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
     interface Path {
@@ -1279,8 +1344,9 @@ export function effectsFromOthers(
         }
         kept.push(typed);
       }
-      // A write to a field the part's rules read can change its frame: walks are the place for that.
-      if (!possible || c.writes.some(readsField)) continue;
+      // A write to a field the part's rules read can change its frame: walks are the place for that, unless the
+      // contact response that always follows writes the field again.
+      if (!possible || c.writes.some((w) => readsField(w) && !(responds(c) && redone(w)))) continue;
       const settings = settingsOf(c.writes, TOUCHER, part.type, used);
       if (!settings) continue;
       if (fixed) {
@@ -1370,12 +1436,15 @@ export function effectsFromOthers(
         const when = sourcePhrases.length ? `, when ${sourcePhrases.join(" and ")},` : "";
         const only = toucherWords.length ? ` Only when ${toucherWords.join(" and ")}.` : "";
         // The dispatch goes on to a contact response only when the bounce returns something other than 0.
+        const ruled = c.writes.filter(readsField).map((w) => fieldName(w.offset));
         const response =
           c.returns === undefined
             ? " The game may go on to a contact response, which can change these again."
             : c.returns === 0
               ? " Its bounce returns 0 then, so no contact response follows."
-              : ` Its bounce returns ${c.returns} then, so the game may go on to a contact response, which can change these again.`;
+              : ruled.length
+                ? ` Its bounce returns ${c.returns} then, so the game always goes on to a contact response, which works ${listWords([...new Set(ruled)])} out again from the angle they touch at: which frame it shows next is up to that response.`
+                : ` Its bounce returns ${c.returns} then, so the game ${rewritten ? "always goes" : "may go"} on to a contact response, which can change these again.`;
         lines.push({
           sourceType: c.sourceType,
           sourcePart: c.sourcePart,
