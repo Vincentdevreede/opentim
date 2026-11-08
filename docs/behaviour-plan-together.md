@@ -219,6 +219,11 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
 
 - [ ] **C1. A level recorder** (needs your answer to question 2). Run the game's own step loop in the emulator on a
       shipped level, and save every part's frame, place and speed after each step.
+      Started (2026-11-08, branch `feature/behaviour-machine`): an 8086 processor that runs `TIM.EXE`'s own code,
+      checked against DOSBox on about 1,500 instruction cases, and a recorder that starts the game, loads a puzzle with
+      the game's puzzle loader and runs the run button's run loop, saving every part record each step. Works for Even
+      More, English floppy (puzzles 1, 2, 17, 45, 60 and 80 tried); runs don't depend on the timer apart from pointers.
+      See [the level recorder](machine-recorder.md). Next: TIM 1 French, then the machine in B to compare with.
 - [ ] **C2. Machines without motion first.** Compare B3 with the recordings of the levels from question 3.
 - [ ] **C3. Then with motion.** Compare B4 and B5, level by level, and keep a list of where they part and why.
 
