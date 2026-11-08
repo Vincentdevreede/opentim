@@ -57,6 +57,11 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    game's own runs of the shipped puzzles show explosions there (7 puzzles in Even More, 4 in TIM 1). So "never" is
    wrong; the question becomes whether the alligator's search finds only parts of a fixed type and explosions.
 
+   Answered (2026-11-08) by tests in the game, with no assumption needed: the snap flips a switch above the mouth,
+   leaves a ball hanging there alone, and does nothing to an explosion. That is what the code gives, since the snap
+   does something only to six named types of a fixed type (see "What the user saw of the alligator" in
+   `docs/behaviour.md`).
+
 ## The starting point
 
 From `list-other-part-pairs` on Even More (English floppy) and TIM 1 (French), on 758726e:

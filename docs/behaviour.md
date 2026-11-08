@@ -1043,8 +1043,9 @@ masks each call passes. The calls pass:
 The moving list is the one the contact dispatch walks. By the [decided assumption on searches of the moving
 list](behaviour-assumptions.md#22-searches-of-the-moving-list), a search that walks only it never finds a part of a
 fixed type, so such a part gets no line or walk from it, states the assumption instead, and the pair check counts the
-pair as ruled out. Unlike the list flag `0x1000`, the list holds the bullet: the gun links it in itself. The fixed list
-only search of the alligator isn't used yet. A part of a type that isn't fixed can be on the fixed list: the two
+pair as ruled out. Unlike the list flag `0x1000`, the list holds the bullet: the gun links it in itself. The alligator's search of
+the fixed list needs no assumption: its code does something only to six named types, all of a fixed type, so the
+other parts it could find get nothing from it either way. A part of a type that isn't fixed can be on the fixed list: the two
 routines that make an explosion (type 41), `0x190f:0x32a9`, which the dynamite plunger's triggers reach, and
 `0x16ca:0x3792`, link it into the fixed list with the insert routine `0x629d` and set `0x0010` in its `0x06`. The
 game's own runs show the same (see the check in the [decided
@@ -1349,6 +1350,23 @@ What the user sees in the game (asked on 2026-11-06) fits two of these lines:
   the alligator: when the ball's centre is past the alligator's position plus 64, or before its position plus 16 when
   it is mirrored. That this end is the back and not the head is what the user saw, not something the code shows.
 - A running conveyor belt pushes a ball under it against the belt's direction, as its bounce does on the underside.
+
+What the user saw of the alligator in the game on 2026-11-08 (Even More), to settle question 5 of [the
+plan](behaviour-plan-together.md):
+
+- The snap is the mouth opening upwards. An electric switch flips only when it is above the mouth.
+- A ball that lands on the mouth makes the alligator snap straight away and is thrown up. The cat does the same. The
+  mouse is eaten. A balloon does the same as a ball when reverse gravity brings it down onto the mouth.
+- A ball or a balloon that touches the mouth from below makes the alligator snap, but isn't thrown.
+- A ball held just above the mouth without touching it is left alone when the alligator snaps, however close it is.
+- An explosion next to the alligator does nothing to it.
+
+The touches fit the alligator's touch lines (the throw up near the mouth, the mouse taken out of play). The snap's
+search walks only the fixed list (see [the lists a search walks](#the-lists-a-search-walks)), and its code does
+something only to the bellows, the electric switch, the fish bowl, the mouse motor, the scissors and the
+teeter-totter, all of a fixed type: a ball above the mouth isn't on that list, and an explosion, which is, passes every
+type test. Why a touch from below snaps without a throw isn't read yet: the four touch lines test the same
+`contactEdge`.
 
 ### Touch lines with cases
 
