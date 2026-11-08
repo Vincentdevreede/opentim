@@ -613,7 +613,8 @@ const SPEED_LIMIT = 0x0a;
 
 /**
  * A value as the words say it, the same number written plainly: a word sign extended to 32 bits is the word, a 32-bit
- * number past 2^31 is negative, `(c × x) >> k` with c a multiple of 2^k is `(c / 2^k) × x`, the low word of a quotient
+ * number past 2^31 is negative, `(c × x) >> k` with c a multiple of 2^k is `(c / 2^k) × x` when the product can't wrap,
+ * the low word of a quotient
  * is the quotient (a push's quotient fits a word), and a signed division reads ÷.
  */
 export function tidyArithmetic(e: Expression): Expression {
@@ -637,7 +638,11 @@ export function tidyArithmetic(e: Expression): Expression {
     const c = number(e.left.left);
     // The number is signed: the arithmetic shift keeps its sign.
     const signedC = c !== undefined && c >= 2 ** (e.left.left.width - 1) ? c - 2 ** e.left.left.width : c;
-    if (signedC !== undefined && signedC % 2 ** k === 0) {
+    // Only when the product can't wrap: with a factor of w bits, |c| × 2^w must stay within the product's sign bit,
+    // or `(2 × x) >> 1` would read x where the game's product wraps.
+    const factor = tidyArithmetic(e.left.right);
+    const fits = signedC !== undefined && Math.abs(signedC) * 2 ** factor.width <= 2 ** (e.left.width - 1);
+    if (signedC !== undefined && fits && signedC % 2 ** k === 0) {
       const scaled = signedC / 2 ** k;
       const width = e.left.left.width;
       return tidyArithmetic({ ...e.left, left: constant(scaled < 0 ? 2 ** width + scaled : scaled, width) });

@@ -85,6 +85,10 @@ describe("arithmetic as the words say it", () => {
     );
     // 100 isn't a multiple of 256: the shift stays.
     expect(tidyArithmetic(shifted(100))).toEqual(shifted(100));
+    // A 32-bit factor can make the product wrap: (2 × x) >> 1 is -1 for x = 0x7fffffff, so the shift stays.
+    const long: Expression = { ...field(0x7a, "part"), width: 32 };
+    const wraps = binary(">>", binary("*", constant(2, 32), long, 32), constant(1, 8), 32);
+    expect(tidyArithmetic(wraps)).toEqual(wraps);
   });
 
   it("drops products by 1 or 0, a division by 1, and a low-word mask where 16-bit arithmetic wraps anyway", () => {
