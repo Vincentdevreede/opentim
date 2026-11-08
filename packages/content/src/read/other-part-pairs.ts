@@ -109,7 +109,7 @@ export const CONTACT_SEARCH =
 export const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
 export const OPEN_TEST = "a test depends on something besides the two parts' own fields, like where the part is";
 export const LEFT_LOCAL =
-  "a test reads a local the source sets in its loop for some parts only: for this part it holds what the loop left there for the part before it, which only the run knows";
+  "a test reads a local the source sets in its loop for some parts only: for this part it holds what the loop last left there for an earlier part, or what the stack held when no earlier part set it, which only the run knows";
 export const DIRECTED_RULE_FIELD =
   "its rules read the velocity it sets, whose direction depends on where the two parts are, so a walk can't follow it";
 export const UNKNOWN_VALUE = "a value it sets isn't known to the analysis";

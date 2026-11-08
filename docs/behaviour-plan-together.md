@@ -174,11 +174,11 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       vacuum cleaner and the teeter-totter is partly described, and none of it is a place test. The teeter-totter's
       21 pairs stop at the contact search it runs on a part it launches. The vacuum cleaner's 5 (the bullet, the
       candle, the cat, Mel Schlemming and the mouse) have two reasons. For a part already rising at -1024 or faster it
-      moves velocityX by half the pull still in its local from the part before, which only the run knows; the pair
-      check names that now instead of the general reason for a test that reads more than the two parts. On the
-      other ways it keeps velocityX within the part's speed limit and then adds the pull, which the pair check doesn't
-      yet see as a velocity kept within the speed limit, so it gives its last reason. That belongs with A5's speed
-      limit pairs.
+      moves velocityX by half the pull still in its local from an earlier part, or whatever the stack held when no
+      earlier part had one, which only the run knows; the pair check names that now instead of the general reason
+      for a test that reads more than the two parts. On the other ways it keeps velocityX within the part's speed
+      limit and then adds the pull, which the pair check doesn't yet see as a velocity kept within the speed limit,
+      so it gives its last reason. That belongs with A5's speed limit pairs.
 - [x] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
       Done (2026-11-07): the vacuum cleaner's, the fan's and the cat's are read since A1 and A2. The teeter-totter's

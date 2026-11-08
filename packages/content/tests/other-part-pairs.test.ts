@@ -433,7 +433,7 @@ describe("the pairs of other parts", () => {
       status: "missing",
       reasons: [LIMIT_RULE_FIELD],
     });
-    // A test of a local the loop sets for other parts only, like the vacuum cleaner's pull: the part before left it.
+    // A test of a local the loop sets for other parts only, like the vacuum cleaner's pull: an earlier part left it.
     const pull = bin(">>", f("stack", -6), c(1));
     const nudged = and(isCat, compare(bin("+", f(M, 0x36), pull), ">", c(0x200)));
     expect(run(member(M, 0x700, nudged, [write(M, 0x36, c(0x200))]), "inferred")).toMatchObject({
