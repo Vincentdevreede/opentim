@@ -18,7 +18,8 @@
     "list-assumptions": "node scripts/list-assumptions.ts",
     "check-level-frames": "node scripts/check-level-frames.ts",
     "list-other-part-pairs": "node scripts/list-other-part-pairs.ts",
-    "record-cpu-cases": "node scripts/record-cpu-cases.ts"
+    "record-cpu-cases": "node scripts/record-cpu-cases.ts",
+    "record-level": "node scripts/record-level.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"
