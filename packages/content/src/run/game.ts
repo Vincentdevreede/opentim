@@ -41,9 +41,26 @@ const EVEN_MORE_FLOPPY: GameBuild = {
   modes: { running: 0x2000, menu: 0x8000 },
 };
 
+/**
+ * The Incredible Machine, French. Found in the code the same way:
+ * - the puzzle loader at `0x0e44:0x48a4` builds "l<n>.lev", sets the title flag `[0x55f2]` and calls the level reader
+ *   `0x0e44:0x42aa`; the game calls it with the puzzle number `[0x503d]` (at `0x0e44:0x10bd` and `0x0e44:0x31e3`);
+ * - the run loop at `0x0000:0x12dc` loops from `0x12f3` while the mode word `[0x4feb]` is `0x2000`, counting steps in
+ *   `[0x5027]`;
+ * - the parts are on the moving list `[0x52f9]` and the fixed list `[0x539b]`.
+ */
+const TIM_FRENCH: GameBuild = {
+  name: "The Incredible Machine, French",
+  loadPuzzle: { segment: 0x0e44, offset: 0x48a4 },
+  runLoop: { segment: 0x0000, offset: 0x12dc, top: 0x12f3 },
+  words: { puzzle: 0x503d, mode: 0x4feb, step: 0x5027, moving: 0x52f9, fixed: 0x539b },
+  modes: { running: 0x2000, menu: 0x8000 },
+};
+
 /** The builds the recorder knows, by the SHA-256 of their `TIM.EXE`. */
 export const GAME_BUILDS = new Map<string, GameBuild>([
   ["b11cf18e51a14dbcee9872ec2a524caec4e5f656c8612c3a4c7de16c79bd9fa9", EVEN_MORE_FLOPPY],
+  ["4a54cc37f477dde0f22d887e9930fbc384936cf089faa3343b27cac8aecd82d6", TIM_FRENCH],
 ]);
 
 /** How many bytes of each part record a step keeps: every field the analysis names lies below. */
