@@ -22,6 +22,7 @@ import {
   type Evaluate,
   FIXED_LIST_ASSUMPTION,
   MOVING_SEARCH_ASSUMPTION,
+  MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
   LIST_FLAGS,
   objects,
@@ -45,6 +46,7 @@ import {
   LIGHTABLE_PARTS,
   placeTest,
   searchTests,
+  madeIntoFixedList,
   searchesOnlyMovingList,
 } from "./describe-hits.ts";
 
@@ -414,6 +416,15 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       const ruled = new Set<string>();
       // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
       if (path.way === "touch" && fixed(target.type)) ruled.add(FIXED_LIST_ASSUMPTION);
+      // Nor does an explosion, and no search of the moving list finds one, by another.
+      if (
+        madeIntoFixedList(report).has(target.type) &&
+        (path.way === "touch" ||
+          (path.way === "overlap list" &&
+            path.header !== undefined &&
+            searchesOnlyMovingList(report, path.routine, path.header)))
+      )
+        ruled.add(MADE_FIXED_ASSUMPTION);
       // A search that walks only the moving list never finds one either, by a decided assumption.
       if (
         path.way === "overlap list" &&

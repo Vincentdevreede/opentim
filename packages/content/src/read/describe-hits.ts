@@ -7,7 +7,7 @@
  * An outcome must name the part's type, or its search's flag tests must be known and the part's type given every flag
  * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
-import { searchedLists } from "./behaviour-list-masks.ts";
+import { globalLists, searchedLists, typesLinkedInto } from "./behaviour-list-masks.ts";
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
 import { callKinds, openCalls } from "./behaviour.ts";
 import { formula as formulaOf } from "./describe-touch.ts";
@@ -16,6 +16,7 @@ import {
   type Evaluate,
   FIXED_LIST_ASSUMPTION,
   MOVING_SEARCH_ASSUMPTION,
+  MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
   LIST_FLAGS,
   TYPE_TABLE_ASSUMPTION,
@@ -434,6 +435,51 @@ export function searchesOnlyMovingList(report: BehaviourReport, routine: number,
   });
 }
 
+/** The head of the moving list: the one list the contact dispatch walks. */
+function movingListHead(report: BehaviourReport): number | undefined {
+  const moving = new Set((report.collisionDispatch ?? []).flatMap((d) => d.list?.globalHead ?? []));
+  return moving.size === 1 ? [...moving][0] : undefined;
+}
+
+/**
+ * The head of the fixed list: of the lists the list head routine picks by its mask, the one that is neither the moving
+ * list nor the list the list next routine goes on to by itself (`0x4e1f` in Even More, English floppy).
+ */
+export function fixedListHead(report: BehaviourReport): number | undefined {
+  const moving = movingListHead(report);
+  const lists = report.helpers && globalLists(report.helpers);
+  if (moving === undefined || !lists) return undefined;
+  const others = lists.byHead.filter(
+    (list) => list.head !== moving && !lists.byNext.some((next) => next.head === list.head),
+  );
+  return others.length === 1 ? others[0]!.head : undefined;
+}
+
+const madeIntoFixedListOf = new WeakMap<BehaviourReport, Set<number>>();
+/**
+ * The types that aren't of a fixed type but that part code makes with the part factory and links into the fixed list
+ * itself, and never into the moving list: the explosion in Even More and TIM 1 (`typesLinkedInto`). By a decided
+ * assumption such a part is never on the moving list.
+ */
+export function madeIntoFixedList(report: BehaviourReport): Set<number> {
+  let types = madeIntoFixedListOf.get(report);
+  if (!types) {
+    const fixed = fixedListHead(report);
+    const moving = movingListHead(report);
+    const starting = report.helpers
+      ?.find((h) => h.kind === "part-factory")
+      ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+    types = new Set();
+    if (fixed !== undefined && moving !== undefined && report.helpers && starting) {
+      const intoMoving = typesLinkedInto(report.routines, report.helpers, moving).types;
+      for (const type of typesLinkedInto(report.routines, report.helpers, fixed).types)
+        if ((starting.values[type]! & FIXED_TYPE) === 0 && !intoMoving.has(type)) types.add(type);
+    }
+    madeIntoFixedListOf.set(report, types);
+  }
+  return types;
+}
+
 /**
  * After a bounce returns anything but 0, the contact dispatch may go on to a contact response, picked by the touching
  * part's flags. What such a response stores on the touching part is unknown after the touch. `undefined` when a
@@ -701,6 +747,11 @@ export function hitsFromOthers(
       // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
       if (c.touch && fixed(part.type)) {
         assumptions.add(FIXED_LIST_ASSUMPTION);
+        continue;
+      }
+      // Nor does an explosion, which only part code makes, on the fixed list, by a decided assumption.
+      if ((c.touch || c.movingOnly) && madeIntoFixedList(report).has(part.type)) {
+        assumptions.add(MADE_FIXED_ASSUMPTION);
         continue;
       }
       // A search that walks only the moving list never finds a part of a fixed type, by a decided assumption.

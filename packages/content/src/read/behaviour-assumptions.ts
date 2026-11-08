@@ -7,6 +7,7 @@ import {
   BULLET_LIST_ASSUMPTION,
   FIXED_LIST_ASSUMPTION,
   MOVING_SEARCH_ASSUMPTION,
+  MADE_FIXED_ASSUMPTION,
   SCREEN_DIRECTION_ASSUMPTION,
 } from "./describe-effects.ts";
 import { LIGHTABLE_ASSUMPTION } from "./describe-hits.ts";
@@ -56,4 +57,5 @@ export const DECIDED_ASSUMPTIONS: { title: string; assumptions: string[] }[] = [
   { title: "Flipping a part with a loose belt end", assumptions: [FLIP_BELT_ASSUMPTION] },
   { title: "The wood incline's starting frame", assumptions: [WOOD_INCLINE_ASSUMPTION] },
   { title: "Searches of the moving list", assumptions: [MOVING_SEARCH_ASSUMPTION] },
+  { title: "Explosions", assumptions: [MADE_FIXED_ASSUMPTION] },
 ];

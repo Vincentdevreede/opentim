@@ -71,6 +71,22 @@ TIM 1 was found the same way: the two routines that join "l", the number and ".l
 compares with `0x2000` in a loop, `[0x4feb]`; and the two list heads the parts code reads most, `0xa2` bytes apart as
 in Even More. The start-up needs nothing different: the same Enter at the logo and the same wait for the menu.
 
+A run ends early when the puzzle's goal check finds the goal met: it sets the mode word to `0x0200`, which ends the run
+loop. Even More puzzles 106 and 115 (after 11 and 13 steps) and TIM 1 puzzle 76 (after 131 steps) end this way with
+only their own parts. Puzzle 106's goal routine `0x27e7` (from the table at `0x201a`) looks for a bucket on the moving
+list, and TIM 1's `0x1f4d` waits for step 130.
+
+## Checking the lists
+
+`check-moving-list` runs every shipped puzzle of a build for 500 steps and checks the lists at every step against
+[decided assumption 22](behaviour-assumptions.md#22-searches-of-the-moving-list): no part of a fixed type on the moving
+list. It also lists the types that join a list during a run and parts whose list flags at `0x06` disagree with their
+list. All puzzles of a build take about two minutes for TIM 1 and four for Even More.
+
+```
+pnpm --filter @opentim/content check-moving-list --game <game folder> [--steps 500] [--jobs <n>] [--puzzles 1-20]
+```
+
 ## What a recording says
 
 A run doesn't depend on the timer: puzzles 17 and 60 recorded with a tick every 20,000 and every 7,001 instructions

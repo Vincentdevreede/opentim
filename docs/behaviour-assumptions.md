@@ -913,8 +913,17 @@ brick wall?
 
 - A search that walks only the moving list (the list the contact dispatch walks) finds no part of a fixed type. The game puts a dropped part there only when its type isn't fixed, the parts part code links there itself (rope ends, pinballs, bullets) aren't of a fixed type, and no shipped level stores a part of a fixed type among its moving parts.
 
-Not proved: a level file made outside the game could store a part of a fixed type among its moving parts, and the
-places that save and restore the list heads (`0xffe7`, `0x12203`, `0x16b68`) were not read further.
+**Checked in the game's own run** (2026-11-08, with `check-moving-list`, which runs the game's code in the level
+recorder): every shipped puzzle of Even More (English floppy, 160 puzzles) and TIM 1 (French, 87 puzzles) ran for 500
+steps, or until the game's goal check ended the run (Even More 106 and 115, TIM 1 76). At every step no part of a fixed
+type was on the moving list. As loaded, the moving lists held 812 parts in Even More and 430 in TIM 1. The only parts
+that joined the moving list during a run were bullets (Even More 4 puzzles, TIM 1 3), pinballs (3 and 2) and rope ends
+(1 and 1), the parts the code above links there. The fixed list was joined by explosions (type 41, not a fixed type, in
+7 and 4 puzzles) and, in Even More puzzle 76, by a brick wall from the explosion's split of a wall.
+
+Not proved: a level file made outside the game could store a part of a fixed type among its moving parts, the places
+that save and restore the list heads (`0xffe7`, `0x12203`, `0x16b68`) were not read further, and the run covers only
+what the shipped puzzles do with their own parts, without the parts a player adds.
 
 **What it gives.** A part of a fixed type gets no line or walk from a search that walks only the moving list, and the
 pair check counts such pairs as ruled out. Most of them were the teeter-totter's launch lines on walls, ramps and
@@ -926,6 +935,48 @@ motors, which can't happen in the game. The parts it rules out state it in their
 - Look at levels saved by players for a part of a fixed type in the moving group.
 - Search the program again for code that links a part into the list at `0x4d7d` (and `0x52f9` in TIM 1), and read the
   routines that save and restore the list heads.
+- Run every shipped puzzle in the game's code and look at the lists each step:
+  `pnpm --filter @opentim/content check-moving-list --game <game folder>` (the builds the level recorder knows); it
+  fails when a part of a fixed type is on the moving list.
+
+## 23. Explosions
+
+Decided on 2026-11-08 with the user. In the code: `MADE_FIXED_ASSUMPTION` in
+`packages/content/src/read/describe-effects.ts`, used with `madeIntoFixedList` in
+`packages/content/src/read/describe-hits.ts`. Explained in
+[the lists a search walks](behaviour.md#the-lists-a-search-walks).
+
+**The question.** An explosion is not of a fixed type, so the analysis gave it the touch lines of the parts it could
+touch, like the alligator's throw, and let the searches of the moving list find it. Can an explosion ever be on the
+moving list, where the contact dispatch and those searches look?
+
+**What the code shows** (Even More, English floppy; TIM 1 French the same way):
+
+- Part code makes an explosion (type 41) in two places, `0x190f:0x32a9` (which the dynamite plunger's triggers reach)
+  and `0x16ca:0x3792`, each with the part factory, and links it into the fixed list (`0x4e1f`) with the list
+  insertion `0x629d`. The analysis reads this from the code (`typesLinkedInto` in `behaviour-list-masks.ts`): in both
+  games the types part code links into the fixed list are the explosion and the two copies the explosion's wall split
+  makes of a brick or wood wall, and into the moving list the rope ends, pinballs and bullets.
+- No shipped level of the eleven builds stores an explosion (0 among 3,267 parts per TIM 1 build and up to 6,883 per
+  Even More build).
+- In the game's own run of every shipped puzzle (`check-moving-list`), explosions join the fixed list in 7 puzzles of
+  Even More and 4 of TIM 1, and never the moving list.
+- The user: an explosion only happens after another part's action, so a level never stores one.
+
+**What we assume.**
+
+- An explosion is never on the moving list, so it touches nothing and no search of the moving list finds it. Only part code makes explosions, and it links them into the fixed list; an explosion only happens after another part's action, so no level stores one.
+
+Not proved: a level file made outside the game could store an explosion.
+
+**What it gives.** The explosion gets no touch lines and nothing from a search of the moving list; the pair check
+counts those pairs as ruled out (Even More 9 pairs, TIM 1 5). Searches of both lists, like the explosion's own and
+the fan's, can still find it.
+
+**How to recheck.**
+
+- Read the levels for a part of type 41.
+- Run `check-moving-list` on the builds the level recorder knows: it lists the types that join each list during a run.
 
 ## Recheck of the decided assumptions
 

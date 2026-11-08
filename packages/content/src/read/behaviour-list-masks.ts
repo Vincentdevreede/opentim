@@ -198,3 +198,85 @@ export function searchedLists(
   for (const list of byNext) if (passed.next & list.bit) heads.add(list.head);
   return [...heads].sort((a, b) => a - b);
 }
+
+/**
+ * The global lists the list head routine picks by a bit of its mask (`byHead`), and those the list next routine goes on
+ * to by a bit of its own (`byNext`, the third list in Even More, English floppy). Undefined when they aren't read.
+ */
+export function globalLists(
+  helpers: readonly EngineSummary[],
+): { byHead: { bit: number; head: number }[]; byNext: { bit: number; head: number }[] } | undefined {
+  const nexts = helpers.filter((h) => h.kind === "list-next" && h.listNext && "argument" in h.listNext.head);
+  if (nexts.length !== 1) return undefined;
+  const next = nexts[0]!;
+  const through = next.listNext!;
+  const head = helpers.find((h) => h.address === through.address && h.kind === "list-head");
+  if (!head || !("argument" in through.head)) return undefined;
+  const byHead = listsByBit(head, head.argumentOffset ?? 6);
+  const byNext = listsByBit(next, through.head.argument);
+  return byHead && byNext ? { byHead, byNext } : undefined;
+}
+
+/**
+ * The part types part code makes with the part factory and links into the global list `head` itself, with the list
+ * insertion: a call that pushes the list's head as a constant and, as the part, a register loaded from the factory's
+ * return just after a call that pushes the type as a constant. In Even More (English floppy) the rope ends, pinballs and
+ * bullets go into the moving list and the explosions into the fixed list. `unknown` counts the links into the list
+ * whose part isn't read that way, like the explosion's wall split, which links copies of the wall it splits.
+ */
+export function typesLinkedInto(
+  routines: readonly (RoutineCode & { engineCalls?: { instruction: number; summary: number }[] })[],
+  helpers: readonly EngineSummary[],
+  head: number,
+): { types: Set<number>; unknown: number } {
+  const kinds = new Map(helpers.map((h) => [h.address, h.kind]));
+  const types = new Set<number>();
+  let unknown = 0;
+  for (const code of routines)
+    for (const call of code.engineCalls ?? []) {
+      if (kinds.get(call.summary) !== "ordered-part-insertion") continue;
+      const list = pushedWord(code, call.instruction, 1);
+      if (!list || !("constant" in list) || list.constant !== head) continue;
+      const type = madePartType(code, call.instruction, kinds);
+      if (type === undefined) unknown++;
+      else types.add(type);
+    }
+  return { types, unknown };
+}
+
+/** The type the part pushed first before `call` was made with, when it comes straight from a part factory call. */
+function madePartType(
+  code: RoutineCode & { engineCalls?: { instruction: number; summary: number }[] },
+  call: number,
+  kinds: Map<number, string>,
+): number | undefined {
+  const order = code.instructions;
+  const at = order.findIndex((i) => i.address === call);
+  // The part is the last push before the call: `push ax` (the list) then `push si` (the part).
+  let k = at - 1;
+  const skipped = (i: Instruction) =>
+    i.mnemonic === "nop" || (i.mnemonic === "push" && isRegister(i.operands[0]) && i.operands[0].name === "cs");
+  while (k >= 0 && skipped(order[k]!)) k--;
+  if (order[k]?.mnemonic !== "push") return undefined;
+  const pushed = order[k]?.operands[0];
+  if (!isRegister(pushed)) return undefined;
+  // Its register was last set by `mov reg, ax`, with the factory's call at most three instructions before.
+  for (k--; k >= 0 && !writes(order[k]!, pushed.name); k--);
+  const set = order[k];
+  if (!set || set.mnemonic !== "mov" || !isRegister(set.operands[1]) || set.operands[1].name !== "ax") return undefined;
+  // Nothing may jump into the instructions after the factory's call up to the insertion from outside them.
+  const entered = (from: number) => {
+    const start = order[from]!.address;
+    return code.edges.some((e) => e.to !== null && e.to > start && e.to <= call && (e.from < start || e.from > call));
+  };
+  for (let j = k - 1; j >= Math.max(0, k - 3); j--) {
+    const instruction = order[j]!;
+    if (instruction.flow !== "call") continue;
+    if (entered(j)) return undefined;
+    const made = code.engineCalls?.find((c) => c.instruction === instruction.address);
+    if (!made || kinds.get(made.summary) !== "part-factory") return undefined;
+    const type = pushedWord(code, instruction.address, 0);
+    return type && "constant" in type ? type.constant : undefined;
+  }
+  return undefined;
+}
