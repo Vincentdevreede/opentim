@@ -1380,8 +1380,9 @@ The touches fit the alligator's touch lines (the throw up near the mouth, the mo
 search walks only the fixed list (see [the lists a search walks](#the-lists-a-search-walks)), and its code does
 something only to the bellows, the electric switch, the fish bowl, the mouse motor, the scissors and the
 teeter-totter, all of a fixed type: a ball above the mouth isn't on that list, and an explosion, which is, passes every
-type test. Why a touch from below snaps without a throw isn't read yet: the four touch lines test the same
-`contactEdge`.
+type test. A touch from below snaps without a throw because the mouth opens upwards, away from a part
+underneath (the user); in the code the alligator's touch routine (`0x190f:0x4971`) tests which of its edges was
+touched (`contactEdge`, at `0x8a` of the touching part), and all four lines need edge 0.
 
 ### Touch lines with cases
 
