@@ -173,7 +173,20 @@ Not found yet:
 - the second state value and the second rope slot are 0 in every shipped part, so they show nothing;
 - the pulley's rope: no word of the pulley's record, or of a record it points at, holds the rope part (a pulley's own
   record at `0x66` holds only the pulley, in puzzle 9);
-- the word before the parts bin, and the header's fields beyond gravity and air pressure (L2 goes on with the loader's
-  code for these).
+- the word before the parts bin, which is 0 in all 73 Even More puzzles that have it, so it shows nothing here.
 
-  pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]
+The header's numbers go to one block of words. Searched at every byte below `0x8000`, each one is in all puzzles only
+in its word below, apart from the scroll limits: they are -8 in every shipped puzzle, so they could be either of their
+two words (the file's order puts x first), and in TIM 1 three other words are -8 too.
+
+| Header field   | Even More, English floppy | TIM 1, French      |
+| -------------- | ------------------------- | ------------------ |
+| bonus counters | `0x4cb3`, `0x4cb5`        | `0x522f`, `0x5231` |
+| air pressure   | `0x4cb7`                  | `0x5233`           |
+| gravity        | `0x4cb9`                  | `0x5235`           |
+| scroll limits  | `0x4cbb`, `0x4cbd`        | `0x5237`, `0x5239` |
+| music          | `0x4cbf`                  | `0x523b`           |
+
+The counts of parts aren't kept as such. The word `0x4a8b` that Even More puzzle 70's goal reads isn't one of these.
+
+    pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]

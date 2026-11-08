@@ -37,6 +37,8 @@ interface FieldTally {
 interface PuzzleResult {
   puzzle: number;
   error?: string;
+  /** Each number of the file's header, with the words of the data segment that hold it after loading. */
+  header: [string, number, number[]][];
   parts: number;
   paired: number;
   /**
@@ -76,7 +78,7 @@ const words = (record: Uint8Array) =>
 const LINK = /^(links|plugs|belt\.parts|ropes\.\d\.parts)\.\d$|^pulley$|^tunnel$/;
 
 function runOne(folder: string, level: Uint8Array, puzzle: number, byType: boolean): PuzzleResult {
-  const result: PuzzleResult = { puzzle, parts: 0, paired: 0, pairs: [] };
+  const result: PuzzleResult = { puzzle, header: [], parts: 0, paired: 0, pairs: [] };
   try {
     const file = readLevel(level, { layout: "tim", name: `L${puzzle}.LEV` });
     const loaded = loadPuzzle(readFileSync(join(folder, "TIM.EXE")), gameFiles(folder), puzzle);
@@ -121,6 +123,14 @@ function runOne(folder: string, level: Uint8Array, puzzle: number, byType: boole
     // A link to another part may be kept in a record the part points at, like the belt record at 0x54.
     const segment = loaded.dataSegment;
     const word = (address: number) => segment[address & 0xffff]! | (segment[(address + 1) & 0xffff]! << 8);
+    // The header's numbers, and the words of the data segment below the parts that hold each one, at any byte.
+    for (const f of file.fields)
+      if (typeof f.value === "number" && f.size === 2 && !["magic", "version"].includes(f.key)) {
+        const value = f.value & 0xffff;
+        const at: number[] = [];
+        for (let address = 0; address < 0x8000; address++) if (word(address) === value) at.push(address);
+        result.header.push([f.key, value, at]);
+      }
     const places = new Map(result.pairs.map((pair) => [pair.index, pair.at]));
     for (const pair of result.pairs)
       for (const [key, value] of pair.fields) {
@@ -245,6 +255,19 @@ if (!isMainThread) {
         tally.ways = tally.ways.filter((way) => found.includes(way));
         for (const way of found) tally.agree.set(way, (tally.agree.get(way) ?? 0) + 1);
       }
+  // The header: the words that hold each number in every puzzle.
+  const header = new Map<string, { puzzles: number; values: Set<number>; at: number[] }>();
+  for (const r of results)
+    for (const [key, value, at] of r.header) {
+      const tally = header.get(key);
+      if (!tally) header.set(key, { puzzles: 1, values: new Set([value]), at });
+      else {
+        tally.puzzles++;
+        tally.values.add(value);
+        const here = new Set(at);
+        tally.at = tally.at.filter((address) => here.has(address));
+      }
+    }
   const failed = results.filter((r) => r.error);
   const parts = results.reduce((n, r) => n + r.parts, 0);
   const paired = results.reduce((n, r) => n + r.paired, 0);
@@ -267,6 +290,15 @@ if (!isMainThread) {
     console.log(
       `${key.padEnd(24)} ${String(tally.pairs).padStart(5)} pairs, ${String(tally.nonZero).padStart(5)} not 0, ` +
         `values ${tally.values.map(hex).join(" ")}${tally.values.length >= 6 ? " ..." : ""}: in the record at ${where}`,
+    );
+  }
+  console.log("Header numbers in the data segment's words (below 0x8000) after loading:");
+  for (const [key, tally] of header) {
+    const where = tally.at.length
+      ? tally.at.slice(0, 6).map(hex).join(", ") + (tally.at.length > 6 ? `, ... (${tally.at.length})` : "")
+      : "nowhere";
+    console.log(
+      `${key.padEnd(24)} ${String(tally.puzzles).padStart(4)} puzzles, ${tally.values.size} values: ${where}`,
     );
   }
   console.log("Links kept in a record the part points at (record word + place in that record):");
