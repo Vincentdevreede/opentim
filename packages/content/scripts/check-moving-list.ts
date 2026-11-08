@@ -22,6 +22,7 @@ const LIST_FLAGS = 0x06;
 /** What one puzzle's run shows. */
 export interface PuzzleResult {
   puzzle: number;
+  /** The steps the run got through: the last step `onStep` saw. */
   steps: number;
   error?: string;
   /** The parts on each list as the puzzle is loaded. */
@@ -64,7 +65,7 @@ function runOne(folder: string, puzzle: number, steps: number, fixedTypes: Set<n
   const flagged = new Set<number>();
   try {
     runPuzzle(exe, gameFiles(folder), puzzle, steps, ({ step, parts }) => {
-      result.steps = step + 1;
+      result.steps = step;
       if (step === 0)
         result.start = {
           moving: parts.filter((p) => p.list === "moving").length,
@@ -117,8 +118,14 @@ if (!isMainThread) {
   const program = readFileSync(join(folder, "TIM.EXE"));
   const build = GAME_BUILDS.get(exeHash(program));
   if (!build) throw new Error(`${folder}: the level recorder doesn't know this TIM.EXE (${exeHash(program)})`);
-  const steps = Number(values.steps);
-  const jobs = values.jobs ? Number(values.jobs) : Math.max(1, availableParallelism() - 1);
+  // A count that isn't a whole number above 0 would check nothing and still pass.
+  const count = (option: string, text: string) => {
+    const n = Number(text);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
+    return n;
+  };
+  const steps = count("steps", values.steps!);
+  const jobs = values.jobs ? count("jobs", values.jobs) : Math.max(1, availableParallelism() - 1);
 
   // The fixed types, from the part factory's starting flags as the analysis reads them.
   const game: Game = build.name.startsWith("Even More") ? "evenmore" : "tim1";
@@ -138,9 +145,10 @@ if (!isMainThread) {
     .map(Number)
     .sort((a, b) => a - b);
   if (values.puzzles) {
-    const [from, to] = values.puzzles.split("-").map(Number);
-    puzzles = puzzles.filter((p) => p >= from! && p <= (to ?? from!));
+    const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
+    puzzles = puzzles.filter((p) => p >= from! && p <= to!);
   }
+  if (!puzzles.length) throw new Error(`no puzzles to run${values.puzzles ? ` in ${values.puzzles}` : ""}`);
   console.log(`${build.name}: ${puzzles.length} puzzles, ${steps} steps each, ${jobs} at a time`);
   console.log(`Fixed types: ${fixedTypes.map(name).join(", ")}`);
 
@@ -194,5 +202,7 @@ if (!isMainThread) {
     );
   console.log(`Parts of a fixed type on the moving list: ${fixedOnMoving.length}`);
   for (const f of fixedOnMoving.slice(0, 20)) console.log(`  puzzle ${f.puzzle} step ${f.step}: ${name(f.type)}`);
-  if (fixedOnMoving.length || failed.length) process.exitCode = 1;
+  const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
+  if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
+  if (fixedOnMoving.length || failed.length || missing.length) process.exitCode = 1;
 }
