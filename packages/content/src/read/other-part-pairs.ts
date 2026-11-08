@@ -108,6 +108,8 @@ export const CONTACT_SEARCH =
   "the source runs the contact search on the part: where that leaves the part, with its contact record and list flags, only the run knows";
 export const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
 export const OPEN_TEST = "a test depends on something besides the two parts' own fields, like where the part is";
+export const LEFT_LOCAL =
+  "a test reads a local the source sets in its loop for some parts only: for this part it holds what the loop last left there for an earlier part, or what the stack held when no earlier part set it, which only the run knows";
 export const DIRECTED_RULE_FIELD =
   "its rules read the velocity it sets, whose direction depends on where the two parts are, so a walk can't follow it";
 export const UNKNOWN_VALUE = "a value it sets isn't known to the analysis";
@@ -126,6 +128,15 @@ export const UNDECIDED_TEST =
 export const UNCLASSIFIED = "not described, for a reason this check doesn't name";
 export const CONSUMER_UNREAD =
   "the helper that walks the list is read only as a footprint (which member fields it may write), not path by path";
+
+/** Whether a test reads a local of the source's routine, a word below its frame on the stack. */
+function readsLocal(v: Expression | Predicate): boolean {
+  if (v.kind === "field") return v.object === "stack" && v.offset < 0;
+  if (v.kind === "binary" || v.kind === "compare") return readsLocal(v.left) || readsLocal(v.right);
+  if (v.kind === "table") return readsLocal(v.index);
+  if (v.kind === "and") return v.terms.some(readsLocal);
+  return false;
+}
 
 const hex = (n: number) => `0x${n.toString(16)}`;
 /** A test that reads no object and no unknown, like `7 >=s 7`: its value is the same on every run. */
@@ -353,6 +364,8 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       if (placed(term)) continue;
       // A constant test the conditions keep, like `1 != 0`, reads no object: when it holds it says nothing.
       if (constantTest(term) && evaluate(term, []) === true) continue;
+      // A loop's local it didn't set on this way, like the vacuum cleaner's pull for a part rising at the cap.
+      if (!touch && readsLocal(term)) return LEFT_LOCAL;
       if (read.unknown || term.kind === "unknown") return OPEN_TEST;
       const only = [...read.objects];
       // A loop's tests may read the source or the member, a bounce's both together.
