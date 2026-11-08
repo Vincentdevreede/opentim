@@ -121,3 +121,44 @@ recorder knows as the run loop's counter, and `0x5027` in TIM 1, French) and `0x
 must be at least 308 for the goal to be met.
 
     pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
+
+## What the loader keeps
+
+`check-level-fields` loads every shipped puzzle of a recorded build with the game's own puzzle loader in the emulator
+(`loadPuzzle` in `src/run/game.ts`, which stops right after the loader, before the run button's preparation), reads
+the same level with `level.ts`, and pairs each placed part of the file with the record the loader made for it. Parts
+in the parts bin aren't on either list, so they aren't paired. A part pairs with the record of its type on the list of
+its group (fixed or moving) when it is the only one of its type there, or else when one record has its flags at
+`0x06` and `0x08` and its place at `0x8c` and `0x8e` (the place was first found there on pairs made by type alone,
+with `--by-type`). For each field it then lists the words of the record that hold the field's value in every pair:
+
+| Field in the file             | In the record                                                    | Even More pairs | TIM 1 pairs |
+| ----------------------------- | ---------------------------------------------------------------- | --------------: | ----------: |
+| type                          | `0x04` type                                                      |           4,448 |       2,211 |
+| flags, first word             | `0x06` (the list bits and more)                                  |           4,448 |       2,211 |
+| flags, second word            | `0x08` drawingFlags and `0x94` savedDrawingFlags                 |           4,448 |       2,211 |
+| flags, third word             | nowhere in Even More; `0x0a` in TIM 1                            |           4,448 |       2,211 |
+| first state value             | `0x90` savedState                                                |           4,448 |       2,211 |
+| size                          | `0x40`, `0x42` (the extents) and `0x44`, `0x46` (the frame size) |           4,448 |       2,211 |
+| second size                   | `0x50`, `0x52` baseWidth and baseHeight                          |           4,448 |       2,211 |
+| position                      | `0x8c`, `0x8e` savedPositionX and savedPositionY                 |           4,448 |       2,211 |
+| extra                         | `0x96`                                                           |           4,448 |       2,211 |
+| belt place (two bytes), width | bytes `0x56`, `0x57` and the word `0x58`                         |           4,448 |       2,211 |
+| rope slots' places            | bytes `0x6a`, `0x6b` and `0x6c`, `0x6d`                          |           4,448 |       2,211 |
+| plugged parts                 | `0x62`, `0x64`, as the plugged part's record (0 for none)        |           4,448 |       2,211 |
+
+So the second size, which `level.ts` didn't know, is the part's base size, and the position, state and drawing flags
+go to the saved words the run starts from. Pairing by type alone (`--by-type`, 833 pairs in Even More) finds the same
+places. The second plugged part shows only in Even More, where one shipped part has one; in TIM 1 it is always none.
+
+Not found yet:
+
+- the second state value and the second rope slot are 0 in every shipped part, so they show nothing;
+- the links, the belt's two parts, the rope's two parts and the pulley's rope name other parts by their index in the
+  file, but no record word holds the paired record's place: they likely point at the rope and belt records the loader
+  makes (see the rope's and pulley's constructors in `docs/behaviour.md`), which this check doesn't pair yet;
+- Even More's third flag word, which TIM 1 keeps at `0x0a`, where Even More keeps its goal marks;
+- the word before the parts bin, and the header's fields beyond gravity and air pressure (L2 goes on with the loader's
+  code for these).
+
+  pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]

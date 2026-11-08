@@ -76,20 +76,14 @@ export function exeHash(exe: Uint8Array): string {
   return createHash("sha256").update(exe).digest("hex");
 }
 
-/**
- * Runs puzzle `puzzle` for `steps` steps and calls `onStep` with the parts after each step, `steps` + 1 times: step 0 is
- * the puzzle as loaded, after the run button's preparation, and step n the parts after n steps. A run that ends early,
- * when the goal is met, calls it fewer times. `file` gives the game's files by name.
- */
-export function runPuzzle(
+/** Starts the game, leaves the menu and loads a puzzle with the game's puzzle loader; returns the machine and a reader. */
+function startPuzzle(
   exe: Uint8Array,
   file: (name: string) => Uint8Array | undefined,
   puzzle: number,
-  steps: number,
-  onStep: (parts: StepParts) => void,
-  build: GameBuild | undefined = GAME_BUILDS.get(exeHash(exe)),
+  build: GameBuild | undefined,
   tickEvery?: number,
-): void {
+) {
   if (!build) throw new Error(`no recorder addresses for this TIM.EXE (${exeHash(exe)})`);
   const program = readLzexeProgram(exe);
   const dos = new Dos({ file, ...(tickEvery ? { tickEvery } : {}) });
@@ -104,7 +98,7 @@ export function runPuzzle(
   dos.key(0x9c);
   dos.runUntil(() => cpu.steps >= 25_000_000, 22_000_000, "menu");
   dos.runUntil(() => !dos.inInterrupt && inGame(), 50_000_000, "a menu step");
-  // From here the menu is left: the puzzle is loaded and run as the run button does.
+  // From here the menu is left: the puzzle is loaded as the game loads it.
   cpu.segs[3] = data;
   cpu.write16(data, build.words.puzzle, puzzle);
   dos.callFar(dos.load + build.loadPuzzle.segment, build.loadPuzzle.offset, [puzzle], 300_000_000, "loading");
@@ -114,19 +108,53 @@ export function runPuzzle(
       parts.push({ list, at, record: cpu.memory.slice(data * 16 + at, data * 16 + at + PART_RECORD) });
     return parts;
   };
-  cpu.write16(data, build.words.mode, build.modes.running);
+  return { dos, cpu, data, build, parts: () => [...read("moving"), ...read("fixed")] };
+}
+
+/**
+ * Loads puzzle `puzzle` with the game's puzzle loader and gives the parts on both lists right after it, before the run
+ * button's preparation, with the data segment's words at `words` (each a word address).
+ */
+export function loadPuzzle(
+  exe: Uint8Array,
+  file: (name: string) => Uint8Array | undefined,
+  puzzle: number,
+  words: readonly number[] = [],
+  build: GameBuild | undefined = GAME_BUILDS.get(exeHash(exe)),
+): { parts: StepParts["parts"]; words: Map<number, number> } {
+  const { cpu, data, parts } = startPuzzle(exe, file, puzzle, build);
+  return { parts: parts(), words: new Map(words.map((w) => [w, cpu.read16(data, w)])) };
+}
+
+/**
+ * Runs puzzle `puzzle` for `steps` steps and calls `onStep` with the parts after each step, `steps` + 1 times: step 0 is
+ * the puzzle as loaded, after the run button's preparation, and step n the parts after n steps. A run that ends early,
+ * when the goal is met, calls it fewer times. `file` gives the game's files by name.
+ */
+export function runPuzzle(
+  exe: Uint8Array,
+  file: (name: string) => Uint8Array | undefined,
+  puzzle: number,
+  steps: number,
+  onStep: (parts: StepParts) => void,
+  build: GameBuild | undefined = GAME_BUILDS.get(exeHash(exe)),
+  tickEvery?: number,
+): void {
+  const { dos, cpu, data, parts, build: known } = startPuzzle(exe, file, puzzle, build, tickEvery);
+  // The puzzle is run as the run button does.
+  cpu.write16(data, known.words.mode, known.modes.running);
   let step = 0;
-  const top = { segment: dos.load + build.runLoop.segment, offset: build.runLoop.top };
+  const top = { segment: dos.load + known.runLoop.segment, offset: known.runLoop.top };
   cpu.push(0xffff);
   cpu.push(0);
-  cpu.segs[1] = dos.load + build.runLoop.segment;
-  cpu.ip = build.runLoop.offset;
+  cpu.segs[1] = dos.load + known.runLoop.segment;
+  cpu.ip = known.runLoop.offset;
   dos.runUntil(
     () => {
       if (cpu.cs === top.segment && cpu.ip === top.offset) {
         // The top of a pass is where the step before has ended: after the last step the run goes back to the menu.
-        if (step <= steps) onStep({ step, parts: [...read("moving"), ...read("fixed")] });
-        if (++step > steps) cpu.write16(data, build.words.mode, build.modes.menu);
+        if (step <= steps) onStep({ step, parts: parts() });
+        if (++step > steps) cpu.write16(data, known.words.mode, known.modes.menu);
       }
       return cpu.cs === 0xffff && cpu.ip === 0;
     },
