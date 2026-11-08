@@ -176,6 +176,13 @@ Not found yet:
   record at `0x66` holds only the pulley, in puzzle 9);
 - the word before the parts bin, which is 0 in all 73 Even More puzzles that have it, so it shows nothing here.
 
+The parts bin is the third list, the one the list head routine picks by the bit `0x0800` (`[0x4cdb]` in Even More,
+English floppy, `[0x5257]` in TIM 1, French): after loading it holds the file's bin parts in the file's order, in 157
+of the 160 Even More puzzles, and their fields go where a placed part's do (tallied as `bin: <field>`), with the first
+state value also at `0x0c`. In puzzle 105 the list stops after the first of its two ropes (5 of 14 parts), and in
+puzzles 106 and 115, with 47 and 15 parts in the bin, it is empty after loading. Why isn't read yet; these are among
+the levels with the most parts in the bin.
+
 The header's numbers go to one block of words. Searched at every byte below `0x8000`, each one is in all puzzles only
 in its word below, apart from the scroll limits: they are -8 in every shipped puzzle, so they could be either of their
 two words (the file's order puts x first), and in TIM 1 three other words are -8 too.

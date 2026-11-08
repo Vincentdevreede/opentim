@@ -41,6 +41,9 @@ interface PuzzleResult {
   header: [string, number, number[]][];
   parts: number;
   paired: number;
+  /** The parts in the file's parts bin, and whether the parts bin list after loading has them in the same order. */
+  bin: number;
+  binInOrder: boolean;
   /**
    * The fields of every paired part: key, value and size, and the record's bytes and place; for a link, the words of
    * the record that point at a record holding the linked part, as "offset+k".
@@ -78,7 +81,7 @@ const words = (record: Uint8Array) =>
 const LINK = /^(links|plugs|belt\.parts|ropes\.\d\.parts)\.\d$|^pulley$|^tunnel$/;
 
 function runOne(folder: string, level: Uint8Array, puzzle: number, byType: boolean): PuzzleResult {
-  const result: PuzzleResult = { puzzle, header: [], parts: 0, paired: 0, pairs: [] };
+  const result: PuzzleResult = { puzzle, header: [], parts: 0, paired: 0, bin: 0, binInOrder: false, pairs: [] };
   try {
     const file = readLevel(level, { layout: "tim", name: `L${puzzle}.LEV` });
     const loaded = loadPuzzle(readFileSync(join(folder, "TIM.EXE")), gameFiles(folder), puzzle);
@@ -120,6 +123,33 @@ function runOne(folder: string, level: Uint8Array, puzzle: number, byType: boole
         through: [],
       });
     }
+    // The parts bin is a list of its own, in the file's order: its fields are tallied as "bin: <field>".
+    const bin = file.parts.filter((p) => p.group === "bin");
+    result.bin = bin.length;
+    result.binInOrder =
+      loaded.bin.length === bin.length &&
+      bin.every((part, k) => (loaded.bin[k]!.record[4]! | (loaded.bin[k]!.record[5]! << 8)) === part.type);
+    if (result.binInOrder)
+      bin.forEach((part, k) =>
+        result.pairs.push({
+          index: part.index,
+          type: part.type,
+          group: "bin",
+          fields: part.fields
+            .filter((f) => typeof f.value === "number" && f.size <= 2)
+            .map(
+              (f) =>
+                [`bin: ${f.key}`, (f.value as number) & (f.size === 1 ? 0xff : 0xffff), f.size] as [
+                  string,
+                  number,
+                  number,
+                ],
+            ),
+          record: [...loaded.bin[k]!.record],
+          at: loaded.bin[k]!.at,
+          through: [],
+        }),
+      );
     // A link to another part may be kept in a record the part points at, like the belt record at 0x54.
     const segment = loaded.dataSegment;
     const word = (address: number) => segment[address & 0xffff]! | (segment[(address + 1) & 0xffff]! << 8);
@@ -292,6 +322,12 @@ if (!isMainThread) {
         `values ${tally.values.map(hex).join(" ")}${tally.values.length >= 6 ? " ..." : ""}: in the record at ${where}`,
     );
   }
+  const binParts = results.reduce((n, r) => n + r.bin, 0);
+  const binOut = results.filter((r) => !r.error && !r.binInOrder);
+  console.log(
+    `Parts bin: ${binParts} parts; the parts bin list holds the file's bin in its order in ${results.length - failed.length - binOut.length} puzzles` +
+      (binOut.length ? `, not in ${binOut.map((r) => r.puzzle).join(", ")}` : ""),
+  );
   console.log("Header numbers in the data segment's words (below 0x8000) after loading:");
   for (const [key, tally] of header) {
     const where = tally.at.length

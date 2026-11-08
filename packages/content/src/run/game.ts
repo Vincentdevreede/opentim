@@ -17,7 +17,8 @@ export interface GameBuild {
   /** The run loop the run button starts, and the top of its loop, where one step begins. */
   runLoop: { segment: number; offset: number; top: number };
   /** Words in the data segment. */
-  words: { puzzle: number; mode: number; step: number; moving: number; fixed: number };
+  /** Words in the data segment; `bin` heads the parts bin, the list the list head routine picks by bit 0x0800. */
+  words: { puzzle: number; mode: number; step: number; moving: number; fixed: number; bin: number };
   /** The game modes the run loop runs in and the menu's. */
   modes: { running: number; menu: number };
 }
@@ -31,13 +32,15 @@ export interface GameBuild {
  *   loops from `0x1247` while the mode word `[0x4a6d]` is `0x2000`, counting steps in `[0x4aab]`; each pass reads
  *   input, runs the parts (`0x0e89`), moves them (`0x73f5`), checks the goal (`0x1497`, through `0x14ae` by the puzzle
  *   number `[0x4ac1]`), draws, and waits for 8 timer ticks;
- * - the parts are on the moving list `[0x4d7d]` and the fixed list `[0x4e1f]`; the menu's mode is `0x8000`.
+ * - the parts are on the moving list `[0x4d7d]` and the fixed list `[0x4e1f]`, and the parts bin is the list at
+ *   `[0x4cdb]` (the list head routine `0x682f` picks the three by the bits 0x1000, 0x2000 and 0x0800); the menu's mode
+ *   is `0x8000`.
  */
 const EVEN_MORE_FLOPPY: GameBuild = {
   name: "Even More, English floppy",
   loadPuzzle: { segment: 0x0ecc, offset: 0x541e },
   runLoop: { segment: 0x0000, offset: 0x1230, top: 0x1247 },
-  words: { puzzle: 0x4ac1, mode: 0x4a6d, step: 0x4aab, moving: 0x4d7d, fixed: 0x4e1f },
+  words: { puzzle: 0x4ac1, mode: 0x4a6d, step: 0x4aab, moving: 0x4d7d, fixed: 0x4e1f, bin: 0x4cdb },
   modes: { running: 0x2000, menu: 0x8000 },
 };
 
@@ -47,13 +50,14 @@ const EVEN_MORE_FLOPPY: GameBuild = {
  *   `0x0e44:0x42aa`; the game calls it with the puzzle number `[0x503d]` (at `0x0e44:0x10bd` and `0x0e44:0x31e3`);
  * - the run loop at `0x0000:0x12dc` loops from `0x12f3` while the mode word `[0x4feb]` is `0x2000`, counting steps in
  *   `[0x5027]`;
- * - the parts are on the moving list `[0x52f9]` and the fixed list `[0x539b]`.
+ * - the parts are on the moving list `[0x52f9]` and the fixed list `[0x539b]`, and the parts bin is the list at
+ *   `[0x5257]` (the list head routine `0x5b96` picks the three the same way).
  */
 const TIM_FRENCH: GameBuild = {
   name: "The Incredible Machine, French",
   loadPuzzle: { segment: 0x0e44, offset: 0x48a4 },
   runLoop: { segment: 0x0000, offset: 0x12dc, top: 0x12f3 },
-  words: { puzzle: 0x503d, mode: 0x4feb, step: 0x5027, moving: 0x52f9, fixed: 0x539b },
+  words: { puzzle: 0x503d, mode: 0x4feb, step: 0x5027, moving: 0x52f9, fixed: 0x539b, bin: 0x5257 },
   modes: { running: 0x2000, menu: 0x8000 },
 };
 
@@ -102,17 +106,27 @@ function startPuzzle(
   cpu.segs[3] = data;
   cpu.write16(data, build.words.puzzle, puzzle);
   dos.callFar(dos.load + build.loadPuzzle.segment, build.loadPuzzle.offset, [puzzle], 300_000_000, "loading");
-  const read = (list: "moving" | "fixed") => {
-    const parts: StepParts["parts"] = [];
-    for (let at = cpu.read16(data, build.words[list]); at && parts.length < 1000; at = cpu.read16(data, at))
-      parts.push({ list, at, record: cpu.memory.slice(data * 16 + at, data * 16 + at + PART_RECORD) });
-    return parts;
+  const chain = (head: number) => {
+    const records: { at: number; record: Uint8Array }[] = [];
+    for (let at = cpu.read16(data, head); at && records.length < 1000; at = cpu.read16(data, at))
+      records.push({ at, record: cpu.memory.slice(data * 16 + at, data * 16 + at + PART_RECORD) });
+    return records;
   };
-  return { dos, cpu, data, build, parts: () => [...read("moving"), ...read("fixed")] };
+  const read = (list: "moving" | "fixed"): StepParts["parts"] =>
+    chain(build.words[list]).map((part) => ({ list, ...part }));
+  return {
+    dos,
+    cpu,
+    data,
+    build,
+    parts: () => [...read("moving"), ...read("fixed")],
+    bin: () => chain(build.words.bin),
+  };
 }
 
 /**
- * Loads puzzle `puzzle` with the game's puzzle loader and gives the parts on both lists right after it, before the run
+ * Loads puzzle `puzzle` with the game's puzzle loader and gives the parts on both lists and in the parts bin right
+ * after it, before the run
  * button's preparation, with the data segment's words at `words` (each a word address) and a copy of the whole data
  * segment, for records the parts point at.
  */
@@ -122,10 +136,16 @@ export function loadPuzzle(
   puzzle: number,
   words: readonly number[] = [],
   build: GameBuild | undefined = GAME_BUILDS.get(exeHash(exe)),
-): { parts: StepParts["parts"]; words: Map<number, number>; dataSegment: Uint8Array } {
-  const { cpu, data, parts } = startPuzzle(exe, file, puzzle, build);
+): {
+  parts: StepParts["parts"];
+  bin: { at: number; record: Uint8Array }[];
+  words: Map<number, number>;
+  dataSegment: Uint8Array;
+} {
+  const { cpu, data, parts, bin } = startPuzzle(exe, file, puzzle, build);
   return {
     parts: parts(),
+    bin: bin(),
     words: new Map(words.map((w) => [w, cpu.read16(data, w)])),
     dataSegment: cpu.memory.slice(data * 16, data * 16 + 0x10000),
   };
