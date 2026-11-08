@@ -10,7 +10,8 @@ pnpm --filter @opentim/content record-level --game <game folder> --puzzle <n> [-
 ```
 
 It takes about two and a half seconds for 50 steps. The output lists each part (its place in the data segment, its type
-and its list) and, per step, the records that changed since the step before, as 160 hex bytes each.
+and its list) and, per step from step 0 (the puzzle as loaded) to the last one asked for, the records that changed since
+the step before, as 160 hex bytes each.
 
 ## The processor
 

@@ -77,8 +77,9 @@ export function exeHash(exe: Uint8Array): string {
 }
 
 /**
- * Runs puzzle `puzzle` for `steps` steps and calls `onStep` at the start of each step (step 0 is the puzzle as loaded,
- * after the run button's preparation). `file` gives the game's files by name.
+ * Runs puzzle `puzzle` for `steps` steps and calls `onStep` with the parts after each step, `steps` + 1 times: step 0 is
+ * the puzzle as loaded, after the run button's preparation, and step n the parts after n steps. A run that ends early,
+ * when the goal is met, calls it fewer times. `file` gives the game's files by name.
  */
 export function runPuzzle(
   exe: Uint8Array,
@@ -123,12 +124,13 @@ export function runPuzzle(
   dos.runUntil(
     () => {
       if (cpu.cs === top.segment && cpu.ip === top.offset) {
-        if (step < steps) onStep({ step, parts: [...read("moving"), ...read("fixed")] });
-        if (++step >= steps) cpu.write16(data, build.words.mode, build.modes.menu);
+        // The top of a pass is where the step before has ended: after the last step the run goes back to the menu.
+        if (step <= steps) onStep({ step, parts: [...read("moving"), ...read("fixed")] });
+        if (++step > steps) cpu.write16(data, build.words.mode, build.modes.menu);
       }
       return cpu.cs === 0xffff && cpu.ip === 0;
     },
-    steps * 2_000_000 + 10_000_000,
+    (steps + 1) * 2_000_000 + 10_000_000,
     "running",
   );
 }
