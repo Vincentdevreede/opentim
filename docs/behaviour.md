@@ -1123,6 +1123,28 @@ pull of the bullet stays partly described: its tests read the pull left from an 
 1,459 in Even More and from 1,217 to 1,223 in TIM 1, and every one of them ends. The recordings match as before: 648
 and 552 complete.
 
+### Mel Schlemming's speed limit
+
+Every other type's limit is `0x2600` minus the value the routine works out from the air pressure (the word at
+`0x4cb7`, Even More, English floppy): half of it when it is below 70, else 16 times it. The reader reads that too
+(`air`): the only three stores to the local the routine takes from the base, `mov`, `sar` and `shl`, around a `cmp`
+with 70 and a `jge`. The control panel keeps the air pressure from 0 to 128 (`0x12566` to `0x1257a`; TIM 1, French,
+`0x118a6` to `0x118ba`) and a new level starts at 67, and the shipped levels of all eleven builds use 0 to 68. By
+[decided assumption 24](behaviour-assumptions.md#24-the-air-pressure) a level's air pressure is one the panel can set,
+so such a type's limit lies between 7680 (air pressure 128) and 9728 (air pressure 0) (`speedLimitRange`).
+
+Two limits of that range only leave a speed different when it lies between them, from 7680 to 9728 or from -9728 to
+-7680. So a part's rules can't tell them apart when every test of the field in them gives one answer over each of
+those two stretches, and every value a rule stores from the field is a choice by such tests, or the field itself kept
+in its own place (`rulesIgnoreLimit`). Mel's rules look at whether he moves up or down faster than 1536, his bounce
+notes whether faster than 7168, and keeps his `velocityY` or clears it: none of these tells the limits apart. For such
+a part a walk keeps the value within 7680, and states the assumption and that every limit of the range gives the same
+frames. The fan's, the bellows' and the teapot's pushes of Mel are walks now, and they all end.
+
+Pairs, Even More (English floppy): described 393 → 396, missing 11 → 8. TIM 1 has no Mel, so its pairs stay as they
+were. The vacuum cleaner's pull of Mel stays partly described for its other reasons. Walks in Even More go from 1,459
+to 1,468, and every one ends; the recordings match as before: 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

@@ -21,6 +21,11 @@ export interface SpeedLimitSetup extends Finding {
   fixed: { type: number; limit: number }[];
   /** Every other type's limit is this number minus a value of the air pressure, when the routine says so. */
   base?: number;
+  /**
+   * The value of the air pressure (the word at `address` in the data segment) the routine takes from `base`: the air
+   * pressure shifted right by `below` when it is below `split` (signed), else shifted left by `above`.
+   */
+  air?: { address: number; split: number; below: number; above: number };
 }
 
 /** The speed limit's word in a type record. */
@@ -84,7 +89,7 @@ interface Way {
   equals: number[];
   differs: number[];
   /** The last store to the speed limit word on the way: a number, `base - x`, or a value not read. */
-  limit?: { value: number } | { base: number } | { open: true };
+  limit?: { value: number } | { base: number; minus: Operand } | { open: true };
 }
 
 /**
@@ -247,7 +252,7 @@ function readSetup(
           seen.has(n - 1) &&
           seen.has(n - 2)
         )
-          limit = { base: immediate(load.operands[1])! };
+          limit = { base: immediate(load.operands[1])!, minus: sub.operands[1]! };
         way = { ...way, limit };
       }
     } else if (target?.kind === "memory" && !READS_ONLY.has(i.mnemonic) && !isLocal(target)) {
@@ -289,16 +294,78 @@ function readSetup(
     const [limit] = [...limits];
     if (taken.length && limits.size === 1 && limit !== undefined) fixed.push({ type, limit });
   }
-  const bases = new Set(ways.flatMap((w) => (w.limit && "base" in w.limit ? [w.limit.base] : [])));
+  const based = ways.flatMap((w) => (w.limit && "base" in w.limit ? [w.limit] : []));
+  const bases = new Set(based.map((w) => w.base));
+  const minus = new Set(based.map((w) => JSON.stringify(w.minus)));
+  const air = minus.size === 1 ? airValue(list, based[0]!.minus, evidence) : undefined;
   const unique = [...new Map(evidence.map((e) => [e.address, e])).values()].sort((a, b) => a.address - b.address);
   return {
     confidence: "inferred",
     routine: code.address,
     fixed,
     ...(bases.size === 1 ? { base: [...bases][0]! } : {}),
+    ...(air ? { air } : {}),
     evidence: unique,
     assumptions: [speedLimitSetupAssumption(code.address)],
   };
+}
+
+/**
+ * How the routine works out the local it takes from the base: `mov ax,[air]; mov local,ax; cmp local,split; jge;
+ * sar local,1; jmp; mov cl,n; shl local,cl`, the only instructions in the routine that write the local.
+ */
+function airValue(list: Instruction[], local: Operand, evidence: Evidence[]): SpeedLimitSetup["air"] {
+  if (!isLocal(local)) return;
+  const writers = list.flatMap((i, n) => (writes(i, local) ? [n] : []));
+  if (writers.length !== 3) return;
+  const [store, half, scale] = writers.map((n) => list[n]!);
+  const n = writers[0]!;
+  const [load, compare, branch, skip] = [list[n - 1], list[n + 1], list[n + 2], list[n + 4]];
+  const count = list[writers[2]! - 1];
+  const air = load?.operands[1];
+  if (
+    load?.mnemonic !== "mov" ||
+    !isRegister(load.operands[0], "ax") ||
+    air?.kind !== "memory" ||
+    air.segment !== "ds" ||
+    air.base.length ||
+    air.width !== 16 ||
+    store!.mnemonic !== "mov" ||
+    !isRegister(store!.operands[1], "ax") ||
+    compare?.mnemonic !== "cmp" ||
+    !sameOperand(compare.operands[0], local) ||
+    immediate(compare.operands[1]) === undefined ||
+    branch?.mnemonic !== "jge" ||
+    writers[1] !== n + 3 ||
+    half!.mnemonic !== "sar" ||
+    immediate(half!.operands[1]) === undefined ||
+    skip?.flow !== "jump" ||
+    branch.target?.address !== count?.address ||
+    count?.mnemonic !== "mov" ||
+    !isRegister(count.operands[0], "cl") ||
+    immediate(count.operands[1]) === undefined ||
+    writers[2] !== n + 6 ||
+    scale!.mnemonic !== "shl" ||
+    !isRegister(scale!.operands[1], "cl") ||
+    skip.target?.address !== list[n + 7]?.address
+  )
+    return;
+  evidence.push(...[load, store!, compare, branch, half!, skip, count, scale!].map(evidenceOf));
+  const split = immediate(compare.operands[1])!;
+  return {
+    address: air.displacement,
+    split: split & 0x8000 ? split - 0x10000 : split,
+    below: immediate(half!.operands[1])!,
+    above: immediate(count.operands[1])!,
+  };
+}
+
+/** The speed limit the routine gives a type of the rest for an air pressure, as a signed word. */
+export function limitForAir(setup: SpeedLimitSetup, air: number): number | undefined {
+  if (setup.base === undefined || !setup.air) return undefined;
+  const signed = (n: number) => ((n & 0xffff) ^ 0x8000) - 0x8000;
+  const value = signed(air) < setup.air.split ? signed(air) >> setup.air.below : (air << setup.air.above) & 0xffff;
+  return signed(setup.base - value);
 }
 
 /** What taking the routine's numbers as the limits needs. */

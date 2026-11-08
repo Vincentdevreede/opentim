@@ -19,6 +19,7 @@ import type {
 import type { KnownField } from "./describe-behaviour.ts";
 import { binary, callKinds, choiceOf, choose, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
+import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
   formula,
@@ -80,6 +81,87 @@ export const MOVING_SEARCH_ASSUMPTION =
  */
 export const MADE_FIXED_ASSUMPTION =
   "An explosion is never on the moving list, so it touches nothing and no search of the moving list finds it. Only part code makes explosions, and it links them into the fixed list; an explosion only happens after another part's action, so no level stores one.";
+/** The lowest and highest air pressure a level can have, by the decided assumption: what the control panel can set. */
+export const AIR_PRESSURES = { min: 0, max: 128 };
+/**
+ * A level's air pressure is one the control panel can set. The panel keeps its setting from 0 to 128 (`0x12566` to
+ * `0x1257a` in Even More, English floppy) and a new level starts at 67 (`0x15d69`). Decided with the user on
+ * 2026-11-08.
+ */
+export const AIR_PRESSURE_ASSUMPTION =
+  "A level's air pressure is one the game's control panel can set, from 0 to 128. The panel keeps its setting in that range and a new level starts at 67; the level loader reads the word as it is, but only the game writes level files, and the shipped levels use 0 to 68.";
+/** The lowest and highest speed limit the air pressures a level can have give a type the routine doesn't fix. */
+export function speedLimitRange(table: BehaviourReport["typeTable"]): { min: number; max: number } | undefined {
+  const setup = table?.speedLimits;
+  if (!setup) return undefined;
+  let min = Infinity,
+    max = -Infinity;
+  for (let air = AIR_PRESSURES.min; air <= AIR_PRESSURES.max; air++) {
+    const limit = limitForAir(setup, air);
+    if (limit === undefined) return undefined;
+    min = Math.min(min, limit);
+    max = Math.max(max, limit);
+  }
+  return { min, max };
+}
+/** What a walk that keeps a value within the lowest limit of the range rests on. */
+export const rangeNote = (range: { min: number; max: number }) =>
+  `Every speed limit the air pressure can give, from ${range.min} to ${range.max}, gives the part the same frames, since its rules don't tell those speeds apart, so the walk keeps the value within ${range.min}.`;
+/**
+ * Whether the part's rules can't tell which limit of the range kept a velocity within it: they read the field only in
+ * tests of that field alone, and each test gives the same answer for every speed from the lowest limit to the highest,
+ * and for every one from minus the highest to minus the lowest. Those are the only speeds two limits of the range can
+ * leave different, so a walk may keep the value within the lowest.
+ */
+export function rulesIgnoreLimit(
+  part: Pick<BehaviourReport["parts"][number], "transitions">,
+  offset: number,
+  range: { min: number; max: number },
+  evaluate: Evaluate,
+): boolean {
+  if (range.min <= 0 || range.max > 0x7fff) return false;
+  const reads = (value: Expression | Predicate) => {
+    const found = new Set<number>();
+    partFields(value, found);
+    return found;
+  };
+  const touches = (found: Set<number>) => found.has(offset) || found.has(offset + 1);
+  /** A test of the field alone that gives one answer over each side of the range. */
+  const blind = (term: Predicate) => {
+    const found = reads(term);
+    if (!touches(found)) return true;
+    if (term.kind !== "compare" || [...found].some((o) => o !== offset)) return false;
+    for (const sign of [1, -1]) {
+      let first: boolean | undefined;
+      for (let speed = range.min; speed <= range.max; speed++) {
+        const answer = evaluate(term, [
+          { object: "part", offset, width: 16, value: wrap(sign * speed, 16), knownMask: 0xffff },
+        ]);
+        if (answer === undefined || (first !== undefined && answer !== first)) return false;
+        first = answer;
+      }
+    }
+    return true;
+  };
+  /**
+   * A value a rule stores that keeps the field's speeds apart no better: a choice by such tests between values that
+   * don't read the field, or, stored in the field itself, the field as it was.
+   */
+  const keeps = (value: Expression, target: number): boolean => {
+    if (!touches(reads(value))) return true;
+    if (value.kind === "field" && value.object === "part" && value.offset === offset && value.width === 16)
+      return target === offset;
+    const choice = choiceOf(value);
+    return !!choice && blind(choice.test) && keeps(choice.then, target) && keeps(choice.otherwise, target);
+  };
+  for (const rule of part.transitions) {
+    if (touches(reads(rule.to))) return false;
+    for (const update of (rule as { updates?: FieldWrite[] }).updates ?? [])
+      if (!terms(update.condition).every(blind) || !keeps(update.value, update.offset)) return false;
+    if (!terms(rule.condition).every(blind)) return false;
+  }
+  return true;
+}
 /**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
@@ -604,7 +686,7 @@ export function settleForType(
   type: number,
   table: BehaviourReport["typeTable"],
   used: { table: boolean },
-): { value: Expression; kept: boolean; limit?: number } {
+): { value: Expression; kept: boolean; limit?: number; range?: { min: number; max: number } } {
   const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
   const kept = speedLimitOf(settled);
   const limit = kept?.limit;
@@ -618,7 +700,10 @@ export function settleForType(
   if (!ownLimit || !kept) return { value: settled, kept: false };
   // A type whose limit is the same number in every level, like the bullet's 12288.
   const fixed = table?.speedLimits?.fixed.find((f) => f.type === type)?.limit;
-  return fixed === undefined ? { value: kept.speed, kept: true } : { value: kept.speed, kept: true, limit: fixed };
+  if (fixed !== undefined) return { value: kept.speed, kept: true, limit: fixed };
+  // Any other type's limit is one the level's air pressure gives, by the decided assumption within a range.
+  const range = speedLimitRange(table);
+  return range ? { value: kept.speed, kept: true, range } : { value: kept.speed, kept: true };
 }
 /** A speed limit that is a number in every level, as the words give it after "its speed limit". */
 const limitWords = (limit: number | undefined) => (limit === undefined ? "" : ` of ${limit}`);

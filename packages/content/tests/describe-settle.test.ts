@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { choose, type BehaviourReport, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import {
   keptWithin,
+  rulesIgnoreLimit,
+  speedLimitRange,
   settleForType,
   sourceChoices,
   splitBySource,
@@ -87,6 +89,52 @@ describe("settling a value for the found part's type", () => {
     });
     // Another type's limit is still worked out for each level.
     expect(settleForType(kept, MEMBER, 4, 5, withLimits, { table: false }).limit).toBeUndefined();
+  });
+
+  it("gives a type the routine doesn't fix the range of limits the air pressures a level can have give", () => {
+    const speed = binary("+", field(0x38), constant(1536));
+    const limit = record(0x0a);
+    const negative = binary("-", constant(0), limit);
+    const kept = choose(compare(">", speed, limit), limit, choose(compare("<", speed, negative), negative, speed));
+    const withLimits = {
+      ...table,
+      speedLimits: { fixed: [], base: 9728, air: { address: 0x4cb7, split: 70, below: 1, above: 4 } },
+    } as unknown as BehaviourReport["typeTable"];
+    expect(speedLimitRange(withLimits)).toEqual({ min: 7680, max: 9728 });
+    expect(settleForType(kept, MEMBER, 4, 4, withLimits, { table: false }).range).toEqual({ min: 7680, max: 9728 });
+  });
+
+  it("knows when a part's rules can't tell the limits of the range apart", () => {
+    const speed = field(0x38, "part");
+    const absolute = binary(
+      "-",
+      binary("^", speed, binary(">>", speed, constant(15))),
+      binary(">>", speed, constant(15)),
+    );
+    const range = { min: 7680, max: 9728 };
+    const rules = (condition: Predicate, updates: unknown[] = []) => ({
+      transitions: [{ from: 0, to: constant(1), condition, updates }],
+    });
+    const fast = compare(">", absolute, constant(1536));
+    // Mel's: whether he moves faster than 1536, a note whether faster than 7168, and the speed kept or cleared.
+    const mel = rules(fast, [
+      {
+        offset: 0x9c,
+        value: choose(compare(">", speed, constant(7168)), constant(1), constant(0)),
+        condition: { kind: "true" },
+      },
+      {
+        offset: 0x38,
+        value: choose(compare("!=", field(0x88, "collider"), constant(0)), speed, constant(0)),
+        condition: { kind: "true" },
+      },
+    ]);
+    const ignore = (part: object) =>
+      rulesIgnoreLimit(part as Parameters<typeof rulesIgnoreLimit>[0], 0x38, range, evaluateBehaviourCondition);
+    expect(ignore(mel)).toBe(true);
+    // A test inside the range, or a speed stored elsewhere, tells them apart.
+    expect(ignore(rules(compare(">", absolute, constant(8000))))).toBe(false);
+    expect(ignore(rules(fast, [{ offset: 0x9c, value: speed, condition: { kind: "true" } }]))).toBe(false);
   });
 
   it("keeps a value within a limit that is a number as the speed limit routine does", () => {

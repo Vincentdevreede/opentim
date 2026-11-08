@@ -27,7 +27,10 @@ import {
   offMovingList,
   onlyAnswersOpen,
   partFields,
+  AIR_PRESSURE_ASSUMPTION,
   keptWithin,
+  rangeNote,
+  rulesIgnoreLimit,
   settleForType,
   splitBySource,
   afterQueriesIn,
@@ -734,13 +737,21 @@ export function hitsFromOthers(
       // A value with the words of the part's type record its type settles, like a launch speed by its mass, and the
       // overlap its search stored as its own field. A value kept within its speed limit has a number to follow only
       // when the limit is the same number in every level, like the bullet's.
+      // A limit the level's air pressure gives is one of a range: a walk may keep the value within its lowest when the
+      // part's rules can't tell the limits of the range apart.
       let limited = false;
+      let ranged: { min: number; max: number } | undefined;
       const own = (w: FieldWrite) => {
         const settled = settleForType(w.value, c.member, typeOffset, part.type, report.typeTable, used);
         if (!settled.kept) return ownValue(settled.value, c.member);
-        if (settled.limit === undefined) return undefined;
-        const value = ownValue(keptWithin(settled.value, settled.limit), c.member);
-        if (value) limited = true;
+        if (settled.limit !== undefined) {
+          const value = ownValue(keptWithin(settled.value, settled.limit), c.member);
+          if (value) limited = true;
+          return value;
+        }
+        if (!settled.range || !rulesIgnoreLimit(part, w.offset, settled.range, evaluate)) return undefined;
+        const value = ownValue(keptWithin(settled.value, settled.range.min), c.member);
+        if (value) ranged = settled.range;
         return value;
       };
       // A number, or a value of the part's own fields as the touch found them, in a field the rules read gives the walk
@@ -810,7 +821,8 @@ export function hitsFromOthers(
         ...c.outcome.assumptions,
         ...c.writes.flatMap((w) => w.assumptions),
         ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
-        ...(limited ? report.typeTable!.speedLimits!.assumptions : []),
+        ...(limited || ranged ? report.typeTable!.speedLimits!.assumptions : []),
+        ...(ranged ? [AIR_PRESSURE_ASSUMPTION, rangeNote(ranged)] : []),
         ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
         ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
         ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),

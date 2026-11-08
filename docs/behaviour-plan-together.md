@@ -226,6 +226,10 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       The bullet's speed limit (2026-11-08): the analysis reads the routine that works out every type's limit, which
       gives the bullet 12288 in every level (see "The bullet's speed limit"). The fan's, the trampoline's and the
       alligator's pushes of the bullet are described. Missing: Even More 12 → 11, TIM 1 5 → 4.
+      Mel's speed limit (2026-11-08): with decided assumption 24 (a level's air pressure is one the control panel can
+      set, 0 to 128) every other type's limit lies from 7680 to 9728, which Mel's rules can't tell apart (see "Mel
+      Schlemming's speed limit"). The fan's, the bellows' and the teapot's pushes of Mel are described. Missing: Even
+      More 11 → 8.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

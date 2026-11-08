@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSpeedLimitSetup } from "../src/read/behaviour-speed-limits.ts";
+import { findSpeedLimitSetup, limitForAir } from "../src/read/behaviour-speed-limits.ts";
 
 const DATA_SEGMENT = 0x100;
 const TABLE_OFFSET = 0x200;
@@ -25,6 +25,13 @@ function program(options: { fallThrough?: boolean; writeCounter?: boolean; far?:
   };
   emit(0x55, 0x8b, 0xec, 0x83, 0xec, 0x0e, 0x56, 0x57);
   emit(0xa1, 0x34, 0x12, 0x89, 0x46, 0xf8); // mov ax,[air]; mov [bp-8],ax
+  emit(0x83, 0x7e, 0xf8, 70); // cmp word [bp-8],70
+  jump(0x7d, "high");
+  emit(0xd1, 0x7e, 0xf8); // sar word [bp-8],1
+  jump(0xeb, "scaled");
+  label("high");
+  emit(0xb1, 0x04, 0xd3, 0x66, 0xf8); // mov cl,4; shl word [bp-8],cl
+  label("scaled");
   emit(0xc7, 0x46, 0xfe, 0, 0); // mov word [bp-2],0
   jump(0xe9, "condition");
   label("head");
@@ -78,6 +85,13 @@ describe("the speed limit routine", () => {
     ]);
     expect(setup?.base).toBe(0x2600);
     expect(setup?.assumptions[0]).toContain("0x10");
+  });
+
+  it("reads how the air pressure becomes the value taken from the base", () => {
+    const setup = findSpeedLimitSetup(program(), table, DATA_SEGMENT)!;
+    expect(setup.air).toEqual({ address: 0x1234, split: 70, below: 1, above: 4 });
+    // Half the air pressure below 70, else 16 times it.
+    expect([0, 67, 69, 70, 128].map((air) => limitForAir(setup, air))).toEqual([9728, 9695, 9694, 8608, 7680]);
   });
 
   it("reads a record pointer kept in two locals and read back through es", () => {
