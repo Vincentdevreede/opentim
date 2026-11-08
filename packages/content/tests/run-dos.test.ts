@@ -94,5 +94,10 @@ describe("the DOS the game runs on", () => {
     exe.set([4, 0x10, 0, 1, 0], 0x30 + 0x158);
     const program = readLzexeProgram(exe);
     expect(program).toMatchObject({ ip: 0x10, cs: 2, sp: 0x200, ss: 3, relocations: [4, 0x14] });
+    // A file cut off before the relocation table's end mark, or one that isn't packed with LZEXE, fails at once.
+    expect(() => readLzexeProgram(exe.subarray(0, 0x30 + 0x158 + 2))).toThrow("The relocation table ends too early");
+    const other = exe.slice();
+    other.set([0, 0, 0, 0], 0x1c);
+    expect(() => readLzexeProgram(other)).toThrow("Not packed with LZEXE 0.91");
   });
 });

@@ -18,6 +18,8 @@ export interface DosProgram {
 
 /** Reads a program packed with LZEXE 0.91. */
 export function readLzexeProgram(exe: Uint8Array): DosProgram {
+  // Unpacking first checks that the file is a program packed with LZEXE 0.91, before its relocations are read.
+  const image = unpackLzexe(exe);
   const view = new DataView(exe.buffer, exe.byteOffset, exe.byteLength);
   const header = view.getUint16(8, true) * 16;
   const stub = header + view.getUint16(0x16, true) * 16;
@@ -31,6 +33,7 @@ export function readLzexeProgram(exe: Uint8Array): DosProgram {
     segment = 0,
     offset = 0;
   for (;;) {
+    if (at >= exe.length) throw new Error("The relocation table ends too early");
     let span = exe[at++]!;
     if (span === 0) {
       span = word(at);
@@ -46,5 +49,5 @@ export function readLzexeProgram(exe: Uint8Array): DosProgram {
     offset &= 0x0f;
     relocations.push(segment * 16 + offset);
   }
-  return { image: unpackLzexe(exe), relocations, cs, ip, ss, sp };
+  return { image, relocations, cs, ip, ss, sp };
 }
