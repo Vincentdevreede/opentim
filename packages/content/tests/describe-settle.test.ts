@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { choose, type BehaviourReport, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import {
+  readsSourcePlace,
   keptWithin,
   rulesIgnoreLimit,
   speedLimitRange,
@@ -151,6 +152,42 @@ describe("settling a value for the found part's type", () => {
     expect(is(-12288, -12288)).toBe(true);
     expect(is(-12288 - 1536, -12288)).toBe(true);
     expect(is(12288 - 1536, 12288)).toBe(false);
+  });
+});
+
+describe("values of where the source is", () => {
+  const allocation = {
+    kind: "field",
+    object: "allocation answer of the call at 0x1a91c",
+    offset: 0,
+    width: 16,
+    unresolved: true,
+  } as Expression;
+  it("reads the part with the source, or whether an allocation found room, and nothing else", () => {
+    // The wall split's cut: ((the explosion's centre X + 24) & 0xfff0) + 8.
+    const cut = binary("+", binary("&", binary("+", field(0x1e, "part"), constant(24)), constant(0xfff0)), constant(8));
+    expect(readsSourcePlace(cut, MEMBER)).toBe(true);
+    expect(readsSourcePlace(compare("<", field(0x1e), cut), MEMBER)).toBe(true);
+    expect(readsSourcePlace(compare("==", allocation, constant(0)), MEMBER)).toBe(true);
+    // The part alone, a third part or an unknown isn't.
+    expect(readsSourcePlace(field(0x1e), MEMBER)).toBe(false);
+    expect(readsSourcePlace(binary("+", cut, field(0x1e, "member found by the loop at 0x10")), MEMBER)).toBe(false);
+    expect(readsSourcePlace(binary("+", cut, { kind: "unknown", reason: "?", width: 16 }), MEMBER)).toBe(false);
+  });
+
+  it("splits fields chosen by the same tests without the ways that contradict themselves", () => {
+    const test = compare(">", field(0x1e), field(0x1e, "part"));
+    const fields = [0x1e, 0x2a, 0x44, 0x46, 0x20, 0x2c, 0x08].map((offset) => ({
+      object: MEMBER,
+      offset,
+      width: 16,
+      value: choose(test, constant(offset), field(offset)),
+      condition: { kind: "true" },
+    }));
+    const ways = splitBySource({ condition: { kind: "true" }, fields } as never, MEMBER) as { fields: unknown[] }[];
+    // Seven fields of two cases each would make 128 ways; only the two that agree are left.
+    expect(ways).toHaveLength(2);
+    expect(ways.map((way) => way.fields.length).sort()).toEqual([0, 7]);
   });
 });
 

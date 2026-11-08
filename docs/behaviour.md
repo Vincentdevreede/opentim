@@ -1230,10 +1230,33 @@ before (13 seconds for Even More, English floppy). The explosion's own effect li
 play: "May set another part's out-of-play flag 0x2000 in drawing flags …: it does on the ways its tests pick, and leaves
 them as they were on the others."
 
-The wall's pairs stay missing for now, with a new reason: Even More's says its values depend on the explosion's own
-fields, TIM 1's that one isn't known (the allocation answer). Lines that say a value of where the explosion is come
-next. No pair, walk or recording changes: Even More 402 described, 4 missing; TIM 1 219 and 3; walks 1,473 and 1,223,
+The wall's pairs stayed missing at this step, with a new reason: Even More's said its values depend on the
+explosion's own fields, TIM 1's that one isn't known (the allocation answer). The next section gives them lines. No pair, walk or recording changes: Even More 402 described, 4 missing; TIM 1 219 and 3; walks 1,473 and 1,223,
 every one ends; recordings 648 and 552 complete.
+
+### Lines of where the source is
+
+A line now says a value or a test that reads the part together with the source, when it reads nothing else, or reads
+whether a helper's allocation found room (`readsSourcePlace` in `describe-effects.ts`). The source's fields are named
+("the explosion's centre X"), the source's drawn fields read by name as in its tests, and its own type is settled when
+the callback is its type's alone. A test of the allocation reads "the game finds room for the copy the explosion makes
+(the allocation at 0x1a91c)", or "no room". Such tests go into the line's source condition, with `collider` the part,
+as for a touch. Splitting a value by the source's tests (`splitBySource`) now drops the ways that contradict themselves
+as it goes, so fields chosen by the same tests, like the wall's seven, give a way per case instead of more than 64.
+
+So the explosion now gives a brick wall and a wood wall a line for each way of the split, in both games. For a wall
+wider than tall (Even More, English floppy):
+
+- inside the hole: "sets its out-of-play flag 0x2000 in drawing flags. Only when its frameWidth is above its frameHeight
+  and its positionX is at least ((the explosion's centre X - 32) & 0xfff0) + 8 and …";
+- reaching past the hole's far edge only: "sets frameWidth to (positionX + frameWidth) - (((the explosion's centre X + 24) & 0xfff0) + 8) and sets positionX to ((the explosion's centre X + 24) & 0xfff0) + 8 and sets drawX to …";
+- reaching past the near edge only, or past both when the game finds room for the copy: "sets frameWidth to (((the
+  explosion's centre X - 32) & 0xfff0) + 8) - positionX".
+
+A wall taller than wide gets the same in Y. Pairs, on Even More (English floppy) and TIM 1 (French): described 402 →
+404 and 219 → 221, missing 4 → 2 and 3 → 1, the same in all eleven builds of each game. What is missing now is the
+jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
+and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
 
 ### Two values the pair check names
 

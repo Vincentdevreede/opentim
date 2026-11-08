@@ -746,6 +746,8 @@ export function openCalls(
       else open.other = true;
     } else if (v.kind === "field") {
       if (!v.unresolved || STORED_OVERLAP.test(v.object)) return;
+      // Whether a helper's allocation found room is a test a line says in words.
+      if (/^allocation answer of the call at 0x[0-9a-f]+$/.test(v.object)) return;
       if (at(v.object, / after unresolved write at (0x[0-9a-f]+)$/) === "contact-search") open.contactSearch = true;
       else if (
         at(v.object, /^answer of the query at (0x[0-9a-f]+)$/) === "connection-query" ||

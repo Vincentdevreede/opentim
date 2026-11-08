@@ -317,9 +317,9 @@ function centre(e: Expression, names: Names): { object: string; axis: string } |
   const [position, size] = [names.field(e.left.offset), names.field(half.left.offset)];
   const axis =
     position === "positionX" && size === "frameWidth"
-      ? "x"
+      ? "X"
       : position === "positionY" && size === "frameHeight"
-        ? "y"
+        ? "Y"
         : "";
   return axis ? { object: e.left.object, axis } : undefined;
 }
