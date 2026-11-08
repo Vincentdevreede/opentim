@@ -157,8 +157,10 @@ names another part it looks one record further, through each word of the record:
 - The belt's two parts are in the belt record the word `0x54` points at, at `+4` and `+6` (the belt part itself is
   at `+2`), in all 15 Even More and 10 TIM 1 belts; each of the three parts points at that record.
 - The links go to `0x5a` and `0x5e` (the first) and `0x5c` and `0x60` (the second), as the linked part's record: in
-  270 of 310 and 152 of 176 Even More parts (TIM 1: 188 of 212 and 96 of 118). Which parts the others are, and why,
-  is the next thing to look at; the analysis knows these words as the rope links.
+  270 of 310 and 152 of 176 Even More parts (TIM 1: 188 of 212 and 96 of 118). Every other one, in all 160 Even More
+  puzzles, is a gear linked to a gear, whose words the loader leaves 0: a gear's reset finds its neighbours itself, by
+  their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/behaviour.md`), so the file's
+  gear links aren't used. The analysis knows these words as the rope links.
 - The third flag word is at `0x0a` in every TIM 1 part and in 4,438 of 4,448 Even More parts. In Even More `0x0a`
   also has the goal marks, so the 10 others may be parts whose constructor sets one; not checked yet.
 
