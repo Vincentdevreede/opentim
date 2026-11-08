@@ -1,7 +1,7 @@
 import { PART_LISTS, type Part } from "@opentim/content";
 import { describe, expect, it } from "vitest";
 import type { Edition } from "../src/edition.ts";
-import { findParts, listIdOf, partName, readLoadedParts } from "../src/parts.ts";
+import { findParts, listIdOf, partName, readLoadedParts, whyNoFrames } from "../src/parts.ts";
 
 const part = (id: string, type: number, extra: Partial<Part> = {}): Part => ({
   id,
@@ -66,5 +66,26 @@ describe("findParts", () => {
 
   it("sorts by name", () => {
     expect(findParts(parts, "", "name").map((p) => p.id)).toEqual(["basketball", "bowling-ball", "cat"]);
+  });
+});
+
+describe("whyNoFrames", () => {
+  const part = (over: Partial<Part>): Part => ({ id: "gear", type: 14, sheets: ["PART14"], frames: [], ...over });
+
+  it("has no reason for a part with frames", () => {
+    expect(whyNoFrames("tim1", part({ frames: [{ id: 0, sprites: [] }] }))).toBeUndefined();
+  });
+
+  it("says a part without a sheet is drawn without sprites", () => {
+    expect(whyNoFrames("tim1", part({ sheets: [] }))).toMatch(/no sprite sheet/);
+    expect(whyNoFrames("tim2", part({ sheets: [] }))).toMatch(/no sprite sheet/);
+  });
+
+  it("says TIM 2 frames are in the .ANM files", () => {
+    expect(whyNoFrames("tim2", part({}))).toMatch(/\.ANM/);
+  });
+
+  it("says a TIM 1 or Even More part is drawn in the program's own code", () => {
+    expect(whyNoFrames("evenmore", part({}))).toMatch(/TIM\.EXE/);
   });
 });

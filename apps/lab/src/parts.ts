@@ -129,3 +129,15 @@ export function findParts(parts: readonly Part[], query: string, order: PartOrde
 
 /** The file that holds a sprite sheet in the original games. */
 export const sheetFile = (sheet: string) => `${sheet}.BMP`;
+
+/**
+ * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. TIM 2 keeps
+ * its frames in `.ANM` files the lab doesn't read yet; in TIM 1 and Even More, a part without frames has a record in
+ * `TIM.EXE` that doesn't place its sprites, so the program draws it in its own code.
+ */
+export function whyNoFrames(listId: string, part: Part): string | undefined {
+  if (part.frames.length) return undefined;
+  if (!part.sheets.length) return "It has no sprite sheet: the game draws it without sprites, so there are no frames.";
+  if (listId === "tim2") return "TIM 2 keeps its frames in the part’s .ANM file, which the lab doesn’t read yet.";
+  return "Its record in TIM.EXE doesn’t place its sprites: the game draws it in its own code, like walls from tiles. Not worked out yet.";
+}
