@@ -240,6 +240,9 @@ game does with the fields whose meaning isn't known.
       bucket. TIM 1 has no goal marks, and puzzle 76's check waits for step 130. Read every puzzle's routine into a
       goal the machine can test (which parts, where, which mark, from which step), for all eleven builds, and check
       it against the puzzles whose run the game's own goal check ends in the level recorder.
+      Started (2026-11-08): every goal routine of all eleven builds is read into a program the machine can run, and
+      `check-goals` finds each one doing what the game's routine does in the emulator, on made-up parts lists (see
+      [the levels](levels.md#puzzle-goals)). Next: say each goal in words, for the Lab and the plan of B1.
 - [ ] **L2. What the loader does with each field.** The level loader (`0x1386b` in Even More, English floppy) is
       partly read: the saved state goes to `0x90`, the plugged parts to their fields, and the air pressure and the
       gravity to the routine that works out each type's acceleration and speed limit. Read where every other field
