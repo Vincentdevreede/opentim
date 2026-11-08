@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describeGoal, type GoalNames } from "../src/read/describe-goals.ts";
 import { findGoalTable, readGoalRoutines, runGoal, UnsetValue } from "../src/read/puzzle-goals.ts";
 
 // Even More, English floppy. The dispatcher at 0x14ae calls the goal the puzzle number in [0x4ac1] picks from the far
@@ -161,5 +162,71 @@ describe("readGoalRoutines and runGoal", () => {
     // push bp; mov bp, sp; call far [bx]; pop bp; retf
     const routines = readGoalRoutines(image(0x20, [[0, "558becff1f5dcb"]]), 0, 0);
     expect(routines.get(0)).toMatchObject({ address: 0, at: 3, reason: expect.stringContaining("indirect call") });
+  });
+});
+
+describe("describeGoal", () => {
+  const names: GoalNames = {
+    fields: new Map([
+      [0x04, "type"],
+      [0x06, "listFlags"],
+      [0x0c, "state"],
+      [0x12, "stateDelta"],
+      [0x1e, "positionX"],
+      [0x20, "positionY"],
+      [0x24, "previousY"],
+      [0x8c, "savedPositionX"],
+      [0x8e, "savedPositionY"],
+    ]),
+    types: new Map([
+      [0, "bowling-ball"],
+      [6, "mouse-motor"],
+      [11, "birdcage"],
+      [12, "cat"],
+      [15, "fish-bowl"],
+    ]),
+    lists: [
+      { head: FIXED, bit: 0x2000, name: "the fixed list" },
+      { head: MOVING, bit: 0x1000, name: "the moving list" },
+      { head: 0x4cdb, bit: 0x0800, name: "the third list" },
+    ],
+    listHead: 0x682f,
+    listNext: 0x686f,
+    words: new Map([[MODE, "the game mode"]]),
+    mode: { word: MODE, met: 0x200 },
+  };
+
+  it("says a walk over the moving list with the parts' fields and types by name", () => {
+    const routines = readGoalRoutines(image(0x1500, [[0x14bf, EVERY_BALL_AT_REST]]), 0, 0x14bf);
+    expect(describeGoal(routines, 0x14bf, names)).toEqual([
+      "dx = 1",
+      "for each part on the moving list:",
+      "  if part.type is bowling-ball:",
+      "    if part.positionY ≠ 264:",
+      "      dx = 0",
+      "    else:",
+      "      ax = part.positionY",
+      "      if ax ≠ part.previousY:",
+      "        dx = 0",
+      "if dx ≠ 0:",
+      "  the goal is met",
+    ]);
+  });
+
+  it("says a walk through the list routines by the lists their masks pick", () => {
+    const bytes = image(0x6900, [
+      [0x159b, FIRST_FIXED_THEN_MOVING],
+      [0x682f, LIST_ROUTINES],
+    ]);
+    const lines = describeGoal(readGoalRoutines(bytes, 0, 0x159b), 0x159b, names);
+    expect(lines.slice(0, 4)).toEqual([
+      "local 2 = 0",
+      "di = 1",
+      "for each part on the fixed list, then the moving list:",
+      "  if part.type is cat:",
+    ]);
+    expect(lines).toContain("        if word 0x5068[bx] = 0:");
+    expect(lines.slice(-2)).toEqual(["if di ≠ 0:", "  the goal is met"]);
+    expect(lines.join("\n")).not.toContain("0x682f");
   });
 });

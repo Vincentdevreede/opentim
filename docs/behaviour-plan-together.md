@@ -242,7 +242,9 @@ game does with the fields whose meaning isn't known.
       it against the puzzles whose run the game's own goal check ends in the level recorder.
       Started (2026-11-08): every goal routine of all eleven builds is read into a program the machine can run, and
       `check-goals` finds each one doing what the game's routine does in the emulator, on made-up parts lists (see
-      [the levels](levels.md#puzzle-goals)). Next: say each goal in words, for the Lab and the plan of B1.
+      [the levels](levels.md#puzzle-goals)). `list-goals` says each goal in words next to its level's goal text,
+      and the builds of each game read the same goals (the Even More CD differs in the code of 4). Next: name the
+      words some goals read (the step count, `0x4a8b`), and show the goal in the Lab's level view.
 - [ ] **L2. What the loader does with each field.** The level loader (`0x1386b` in Even More, English floppy) is
       partly read: the saved state goes to `0x90`, the plugged parts to their fields, and the air pressure and the
       gravity to the routine that works out each type's acceleration and speed limit. Read where every other field

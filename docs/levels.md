@@ -85,3 +85,39 @@ Some trials can't be compared, because the game itself reads something undefined
 Each of these needs a part the shipped level has, so they matter only for levels made without it.
 
     pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> [--trials 3000]
+
+### Goals in words
+
+`describeGoal` (`src/read/describe-goals.ts`) says a goal program as indented pseudo-code: the parts' fields and types
+by the names the analysis gives them, a loop over parts as "for each part on" the lists it walks, and the write that
+ends the run as "the goal is met". It finds the two forms of loop the goals use: one that starts at a list's first
+part and follows each part's link, and one through the list head and list next routines, whose masks give the lists
+(`0x3000` then `0x1000` is the fixed list, then the moving list). A routine another goal calls is said in place, named
+by the first puzzle whose goal it is. The field at `0x06` is called `listFlags`, for the list bits the list routines
+test there. Puzzle 2 of Even More, for example:
+
+    dx = 1
+    for each part on the moving list:
+      if part.type is bowling-ball:
+        if part.positionY ≠ 264:
+          dx = 0
+        else:
+          ax = part.positionY
+          if ax ≠ part.previousY:
+            dx = 0
+    if dx ≠ 0:
+      the goal is met
+
+`list-goals` lists every puzzle's goal next to the goal text its level shows the player, and compares the builds of a
+game, with each word the goals keep for themselves taken by its place among them, since the builds keep the same
+words at other addresses. All five TIM 1 builds read the same 110 goals, and the Even More floppy, French and German
+builds the same 160. The Even More CD reads the same apart from its 10 puzzles more and puzzles 79, 81, 101 and 136,
+whose code loads registers in another order and, in 101 and 136, takes a wall's size from `baseWidth` on another way.
+Each build's goals are checked against its own routines, but whether these four mean the same as the floppy's isn't
+checked. The demo's 10 puzzles are its own.
+
+Some words a goal reads aren't named yet: the step count (`0x4aab` in Even More, English floppy, which the level
+recorder knows as the run loop's counter, and `0x5027` in TIM 1, French) and `0x4a8b` in Even More puzzle 70, which
+must be at least 308 for the goal to be met.
+
+    pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
