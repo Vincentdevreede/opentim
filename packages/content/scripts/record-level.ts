@@ -35,6 +35,10 @@ const file = (name: string) => {
 };
 const puzzle = Number(values.puzzle);
 const steps = Number(values.steps);
+// A value that isn't a number would never end the run: the step count is never reached.
+if (!Number.isInteger(puzzle) || puzzle < 0) throw new Error(`--puzzle must be a whole number, not ${values.puzzle}`);
+if (!Number.isInteger(steps) || steps < 1)
+  throw new Error(`--steps must be a whole number above 0, not ${values.steps}`);
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 const parts = new Map<number, { at: number; type: number; list: string; first: number }>();
 const last = new Map<number, string>();
