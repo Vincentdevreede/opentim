@@ -7,6 +7,7 @@
 import { maskValue } from "./behaviour-list-masks.ts";
 import { dataWrites, readOutlineTables, type OutlineTables } from "./behaviour-outline-tables.ts";
 import { runOutlineTables } from "./behaviour-outline-run.ts";
+import { LEVEL_FRAMES } from "./behaviour-saved-frames.ts";
 import { discoverCollisionDispatch, type CollisionDispatch } from "./behaviour-collision-dispatch.ts";
 import { settleRopeDispatch } from "./behaviour-rope-dispatch.ts";
 import { FLIP_BELT_ASSUMPTION, ROPE_HOLDER_ASSUMPTION } from "./behaviour-connection-relay.ts";
@@ -5972,19 +5973,33 @@ export function readBehaviourInSteps(
         const code = codes.get(routine.address);
         if (!code || outlineTables.some((item) => item.routine === routine.address)) continue;
         const fields = { outline: outlineField, state: stateOffset };
+        // A part the program draws has no frame list: it is run for the frames a decided assumption gives it, like
+        // the wood incline's, which its width picks. Not for a frame below 0, like the incline's -1 at width 0: a
+        // list indexed by it gives the word before the list, which is no table the program ships.
+        const decided = part.frameCount ? undefined : LEVEL_FRAMES.get(part.id);
+        const frames = decided
+          ? (decided.shown ?? decided.frames).filter((frame) => frame >= 0)
+          : [...Array(part.frameCount ?? 0).keys()];
+        const run = () => {
+          const tables = runOutlineTables(
+            code,
+            image,
+            list.dataSegment,
+            { ...fields, ...(flagsField === undefined ? {} : { flags: flagsField }) },
+            frames,
+            written,
+          );
+          const byFrame = tables?.tables.some((table) =>
+            table.when.some((when) => when.some((t) => t.startsWith("frame"))),
+          );
+          return tables && decided && byFrame
+            ? { ...tables, assumptions: [...tables.assumptions, decided.assumption] }
+            : tables;
+        };
         const tables =
           readOutlineTables(code, image, list.dataSegment, fields, codes.values()) ??
           // A shared routine is run only for a part of its own, as the frames it runs for are that part's.
-          (routine.shared
-            ? undefined
-            : runOutlineTables(
-                code,
-                image,
-                list.dataSegment,
-                { ...fields, ...(flagsField === undefined ? {} : { flags: flagsField }) },
-                part.frameCount ?? 0,
-                written,
-              ));
+          (routine.shared ? undefined : run());
         if (tables) outlineTables.push(tables);
       }
   if (!collisionDispatch.length)

@@ -3,7 +3,7 @@ import { compose, drawOrder, type Part, type Placement, type SpriteOf, type Type
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, useId, watch, watchEffect } from "vue";
 import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
-import { outlineShape } from "../../behaviour-view.ts";
+import { outlineShape, pictureFrame } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { partName, sheetFile } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
@@ -151,14 +151,24 @@ const colors = computed(() => colorsOf(choice.value?.name));
  * The outline the part's reset routine sets for the shown frame and flip, on the stage: its points, and each edge's
  * number outside it.
  */
+/** The frame the picture shows, also for a sprite of a part the program draws, like the wood incline. */
+const shownFrame = computed(() =>
+  pictureFrame(props.part, {
+    ...(frame.value ? { frame: frame.value } : {}),
+    ...(shownSprite.value ? { sprite: shownSprite.value } : {}),
+  }),
+);
 const shape = computed(() => {
   // The points start at the part's position, which only a frame places.
-  if (props.behaviour?.status !== "done" || !frame.value) return undefined;
+  if (props.behaviour?.status !== "done" || shownFrame.value === undefined) return undefined;
   const summary = props.behaviour.summary.parts[props.part.type];
+  // Drawn by its own code, a part only has the outline its reset copies from a table for the frame: points worked out
+  // from the frame's size would take a sprite's size for the part's, like a wall's tile for the whole wall.
+  if (!frame.value && !summary?.outlineTables) return undefined;
   const { x, y, width, height } = composition.value.bounds;
   const points =
     summary &&
-    outlineShape(summary, { width, height }, { frame: frame.value.id, flipX: flipX.value, flipY: flipY.value });
+    outlineShape(summary, { width, height }, { frame: shownFrame.value, flipX: flipX.value, flipY: flipY.value });
   if (!points) return undefined;
   const z = zoom.value;
   const at = points.map((p) => ({ x: (p.x - x + 0.5) * z, y: (p.y - y + 0.5) * z }));
@@ -277,7 +287,7 @@ const sideTabs = computed(() => [
           :title="
             shape
               ? `The outline reset sets, ${shape.source.length} points, with each edge’s number (O)`
-              : !frame
+              : shownFrame === undefined
                 ? 'Only a frame places the outline, and this part has no frames'
                 : flipX || flipY
                   ? 'The reset doesn’t say which outline the part has mirrored like this'

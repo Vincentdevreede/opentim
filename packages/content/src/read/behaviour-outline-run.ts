@@ -1,7 +1,7 @@
 /**
  * Resets that copy their outline from data tables by a loop the table reader in `behaviour-outline-tables.ts` doesn't
  * match: a table picked from a list by the frame, one picked by a test of the drawing flags, corners four bytes apart
- * in the table, or a loop that picks its table per corner. The routine is run once for every frame the part has and
+ * in the table, or a loop that picks its table per corner. The routine is run once for every frame it is given and
  * for every value of the drawing flag bits it tests, on a small 16-bit processor that knows only what such a copy
  * needs. A run gives up at anything else: an instruction it doesn't know, a read of a part field other than the frame,
  * the outline pointer or a tested drawing flag, a write to the data segment, or a call before the outline is set.
@@ -328,7 +328,8 @@ export function runOutlineTables(
   image: Uint8Array,
   dataSegment: number,
   fields: Fields,
-  frameCount: number,
+  /** The frames the part can be on: its frame list's, or, for a part the program draws, the decided ones. */
+  frames: readonly number[],
   written: ReadonlySet<number>,
 ): OutlineTables | undefined {
   if (code.status !== "complete") return undefined;
@@ -346,18 +347,18 @@ export function runOutlineTables(
     let readsFrame = false;
     let bits: number[] = [];
     for (let round = 0; ; round++) {
-      if (round > 3 || bits.length > 2 || (readsFrame && !frameCount)) return undefined;
+      if (round > 3 || bits.length > 2 || (readsFrame && !frames.length)) return undefined;
       runs.length = 0;
-      for (let frame = 0; frame < (readsFrame ? frameCount : 1); frame++)
+      for (const frame of readsFrame ? frames : [0])
         for (let choice = 0; choice < 1 << bits.length; choice++) {
           const flags = bits.reduce((sum, bit, k) => (choice & (1 << k) ? sum | bit : sum), 0);
           runs.push({ frame, flags, run: run(code, byAddress, image, dataSegment, fields, frame, flags) });
         }
       const all = [...new Set(runs.flatMap(({ run }) => [...run.tested]))];
-      const frames = runs.some(({ run }) => run.readsFrame);
-      if (all.length === bits.length && frames === readsFrame) break;
+      const framed = runs.some(({ run }) => run.readsFrame);
+      if (all.length === bits.length && framed === readsFrame) break;
       bits = all;
-      readsFrame = frames;
+      readsFrame = framed;
     }
     const tested = bits.sort((a, b) => a - b);
     const tables = new Map<string, OutlineTableChoice>();

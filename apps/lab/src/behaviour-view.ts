@@ -245,6 +245,19 @@ function tableShape(part: PartSummary, frame: number | undefined, flipX: boolean
 }
 
 /**
+ * The frame a picture of the part shows: the frame of its list shown, or, for a part the program draws from one sheet
+ * without a frame list, like the wood incline, the sprite shown, as the game loads frame N of such a part from sprite N
+ * of its sheet. Undefined for a sprite of a part with a frame list or with more than one sheet.
+ */
+export function pictureFrame(
+  part: { frames: readonly unknown[]; sheets: readonly string[] },
+  shown: { frame?: { id: number }; sprite?: { index: number } },
+): number | undefined {
+  if (shown.frame) return shown.frame.id;
+  return shown.sprite && !part.frames.length && part.sheets.length === 1 ? shown.sprite.index : undefined;
+}
+
+/**
  * The outline a part's reset routine sets, as points from the part's position, for a frame of this size: the points it
  * writes, or the table it copies for this frame and flip. The points are bytes, so `frameWidth + 0xff` is one less than
  * the width. Undefined when reset doesn't write every point or copy a table that fits.

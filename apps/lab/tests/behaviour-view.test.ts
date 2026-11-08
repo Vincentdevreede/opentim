@@ -5,6 +5,7 @@ import {
   changeRows,
   endText,
   outlineShape,
+  pictureFrame,
   outlineSides,
   readTerm,
   restingMore,
@@ -276,6 +277,17 @@ describe("writeRows", () => {
 
   it("writes an equality with a 16-bit word as its signed value", () => {
     expect(tidyTerm("state + stateDelta != 0xffff")).toBe("state + stateDelta != -1");
+  });
+});
+
+describe("pictureFrame", () => {
+  it("takes a sprite as the frame only for a part drawn from one sheet without a frame list", () => {
+    const incline = { frames: [], sheets: ["PART2"] };
+    expect(pictureFrame(incline, { sprite: { index: 2 } })).toBe(2);
+    expect(pictureFrame({ frames: [{ id: 0 }], sheets: ["PART3"] }, { sprite: { index: 2 } })).toBeUndefined();
+    expect(pictureFrame({ frames: [], sheets: ["PART9", "PART10"] }, { sprite: { index: 2 } })).toBeUndefined();
+    expect(pictureFrame({ frames: [{ id: 5 }], sheets: ["PART3"] }, { frame: { id: 5 } })).toBe(5);
+    expect(pictureFrame(incline, {})).toBeUndefined();
   });
 });
 

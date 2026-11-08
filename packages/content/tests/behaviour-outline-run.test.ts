@@ -15,6 +15,12 @@ const BELLOWS_DATA =
 const CAT =
   "558bec83ec0256578b5e06f7470810007405befe2deb03bef42dc746fe00008b5e068bbf8200eb138a0488058a4401884501ff46fe83c70483c602837efe057ce7ff76069ae8690000595f5e8be55dcb";
 const CAT_DATA = "00070a00241a24250a28031a1d00270a1d280325";
+// The wood incline's reset (at 0x1b7d1): one of two lists by whether it is flipped, then a table by its frame, 4 corners.
+const INCLINE =
+  "558bec83ec0456578b7606f744081000740b8b5c0cd1e38bbf2e2feb098b5c0cd1e38bbf062fc746fe00008b8482008946fceb178a058b5efc88078a4501884701ff46fe8346fc0483c702837efe047ce3569ae8690000595f5e8be55dcb";
+// Its four tables at 0x2ee6, their list at 0x2f06, the flipped tables after it and their list at 0x2f2e.
+const INCLINE_DATA =
+  "00000f0f0f1f001000001f0f1f1f001000002f0f2f1f001000003f0f3f1f0010e62eee2ef62efe2e000f0f000f10001f000f1f001f10001f000f2f002f10001f000f3f003f10001f0e2f162f1e2f262f";
 
 const FIELDS = { outline: 0x82, state: 0x0c, flags: 0x08 };
 const NAMES = { 0x10: "horizontalFlip" };
@@ -25,9 +31,16 @@ function program(code: string, entry: number, data: string, at: number) {
   image.set(Buffer.from(data, "hex"), at);
   return image;
 }
-const run = (image: Uint8Array, entry: number, frames: number, written = new Set<number>()) => {
+const run = (image: Uint8Array, entry: number, frames: number | number[], written = new Set<number>()) => {
   const code = readRoutineCode(image, { segment: 0x1000, offset: entry - 0x10000, address: entry }, 0);
-  return runOutlineTables(code, image, 0, FIELDS, frames, written);
+  return runOutlineTables(
+    code,
+    image,
+    0,
+    FIELDS,
+    typeof frames === "number" ? [...Array(frames).keys()] : frames,
+    written,
+  );
 };
 
 describe("outline tables found by running the reset", () => {
@@ -69,6 +82,31 @@ describe("outline tables found by running the reset", () => {
     const image = program(CAT, 0x19cfb, CAT_DATA, 0x2df4);
     image[0x19cfb + 13] = 0x0a;
     expect(run(image, 0x19cfb, 10)).toBeUndefined();
+  });
+
+  it("reads the wood incline's outline for the frames it is given, as the program draws it without a frame list", () => {
+    const copy = run(program(INCLINE, 0x1b7d1, INCLINE_DATA, 0x2ee6), 0x1b7d1, [0, 1, 2, 3])!;
+    expect(copy.tables).toHaveLength(8);
+    // A slab 16 pixels thick as wide as the incline, from its top left down to its bottom right.
+    expect(copy.tables[4]).toEqual({
+      when: [["frame == 2", "flags & 0x10 == 0"]],
+      address: 0x2ef6,
+      corners: [
+        [0, 0],
+        [47, 15],
+        [47, 31],
+        [0, 16],
+      ],
+    });
+    expect(copy.tables[5]).toMatchObject({
+      when: [["frame == 2", "flags & 0x10 != 0"]],
+      corners: [
+        [0, 15],
+        [47, 0],
+        [47, 16],
+        [0, 31],
+      ],
+    });
   });
 
   it("gives no tables for a part without frames when its reset reads the frame", () => {
