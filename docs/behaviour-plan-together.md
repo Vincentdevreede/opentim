@@ -227,6 +227,31 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       the vacuum cleaner's pull without masks, long conditions as lines under the row, and a "then contact search"
       chip on the launch. See "Words for the Behaviour tab".
 
+## L. The levels
+
+Added (2026-11-08), to do after A5 and before B1. `packages/content/src/read/level.ts` reads every byte of a level
+file, but two things B1 needs aren't read yet: when a puzzle is solved, which isn't in the file at all, and what the
+game does with the fields whose meaning isn't known.
+
+- [ ] **L1. When a puzzle is solved.** Each puzzle has its own goal routine in TIM.EXE: `0x14ae` calls the one the
+      puzzle number at `0x4ac1` picks from the far pointers at `0x201a` (Even More, English floppy). Known so far: in
+      Even More a check goes through the moving list and ends the run when every part of one type has its goal mark,
+      which Mel's house, the vacuum cleaner, the cat, the alligator and the boxing glove set; puzzle 106's looks for a
+      bucket. TIM 1 has no goal marks, and puzzle 76's check waits for step 130. Read every puzzle's routine into a
+      goal the machine can test (which parts, where, which mark, from which step), for all eleven builds, and check
+      it against the puzzles whose run the game's own goal check ends in the level recorder.
+- [ ] **L2. What the loader does with each field.** The level loader (`0x1386b` in Even More, English floppy) is
+      partly read: the saved state goes to `0x90`, the plugged parts to their fields, and the air pressure and the
+      gravity to the routine that works out each type's acceleration and speed limit. Read where every other field
+      lands in the part record, above all the ones whose meaning isn't known: the second size, `extra` on parts
+      other than the rope, the word before the parts bin, and the flag bits besides tiling and flipping. A field the
+      loader drops needs nothing more; one it keeps gets its name in `level.ts` and goes into B1.
+- [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
+      and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
+      recorded builds.
+- Later, when a game needs them: which song each music number plays, and the byte and word Toons stores per part.
+  Neither changes how a puzzle runs.
+
 ## B. The machine
 
 - [ ] **B1. A level in a world.** Load a shipped level into `packages/engine`: every part with its place, frame and
