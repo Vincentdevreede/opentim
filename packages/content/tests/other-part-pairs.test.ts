@@ -14,6 +14,7 @@ import {
   CONSUMER_UNREAD,
   CONTACT_SEARCH,
   HELPER_VALUE,
+  LEFT_LOCAL,
   LIMIT_RULE_FIELD,
   otherPartPairs,
   renderOtherPartPairs,
@@ -431,6 +432,13 @@ describe("the pairs of other parts", () => {
     expect(run(member(M, 0x700, isCat, [write(M, 0x36, kept)]), "inferred")).toMatchObject({
       status: "missing",
       reasons: [LIMIT_RULE_FIELD],
+    });
+    // A test of a local the loop sets for other parts only, like the vacuum cleaner's pull: the part before left it.
+    const pull = bin(">>", f("stack", -6), c(1));
+    const nudged = and(isCat, compare(bin("+", f(M, 0x36), pull), ">", c(0x200)));
+    expect(run(member(M, 0x700, nudged, [write(M, 0x36, c(0x200))]), "inferred")).toMatchObject({
+      status: "missing",
+      reasons: [LEFT_LOCAL],
     });
   });
 

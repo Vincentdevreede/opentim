@@ -93,21 +93,21 @@ Why the missing ones are missing (a pair can have several reasons):
 
 ## Where it stands
 
-After the lists a search walks (2026-11-08), from `list-other-part-pairs` on all eleven builds (each game's builds
-agree):
+After the lists a search walks and decided assumption 23 (2026-11-08), from `list-other-part-pairs` on all eleven
+builds (each game's builds agree):
 
 |                                   | Even More (start) | Even More (now) | TIM 1 (start) | TIM 1 (now) |
 | --------------------------------- | ----------------: | --------------: | ------------: | ----------: |
 | Pairs of parts the code lets meet |             1,090 |           1,090 |           621 |         621 |
-| Described                         |               227 |             398 |           135 |         219 |
-| Partly described                  |                46 |              32 |            17 |          19 |
-| Ruled out (they can never meet)   |               570 |             648 |           345 |         378 |
+| Described                         |               227 |             390 |           135 |         215 |
+| Partly described                  |                46 |              31 |            17 |          18 |
+| Ruled out (they can never meet)   |               570 |             657 |           345 |         383 |
 | Missing                           |               247 |              12 |           124 |           5 |
 
 Every missing pair names why. In Even More:
 
 - Mel or the bullet need a walk, and the walk has nothing to follow: a velocity kept within the part's speed limit (the
-  fan, bellows, teapot, trampoline), one whose direction depends on where both parts are (the explosion, the pinball
+  fan, bellows, teapot), one whose direction depends on where both parts are (the explosion, the pinball
   bumper), a contact response after the touch (the conveyor belt), or the contact search the teeter-totter runs on
   Mel.
 - The explosion's split of a wall makes a new part; the jack-in-the-box's push of a teeter-totter grew past the size
@@ -122,7 +122,7 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       and names the overlap the search stores. The fan adds ±16 × (256 − |overlapX|) ÷ mass to velocityX, the bellows
       ±8, the teapot pushes by 1536 or 1024; all kept within the part's speed limit. Missing pairs: Even More 247 → 145,
       TIM 1 124 → 59. See "The fan, the bellows and the teapot push what they find".
-- [ ] **A2. Where a part must be for the vacuum cleaner and the teeter-totter.** Their searches test a box around the
+- [x] **A2. Where a part must be for the vacuum cleaner and the teeter-totter.** Their searches test a box around the
       source, like the teeter-totter's ends did in the last plan (C3). Say the box in pixels from the source, named
       by what it is where the code shows it ("in front of the nozzle", "above the left end"). Done when no pair is
       missing for a test of where the part is.
@@ -170,6 +170,15 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       keeps their pairs missing now is A3 and A4 (the teeter-totter), A5 (the jack-in-the-box's electric switch: its
       search's flag tests aren't read), and for ten vacuum cleaner pairs A4: their test reads the pull left from the
       part before.
+      Done (2026-11-08): on all eleven builds no pair is missing for a test of where the part is. What is left of the
+      vacuum cleaner and the teeter-totter is partly described, and none of it is a place test. The teeter-totter's
+      21 pairs stop at the contact search it runs on a part it launches. The vacuum cleaner's 5 (the bullet, the
+      candle, the cat, Mel Schlemming and the mouse) have two reasons. For a part already rising at -1024 or faster it
+      moves velocityX by half the pull still in its local from the part before, which only the run knows; the pair
+      check names that now instead of the general reason for a test that reads more than the two parts. On the
+      other ways it keeps velocityX within the part's speed limit and then adds the pull, which the pair check doesn't
+      yet see as a velocity kept within the speed limit, so it gives its last reason. That belongs with A5's speed
+      limit pairs.
 - [x] **A3. The paths that aren't read.** Read the teeter-totter's and the vacuum cleaner's list paths, the fan's and
       the cat's: each one is either read, or says which instruction stops it and why.
       Done (2026-11-07): the vacuum cleaner's, the fan's and the cat's are read since A1 and A2. The teeter-totter's

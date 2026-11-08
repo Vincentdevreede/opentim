@@ -863,7 +863,10 @@ part it finds, the vacuum cleaner:
 
 For a balloon the pull is 48 × (80 − |overlapY|). When the part's velocityY is already -1024 or less, the vacuum
 cleaner doesn't work out a pull, and the velocityX step uses the pull still in its local from the part before (or
-whatever the stack held). That value is one for A4 of the plan; the lines leave those ways out.
+whatever the stack held). Only the run knows that value, so the lines leave those ways out, and the pair check names
+it for the bullet, the candle, the cat, Mel Schlemming and the mouse: "a test reads a local the source sets in its loop
+for some parts only: for this part it holds what the loop left there for the part before it, which only the run
+knows". Before, it gave the general reason for a test that reads more than the two parts' own fields.
 
 Reading this took four changes:
 
