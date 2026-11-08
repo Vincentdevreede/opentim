@@ -232,16 +232,18 @@ if (!isMainThread) {
       }
   }
   // Links kept one record further: the "offset+k" ways that hold the linked part in every pair with such a link.
-  const through = new Map<string, { pairs: number; ways: string[] }>();
+  const through = new Map<string, { pairs: number; ways: string[]; agree: Map<string, number> }>();
   for (const r of results)
     for (const pair of r.pairs)
       for (const [key, found] of pair.through) {
-        const tally = through.get(key);
-        if (!tally) through.set(key, { pairs: 1, ways: found });
-        else {
-          tally.pairs++;
-          tally.ways = tally.ways.filter((way) => found.includes(way));
+        let tally = through.get(key);
+        if (!tally) {
+          tally = { pairs: 0, ways: found, agree: new Map() };
+          through.set(key, tally);
         }
+        tally.pairs++;
+        tally.ways = tally.ways.filter((way) => found.includes(way));
+        for (const way of found) tally.agree.set(way, (tally.agree.get(way) ?? 0) + 1);
       }
   const failed = results.filter((r) => r.error);
   const parts = results.reduce((n, r) => n + r.parts, 0);
@@ -269,6 +271,17 @@ if (!isMainThread) {
   }
   console.log("Links kept in a record the part points at (record word + place in that record):");
   for (const [key, tally] of [...through].sort(([a], [b]) => a.localeCompare(b)))
-    console.log(`${key.padEnd(24)} ${String(tally.pairs).padStart(5)} links: ${tally.ways.join(", ") || "nowhere"}`);
+    console.log(
+      `${key.padEnd(24)} ${String(tally.pairs).padStart(5)} links: ${
+        tally.ways.join(", ") ||
+        `none in every link; nearest ${
+          [...tally.agree]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([way, n]) => `${way} in ${n}`)
+            .join(", ") || "none"
+        }`
+      }`,
+    );
   if (failed.length) process.exitCode = 1;
 }

@@ -161,15 +161,18 @@ names another part it looks one record further, through each word of the record:
   puzzles, is a gear linked to a gear, whose words the loader leaves 0: a gear's reset finds its neighbours itself, by
   their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/behaviour.md`), so the file's
   gear links aren't used. The analysis knows these words as the rope links.
+- A rope's two tied parts are in the rope record the word `0x66` points at, at `+2` and `+4` (again at `+6` and
+  `+8`; the rope part itself is at `+0`), in 46 of the 47 Even More ropes the check pairs. The parts a rope ties point
+  at the same record from their own `0x66`, as puzzle 9 shows. Ropes have no place of their own in the file, so the
+  check pairs a rope only when it is the only one on its list, and which rope the 47th is isn't known yet.
 - The third flag word is at `0x0a` in every TIM 1 part and in 4,438 of 4,448 Even More parts. In Even More `0x0a`
   also has the goal marks, so the 10 others may be parts whose constructor sets one; not checked yet.
 
 Not found yet:
 
 - the second state value and the second rope slot are 0 in every shipped part, so they show nothing;
-- the rope's two parts and the pulley's rope: no word of the record, or of a record it points at, holds the linked
-  part in every pair; they likely go into the rope records the loader makes (see the rope's and pulley's
-  constructors in `docs/behaviour.md`);
+- the pulley's rope: no word of the pulley's record, or of a record it points at, holds the rope part (a pulley's own
+  record at `0x66` holds only the pulley, in puzzle 9);
 - the word before the parts bin, and the header's fields beyond gravity and air pressure (L2 goes on with the loader's
   code for these).
 
