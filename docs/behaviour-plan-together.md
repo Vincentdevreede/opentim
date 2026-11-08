@@ -36,6 +36,10 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    22](behaviour-assumptions.md#22-searches-of-the-moving-list), and covers every search that walks only the moving
    list, not just the teeter-totter's.
 
+   Checked in the game's own run (2026-11-08): all 160 Even More and 87 TIM 1 puzzles, 500 steps each, never have a
+   part of a fixed type on the moving list; only bullets, pinballs and rope ends join it during a run. The run also
+   found explosions, which aren't of a fixed type, on the fixed list, which matters for the alligator (question 5).
+
 4. **Which machines first?** I'd start with machines that don't need falling and bouncing: a motor turning a gear
    train, a belt from a motor to a conveyor belt, a rope over a pulley pulling a teeter-totter, and a switch that
    starts a fan. Do you have levels in mind that show these well, or shall I pick shipped levels with the fewest
@@ -48,6 +52,10 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    one of another type among its fixed parts (apart from type 55 in each Even More title level, which its constructor
    makes fixed). If you agree that it never happens, the alligator's search would find only fixed parts, like the
    electric switch, and never a ball. Until then the analysis lets it find any part.
+
+   Found (2026-11-08): it does happen. The two routines that make an explosion link it into the fixed list, and the
+   game's own runs of the shipped puzzles show explosions there (7 puzzles in Even More, 4 in TIM 1). So "never" is
+   wrong; the question becomes whether the alligator's search finds only parts of a fixed type and explosions.
 
 ## The starting point
 

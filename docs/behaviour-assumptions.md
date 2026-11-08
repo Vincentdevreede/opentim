@@ -913,8 +913,17 @@ brick wall?
 
 - A search that walks only the moving list (the list the contact dispatch walks) finds no part of a fixed type. The game puts a dropped part there only when its type isn't fixed, the parts part code links there itself (rope ends, pinballs, bullets) aren't of a fixed type, and no shipped level stores a part of a fixed type among its moving parts.
 
-Not proved: a level file made outside the game could store a part of a fixed type among its moving parts, and the
-places that save and restore the list heads (`0xffe7`, `0x12203`, `0x16b68`) were not read further.
+**Checked in the game's own run** (2026-11-08, with `check-moving-list`, which runs the game's code in the level
+recorder): every shipped puzzle of Even More (English floppy, 160 puzzles) and TIM 1 (French, 87 puzzles) ran for 500
+steps, or until the game's goal check ended the run (Even More 106 and 115, TIM 1 76). At every step no part of a fixed
+type was on the moving list. As loaded, the moving lists held 812 parts in Even More and 430 in TIM 1. The only parts
+that joined the moving list during a run were bullets (Even More 4 puzzles, TIM 1 3), pinballs (3 and 2) and rope ends
+(1 and 1), the parts the code above links there. The fixed list was joined by explosions (type 41, not a fixed type, in
+7 and 4 puzzles) and, in Even More puzzle 76, by a brick wall from the explosion's split of a wall.
+
+Not proved: a level file made outside the game could store a part of a fixed type among its moving parts, the places
+that save and restore the list heads (`0xffe7`, `0x12203`, `0x16b68`) were not read further, and the run covers only
+what the shipped puzzles do with their own parts, without the parts a player adds.
 
 **What it gives.** A part of a fixed type gets no line or walk from a search that walks only the moving list, and the
 pair check counts such pairs as ruled out. Most of them were the teeter-totter's launch lines on walls, ramps and
@@ -926,6 +935,9 @@ motors, which can't happen in the game. The parts it rules out state it in their
 - Look at levels saved by players for a part of a fixed type in the moving group.
 - Search the program again for code that links a part into the list at `0x4d7d` (and `0x52f9` in TIM 1), and read the
   routines that save and restore the list heads.
+- Run every shipped puzzle in the game's code and look at the lists each step:
+  `pnpm --filter @opentim/content check-moving-list --game <game folder>` (the builds the level recorder knows); it
+  fails when a part of a fixed type is on the moving list.
 
 ## Recheck of the decided assumptions
 

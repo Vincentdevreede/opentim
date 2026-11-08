@@ -1044,8 +1044,12 @@ The moving list is the one the contact dispatch walks. By the [decided assumptio
 list](behaviour-assumptions.md#22-searches-of-the-moving-list), a search that walks only it never finds a part of a
 fixed type, so such a part gets no line or walk from it, states the assumption instead, and the pair check counts the
 pair as ruled out. Unlike the list flag `0x1000`, the list holds the bullet: the gun links it in itself. The fixed list
-only search of the alligator isn't used yet: whether a part of a type that isn't fixed is ever on the fixed list is a
-question of its own.
+only search of the alligator isn't used yet. A part of a type that isn't fixed can be on the fixed list: the two
+routines that make an explosion (type 41), `0x190f:0x32a9`, which the dynamite plunger's triggers reach, and
+`0x16ca:0x3792`, link it into the fixed list with the insert routine `0x629d` and set `0x0010` in its `0x06`. The
+game's own runs show the same (see the check in the [decided
+assumption](behaviour-assumptions.md#22-searches-of-the-moving-list)): explosions join the fixed list in 7 shipped
+puzzles of Even More and 4 of TIM 1.
 
 The teeter-totter's search (`0x437d`) tests no flag of the parts it walks, only their outline, so its walks no longer
 wait for its tests: the bullet's walk of the launch is described. What changed, on all eleven builds (each game's
