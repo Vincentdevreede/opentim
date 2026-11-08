@@ -31,7 +31,6 @@ export interface GoalNames {
 }
 
 const TYPE = 0x04;
-const FLAGS = 0x06;
 const PART_SIZE = 0xa0;
 
 type Routines = ReadonlyMap<number, GoalRoutine | GoalProblem>;
@@ -266,12 +265,7 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
 
   const test = (t: GoalTest): string => {
     if (t.left.kind === "binary" && t.left.op === "&" && isConstant(t.right, 0) && (t.op === "==" || t.op === "!=")) {
-      const has = t.op === "!=" ? "has" : "hasn't";
-      const field = t.left.left;
-      const bits = value(t.left.right, true);
-      if (field.kind === "word" && field.address.kind === "binary" && isConstant(field.address.right, FLAGS))
-        return `${value(field)} ${has} the bits ${bits}`;
-      return `${value(field)} ${has} the bits ${bits}`;
+      return `${value(t.left.left)} ${t.op === "!=" ? "has" : "hasn't"} the bits ${value(t.left.right, true)}`;
     }
     if (typeField(t.left) && isConstant(t.right) && (t.op === "==" || t.op === "!=")) {
       const type = names.types.get(t.right.value) ?? `type ${t.right.value}`;
