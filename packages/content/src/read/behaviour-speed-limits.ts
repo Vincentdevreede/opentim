@@ -62,7 +62,15 @@ function writes(i: Instruction, target: Operand): boolean {
     if (["pop", "xchg"].includes(i.mnemonic) && i.operands.some(shares)) return true;
     return shares(i.operands[0]) && !READS_ONLY.has(i.mnemonic);
   }
-  return sameOperand(i.operands[0], target) && !READS_ONLY.has(i.mnemonic);
+  const store = i.operands[0];
+  if (READS_ONLY.has(i.mnemonic) || store?.kind !== "memory") return false;
+  // A local is changed by a store to any of its bytes, whatever the store's width.
+  if (isLocal(target) && isLocal(store))
+    return (
+      store.displacement < target.displacement + target.width / 8 &&
+      target.displacement < store.displacement + store.width / 8
+    );
+  return sameOperand(store, target);
 }
 
 /** The far calls to the routine, by their `call far seg:offset` bytes. */

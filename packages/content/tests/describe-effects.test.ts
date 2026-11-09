@@ -546,6 +546,27 @@ describe("effects of parts that touch", () => {
     } as unknown as BehaviourReport;
     const none = effectsFromOthers(unsure, evaluateBehaviourCondition).get(20)?.effects ?? [];
     expect(none.filter((e) => e.touch)).toEqual([]);
+    // One route for bit 1, one for bit 2 and one for neither: with both bits set, two routes hold.
+    const bit = (mask: number, set: boolean) => compare(and(f(TOUCHER, 6), mask), set ? "!=" : "==", c(0));
+    const bits = {
+      ...responding,
+      collisionDispatch: [
+        {
+          ...responding.collisionDispatch![0]!,
+          passes: [
+            {
+              callbackNonzero: [
+                route(bit(1, true)),
+                route(bit(2, true)),
+                route({ kind: "and", terms: [bit(1, false), bit(2, false)] } as Predicate),
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as BehaviourReport;
+    const twice = effectsFromOthers(bits, evaluateBehaviourCondition).get(20)?.effects ?? [];
+    expect(twice.filter((e) => e.touch)).toEqual([]);
   });
 
   it("keeps a query's answer as a test of the touched part, like the teeter-totter's bounce pool", () => {

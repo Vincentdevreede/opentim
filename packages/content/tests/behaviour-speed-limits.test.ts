@@ -10,7 +10,9 @@ const COUNT = 58;
  * in di, the number 0x3000 for types 20 and 43, and 0x2600 minus the air value at [bp-8] for the rest. A far call to it
  * comes first in the image.
  */
-function program(options: { fallThrough?: boolean; writeCounter?: boolean; far?: boolean } = {}) {
+function program(
+  options: { fallThrough?: boolean; writeCounter?: boolean; far?: boolean; writePointer?: number } = {},
+) {
   const origin = 0x10;
   const bytes: number[] = [];
   const labels = new Map<string, number>();
@@ -39,6 +41,7 @@ function program(options: { fallThrough?: boolean; writeCounter?: boolean; far?:
   if (options.far) emit(0xc7, 0x46, 0xf4, DATA_SEGMENT & 0xff, DATA_SEGMENT >> 8, 0x89, 0x46, 0xf2);
   else emit(0x8b, 0xf8); // mov di,ax
   if (options.writeCounter) emit(0x89, 0x46, 0xfe); // mov [bp-2],ax
+  if (options.writePointer !== undefined) emit(0x89, 0x46, options.writePointer); // mov [bp+d],ax
   emit(0x83, 0x7e, 0xfe, 20);
   jump(0x74, "fixed");
   emit(0x83, 0x7e, 0xfe, 43);
@@ -107,6 +110,12 @@ describe("the speed limit routine", () => {
 
   it("reads nothing when the loop's body changes the type number", () => {
     expect(findSpeedLimitSetup(program({ writeCounter: true }), table, DATA_SEGMENT)).toBeUndefined();
+  });
+
+  it("reads nothing when the loop's body stores a word over either half of the record pointer", () => {
+    // The pointer is the far local at [bp-14]: its offset word at [bp-14], its segment word at [bp-12].
+    for (const half of [0xf2, 0xf4])
+      expect(findSpeedLimitSetup(program({ far: true, writePointer: half }), table, DATA_SEGMENT)).toBeUndefined();
   });
 
   it("reads nothing from a table at another place", () => {
