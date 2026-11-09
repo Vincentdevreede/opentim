@@ -1,101 +1,34 @@
 /**
  * Lists every puzzle's goal, build by build: the goal text the level shows the player, and the goal routine of TIM.EXE
  * said in words (`src/read/describe-goals.ts`). With `--out` it writes one file per game; the builds of a game are
- * compared, and a puzzle whose goal reads differently in another build is named.
+ * compared, and a puzzle whose goal reads differently in another build is named. With `--conditions` each goal is
+ * also said as the conditions a level view shows (`src/read/goal-conditions.ts`).
  *
  *   pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
+ *     [--conditions]
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
-import { globalLists } from "../src/read/behaviour-list-masks.ts";
+import { conditionText, type GoalSummary } from "../src/read/goal-conditions.ts";
 import { readBehaviour } from "../src/read/behaviour.ts";
-import { describeGoal, type GoalNames } from "../src/read/describe-goals.ts";
 import { readLevel } from "../src/read/level.ts";
-import {
-  findGoalTable,
-  findStepCounts,
-  readGoalRoutines,
-  type GoalProblem,
-  type GoalRoutine,
-} from "../src/read/puzzle-goals.ts";
-import { findDataSegment } from "../src/read/type-table.ts";
-import { readLzexeProgram } from "../src/run/program.ts";
+import { readProgramGoals } from "../src/read/program-goals.ts";
 import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder } from "./builds.ts";
-
-const LIST_NAMES = new Map([
-  [0x2000, "the fixed list"],
-  [0x1000, "the moving list"],
-  [0x0800, "the third list"],
-]);
 
 export interface BuildGoals {
   folder: string;
   game: BuildFolder["game"];
   problem?: string;
-  puzzles: { puzzle: number; title?: string; goal?: string; lines: string[] }[];
+  puzzles: { puzzle: number; title?: string; goal?: string; lines: string[]; summary: GoalSummary }[];
 }
 
 export function inBuild(build: BuildFolder): BuildGoals {
   const { program, files, parts } = readBuild(build);
-  const image = readLzexeProgram(program).image;
-  const table = findGoalTable(image, findDataSegment(image));
-  if (!table) return { folder: build.folder, game: build.game, problem: "no goal table found", puzzles: [] };
-  const routines = new Map<number, GoalRoutine | GoalProblem>();
-  for (const goal of table.routines) readGoalRoutines(image, goal.segment, goal.offset, routines);
-  const report = readBehaviour(program, parts);
-  const lists = report.helpers && globalLists(report.helpers);
-  const helper = (kind: string) => report.helpers?.find((h) => h.kind === kind)?.address;
-  // The word every goal that ends the run writes 0x0200 to: the game mode.
-  const writes = new Map<number, number>();
-  const count = (body: GoalRoutine["body"]) => {
-    for (const s of body) {
-      if (
-        s.kind === "set" &&
-        s.target.kind === "word" &&
-        s.target.address.kind === "constant" &&
-        s.value.kind === "constant" &&
-        s.value.value === 0x200
-      )
-        writes.set(s.target.address.value, (writes.get(s.target.address.value) ?? 0) + 1);
-      if (s.kind === "if") {
-        count(s.then);
-        count(s.else);
-      } else if (s.kind === "loop") {
-        count(s.before);
-        count(s.body);
-      }
-    }
-  };
-  for (const r of routines.values()) if ("body" in r) count(r.body);
-  const mode = [...writes].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const steps = findStepCounts(image, findDataSegment(image), table);
-  const routineNames = new Map<number, string>();
-  for (const goal of table.routines)
-    if (!routineNames.has(goal.address)) routineNames.set(goal.address, `puzzle ${goal.puzzle}'s goal`);
-  const names: GoalNames = {
-    // The flags at 0x06 have the list bits (0x1000 moving, 0x2000 fixed) the list routines test.
-    fields: new Map([[0x06, "listFlags"], ...report.layout.fields.map((f) => [f.offset, f.name] as const)]),
-    types: new Map(report.parts.map((p) => [p.type, p.id])),
-    lists: (lists?.byHead ?? []).map((l) => ({
-      ...l,
-      name: LIST_NAMES.get(l.bit) ?? `the list at 0x${l.head.toString(16)}`,
-    })),
-    ...(helper("list-head") !== undefined ? { listHead: helper("list-head") } : {}),
-    ...(helper("list-next") !== undefined ? { listNext: helper("list-next") } : {}),
-    words: new Map([
-      ...(mode !== undefined ? ([[mode, "the game mode"]] as const) : []),
-      // The run loop counts steps in a word of its own, and a routine it calls every step in another.
-      ...(steps?.own.length === 1 ? ([[steps.own[0]!, "the step count"]] as const) : []),
-      ...(steps?.called.length === 1 && steps.called[0]!.words.length === 1
-        ? ([[steps.called[0]!.words[0]!, "the second step count"]] as const)
-        : []),
-    ]),
-    ...(mode !== undefined ? { mode: { word: mode, met: 0x200 } } : {}),
-    routines: routineNames,
-  };
-  const puzzles = table.routines.map((goal) => {
+  const read = readProgramGoals(program, readBehaviour(program, parts));
+  if (read.problem) return { folder: build.folder, game: build.game, problem: read.problem, puzzles: [] };
+  const puzzles = read.goals.map((goal) => {
     const data = files.get(`L${goal.puzzle}.LEV`);
     let level: ReturnType<typeof readLevel> | undefined;
     try {
@@ -107,13 +40,26 @@ export function inBuild(build: BuildFolder): BuildGoals {
       puzzle: goal.puzzle,
       ...(level?.title ? { title: level.title } : {}),
       ...(level?.goal ? { goal: level.goal } : {}),
-      lines: describeGoal(routines, goal.address, {
-        ...names,
-        routines: new Map([...routineNames].filter(([a]) => a !== goal.address)),
-      }),
+      lines: goal.lines,
+      summary: goal.summary,
     };
   });
   return { folder: build.folder, game: build.game, puzzles };
+}
+
+/** Says a goal's conditions in lines, its ways numbered when it has more than one. */
+function summaryLines(summary: GoalSummary): string[] {
+  if (summary.problem) return [`no conditions: ${summary.problem}`];
+  const lines: string[] = [];
+  summary.ways.forEach((way, k) => {
+    const pad = summary.ways.length > 1 ? "  " : "";
+    if (summary.ways.length > 1) lines.push(`way ${k + 1}:`);
+    for (const c of way) lines.push(`${pad}${conditionText(c)}`);
+    if (!way.length) lines.push(`${pad}always`);
+  });
+  if (!summary.ways.length) lines.push("never met");
+  for (const r of summary.remembered) lines.push(`kept from step to step: ${r.word} ${r.becomes.join("; ")}`);
+  return lines;
 }
 
 if (isMainThread) {
@@ -121,6 +67,7 @@ if (isMainThread) {
     args: process.argv.slice(2).filter((arg, i) => i > 0 || arg !== "--"),
     options: {
       jobs: { type: "string" },
+      conditions: { type: "boolean" },
       out: { type: "string" },
       tim1: { type: "string", multiple: true },
       evenmore: { type: "string", multiple: true },
@@ -153,7 +100,9 @@ if (isMainThread) {
     for (const p of first.puzzles) {
       text.push(`Puzzle ${p.puzzle}${p.title ? `: ${p.title}` : ""}`);
       if (p.goal) text.push(`  The level says: ${p.goal.replace(/\s+/g, " ").trim()}`);
-      text.push(...p.lines.map((line) => `  ${line}`), "");
+      text.push(...p.lines.map((line) => `  ${line}`));
+      if (values.conditions) text.push("  As conditions:", ...summaryLines(p.summary).map((line) => `    ${line}`));
+      text.push("");
     }
     for (const build of builds) {
       if (build.problem) {

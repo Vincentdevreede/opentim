@@ -43,7 +43,7 @@ const isConstant = (v: GoalValue, value?: number): v is { kind: "constant"; valu
   v.kind === "constant" && (value === undefined || v.value === value);
 
 /** A loop over the parts of lists, read from one of the two forms the goals use. */
-interface Walk {
+export interface Walk {
   kind: "walk";
   part: string;
   lists: string;
@@ -51,14 +51,14 @@ interface Walk {
 }
 
 /** A loop that steps along the moving list until a test fails, without stopping at the list's end. */
-interface Search {
+export interface Search {
   kind: "search";
   part: string;
   list: string;
   test: GoalTest;
 }
 
-type Shown = GoalStatement | Walk | Search;
+export type Shown = GoalStatement | Walk | Search;
 
 /**
  * The constant a body pushes at `k` (a set of a local below the frame), directly or from a register set to it just
@@ -103,7 +103,7 @@ function listsByMasks(names: GoalNames, head: number, next: number): string | un
 }
 
 /** Finds the walks and searches in a body and shows them as such; the rest stays as it is. */
-function shape(body: readonly GoalStatement[], names: GoalNames): Shown[] {
+export function shape(body: readonly GoalStatement[], names: GoalNames): Shown[] {
   const out: Shown[] = [];
   const lists = new Map(names.lists.map((l) => [l.head, l.name]));
   for (let k = 0; k < body.length; k++) {
@@ -200,7 +200,7 @@ function shape(body: readonly GoalStatement[], names: GoalNames): Shown[] {
 }
 
 /** A routine's body without the pushes it starts with to keep its caller's si and di, which its end restores. */
-function withoutSaves(body: readonly GoalStatement[]): GoalStatement[] {
+export function withoutSaves(body: readonly GoalStatement[]): GoalStatement[] {
   let k = 0;
   while (k < body.length) {
     const s = body[k]!;

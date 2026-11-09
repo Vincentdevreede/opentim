@@ -5,6 +5,7 @@
 
 import { choiceOf, describeGear } from "@opentim/content";
 import type {
+  PuzzleGoal,
   AnimationDescription,
   BehaviourDescription,
   BehaviourReport,
@@ -1238,23 +1239,36 @@ export function readingPerType(walks: WalksResult | { status: "reading" } | unde
   return walks?.status === "done" && !walks.perType && walks.perTypeError === undefined;
 }
 
+/** Every puzzle's goal, read from the program once its behaviour is read, since the goals are named with it. */
+export type GoalsResult =
+  { status: "done"; goals: PuzzleGoal[]; seconds: number } | { status: "error"; message: string };
+
 /** What the worker is asked: the program as it ships, and what was read from it before. */
 export interface BehaviourRequest {
   program: Uint8Array;
   parts: ProgramParts;
 }
 
-/** What the worker answers: first the behaviour, then the walks, then the walks again with the loops read per type. */
+/**
+ * What the worker answers: first the behaviour, then the goals, then the walks, then the walks again with the loops read
+ * per type.
+ */
 export type BehaviourMessage =
   | { kind: "behaviour"; result: BehaviourResult }
+  | { kind: "goals"; result: GoalsResult }
   | { kind: "walks"; result: WalksResult }
   | { kind: "per type"; result: WalksResult };
 
 /** The behaviour and the walks of a program, once per program: a later call gets the same answers, unless one failed. */
-const results = new WeakMap<
-  Uint8Array,
-  { result: Promise<BehaviourResult>; walks: Promise<WalksResult>; perType: Promise<WalksResult> }
->();
+const results = new WeakMap<Uint8Array, BehaviourReading>();
+
+/** The answers of a read in the background, each as it comes. */
+export interface BehaviourReading {
+  result: Promise<BehaviourResult>;
+  goals: Promise<GoalsResult>;
+  walks: Promise<WalksResult>;
+  perType: Promise<WalksResult>;
+}
 
 /** How to stop the read of a program while its worker still runs. */
 const running = new Map<Uint8Array, (message: string) => void>();
@@ -1271,17 +1285,16 @@ export function stopBehaviourRead(program: Uint8Array): void {
  * Reads the behaviour of a program in a worker, then the walks from its triggers, then the walks again with the loops
  * over found parts read per type. The behaviour comes first, so it can show while the rest is still being read.
  */
-export function readBehaviourInBackground(
-  program: Uint8Array,
-  parts: ProgramParts,
-): { result: Promise<BehaviourResult>; walks: Promise<WalksResult>; perType: Promise<WalksResult> } {
+export function readBehaviourInBackground(program: Uint8Array, parts: ProgramParts): BehaviourReading {
   let reading = results.get(program);
   if (!reading) {
     let resolveResult!: (r: BehaviourResult) => void;
+    let resolveGoals!: (r: GoalsResult) => void;
     let resolveWalks!: (r: WalksResult) => void;
     let resolvePerType!: (r: WalksResult) => void;
     reading = {
       result: new Promise((resolve) => (resolveResult = resolve)),
+      goals: new Promise((resolve) => (resolveGoals = resolve)),
       walks: new Promise((resolve) => (resolveWalks = resolve)),
       perType: new Promise((resolve) => (resolvePerType = resolve)),
     };
@@ -1292,6 +1305,7 @@ export function readBehaviourInBackground(
     };
     const stop = (message: string) => {
       resolveResult({ status: "error", message });
+      resolveGoals({ status: "error", message });
       resolveWalks({ status: "error", message });
       resolvePerType({ status: "error", message });
       end();
@@ -1306,6 +1320,9 @@ export function readBehaviourInBackground(
         if (data.kind === "behaviour") {
           resolveResult(data.result);
           if (data.result.status === "error") stop(data.result.message);
+        } else if (data.kind === "goals") {
+          // Goals that can't be read don't stop the walks.
+          resolveGoals(data.result);
         } else if (data.kind === "walks") {
           resolveWalks(data.result);
           if (data.result.status === "error") stop(data.result.message);
@@ -1325,6 +1342,7 @@ export function readBehaviourInBackground(
       if (r.status === "error" && results.get(program) === reading) results.delete(program);
     };
     void reading.result.then(forget);
+    void reading.goals.then(forget);
     void reading.walks.then(forget);
     void reading.perType.then(forget);
   }
