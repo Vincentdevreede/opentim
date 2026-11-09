@@ -93,27 +93,19 @@ Why the missing ones are missing (a pair can have several reasons):
 
 ## Where it stands
 
-After the lists a search walks and decided assumption 23 (2026-11-08), from `list-other-part-pairs` on all eleven
-builds (each game's builds agree):
+After the teeter-totter's launch of Mel (2026-11-09), from `list-other-part-pairs` on all eleven builds (each game's
+builds agree):
 
 |                                   | Even More (start) | Even More (now) | TIM 1 (start) | TIM 1 (now) |
 | --------------------------------- | ----------------: | --------------: | ------------: | ----------: |
 | Pairs of parts the code lets meet |             1,090 |           1,090 |           621 |         621 |
-| Described                         |               227 |             390 |           135 |         215 |
-| Partly described                  |                46 |              31 |            17 |          18 |
+| Described                         |               227 |             406 |           135 |         222 |
+| Partly described                  |                46 |              27 |            17 |          16 |
 | Ruled out (they can never meet)   |               570 |             657 |           345 |         383 |
-| Missing                           |               247 |              12 |           124 |           5 |
+| Missing                           |               247 |               0 |           124 |           0 |
 
-Every missing pair names why. In Even More:
-
-- Mel or the bullet need a walk, and the walk has nothing to follow: a velocity kept within the part's speed limit (the
-  fan, bellows, teapot), one whose direction depends on where both parts are (the explosion, the pinball
-  bumper), a contact response after the touch (the conveyor belt), or the contact search the teeter-totter runs on
-  Mel.
-- The explosion's split of a wall makes a new part; the jack-in-the-box's push of a teeter-totter grew past the size
-  budget.
-
-Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchanged.
+No pair is missing. The partly described ones leave out only fields the run decides, like where the contact search
+the teeter-totter runs leaves a part. Recordings stay 648/648 and 552/552.
 
 ## A. What parts do to each other, where it depends on where they are
 
@@ -247,7 +239,9 @@ Recordings stay 648/648 and 552/552, and the 270 listed assumptions are unchange
       The jack-in-the-box's push of a teeter-totter (2026-11-09): a caller makes a helper's exact writes of one field
       whose tests rule each other out one choice, as a tree (see "The jack-in-the-box's push of a teeter-totter"), so
       the value stays within the size bound and the teeter-totter gets walks. Missing: Even More 2 → 1, TIM 1 1 → 0.
-      Left: the teeter-totter's launch of Mel (Even More).
+      The teeter-totter's launch of Mel (2026-11-09): a walk takes a field the contact search leaves as unknown, as
+      for a contact response, and follows the launch speed (see "The teeter-totter's launch of Mel"). Missing: Even
+      More 1 → 0. No pair is missing in either game.
 - [x] **A6. The Behaviour tab.** "From other parts" shows the place a part must be in and the table values, readable
       at a glance. Checked in a browser on the fan, the vacuum cleaner and the teeter-totter.
       Done (2026-11-07): checked headless on the balloon in Even More, which gets lines from all three. The

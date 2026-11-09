@@ -557,6 +557,43 @@ describe("walks from other parts that change a part's frame", () => {
     ]);
   });
 
+  it("walks past the contact search the source runs on the part, leaving where it puts the part unknown", () => {
+    const data = report();
+    // Mel keeps walking while positionY is the word at 0x28, and falls when it isn't and velocityY is above 1536.
+    const level = compare(f("part", 0x20), "==", f("part", 0x28));
+    const falling = and(compare(f("part", 0x20), "!=", f("part", 0x28)), compare(f("part", 0x38), ">", c(1536)));
+    data.parts.find((p) => p.id === "mel-schlemming")!.transitions = [rule(c(1), level), rule(c(6), falling)] as never;
+    // The cat's rules read only the place.
+    data.parts.find((p) => p.id === "cat")!.transitions = [rule(c(1), level)] as never;
+    data.parts.push(part("teeter-totter", 3, [], [904]) as never);
+    const searched: Expression = {
+      kind: "unknown",
+      reason: "Conditional contact-search effect on field 0x20",
+      width: 16,
+    };
+    // The launch speed is known; the place the contact search leaves isn't.
+    const launch = (type: number) => ({
+      ...outcome(isType(type), [write(MEMBER, 0x38, c(5120)), write(MEMBER, 0x20, searched)]),
+      confidence: "unresolved" as const,
+    });
+    data.routines.push({ address: 904, writes: [], ...proof, iterationOutcomes: [launch(54), launch(12)] } as never);
+    const hits = hitsFromOthers(data, evaluateBehaviourCondition);
+    const fromTeeter = (type: number) => (hits.get(type)?.hits ?? []).filter((h) => h.sources[0]!.routine === 904);
+    const mel = fromTeeter(54);
+    expect(mel).toMatchObject([
+      {
+        sources: [{ type: 3, part: "teeter-totter", routine: 904 }],
+        writes: [
+          { offset: 0x20, value: { kind: "unknown", reason: expect.stringContaining("contact search") } },
+          { offset: 0x38, value: c(5120) },
+        ],
+      },
+    ]);
+    expect(mel[0]!.assumptions.join(" ")).toContain("runs the contact search on it");
+    // Nothing the cat's rules read is known after the launch, so it gets no walk.
+    expect(fromTeeter(12)).toEqual([]);
+  });
+
   it("puts place tests in words by the side the part lies on", () => {
     const name = (offset: number) => (offset === 0x1e ? "positionX" : "?");
     expect(
