@@ -261,7 +261,7 @@ game does with the fields whose meaning isn't known.
       The parts bin is the third list; the pulley's rope isn't kept as such; the run loop's two step counts are found
       in every build. The level recorder now takes over where the menu has freed its title machine and enters the
       play screen as the game does (2026-11-09): every parts bin and every rope record loads in both games, and no
-      shipped puzzle ends early on its own parts any more.
+      shipped puzzle of the two recorded builds ends early on its own parts in 500 steps any more.
 - [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
       and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
       recorded builds.
