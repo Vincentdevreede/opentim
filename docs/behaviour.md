@@ -1207,6 +1207,77 @@ missing now is what A4 named and the user chose to leave: the explosion's split 
 jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
 and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
 
+### The wall split in the explosion's loop
+
+The explosion's wall split (`0x1a8ae`, Even More, English floppy; `0x18f4a` in TIM 1, French) was read as a relation
+with every store to the wall and its test, but the explosion's loop still called the wall's fields "a conditional
+effect". Four things kept them apart, now changed:
+
+- A relation's field only got one value when every way through the helper stored something in it. A way that stores
+  nothing in a field leaves it as it was, and every way's effects are complete, so that way's value is now the field
+  itself (`finalOwnerFields`).
+- The ways had to split like a tree on the first test of the first way. The wall split tests "the wall starts at or
+  after the hole" on one side before "the wall ends inside it", and in the other order on the other, so `chooseByTests`
+  now splits on any test every way makes, as itself or its opposite. It still gives up when none does.
+- Its values read the explosion through its second argument (`referenced-by(argument+0x8)`), which a caller didn't map.
+  It is now the argument the caller passes, here the explosion.
+- When the game can't allocate the copy for the far piece (`0x1a91c`), the wall is only cut on one side. That answer is
+  only the run's, so it is named, "allocation answer of the call at 0x1a91c", like the other run values.
+
+A relation's chosen value, a choice by the tests of its ways, gets the same larger size bound as a frame drawing value
+does in the caller, and more: the wall's width and drawing flags reach 1,431 nodes. Reading a build takes as long as
+before (13 seconds for Even More, English floppy). The explosion's own effect lines now say it may put a part out of
+play: "May set another part's out-of-play flag 0x2000 in drawing flags …: it does on the ways its tests pick, and leaves
+them as they were on the others."
+
+The wall's pairs stayed missing at this step, with a new reason: Even More's said its values depend on the
+explosion's own fields, TIM 1's that one isn't known (the allocation answer). The next section gives them lines. No pair, walk or recording changes: Even More 402 described, 4 missing; TIM 1 219 and 3; walks 1,473 and 1,223,
+every one ends; recordings 648 and 552 complete.
+
+### Lines of where the source is
+
+A line now says a value or a test that reads the part together with the source, when it reads nothing else, or reads
+whether a helper's allocation found room (`readsSourcePlace` in `describe-effects.ts`). The source's fields are named
+("the explosion's centre X"), the source's drawn fields read by name as in its tests, and its own type is settled when
+the callback is its type's alone. A test of the allocation reads "the game finds room for the copy the explosion makes
+(the allocation at 0x1a91c)", or "no room". Such tests go into the line's source condition, with `collider` the part,
+as for a touch. Splitting a value by the source's tests (`splitBySource`) now drops the ways that contradict themselves
+as it goes, so fields chosen by the same tests, like the wall's seven, give a way per case instead of more than 64.
+
+So the explosion now gives a brick wall and a wood wall a line for each way of the split, in both games. For a wall
+wider than tall (Even More, English floppy):
+
+- inside the hole: "sets its out-of-play flag 0x2000 in drawing flags. Only when its frameWidth is above its frameHeight
+  and its positionX is at least ((the explosion's centre X - 32) & 0xfff0) + 8 and …";
+- reaching past the hole's far edge only: "sets frameWidth to (positionX + frameWidth) - (((the explosion's centre X + 24) & 0xfff0) + 8) and sets positionX to ((the explosion's centre X + 24) & 0xfff0) + 8 and sets drawX to …";
+- reaching past the near edge only, or past both when the game finds room for the copy: "sets frameWidth to (((the
+  explosion's centre X - 32) & 0xfff0) + 8) - positionX".
+
+A wall taller than wide gets the same in Y. Pairs, on Even More (English floppy) and TIM 1 (French): described 402 →
+404 and 219 → 221, missing 4 → 2 and 3 → 1, the same in all eleven builds of each game. What is missing now is the
+jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
+and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
+
+### The jack-in-the-box's push of a teeter-totter
+
+The jack-in-the-box tilts a teeter-totter through a helper (`0x1badd`, Even More, English floppy) that writes its
+stateDelta exactly, four times, each under its own tests: by the plank's frame (0, 1 or 2) and by which side of the
+jack-in-the-box's centre X the plank's positionX + 36, 40 or 44 is. A caller put such writes in one after another, each
+as a choice between its value and the value so far, so every write copied the value so far into both sides of each of
+its tests. In the jack-in-the-box's loop that grew past the size the analysis keeps for one value.
+
+Now a caller that gets exact writes of one field whose tests rule each other out (every two writes have a test one
+makes and the other makes the opposite of) makes them one choice, built as a tree: it splits on a test, gives each side
+the writes that can still hold there, and ends with the field as it was where no write holds. The plank's frame is
+tested once, at the top, and each side's place under it. The value is 121 nodes in the loop instead of past the bound,
+and the split by where the source is gives the teeter-totter walks, like "Hit by a jack-in-the-box, when its positionX is
+at least 45 pixels left of the jack-in-the-box's centre X (positionX + frameWidth / 2)".
+
+Pairs, on Even More (English floppy) and TIM 1 (French): described 404 → 405 and 221 → 222, missing 2 → 1 and 1 → 0.
+The only pair missing in either game is Even More's teeter-totter launching Mel, whose launch stops at the contact
+search the teeter-totter runs on what it launches. Walks go from 1,473 to 1,477 and from 1,223 to 1,227, and every one
+ends; the recordings match as before: 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

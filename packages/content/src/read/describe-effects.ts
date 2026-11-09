@@ -488,6 +488,31 @@ export function objects(
   return { objects: found, unknown };
 }
 
+/** Whether the game found room for an allocation a helper of the source's makes: only the run knows. */
+const ALLOCATION = /^allocation answer of the call at (0x[0-9a-f]+)$/;
+/** The name a line gives the source while it says a value of both parts, so `part` can be the part it changes. */
+const SOURCE = "the source";
+/**
+ * Whether a value or test reads the member with the source, or an allocation answer, and nothing else: a line says it
+ * in words of where the source is, like the wall split's cut from the explosion's centre.
+ */
+export function readsSourcePlace(value: Expression | Predicate, member: string): boolean {
+  let other = false,
+    placed = false;
+  const visit = (v: Expression | Predicate) => {
+    if (v.kind === "unknown") other = true;
+    else if (v.kind === "field") {
+      if (v.unresolved ? ALLOCATION.test(v.object) : v.object === "part") placed = true;
+      else if (v.unresolved || v.object !== member) other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  visit(value);
+  return placed && !other;
+}
 /** A number for an expression of constants, at its width. */
 function numberOf(e: Expression): number | undefined {
   if (e.kind === "constant") return wrap(e.value, e.width);
@@ -596,7 +621,8 @@ const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">
  */
 export function sourceChoices(value: Expression, limit = 32): { tests: Predicate[]; value: Expression }[] | undefined {
   const split = (e: Expression): { tests: Predicate[]; value: Expression }[] => {
-    const choice = objects(e).objects.has("part") ? choiceOf(e) : undefined;
+    const read = objects(e).objects;
+    const choice = read.has("part") || [...read].some((o) => ALLOCATION.test(o)) ? choiceOf(e) : undefined;
     if (!choice) return [{ tests: [], value: e }];
     const opposite = { ...choice.test, operator: OPPOSITE[choice.test.operator]! };
     return [
@@ -611,6 +637,18 @@ export function sourceChoices(value: Expression, limit = 32): { tests: Predicate
  * A loop's way with each value that picks by the source's tests split into its cases: one way for each, with the
  * case's tests added to the way's and the value it picks. A case that leaves the field as it was writes nothing.
  */
+/** A sum with a negative number read as a difference: "x + -32" as "x - 32". */
+const plainSigns = (words: string) => words.replace(/\+ -(\d)/g, "- $1");
+/** Whether a list of tests has one test and its opposite. */
+function contradicts(tests: Predicate[]): boolean {
+  const keys = new Set(tests.map((t) => JSON.stringify(t)));
+  return tests.some(
+    (t) =>
+      t.kind === "compare" &&
+      !!OPPOSITE[t.operator] &&
+      keys.has(JSON.stringify({ ...t, operator: OPPOSITE[t.operator]! })),
+  );
+}
 export function splitBySource<T extends { condition: Predicate; fields: FieldWrite[] }>(
   outcome: T,
   member: string,
@@ -622,15 +660,18 @@ export function splitBySource<T extends { condition: Predicate; fields: FieldWri
       ways = ways.map((way) => ({ ...way, fields: [...way.fields, w] }));
       continue;
     }
-    ways = ways.flatMap((way) =>
-      cases.map((c) => {
-        const unchanged = c.value.kind === "field" && c.value.object === member && c.value.offset === w.offset;
-        return {
-          tests: [...way.tests, ...c.tests],
-          fields: unchanged ? way.fields : [...way.fields, { ...w, value: c.value }],
-        };
-      }),
-    );
+    ways = ways
+      .flatMap((way) =>
+        cases.map((c) => {
+          const unchanged = c.value.kind === "field" && c.value.object === member && c.value.offset === w.offset;
+          return {
+            tests: [...way.tests, ...c.tests],
+            fields: unchanged ? way.fields : [...way.fields, { ...w, value: c.value }],
+          };
+        }),
+      )
+      // Fields chosen by the same tests, like the wall split's, give ways that contradict themselves: drop them now.
+      .filter((way) => !contradicts(way.tests));
     if (ways.length > 64) return [outcome];
   }
   if (ways.length === 1) return [outcome];
@@ -976,6 +1017,11 @@ interface Candidate {
   /** The tests of where the part lies from the source. */
   place: PlaceTest[];
   /**
+   * Other tests that read the part with the source, or what a call of the source's found only the run knows, like the
+   * wall split's hole edges from the explosion's centre and whether the game had room for the copy. Said in words.
+   */
+  relative: Predicate[];
+  /**
    * Whether the source names the part's type, or else the flag tests of the search that found it, when they are all
    * known. Only then may a line keep tests of the part's own fields that its type doesn't decide: a search may keep
    * only parts with a flag the outcome doesn't show, like the candle's, which keeps lightable parts.
@@ -1158,9 +1204,34 @@ export function effectsFromOthers(
     !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
-  const settingWords = (offset: number, raw: Expression, type?: number) => {
+  /** A test of both parts, or of whether the game had room for a copy, in words. */
+  const relativeWords = (t: Extract<Predicate, { kind: "compare" }>, member: string, source: string) => {
+    const room = [t.left, t.right].find((e) => e.kind === "field" && ALLOCATION.test(e.object));
+    const zero = [t.left, t.right].some((e) => e.kind === "constant" && e.value === 0);
+    if (room?.kind === "field" && zero && (t.operator === "==" || t.operator === "!="))
+      return `${t.operator === "!=" ? "the game finds room" : "the game finds no room"} for the copy the ${source} makes (the allocation at ${ALLOCATION.exec(room.object)![1]})`;
+    return plainSigns(
+      compareWords(
+        { ...t, left: tidyArithmetic(t.left), right: tidyArithmetic(t.right) },
+        {
+          field: fieldName,
+          of: (object, what) => (object === member ? `its ${what}` : `the ${source}'s ${what}`),
+        },
+      ),
+    );
+  };
+  const settingWords = (offset: number, raw: Expression, type?: number, source?: string) => {
     const table = (e: Extract<Expression, { kind: "table" }>) =>
       type !== undefined && isSpeedLimitOf(e, type, report.typeTable) ? "speed limit" : undefined;
+    // A value of where the source is names the source's fields, like "the explosion's centre X".
+    if (source !== undefined) {
+      const names: Names = {
+        field: fieldName,
+        of: (object, what) => (object === SOURCE ? `the ${source}'s ${what}` : what),
+        table,
+      };
+      return `sets ${fieldName(offset)} to ${plainSigns(formula(tidyArithmetic(raw), names))}`;
+    }
     const field = fieldName(offset);
     const value = tidyArithmetic(raw);
     const own = (e: Expression) => e.kind === "field" && e.object === "part" && e.offset === offset && e.width === 16;
@@ -1199,7 +1270,13 @@ export function effectsFromOthers(
    * What the writes set on a part of the type: numbers, speeds and values of its own fields. Undefined when a speed
    * isn't a number for it.
    */
-  const settingsOf = (writes: FieldWrite[], member: string, type: number, used: { table: boolean }) => {
+  const settingsOf = (
+    writes: FieldWrite[],
+    member: string,
+    type: number,
+    used: { table: boolean },
+    source?: string,
+  ) => {
     const sets: OtherPartSetting[] = [];
     /** The speeds whose every write points along the line from the source's centre to this part's. */
     const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
@@ -1212,6 +1289,19 @@ export function effectsFromOthers(
       const number = settled && numberOf(settled.value);
       if (settled && number !== undefined && !settled.kept) {
         sets.push({ kind: "field", offset: w.offset, width: w.width, value: number });
+        continue;
+      }
+      if (settled && source !== undefined && !settled.kept && readsSourcePlace(settled.value, member)) {
+        // A value of where the source is, like the wall split's cut from the explosion's centre: the source's fields
+        // are named, and `part` is this part.
+        const value = rename(rename(settled.value, "part", SOURCE), member, "part");
+        sets.push({
+          kind: "expression",
+          offset: w.offset,
+          width: w.width,
+          value,
+          words: settingWords(w.offset, value, type, source),
+        });
         continue;
       }
       if (settled) {
@@ -1570,6 +1660,11 @@ export function effectsFromOthers(
         )
           continue;
         const member = outcome.object;
+        // The source's own type is known when the callback is its type's alone: its type and its type record's words
+        // are numbers in its tests, like the half width of the teeter-totter's frame.
+        const sourceUsed = { table: false };
+        const ownType = (t: Predicate) =>
+          callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
         const all = outcome.fields.filter((f) => f.object === member);
         if (!all.length || all.length !== outcome.fields.length) continue;
         // What the contact search leaves on the part, and a value read from it after, only the run knows: the line
@@ -1578,26 +1673,38 @@ export function effectsFromOthers(
           const open = openCalls([w.value], kindAt);
           return open.contactSearch && !open.connectionQuery && !open.other;
         });
-        const writes = all.filter((w) => !searched.includes(w));
+        // A value of where the source is reads the source's drawn fields by name, like its frameWidth, and its own
+        // type is known when the callback is its type's alone, as in its tests.
+        const writes = all
+          .filter((w) => !searched.includes(w))
+          .map((w) => {
+            const value = withOwnOverlaps(w.value, member);
+            if (!readsSourcePlace(value, member)) return w;
+            const test = ownType(
+              drawnFields({ kind: "compare", operator: "==", left: value, right: constant(0), signed: false }),
+            );
+            return test.kind === "compare" ? { ...w, value: test.left } : w;
+          });
         if (!writes.length) continue;
         // Every field set needs a number for the part's type, a formula of its own fields, or the speed the speed setter
         // was given: so a value may read only the member and the type table.
         if (
           writes.some((w) => {
-            const read = objects(withOwnOverlaps(w.value, member));
-            return !w.directedSpeed && (read.unknown || [...read.objects].some((o) => o !== member));
+            const value = withOwnOverlaps(w.value, member);
+            const read = objects(value);
+            return (
+              !w.directedSpeed &&
+              (read.unknown || [...read.objects].some((o) => o !== member)) &&
+              !readsSourcePlace(value, member)
+            );
           })
         )
           continue;
         const sourceTerms: Predicate[] = [],
           memberTerms: Predicate[] = [],
+          relative: Predicate[] = [],
           place: PlaceTest[] = [];
         let open = false;
-        // The source's own type is known when the callback is its type's alone: its type and its type record's words
-        // are numbers in its tests, like the half width of the teeter-totter's frame.
-        const sourceUsed = { table: false };
-        const ownType = (t: Predicate) =>
-          callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
         for (const term of terms(outcome.condition).map((t) =>
           ownType(drawnFields(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt))),
         )) {
@@ -1612,13 +1719,16 @@ export function effectsFromOthers(
             }
           }
           const placed = unknown ? undefined : placeTest(term, member);
+          const both = readsSourcePlace(term, member);
           // A test of what the source's rope pull answers, or of its own fields after it, is the source's.
           if (sourceRun(term, kindAt)) sourceTerms.push(term);
-          else if (unknown || term.kind === "unknown") open = true;
+          else if ((unknown || term.kind === "unknown") && !both) open = true;
           else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
           // A test of where the part lies from the source, like the vacuum cleaner's nozzle below it.
           else if (placed) place.push(placed);
+          // Another test of both parts, like a wall split's hole edge, said as it is.
+          else if (both && term.kind === "compare") relative.push(term);
           else open = true;
         }
         if (open) continue;
@@ -1649,6 +1759,7 @@ export function effectsFromOthers(
           sourceTerms,
           memberTerms,
           place,
+          relative,
         });
       }
       // The contact dispatch calls the bounce of the touched part's type with the part that touched it (`collider`).
@@ -1750,7 +1861,7 @@ export function effectsFromOthers(
       }
       if (!possible || !decided) continue;
       if (c.writes.some((w) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte)))) continue;
-      const settings = settingsOf(c.writes, c.member, part.type, used);
+      const settings = settingsOf(c.writes, c.member, part.type, used, nameOf(c.sourcePart));
       if (!settings) continue;
       const { sets, proofs } = settings;
       // The part would get this line but for its list: a decided assumption keeps it off the moving list.
@@ -1770,13 +1881,16 @@ export function effectsFromOthers(
       }
       const name = nameOf(c.sourcePart);
       const { said, velocityDirection } = sayings(sets, name);
-      const placeSaid = placeWords(c.place, name, fieldName, c.sourcePart);
+      const placeSaid = [
+        ...placeWords(c.place, name, fieldName, c.sourcePart),
+        ...c.relative.map((t) => relativeWords(t as Extract<Predicate, { kind: "compare" }>, c.member, name)),
+      ];
       words.push(...placeSaid);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
       const searchedSaid = c.searched.length
         ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
         : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*its /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*(its|the game) /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
       // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
       const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
@@ -1789,7 +1903,11 @@ export function effectsFromOthers(
         sourceType: c.sourceType,
         sourcePart: c.sourcePart,
         routine: c.routine,
-        sourceCondition: conjunction(c.sourceTerms),
+        // Tests of both parts go with the source's, with `collider` this part, as for a touch.
+        sourceCondition: conjunction([
+          ...c.sourceTerms,
+          ...c.relative.map((t) => renamePredicate(t, c.member, "collider")),
+        ]),
         sourceConditionWords: c.sourceWords,
         sets,
         condition: conjunction(conditionTerms),

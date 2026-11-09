@@ -1599,6 +1599,13 @@ describe("creation defaults and related input conditions", () => {
     expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
       "Sets the part's out-of-play flag 0x2000 in drawing flags (the contact dispatch, the contact search and the overlap searches pass over a part with it).",
     );
+    // A choice between setting it and leaving the flags as they were, like the wall split on a wall inside its hole.
+    const out: Expression = { kind: "binary", operator: "|", left: field(0x08), right: constant(0x2000), width: 16 };
+    const test = { kind: "compare", operator: ">", left: field(0x44), right: field(0x46), signed: true } as const;
+    data.parts[0]!.visibleEffects = [{ ...write(0x08, choose(test, out, field(0x08))), routine: 300 }];
+    expect(describeBehaviour(data).parts[0]!.effects.map((effect) => effect.description)).toContain(
+      "May set the part's out-of-play flag 0x2000 in drawing flags (the contact dispatch, the contact search and the overlap searches pass over a part with it): it does on the ways its tests pick, and leaves them as they were on the others.",
+    );
   });
 
   it("names the goal marks in field 0x0a, the fine position and what a contact search may change", () => {
