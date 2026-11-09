@@ -259,7 +259,8 @@ game does with the fields whose meaning isn't known.
       header to one block of words (`0x4cb3` to `0x4cbf`). `0x4a8b` is a second count of steps.
       The parts bin is the third list; the pulley's rope isn't kept as such; the run loop's two step counts are found
       in every build. Next: the recorder's way from the menu into a puzzle, so that it frees the title machine first
-      as the game does (without it the bins of Even More puzzles 105, 106 and 115 come out short).
+      as the game does (without it the bins of Even More puzzles 105, 106 and 115 come out short, and 105's
+      last rope has no rope record).
 - [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
       and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
       recorded builds.
