@@ -176,6 +176,16 @@ describe("readGoalRoutines and runGoal", () => {
     expect(() => runGoal(routines, 0, world({}))).toThrow(UnsetValue);
   });
 
+  it("doesn't let a branch at a join use the flags of only one of the ways that meet there", () => {
+    // mov ax, [0x100]; mov bx, [0x102]; cmp ax, 1; jne B; cmp bx, 2; B: je C; mov word [0x104], 1; C: pop bp; retf
+    const routines = readGoalRoutines(
+      image(0x40, [[0, "558beca100018b1e02013d0100750383fb027406c706040101005dcb"]]),
+      0,
+      0,
+    );
+    expect(routines.get(0)).toMatchObject({ at: 18, reason: expect.stringContaining("flags") });
+  });
+
   it("names a routine it can't read and why", () => {
     // push bp; mov bp, sp; call far [bx]; pop bp; retf
     const routines = readGoalRoutines(image(0x20, [[0, "558becff1f5dcb"]]), 0, 0);

@@ -96,7 +96,7 @@ function listsByMasks(names: GoalNames, head: number, next: number): string | un
     walked.push(list.name);
     const k = order.indexOf(list);
     if (k === 0) visit(after.find((l) => l !== list));
-    else if (k === 1 && next & order[2]!.bit) visit(order[2]);
+    else if (k === 1 && order[2] && next & order[2].bit) visit(order[2]);
   };
   for (const list of first) visit(list);
   return walked.join(", then ");

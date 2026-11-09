@@ -136,7 +136,8 @@ if (isMainThread) {
   for (const game of ["tim1", "evenmore"] as const) {
     const builds = results.filter((r) => r.game === game);
     if (!builds.length) continue;
-    const first = builds[0]!;
+    // The first build that was read is the one the others are compared with.
+    const first = builds.find((build) => !build.problem) ?? builds[0]!;
     // Builds keep the same words at other addresses, in the same order: compare with each word by its rank.
     const ranked = (build: BuildGoals) => {
       const words = [

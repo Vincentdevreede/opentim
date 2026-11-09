@@ -388,14 +388,31 @@ class RoutineReader {
         const test = this.test(i);
         const join = this.inside(this.graph.join(at), region, at);
         const sp = this.sp;
+        const flags = { flags: this.flags, at: this.flagsAt };
         const taken = this.run(i.target!.address, { ...region, stop: join });
         const takenSp = this.sp;
+        const takenFlags = { flags: this.flags, at: this.flagsAt };
+        // Both ways start from the flags before the branch, which the branch doesn't change.
         this.sp = sp;
+        this.flags = flags.flags;
+        this.flagsAt = flags.at;
         const fall = this.run(next, { ...region, stop: join });
         const ends = (body: GoalStatement[]) => ["break", "return"].includes(body.at(-1)?.kind ?? "");
         if (!ends(taken) && !ends(fall) && takenSp !== this.sp)
           throw new Unreadable(at, "two ways that leave the stack in different places");
-        if (ends(fall)) this.sp = takenSp;
+        if (ends(fall)) {
+          this.sp = takenSp;
+          this.flags = takenFlags.flags;
+          this.flagsAt = takenFlags.at;
+        } else if (
+          !ends(taken) &&
+          (takenFlags.at !== this.flagsAt || JSON.stringify(takenFlags.flags) !== JSON.stringify(this.flags))
+        ) {
+          // The ways meet with flags set by different tests: a branch at the join can't tell which, so none may use
+          // them (it is then unreadable).
+          this.flags = undefined;
+          this.flagsAt = -1;
+        }
         out.push({ kind: "if", test, then: taken, else: fall });
         if (join === EXIT || join === region.stop) return out;
         at = join;
