@@ -90,7 +90,9 @@ in Even More. The start-up needs nothing different: the same Enter at the logo a
 A run ends early when the puzzle's goal check finds the goal met: it sets the mode word to `0x0200`, which ends the run
 loop. No shipped puzzle of the two builds ends this way with only its own parts in 500 steps. The recorder used to end
 Even More puzzles 106 and 115 (after 11 and 13 steps) and TIM 1 puzzle 76 (after 131) this way, with the title
-machine still holding its parts; in the game, Even More 106's bucket only drops a few pixels by itself.
+machine still holding its parts. The game agrees with the new runs: in Even More 106 the bucket only drops a few
+pixels by itself, and in TIM 1 76 a balloon pops when the run button is pressed without parts added (both seen in the
+game, 2026-11-09).
 
 ## Checking the lists
 
