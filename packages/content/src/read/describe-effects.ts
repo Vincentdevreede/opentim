@@ -173,23 +173,50 @@ export function rewrittenByResponse(report: BehaviourReport, evaluate: Evaluate)
   let fields: Set<number> | undefined;
   for (const dispatch of dispatches) {
     for (const pass of dispatch.passes) {
-      // The routes test the touching part's list flags and type: each flag bit and type they name, one way or the other.
-      const read = new Map<number, Set<number>>();
+      // The routes test the touching part's list flags and type. Each field gets a value for every way its tests can
+      // tell apart: every mix of the bits its masks pick, and for a comparison the constant, its two neighbours, the
+      // extremes and a value no test names.
+      const masks = new Map<number, number>();
+      const compared = new Map<number, Set<number>>();
       const visit = (v: Expression | Predicate): boolean => {
         if (v.kind === "compare" || v.kind === "binary") {
           if (v.left.kind === "field" && v.right.kind === "constant") {
             if (v.left.object !== "collider") return false;
-            read.set(v.left.offset, (read.get(v.left.offset) ?? new Set([0])).add(v.right.value));
+            const { offset } = v.left;
+            const value = v.right.value & 0xffff;
+            if (v.operator === "&") masks.set(offset, (masks.get(offset) ?? 0) | value);
+            else if (v.operator in OPPOSITE) compared.set(offset, (compared.get(offset) ?? new Set()).add(value));
+            else return false;
             return true;
           }
+          // A test can also be a value, 1 when it holds: those join with `&`.
+          if (v.operator !== "&" && !(v.operator in OPPOSITE)) return false;
           return visit(v.left) && visit(v.right);
         }
         if (v.kind === "and") return v.terms.every(visit);
         return v.kind === "true" || v.kind === "constant";
       };
       if (!pass.callbackNonzero.every((route) => visit(route.condition))) return undefined;
+      // A field both masked and compared whole could need a value that mixes the two: not worked out here.
+      if ([...masks.keys()].some((o) => compared.has(o))) return undefined;
+      const read = new Map<number, number[]>();
+      for (const [offset, mask] of masks) {
+        const bits = [...Array(16).keys()].map((b) => 1 << b).filter((b) => mask & b);
+        if (bits.length > 12) return undefined;
+        read.set(
+          offset,
+          [...Array(2 ** bits.length).keys()].map((n) => bits.reduce((v, b, k) => (n & (1 << k) ? v | b : v), 0)),
+        );
+      }
+      for (const [offset, constants] of compared) {
+        const values = new Set([0, 0x7fff, 0x8000, 0xffff]);
+        for (const c of constants) for (const v of [c - 1, c, c + 1]) values.add(v & 0xffff);
+        let fresh = 0;
+        while (constants.has(fresh)) fresh++;
+        read.set(offset, [...values.add(fresh)]);
+      }
       const offsets = [...read.keys()];
-      const choices = offsets.map((o) => [...read.get(o)!]);
+      const choices = offsets.map((o) => read.get(o)!);
       if (choices.reduce((n, list) => n * list.length, 1) > 4096) return undefined;
       const combine = (n: number, known: { offset: number; value: number }[]): boolean => {
         if (n === offsets.length) {
