@@ -13,7 +13,13 @@ import { globalLists } from "../src/read/behaviour-list-masks.ts";
 import { readBehaviour } from "../src/read/behaviour.ts";
 import { describeGoal, type GoalNames } from "../src/read/describe-goals.ts";
 import { readLevel } from "../src/read/level.ts";
-import { findGoalTable, readGoalRoutines, type GoalProblem, type GoalRoutine } from "../src/read/puzzle-goals.ts";
+import {
+  findGoalTable,
+  findStepCounts,
+  readGoalRoutines,
+  type GoalProblem,
+  type GoalRoutine,
+} from "../src/read/puzzle-goals.ts";
 import { findDataSegment } from "../src/read/type-table.ts";
 import { readLzexeProgram } from "../src/run/program.ts";
 import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder } from "./builds.ts";
@@ -64,6 +70,7 @@ export function inBuild(build: BuildFolder): BuildGoals {
   };
   for (const r of routines.values()) if ("body" in r) count(r.body);
   const mode = [...writes].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const steps = findStepCounts(image, findDataSegment(image), table);
   const routineNames = new Map<number, string>();
   for (const goal of table.routines)
     if (!routineNames.has(goal.address)) routineNames.set(goal.address, `puzzle ${goal.puzzle}'s goal`);
@@ -77,7 +84,14 @@ export function inBuild(build: BuildFolder): BuildGoals {
     })),
     ...(helper("list-head") !== undefined ? { listHead: helper("list-head") } : {}),
     ...(helper("list-next") !== undefined ? { listNext: helper("list-next") } : {}),
-    words: new Map(mode !== undefined ? [[mode, "the game mode"]] : []),
+    words: new Map([
+      ...(mode !== undefined ? ([[mode, "the game mode"]] as const) : []),
+      // The run loop counts steps in a word of its own, and a routine it calls every step in another.
+      ...(steps?.own.length === 1 ? ([[steps.own[0]!, "the step count"]] as const) : []),
+      ...(steps?.called.length === 1 && steps.called[0]!.words.length === 1
+        ? ([[steps.called[0]!.words[0]!, "the second step count"]] as const)
+        : []),
+    ]),
     ...(mode !== undefined ? { mode: { word: mode, met: 0x200 } } : {}),
     routines: routineNames,
   };

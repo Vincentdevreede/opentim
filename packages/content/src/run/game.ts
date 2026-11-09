@@ -16,7 +16,6 @@ export interface GameBuild {
   loadPuzzle: { segment: number; offset: number };
   /** The run loop the run button starts, and the top of its loop, where one step begins. */
   runLoop: { segment: number; offset: number; top: number };
-  /** Words in the data segment. */
   /** Words in the data segment; `bin` heads the parts bin, the list the list head routine picks by bit 0x0800. */
   words: { puzzle: number; mode: number; step: number; moving: number; fixed: number; bin: number };
   /** The game modes the run loop runs in and the menu's. */

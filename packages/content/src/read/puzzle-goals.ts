@@ -139,6 +139,67 @@ export function findGoalTable(image: Uint8Array, dataSegment: number): GoalTable
   return found.length === 1 ? found[0] : undefined;
 }
 
+/** The words the run loop counts its steps in, which some goals read. */
+export interface StepCounts {
+  /** The routine that calls the goal dispatcher every step: the run loop. */
+  runLoop: number;
+  /** Words the run loop adds 1 to itself: the step count. */
+  own: number[];
+  /** Words a routine it calls adds 1 to, by that routine: a second count of steps, like Even More's `[0x4a8b]`. */
+  called: { routine: number; words: number[] }[];
+}
+
+/**
+ * Finds the run loop, the one routine that calls the goal dispatcher, and the words it and the routines it calls add 1
+ * to (`inc word [address]`). Undefined when not exactly one routine calls the dispatcher or its code can't be followed.
+ */
+export function findStepCounts(image: Uint8Array, dataSegment: number, table: GoalTable): StepCounts | undefined {
+  const segmentFor = (at: number) => Math.max(0, (at >> 4) - 0xfff);
+  const routineAt = (at: number) => {
+    for (let start = at; start >= 0 && start > at - 0x4000; start--) if (startsRoutine(image, start)) return start;
+    return undefined;
+  };
+  const counted = (graph: RoutineGraph) =>
+    [...graph.instructions.values()].flatMap((i) => {
+      const target = i.operands[0];
+      return i.mnemonic === "inc" && target?.kind === "memory" && target.direct && target.width === 16
+        ? [target.displacement]
+        : [];
+    });
+  const callers = new Set<number>();
+  for (let at = 0; at + 5 < dataSegment * 16; at++) {
+    if (image[at] !== 0xe8 && image[at] !== 0x9a) continue;
+    try {
+      const call = decodeInstruction(image, at, segmentFor(at));
+      if (call.mnemonic !== "call" || call.target?.address !== table.dispatcher) continue;
+      const start = routineAt(at);
+      if (start !== undefined) callers.add(start);
+    } catch {
+      // Not an instruction here.
+    }
+  }
+  if (callers.size !== 1) return undefined;
+  const runLoop = [...callers][0]!;
+  try {
+    const graph = new RoutineGraph(image, runLoop, segmentFor(runLoop));
+    const called: StepCounts["called"] = [];
+    const seen = new Set<number>();
+    for (const i of graph.instructions.values()) {
+      if (i.mnemonic !== "call" || !i.target || seen.has(i.target.address)) continue;
+      seen.add(i.target.address);
+      try {
+        const words = counted(new RoutineGraph(image, i.target.address, i.target.segment));
+        if (words.length) called.push({ routine: i.target.address, words });
+      } catch {
+        // A routine that can't be followed counts nothing here.
+      }
+    }
+    return { runLoop, own: counted(graph), called };
+  } catch {
+    return undefined;
+  }
+}
+
 class Unreadable extends Error {
   readonly at: number;
 

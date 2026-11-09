@@ -116,10 +116,23 @@ whose code loads registers in another order and, in 101 and 136, takes a wall's 
 Each build's goals are checked against its own routines, but whether these four mean the same as the floppy's isn't
 checked. The demo's 10 puzzles are its own.
 
-Some words a goal reads aren't named yet: the step count (`0x4aab` in Even More, English floppy, which the level
-recorder knows as the run loop's counter, and `0x5027` in TIM 1, French) and `0x4a8b` in Even More puzzle 70, which
-must be at least 308 for the goal to be met: a second count of steps (see
-[what the loader keeps](#what-the-loader-keeps)).
+Two words some goals read are the run loop's counts of steps. `findStepCounts` finds the run loop as the one routine
+that calls the goal dispatcher, and the words it adds 1 to itself (`inc word`) and that a routine it calls adds 1 to.
+Every build has exactly one of each, and `list-goals` calls them "the step count" and "the second step count":
+
+| Build                          | Run loop | Step count | Second step count (routine) |
+| ------------------------------ | -------- | ---------- | --------------------------- |
+| TIM 1 English, floppy and disk | `0x12ab` | `[0x4ea7]` | `[0x4e87]` (`0x144e`)       |
+| TIM 1 French                   | `0x12dc` | `[0x5027]` | `[0x5007]` (`0x147f`)       |
+| TIM 1 German                   | `0x12dc` | `[0x4ff7]` | `[0x4fd7]` (`0x147f`)       |
+| Even More floppy               | `0x1230` | `[0x4aab]` | `[0x4a8b]` (`0x1497`)       |
+| Even More CD                   | `0x9b83` | `[0x4a91]` | `[0x4a71]` (`0x9dee`)       |
+| Even More demo                 | `0x1261` | `[0x48ff]` | `[0x48df]` (`0x14c8`)       |
+| Even More French               | `0x1230` | `[0x4cbb]` | `[0x4c9b]` (`0x1497`)       |
+| Even More German               | `0x1230` | `[0x4c3b]` | `[0x4c1b]` (`0x1497`)       |
+
+The run loops and step counts of the two recorded builds are the ones the level recorder found. Even More puzzle 70's
+goal needs the second step count to be at least 308 (see [what the loader keeps](#what-the-loader-keeps)).
 
     pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
 
@@ -169,21 +182,34 @@ names another part it looks one record further, through each word of the record:
 - The third flag word is at `0x0a` in every TIM 1 part and in 4,438 of 4,448 Even More parts. In Even More `0x0a`
   also has the goal marks, so the 10 others may be parts whose constructor sets one; not checked yet.
 
-Not found yet:
+What the pairing doesn't show:
 
 - the second state value and the second rope slot are 0 in every shipped part, so they show nothing;
-- the pulley's rope: no word of the pulley's record, or of a record it points at, holds the rope part (a pulley's own
-  record at `0x66` holds only the pulley, in puzzle 9);
-- the word before the parts bin, which is 0 in all 73 Even More puzzles that have it, so it shows nothing here.
+- the pulley's rope: the loader doesn't keep it as such. In Even More puzzle 66 no word of the data segment points
+  from the pulley to the rope part its file names; the pulley's links (`0x5a`, `0x5c`) hold the rope's two tied
+  parts, and those parts' links hold the pulley;
+- the word before the parts bin: the level reader (`0x0ecc:0x4dc2`) reads it into `[0x4a67]` (0 for files before
+  version 0x105) and reads the parts bin only when it isn't 0 or when the title flag `[0x508c]` is set, which the
+  puzzle loader sets. It is 0 in all 73 Even More puzzles that have it, so a puzzle always gets its bin, and the
+  title and credits machines, which the reader loads without the flag, get theirs only when their own word isn't 0.
 
 The parts bin is the third list, the one the list head routine picks by the bit `0x0800` (`[0x4cdb]` in Even More,
 English floppy, `[0x5257]` in TIM 1, French): after loading it holds the file's bin parts in the file's order, in 157
 of the 160 Even More puzzles, and their fields go where a placed part's do (tallied as `bin: <field>`), with the first
 state value also at `0x0c`. In puzzle 105 the list stops after the first of its two ropes (5 of 14 parts), and in
-puzzles 106 and 115, with 47 and 15 parts in the bin, it is empty after loading. Why isn't read yet. It isn't the
-emulator's memory: loading these makes the same one failed DOS request as every puzzle (for `0xffff` paragraphs, to
-learn the largest block). Puzzle 105's 72 placed parts reach `0xf9ea`, near the end of the data segment where the
-part records are, so it may be out of room; puzzle 106's records end at `0xdd62`, so it isn't that there.
+puzzles 106 and 115, with 45 and 15 parts in the bin, it is empty after loading.
+
+That comes from the level recorder, not the game. The level reader takes all of a level's part records from the near
+heap at once (`0x0ecc:0x48bf`, `0x00a2` bytes each), and the recorder loads the puzzle straight from the menu, while
+the menu's title machine still holds its 58 parts. In 105, 106 and 115 the last 9, 1 and 10 allocations then give 0,
+the end of the parts bin, and the parts bin list comes out short or empty. It isn't the emulator's DOS memory, which
+has room. Before the game loads a puzzle itself (at `0x0ecc:0x365a`), it calls `0x0ecc:0x1361`, which calls
+`0x0ecc:0x7e82`: that frees every part of the parts bin, the fixed and the moving list (TIM 1, French: `0x0e44:0x6da7`).
+With that call added to the recorder all three bins load in full, but it isn't enough on its own. In Even More,
+puzzles 106 and 115 then no longer meet their goals early, and in TIM 1 puzzles 54, 70 and 76 run on without
+returning, 76 right after the step where it used to meet its goal. So the recorder needs more of the game's way from
+the menu into a puzzle before it can clear the level; until then it loads as before, and these three puzzles' bins
+are short.
 
 The header's numbers go to one block of words. Searched at every byte below `0x8000`, each one is in all puzzles only
 in its word below, apart from the scroll limits: they are -8 in every shipped puzzle, so they could be either of their

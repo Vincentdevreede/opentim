@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { describeGoal, type GoalNames } from "../src/read/describe-goals.ts";
-import { findGoalTable, readGoalRoutines, runGoal, UnsetValue } from "../src/read/puzzle-goals.ts";
+import { findGoalTable, findStepCounts, readGoalRoutines, runGoal, UnsetValue } from "../src/read/puzzle-goals.ts";
 
 // Even More, English floppy. The dispatcher at 0x14ae calls the goal the puzzle number in [0x4ac1] picks from the far
 // pointers at 0x201a.
@@ -100,6 +100,24 @@ describe("findGoalTable", () => {
       puzzleWord: 0x4aa7,
       table: 0x31800 - 4,
       routines: [{ puzzle: 1, segment: 0x200, offset: 0x40, address: 0x2040 }],
+    });
+  });
+});
+
+describe("findStepCounts", () => {
+  it("finds the run loop by its call of the dispatcher, and the words it and its callees add 1 to", () => {
+    // The run loop at 0x40: inc word [0x4aab]; push cs; call 0x60; push cs; call the dispatcher at 0x10.
+    // The routine at 0x60: inc word [0x4a8b].
+    const bytes = image(0x1100, [
+      [0x10, DISPATCHER_EVEN_MORE],
+      [0x40, "558becff06ab4a0ee815000ee8c1ff5dcb"],
+      [0x60, "558becff068b4a5dcb"],
+    ]);
+    const table = { dispatcher: 0x10, puzzleWord: 0x4ac1, table: 0x301a, routines: [] };
+    expect(findStepCounts(bytes, 0x100, table)).toEqual({
+      runLoop: 0x40,
+      own: [0x4aab],
+      called: [{ routine: 0x60, words: [0x4a8b] }],
     });
   });
 });
