@@ -17,8 +17,9 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, callKinds, choiceOf, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
+import { binary, callKinds, choiceOf, choose, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
+import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
   formula,
@@ -80,6 +81,174 @@ export const MOVING_SEARCH_ASSUMPTION =
  */
 export const MADE_FIXED_ASSUMPTION =
   "An explosion is never on the moving list, so it touches nothing and no search of the moving list finds it. Only part code makes explosions, and it links them into the fixed list; an explosion only happens after another part's action, so no level stores one.";
+/** The lowest and highest air pressure a level can have, by the decided assumption: what the control panel can set. */
+export const AIR_PRESSURES = { min: 0, max: 128 };
+/**
+ * A level's air pressure is one the control panel can set. The panel keeps its setting from 0 to 128 (`0x12566` to
+ * `0x1257a` in Even More, English floppy) and a new level starts at 67 (`0x15d69`). Decided with the user on
+ * 2026-11-08.
+ */
+export const AIR_PRESSURE_ASSUMPTION =
+  "A level's air pressure is one the game's control panel can set, from 0 to 128. The panel keeps its setting in that range and a new level starts at 67; the level loader reads the word as it is, but only the game writes level files, and the shipped levels use 0 to 68.";
+/** The lowest and highest speed limit the air pressures a level can have give a type the routine doesn't fix. */
+export function speedLimitRange(table: BehaviourReport["typeTable"]): { min: number; max: number } | undefined {
+  const setup = table?.speedLimits;
+  if (!setup) return undefined;
+  let min = Infinity,
+    max = -Infinity;
+  for (let air = AIR_PRESSURES.min; air <= AIR_PRESSURES.max; air++) {
+    const limit = limitForAir(setup, air);
+    if (limit === undefined) return undefined;
+    min = Math.min(min, limit);
+    max = Math.max(max, limit);
+  }
+  return { min, max };
+}
+/** What a walk that keeps a value within the lowest limit of the range rests on. */
+export const rangeNote = (range: { min: number; max: number }) =>
+  `Every speed limit the air pressure can give, from ${range.min} to ${range.max}, gives the part the same frames, since its rules don't tell those speeds apart, so the walk keeps the value within ${range.min}.`;
+/**
+ * Whether the part's rules can't tell which limit of the range kept a velocity within it: they read the field only in
+ * tests of that field alone, and each test gives the same answer for every speed from the lowest limit to the highest,
+ * and for every one from minus the highest to minus the lowest. Those are the only speeds two limits of the range can
+ * leave different, so a walk may keep the value within the lowest.
+ */
+export function rulesIgnoreLimit(
+  part: Pick<BehaviourReport["parts"][number], "transitions">,
+  offset: number,
+  range: { min: number; max: number },
+  evaluate: Evaluate,
+): boolean {
+  if (range.min <= 0 || range.max > 0x7fff) return false;
+  const reads = (value: Expression | Predicate) => {
+    const found = new Set<number>();
+    partFields(value, found);
+    return found;
+  };
+  const touches = (found: Set<number>) => found.has(offset) || found.has(offset + 1);
+  /** A test of the field alone that gives one answer over each side of the range. */
+  const blind = (term: Predicate) => {
+    const found = reads(term);
+    if (!touches(found)) return true;
+    if (term.kind !== "compare" || [...found].some((o) => o !== offset)) return false;
+    for (const sign of [1, -1]) {
+      let first: boolean | undefined;
+      for (let speed = range.min; speed <= range.max; speed++) {
+        const answer = evaluate(term, [
+          { object: "part", offset, width: 16, value: wrap(sign * speed, 16), knownMask: 0xffff },
+        ]);
+        if (answer === undefined || (first !== undefined && answer !== first)) return false;
+        first = answer;
+      }
+    }
+    return true;
+  };
+  /**
+   * A value a rule stores that keeps the field's speeds apart no better: a choice by such tests between values that
+   * don't read the field, or, stored in the field itself, the field as it was.
+   */
+  const keeps = (value: Expression, target: number): boolean => {
+    if (!touches(reads(value))) return true;
+    if (value.kind === "field" && value.object === "part" && value.offset === offset && value.width === 16)
+      return target === offset;
+    const choice = choiceOf(value);
+    return !!choice && blind(choice.test) && keeps(choice.then, target) && keeps(choice.otherwise, target);
+  };
+  for (const rule of part.transitions) {
+    if (touches(reads(rule.to))) return false;
+    for (const update of (rule as { updates?: FieldWrite[] }).updates ?? [])
+      if (!terms(update.condition).every(blind) || !keeps(update.value, update.offset)) return false;
+    if (!terms(rule.condition).every(blind)) return false;
+  }
+  return true;
+}
+/**
+ * The fields of the touching part every contact response writes again, when one always follows a bounce that returns
+ * something other than 0: each pass of the contact dispatch picks exactly one response, whatever the touching part's
+ * flags and type, and every response is described and writes the field on every way. Undefined otherwise.
+ */
+export function rewrittenByResponse(report: BehaviourReport, evaluate: Evaluate): Set<number> | undefined {
+  const dispatches = report.collisionDispatch ?? [];
+  if (!dispatches.length) return undefined;
+  let fields: Set<number> | undefined;
+  for (const dispatch of dispatches) {
+    for (const pass of dispatch.passes) {
+      // The routes test the touching part's list flags and type. Each field gets a value for every way its tests can
+      // tell apart: every mix of the bits its masks pick, and for a comparison the constant, its two neighbours, the
+      // extremes and a value no test names.
+      const masks = new Map<number, number>();
+      const compared = new Map<number, Set<number>>();
+      const visit = (v: Expression | Predicate): boolean => {
+        if (v.kind === "compare" || v.kind === "binary") {
+          if (v.left.kind === "field" && v.right.kind === "constant") {
+            if (v.left.object !== "collider") return false;
+            const { offset } = v.left;
+            const value = v.right.value & 0xffff;
+            if (v.operator === "&") masks.set(offset, (masks.get(offset) ?? 0) | value);
+            else if (v.operator in OPPOSITE) compared.set(offset, (compared.get(offset) ?? new Set()).add(value));
+            else return false;
+            return true;
+          }
+          // A test can also be a value, 1 when it holds: those join with `&`.
+          if (v.operator !== "&" && !(v.operator in OPPOSITE)) return false;
+          return visit(v.left) && visit(v.right);
+        }
+        if (v.kind === "and") return v.terms.every(visit);
+        return v.kind === "true" || v.kind === "constant";
+      };
+      if (!pass.callbackNonzero.every((route) => visit(route.condition))) return undefined;
+      // A field both masked and compared whole could need a value that mixes the two: not worked out here.
+      if ([...masks.keys()].some((o) => compared.has(o))) return undefined;
+      const read = new Map<number, number[]>();
+      for (const [offset, mask] of masks) {
+        const bits = [...Array(16).keys()].map((b) => 1 << b).filter((b) => mask & b);
+        if (bits.length > 12) return undefined;
+        read.set(
+          offset,
+          [...Array(2 ** bits.length).keys()].map((n) => bits.reduce((v, b, k) => (n & (1 << k) ? v | b : v), 0)),
+        );
+      }
+      for (const [offset, constants] of compared) {
+        const values = new Set([0, 0x7fff, 0x8000, 0xffff]);
+        for (const c of constants) for (const v of [c - 1, c, c + 1]) values.add(v & 0xffff);
+        let fresh = 0;
+        while (constants.has(fresh)) fresh++;
+        read.set(offset, [...values.add(fresh)]);
+      }
+      const offsets = [...read.keys()];
+      const choices = offsets.map((o) => read.get(o)!);
+      if (choices.reduce((n, list) => n * list.length, 1) > 4096) return undefined;
+      const combine = (n: number, known: { offset: number; value: number }[]): boolean => {
+        if (n === offsets.length) {
+          const fieldsKnown = known.map((k) => ({
+            object: "collider",
+            offset: k.offset,
+            width: 16,
+            value: k.value & 0xffff,
+            knownMask: 0xffff,
+          }));
+          const taken = pass.callbackNonzero.filter((route) => evaluate(route.condition, fieldsKnown) === true);
+          const unsure = pass.callbackNonzero.some((route) => evaluate(route.condition, fieldsKnown) === undefined);
+          return !unsure && taken.length === 1;
+        }
+        return choices[n]!.every((value) => combine(n + 1, [...known, { offset: offsets[n]!, value }]));
+      };
+      if (!combine(0, [])) return undefined;
+    }
+    for (const response of dispatch.responses ?? []) {
+      if (response.status !== "described") return undefined;
+      const helper = report.helpers?.find((h) => h.address === response.routine);
+      if (!helper) return undefined;
+      const own = new Set<number>();
+      // Only stores the response makes on every way through it.
+      for (const w of helper.writes)
+        if (w.root === "argument" && !w.path?.length && w.condition.kind === "true")
+          for (let byte = 0; byte < w.width / 8; byte++) own.add(w.offset + byte);
+      fields = fields ? new Set([...fields].filter((f) => own.has(f))) : own;
+    }
+  }
+  return fields;
+}
 /**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
@@ -91,7 +260,7 @@ export function offMovingList(
   if (startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0) return FIXED_LIST_ASSUMPTION;
   return part.id === "bullet" ? BULLET_LIST_ASSUMPTION : undefined;
 }
-const CENTRES_ASSUMPTION =
+export const CENTRES_ASSUMPTION =
   "The two centres are less than 32768 apart across and down, so the word differences the centre angle takes are the true ones. When they are the same point there is no direction, and the setter puts the whole speed into velocityY.";
 /**
  * Which way a velocity moves a part on the screen. The code shows that a velocity has the sign of the change of the
@@ -604,7 +773,7 @@ export function settleForType(
   type: number,
   table: BehaviourReport["typeTable"],
   used: { table: boolean },
-): { value: Expression; kept: boolean } {
+): { value: Expression; kept: boolean; limit?: number; range?: { min: number; max: number } } {
   const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
   const kept = speedLimitOf(settled);
   const limit = kept?.limit;
@@ -615,7 +784,38 @@ export function settleForType(
     limit.segment * 16 + limit.offset === table.address + SPEED_LIMIT &&
     (JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`) ||
       (limit.index.kind === "constant" && limit.index.value === type * table.stride));
-  return ownLimit && kept ? { value: kept.speed, kept: true } : { value: settled, kept: false };
+  if (!ownLimit || !kept) return { value: settled, kept: false };
+  // A type whose limit is the same number in every level, like the bullet's 12288.
+  const fixed = table?.speedLimits?.fixed.find((f) => f.type === type)?.limit;
+  if (fixed !== undefined) return { value: kept.speed, kept: true, limit: fixed };
+  // Any other type's limit is one the level's air pressure gives, by the decided assumption within a range.
+  const range = speedLimitRange(table);
+  return range ? { value: kept.speed, kept: true, range } : { value: kept.speed, kept: true };
+}
+/** A speed limit that is a number in every level, as the words give it after "its speed limit". */
+const limitWords = (limit: number | undefined) => (limit === undefined ? "" : ` of ${limit}`);
+/**
+ * A value kept within a speed limit that is a number: `limit if speed > limit, else -limit if speed < -limit, else
+ * speed`, signed, as the speed limit routine leaves it.
+ */
+export function keptWithin(speed: Expression, limit: number): Expression {
+  const number = constant(limit),
+    negative = constant(wrap(-limit, 16));
+  const above: Extract<Predicate, { kind: "compare" }> = {
+    kind: "compare",
+    operator: ">",
+    left: speed,
+    right: number,
+    signed: true,
+  };
+  const below: Extract<Predicate, { kind: "compare" }> = {
+    kind: "compare",
+    operator: "<",
+    left: speed,
+    right: negative,
+    signed: true,
+  };
+  return choose(above, number, choose(below, negative, speed, 16), 16);
 }
 /** The speed limit's word in a type record, which the game works out for every type from the level's air and gravity. */
 const SPEED_LIMIT = 0x0a;
@@ -1033,8 +1233,8 @@ export function effectsFromOthers(
           value,
           words: settled.kept
             ? unchanged
-              ? `keeps ${fieldName(w.offset)} within its speed limit`
-              : `${settingWords(w.offset, value, type)}, kept within its speed limit`
+              ? `keeps ${fieldName(w.offset)} within its speed limit${limitWords(settled.limit)}`
+              : `${settingWords(w.offset, value, type)}, kept within its speed limit${limitWords(settled.limit)}`
             : settingWords(w.offset, value, type),
         });
         continue;
@@ -1137,8 +1337,13 @@ export function effectsFromOthers(
    * The touch lines of a part: what the bounce of a part it touches sets on it. Paths that set the same, and return
    * the same, are joined where their tests allow it. `read` are the fields the part's own rules read.
    */
+  const rewritten = rewrittenByResponse(report, evaluate);
   const touchLines = (part: BehaviourReport["parts"][number], read: Set<number>, assumptions: Set<string>) => {
     const readsField = (w: FieldWrite) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte));
+    // A field the contact response that always follows a bounce returning nonzero writes again is that response's.
+    const responds = (c: TouchCandidate) => c.returns !== undefined && c.returns !== 0 && !!rewritten;
+    const redone = (w: FieldWrite) =>
+      [...Array(w.width / 8).keys()].every((byte) => rewritten?.has(w.offset + byte) ?? false);
     // The contact dispatch walks the moving list: a part of a fixed type is never on it, by a decided assumption.
     const fixed = !!startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
     interface Path {
@@ -1166,8 +1371,9 @@ export function effectsFromOthers(
         }
         kept.push(typed);
       }
-      // A write to a field the part's rules read can change its frame: walks are the place for that.
-      if (!possible || c.writes.some(readsField)) continue;
+      // A write to a field the part's rules read can change its frame: walks are the place for that, unless the
+      // contact response that always follows writes the field again.
+      if (!possible || c.writes.some((w) => readsField(w) && !(responds(c) && redone(w)))) continue;
       const settings = settingsOf(c.writes, TOUCHER, part.type, used);
       if (!settings) continue;
       if (fixed) {
@@ -1257,12 +1463,15 @@ export function effectsFromOthers(
         const when = sourcePhrases.length ? `, when ${sourcePhrases.join(" and ")},` : "";
         const only = toucherWords.length ? ` Only when ${toucherWords.join(" and ")}.` : "";
         // The dispatch goes on to a contact response only when the bounce returns something other than 0.
+        const ruled = c.writes.filter(readsField).map((w) => fieldName(w.offset));
         const response =
           c.returns === undefined
             ? " The game may go on to a contact response, which can change these again."
             : c.returns === 0
               ? " Its bounce returns 0 then, so no contact response follows."
-              : ` Its bounce returns ${c.returns} then, so the game may go on to a contact response, which can change these again.`;
+              : ruled.length
+                ? ` Its bounce returns ${c.returns} then, so the game always goes on to a contact response, which works ${listWords([...new Set(ruled)])} out again from the angle they touch at: which frame it shows next is up to that response.`
+                : ` Its bounce returns ${c.returns} then, so the game ${rewritten ? "always goes" : "may go"} on to a contact response, which can change these again.`;
         lines.push({
           sourceType: c.sourceType,
           sourcePart: c.sourcePart,

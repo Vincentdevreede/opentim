@@ -30,6 +30,7 @@ import {
   onlyAnswersOpen,
   partFields,
   predicateForType,
+  rulesIgnoreLimit,
   settleForType,
   withOwnOverlapsIn,
   afterQueriesIn,
@@ -383,7 +384,12 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         continue;
       }
       // The value as the line says it: the overlap its search stored, the type's words and the part's speed limit.
-      const { value: settled, kept } = settleForType(w.value, member, typeOffset!, type, report.typeTable, {
+      const {
+        value: settled,
+        kept,
+        limit,
+        range,
+      } = settleForType(w.value, member, typeOffset!, type, report.typeTable, {
         table: false,
       });
       const value = objects(settled);
@@ -406,7 +412,22 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       if ([...value.objects].some((o) => o !== member && o !== "part")) return OPEN_VALUE;
       if (value.objects.has("part")) return SOURCE_VALUE;
       if (readsTableBesidesSpeedLimit(settled, type, report.typeTable)) return TABLE_VALUE;
-      if (kept && readsRule(w)) return LIMIT_RULE_FIELD;
+      // A limit of the level's air pressure the part's rules can't tell apart within its range needs no number.
+      if (
+        kept &&
+        limit === undefined &&
+        readsRule(w) &&
+        !(
+          range &&
+          rulesIgnoreLimit(
+            report.parts.find((p) => p.type === type)!,
+            w.offset,
+            range,
+            evaluate,
+          )
+        )
+      )
+        return LIMIT_RULE_FIELD;
     }
     if (searched) return CONTACT_SEARCH;
     if (

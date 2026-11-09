@@ -1085,6 +1085,128 @@ builds agree):
 The described and partly described pairs that went were lines the game can't give: the teeter-totter's launch and the
 vacuum cleaner's pull of walls, ramps, motors and the other fixed parts (39 each in Even More).
 
+### The bullet's speed limit
+
+The routine that works out every type's speed limit (`0x369c` in Even More, English floppy; `0x2af1` in TIM 1,
+French) walks the type records in a loop. For type 20 (the bullet) and type 43 it stores `0x3000` (12288) at +0x0a;
+for every other type it stores `0x2600` (9728) minus a value of the level's air pressure: half of it below 70, else 16
+times it. The level loader calls the routine after it reads the air pressure, and the control panel calls it after the
+player sets a new one (Even More `0x12593`, which keeps the setting from 0 to 128). So the bullet's limit is 12288 in
+every level, and every other type's lies between 7680 and 9728.
+
+The analysis now reads the routine (`behaviour-speed-limits.ts`). It finds it by its structure: the stores to +0x0a
+through a pointer the loop works out as `type × 58 + table`, with the table the type records' own place, a loop that
+counts the type number from 0 to the number of records, and calls from elsewhere in the program. It then follows each
+way through the loop's body with the tests of the type number on it (`cmp` and `je` or `jne`), and gives a type the
+number the last store on every one of its ways leaves. A way that changes the type number or the pointer, or stores
+to a word it can't place, gives no result. All eleven builds give the same: 12288 for types 20 and 43, `9728 - air`
+for the rest. The type table keeps the result (`speedLimits`), with the assumption that no other code writes those
+words and that the routine's long multiplication and division calls leave the type records alone.
+
+For a type whose limit is a number in every level, a value kept within its speed limit is now that number's clamp, a
+value a walk can work out from its starting fields. The bullet's rules read whether `velocityX` is 12288 or -12288,
+which the clamp decides, so the alligator's push of ±1536, the trampoline's halving and the fan's push now give the
+bullet walks, and they all end. A line says the number: "kept within its speed limit of 12288". For the other types
+the limit stays a word of the level, and the pair check still names it.
+
+Pairs, on Even More (English floppy) and TIM 1 (French):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              390 |           393 |          215 |       217 |
+| Partly described |               31 |            29 |           18 |        17 |
+| Ruled out        |              657 |           657 |          383 |       383 |
+| Missing          |               12 |            11 |            5 |         4 |
+
+The fan's push, the trampoline's and the alligator's are described for the bullet in both games. The vacuum cleaner's
+pull of the bullet stays partly described: its tests read the pull left from an earlier part. Walks go from 1,447 to
+1,459 in Even More and from 1,217 to 1,223 in TIM 1, and every one of them ends. The recordings match as before: 648
+and 552 complete.
+
+### Mel Schlemming's speed limit
+
+Every other type's limit is `0x2600` minus the value the routine works out from the air pressure (the word at
+`0x4cb7`, Even More, English floppy): half of it when it is below 70, else 16 times it. The reader reads that too
+(`air`): the only three stores to the local the routine takes from the base, `mov`, `sar` and `shl`, around a `cmp`
+with 70 and a `jge`. The control panel keeps the air pressure from 0 to 128 (`0x12566` to `0x1257a`; TIM 1, French,
+`0x118a6` to `0x118ba`) and a new level starts at 67, and the shipped levels of all eleven builds use 0 to 68. By
+[decided assumption 24](behaviour-assumptions.md#24-the-air-pressure) a level's air pressure is one the panel can set,
+so such a type's limit lies between 7680 (air pressure 128) and 9728 (air pressure 0) (`speedLimitRange`).
+
+Two limits of that range only leave a speed different when it lies between them, from 7680 to 9728 or from -9728 to
+-7680. So a part's rules can't tell them apart when every test of the field in them gives one answer over each of
+those two stretches, and every value a rule stores from the field is a choice by such tests, or the field itself kept
+in its own place (`rulesIgnoreLimit`). Mel's rules look at whether he moves up or down faster than 1536, his bounce
+notes whether faster than 7168, and keeps his `velocityY` or clears it: none of these tells the limits apart. For such
+a part a walk keeps the value within 7680, and states the assumption and that every limit of the range gives the same
+frames. The fan's, the bellows' and the teapot's pushes of Mel are walks now, and they all end.
+
+Pairs, Even More (English floppy): described 393 → 396, missing 11 → 8. TIM 1 has no Mel, so its pairs stay as they
+were. The vacuum cleaner's pull of Mel stays partly described for its other reasons. Walks in Even More go from 1,459
+to 1,468, and every one ends; the recordings match as before: 648 and 552 complete.
+
+### Pushes along the line between the centres
+
+The explosion pushes a part it hits with a speed of 4096, and the pinball bumper throws a part that touches it with
+7168, each along the line from its own centre to the part's (see [the push's direction](#the-pushs-direction)). Which
+way that is depends on where the two parts are, so a walk had no number to follow when the part's rules read the
+velocity. Now the push is split into the directions the part's rules tell apart (`directionClasses` in
+`describe-hits.ts`):
+
+- Every answer the centre angle can give, with the true directions it stands for, gives the velocity the setter
+  stores, from the program's own tables (`directionCases`, which `directionError` now uses too).
+- The part's rules must read the two velocity fields only in tests of those fields alone, and store them back only as
+  they were, moved by a number (like the bullet's bounce taking 1 from velocityX on an electric switch), or chosen by
+  such tests. Each direction gets the answers of those tests, also at each moved velocity.
+- The directions with the same answers are one case. A case must be one stretch of how far the line between the
+  centres is from level, the same on every side, so the words can say it. Centres at the same point give the whole
+  speed to velocityY, by the assumption the lines already state, and that velocity must fall in one case too.
+- The walk takes the velocity of one direction of each case, the one halfway through its stretch, below level to the
+  right, and states that every direction of the case gives the same frames.
+
+Mel Schlemming's rules ask whether he moves up or down faster than 1536, and his bounce whether faster than 7168. So
+the explosion gives him two walks: "the line from the explosion's centre to its centre is at most 22.1 degrees from
+level" and "is more than 22.1 degrees from level, or the two centres are the same point". The bumper gives two at 12.4
+degrees. The bullet's rules ask whether velocityX is 12288 or -12288, which no direction of the bumper's 7168 gives,
+before or after its bounce takes 1 off, so the bumper gives it one walk with no place in it.
+
+Pairs, Even More (English floppy): described 396 → 399, missing 8 → 5; TIM 1 has neither part. Walks in Even More go
+from 1,468 to 1,473, and every one ends; the recordings match as before: 648 and 552 complete.
+
+### The contact response after a bounce
+
+The conveyor belt's and the gear's bounces set the speed of the part that touches them (the belt ±4096 or 4096 more
+or less in velocityX, the gear the same with 2048 and 4096 in both) and return 1. The contact dispatch calls a bounce
+only in one of its two passes, and each pass then picks a response by the touching part's flags and type: the first
+picks the response at `0x3980` when the part has `0x0001` in its list flags and isn't Mel, else the reflection at
+`0x3c1c`; the second always picks the exchange at `0x3df7` (Even More, English floppy). Every one of the three writes
+velocityX and velocityY on every way through it, from the angle the two parts touch at, which only the run knows. So
+when the part's rules read a speed the bounce sets, as the bullet's and Mel's do, the frame it shows next is up to the
+response, not the bounce.
+
+The analysis now checks this (`rewrittenByResponse` in `describe-effects.ts`): each pass's routes test only the
+touching part's flag bits and type, and for every value of those exactly one route holds; every response is described
+and its relation stores the field with no condition. The fields every response writes again are then the response's.
+A touch line may now name such a field, though the part's rules read it, and says what follows: "A conveyor belt it
+touches sets velocityX to 4096 … Its bounce returns 1 then, so the game always goes on to a contact response, which
+works velocityX out again from the angle they touch at: which frame it shows next is up to that response." As the
+check shows a response always follows a bounce that returns something other than 0, every such line now says
+"always goes on" in place of "may go on". The user chose to count these pairs as described: the bounce's own part is
+said in full, and what follows is the response every touch gets.
+
+Pairs, on Even More (English floppy) and TIM 1 (French):
+
+|                  | Even More before | Even More now | TIM 1 before | TIM 1 now |
+| ---------------- | ---------------: | ------------: | -----------: | --------: |
+| Described        |              399 |           402 |          217 |       219 |
+| Partly described |               29 |            27 |           17 |        16 |
+| Missing          |                5 |             4 |            4 |         3 |
+
+The conveyor belt's touch of the bullet is described in both games, and the gear's of the bullet and of Mel. What is
+missing now is what A4 named and the user chose to leave: the explosion's split of a brick wall and a wood wall, the
+jack-in-the-box's push of a teeter-totter, and in Even More the teeter-totter's launch of Mel. No walk changes (1,473
+and 1,223, every one ends), and the recordings match as before: 648 and 552 complete.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the

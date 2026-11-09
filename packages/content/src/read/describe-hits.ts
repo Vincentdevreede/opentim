@@ -9,10 +9,12 @@
  */
 import { globalLists, searchedLists, typesLinkedInto } from "./behaviour-list-masks.ts";
 import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
-import { callKinds, openCalls } from "./behaviour.ts";
+import { callKinds, choiceOf, openCalls } from "./behaviour.ts";
 import { formula as formulaOf } from "./describe-touch.ts";
+import { directionCases } from "./behaviour-centre-angle.ts";
 import {
   ANSWER_ASSUMPTION,
+  CENTRES_ASSUMPTION,
   type Evaluate,
   FIXED_LIST_ASSUMPTION,
   MOVING_SEARCH_ASSUMPTION,
@@ -27,6 +29,10 @@ import {
   offMovingList,
   onlyAnswersOpen,
   partFields,
+  AIR_PRESSURE_ASSUMPTION,
+  keptWithin,
+  rangeNote,
+  rulesIgnoreLimit,
   settleForType,
   splitBySource,
   afterQueriesIn,
@@ -509,6 +515,168 @@ function ownValue(value: Expression, member: string): Expression | undefined {
   return rename(value, member, "part");
 }
 
+/** One way a push along the line between the two centres reaches the part, as its rules tell them apart. */
+interface DirectionClass {
+  /** The velocity fields, as the walk takes them. */
+  values: Map<number, number>;
+  /** Where the part must lie from the source, in words; empty when every direction gives the same frames. */
+  words: string[];
+  proof: string[];
+}
+
+/**
+ * A speed the setter gives along the line from the source's centre to the part's (the explosion's push, the pinball
+ * bumper's throw), split into the directions the part's rules tell apart. Every direction the centre angle can answer
+ * gives a velocity (`directionCases`); the rules' tests of the velocity fields give each one an answer, and the
+ * directions with the same answers make one case. A case is said as how far from level the line between the centres
+ * is, so the answers must split by that alone, the same way on every side. The walk takes one velocity of each case,
+ * which gives the frames every one of its directions gives. Undefined when the rules read the velocity in another way,
+ * or the speed or the tables aren't known.
+ */
+function directionClasses(
+  report: BehaviourReport,
+  part: BehaviourReport["parts"][number],
+  writes: FieldWrite[],
+  member: string,
+  typeOffset: number,
+  source: string,
+  evaluate: Evaluate,
+  used: { table: boolean },
+): DirectionClass[] | undefined {
+  const first = writes[0]!.directedSpeed!;
+  const line = first.direction;
+  if (!line || line.from !== "part" || line.to !== member) return undefined;
+  const speedOf = (w: FieldWrite) => {
+    const value = settleForType(w.directedSpeed!.speed, member, typeOffset, part.type, report.typeTable, used).value;
+    return value.kind === "constant" ? value.value : undefined;
+  };
+  const speed = speedOf(writes[0]!);
+  if (
+    speed === undefined ||
+    writes.some(
+      (w) =>
+        w.width !== 16 ||
+        w.directedSpeed!.routine !== first.routine ||
+        w.directedSpeed!.call !== first.call ||
+        JSON.stringify(w.directedSpeed!.direction) !== JSON.stringify(line) ||
+        speedOf(w) !== speed,
+    )
+  )
+    return undefined;
+  const centre = report.helpers?.find((h) => h.address === line.routine)?.centreAngle;
+  const velocity = report.helpers?.find((h) => h.address === first.routine)?.directedVelocity;
+  if (!centre || !velocity || velocity.stores.some((store) => !writes.some((w) => w.offset === store.field)))
+    return undefined;
+  const cases = directionCases(centre.backend, velocity, speed);
+  if (!cases) return undefined;
+  const across = velocity.stores.find((store) => store.coefficient === "horizontal")!.field;
+  const down = velocity.stores.find((store) => store.coefficient === "vertical")!.field;
+  const fields: number[] = [across, down];
+  const reads = (value: Expression | Predicate) => {
+    const found = new Set<number>();
+    partFields(value, found);
+    return [...found];
+  };
+  const touches = (value: Expression | Predicate) =>
+    reads(value).some((o) => fields.some((f) => o === f || o === f + 1));
+  // The tests that tell velocities apart: the rules' tests of the two fields, and the choices a rule stores by them.
+  const tests: Predicate[] = [];
+  const test = (term: Predicate) => {
+    if (!touches(term)) return true;
+    if (term.kind !== "compare" || reads(term).some((o) => !fields.includes(o))) return false;
+    tests.push(term);
+    return true;
+  };
+  // A rule may store the field back moved by a number, like the bullet's bounce taking 1 from velocityX: the tests
+  // must then answer the same at the moved velocity too.
+  const shifts: { field: number; by: number }[] = [];
+  const own = (value: Expression, target: number) =>
+    value.kind === "field" && value.object === "part" && value.offset === target && value.width === 16;
+  const keeps = (value: Expression, target: number): boolean => {
+    if (!touches(value)) return true;
+    if (own(value, target)) return true;
+    if (
+      value.kind === "binary" &&
+      ["+", "-"].includes(value.operator) &&
+      own(value.left, target) &&
+      value.right.kind === "constant"
+    ) {
+      const by = value.operator === "+" ? value.right.value : -value.right.value;
+      shifts.push({ field: target, by: ((by + 0x8000) & 0xffff) - 0x8000 });
+      return true;
+    }
+    const choice = choiceOf(value);
+    return !!choice && test(choice.test) && keeps(choice.then, target) && keeps(choice.otherwise, target);
+  };
+  for (const rule of part.transitions) {
+    if (touches(rule.to)) return undefined;
+    for (const update of (rule as { updates?: FieldWrite[] }).updates ?? [])
+      if (!terms(update.condition).every(test) || !keeps(update.value, update.offset)) return undefined;
+    if (!terms(rule.condition).every(test)) return undefined;
+  }
+  const answers = (vx: number, vy: number) => {
+    const list = [{ field: across, by: 0 }, ...shifts].flatMap((shift) => {
+      const known = [
+        { object: "part", offset: across, width: 16, value: (vx + (shift.field === across ? shift.by : 0)) & 0xffff },
+        { object: "part", offset: down, width: 16, value: (vy + (shift.field === down ? shift.by : 0)) & 0xffff },
+      ].map((f) => ({ ...f, knownMask: 0xffff }));
+      return tests.map((t) => evaluate(t, known));
+    });
+    return list.some((a) => a === undefined) ? undefined : JSON.stringify(list);
+  };
+  // How far from level the line is, from 0 to 90 degrees.
+  const level = (degrees: number) => (Math.abs(degrees) <= 90 ? Math.abs(degrees) : 180 - Math.abs(degrees));
+  const groups = new Map<string, { cases: typeof cases; low: number; high: number }>();
+  for (const one of cases) {
+    const key = answers(one.vx, one.vy);
+    if (key === undefined) return undefined;
+    const [a, b] = [level(one.from), level(one.to)];
+    const group = groups.get(key) ?? { cases: [], low: Infinity, high: -Infinity };
+    group.cases.push(one);
+    group.low = Math.min(group.low, a, b);
+    group.high = Math.max(group.high, a, b);
+    groups.set(key, group);
+  }
+  // Each case must be one stretch from level, apart from the others but for where two meet.
+  const sorted = [...groups.entries()].sort((a, b) => a[1].low - b[1].low);
+  const EPSILON = 1e-9;
+  for (let n = 1; n < sorted.length; n++) if (sorted[n]![1].low < sorted[n - 1]![1].high - EPSILON) return undefined;
+  if (sorted[0]![1].low > EPSILON || sorted.at(-1)![1].high < 90 - EPSILON) return undefined;
+  // Centres at the same point: the whole speed goes into velocityY, by the stated assumption on the centres.
+  const same = new Set([answers(0, speed), answers(0, -speed)]);
+  if (same.size !== 1 || !groups.has([...same][0]!)) return undefined;
+  const degrees = (n: number) => `${Math.round(n * 10) / 10}`;
+  const from = `the line from the ${nameOf(source)}'s centre to its centre`;
+  return sorted.map(([key, group]) => {
+    const middle = (group.low + group.high) / 2;
+    // The velocity of a line that far below level to the right.
+    const taken = group.cases.find(
+      (c) => c.from >= -EPSILON && c.to <= 90 + EPSILON && c.from <= middle && middle <= c.to,
+    )!;
+    const stretch =
+      sorted.length === 1
+        ? undefined
+        : group.low <= EPSILON
+          ? `${from} is at most ${degrees(group.high)} degrees from level`
+          : group.high >= 90 - EPSILON
+            ? `${from} is more than ${degrees(group.low)} degrees from level`
+            : `${from} is between ${degrees(group.low)} and ${degrees(group.high)} degrees from level`;
+    const words = stretch ? [key === [...same][0] ? `${stretch}, or the two centres are the same point` : stretch] : [];
+    return {
+      values: new Map([
+        [across, taken.vx],
+        [down, taken.vy],
+      ]),
+      words,
+      proof: [
+        ...centre.assumptions,
+        CENTRES_ASSUMPTION,
+        `Every direction ${stretch ? "in this stretch" : "of the push"} gives the part the same frames, since its rules don't tell those velocities apart, so the walk takes the one for a line ${degrees(middle)} degrees below level to the right: velocityX ${taken.vx} and velocityY ${taken.vy}.`,
+      ],
+    };
+  });
+}
+
 interface Candidate {
   sourceType: number;
   sourcePart: string;
@@ -731,16 +899,37 @@ export function hitsFromOthers(
         responds && [...Array(w.width / 8).keys()].some((byte) => afterResponse!.has(w.offset + byte));
       const changes = c.writes.filter(readsField);
       // A value with the words of the part's type record its type settles, like a launch speed by its mass, and the
-      // overlap its search stored as its own field. A value kept within its speed limit has no number to follow.
+      // overlap its search stored as its own field. A value kept within its speed limit has a number to follow only
+      // when the limit is the same number in every level, like the bullet's.
+      // A limit the level's air pressure gives is one of a range: a walk may keep the value within its lowest when the
+      // part's rules can't tell the limits of the range apart.
+      let limited = false;
+      let ranged: { min: number; max: number } | undefined;
       const own = (w: FieldWrite) => {
         const settled = settleForType(w.value, c.member, typeOffset, part.type, report.typeTable, used);
-        return settled.kept ? undefined : ownValue(settled.value, c.member);
+        if (!settled.kept) return ownValue(settled.value, c.member);
+        if (settled.limit !== undefined) {
+          const value = ownValue(keptWithin(settled.value, settled.limit), c.member);
+          if (value) limited = true;
+          return value;
+        }
+        if (!settled.range || !rulesIgnoreLimit(part, w.offset, settled.range, evaluate)) return undefined;
+        const value = ownValue(keptWithin(settled.value, settled.range.min), c.member);
+        if (value) ranged = settled.range;
+        return value;
       };
       // A number, or a value of the part's own fields as the touch found them, in a field the rules read gives the walk
       // something to follow; a field a response may change again is unknown, and at least one other must be known.
+      // A push along the line between the centres, like the bumper's throw, is split into the directions the part's
+      // rules tell apart.
+      const directed = c.writes.filter((w) => w.directedSpeed);
+      const directions =
+        changes.some((w) => w.directedSpeed && !responded(w)) && directed.length
+          ? directionClasses(report, part, directed, c.member, typeOffset, c.sourcePart, evaluate, used)
+          : undefined;
       if (
         !changes.length ||
-        changes.some((w) => w.directedSpeed || (!responded(w) && !own(w))) ||
+        changes.some((w) => (w.directedSpeed ? !directions && !responded(w) : !responded(w) && !own(w))) ||
         changes.every(responded)
       )
         continue;
@@ -764,101 +953,115 @@ export function hitsFromOthers(
         for (const assumption of ruledBy) assumptions.add(assumption);
         continue;
       }
-      const asPart = (w: FieldWrite): FieldWrite => {
-        const value = own(w);
-        return {
-          ...w,
-          object: "part",
-          condition: { kind: "true" },
-          value:
-            !responded(w) && value
-              ? value
-              : {
-                  kind: "unknown",
-                  reason: responded(w)
-                    ? "A contact response after the bounce may change it."
-                    : "The source sets it to a value the walk can't work out.",
-                  width: w.width,
-                },
+      for (const direction of directions ?? [undefined]) {
+        const asPart = (w: FieldWrite): FieldWrite => {
+          const taken = direction?.values.get(w.offset);
+          const value: Expression | undefined =
+            w.directedSpeed && taken !== undefined
+              ? { kind: "constant", value: taken & 0xffff, width: 16 }
+              : w.directedSpeed
+                ? undefined
+                : own(w);
+          return {
+            ...w,
+            object: "part",
+            condition: { kind: "true" },
+            value:
+              !responded(w) && value
+                ? value
+                : {
+                    kind: "unknown",
+                    reason: responded(w)
+                      ? "A contact response after the bounce may change it."
+                      : "The source sets it to a value the walk can't work out.",
+                    width: w.width,
+                  },
+          };
         };
-      };
-      const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
-      // Where the part must lie from the source stays in words; the walk doesn't follow where parts are.
-      const place = c.place?.length ? placeWords(c.place, nameOf(c.sourcePart), fieldName, c.sourcePart) : [];
-      const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value]), place]);
-      const given = (c.search ?? []).flatMap((t) =>
-        t.set
-          ? (factory?.constructorFlags ?? []).filter(
-              (f) => f.type === part.type && f.field === t.offset && (f.mask & t.mask) === t.mask,
-            )
-          : [],
-      );
-      const evidence = uniqueEvidence([
-        ...c.outcome.evidence,
-        ...c.writes.flatMap((w) => w.evidence),
-        ...(c.search ?? []).flatMap((t) => t.evidence),
-        ...given.flatMap((f) => f.evidence),
-      ]);
-      const proof = [
-        ...c.outcome.assumptions,
-        ...c.writes.flatMap((w) => w.assumptions),
-        ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
-        ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
-        ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
-        ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),
-        ...(c.dropped.answer ? [ANSWER_ASSUMPTION] : []),
-        ...(place.length ? [PLACE_ASSUMPTION] : []),
-        ...(c.place?.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
-      ];
-      const others = c.writes.filter((w) => !readsField(w)).map(asPart);
-      const prior = hits.get(key);
-      if (prior) {
-        const hit = prior.hit;
-        if (!hit.sources.some((s) => s.type === c.sourceType && s.routine === c.routine && s.consumer === c.consumer))
-          hit.sources.push({
-            type: c.sourceType,
-            part: c.sourcePart,
-            routine: c.routine,
-            ...(c.consumer === undefined ? {} : { consumer: c.consumer }),
-          });
-        hit.evidence = uniqueEvidence([...hit.evidence, ...evidence]);
-        // A walk for several paths starts from what they all need: the tests every one of them makes.
-        prior.tests = prior.tests.filter((t) => kept.some((u) => JSON.stringify(u) === JSON.stringify(t)));
-        hit.assumptions = [...new Set([...hit.assumptions, ...proof])];
-        prior.others.push(others);
-        continue;
-      }
-      hits.set(key, {
-        tests: kept,
-        place,
-        hit: {
-          sources: [
-            {
+        const sortedChanges = changes.map(asPart).sort((a, b) => a.offset - b.offset);
+        // Where the part must lie from the source stays in words; the walk doesn't follow where parts are.
+        const place = [
+          ...(c.place?.length ? placeWords(c.place, nameOf(c.sourcePart), fieldName, c.sourcePart) : []),
+          ...(direction?.words ?? []),
+        ];
+        const key = JSON.stringify([c.touch, sortedChanges.map((w) => [w.offset, w.width, w.value]), place]);
+        const given = (c.search ?? []).flatMap((t) =>
+          t.set
+            ? (factory?.constructorFlags ?? []).filter(
+                (f) => f.type === part.type && f.field === t.offset && (f.mask & t.mask) === t.mask,
+              )
+            : [],
+        );
+        const evidence = uniqueEvidence([
+          ...c.outcome.evidence,
+          ...c.writes.flatMap((w) => w.evidence),
+          ...(c.search ?? []).flatMap((t) => t.evidence),
+          ...given.flatMap((f) => f.evidence),
+        ]);
+        const proof = [
+          ...c.outcome.assumptions,
+          ...c.writes.flatMap((w) => w.assumptions),
+          ...(used.table ? [TYPE_TABLE_ASSUMPTION] : []),
+          ...(limited || ranged ? report.typeTable!.speedLimits!.assumptions : []),
+          ...(ranged ? [AIR_PRESSURE_ASSUMPTION, rangeNote(ranged)] : []),
+          ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
+          ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
+          ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),
+          ...(c.dropped.answer ? [ANSWER_ASSUMPTION] : []),
+          ...(c.place?.length ? [PLACE_ASSUMPTION] : []),
+          ...(c.place?.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
+          ...(direction?.proof ?? []),
+        ];
+        const others = c.writes.filter((w) => !readsField(w)).map(asPart);
+        const prior = hits.get(key);
+        if (prior) {
+          const hit = prior.hit;
+          if (!hit.sources.some((s) => s.type === c.sourceType && s.routine === c.routine && s.consumer === c.consumer))
+            hit.sources.push({
               type: c.sourceType,
               part: c.sourcePart,
               routine: c.routine,
               ...(c.consumer === undefined ? {} : { consumer: c.consumer }),
-            },
-          ],
-          writes: sortedChanges,
-          condition: { kind: "true" },
-          conditionWords: [],
-          name: "",
-          // Unresolved only because of a query's answer, which is the source's business.
-          confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
-          assumptions: [
-            ...new Set([
-              ...proof,
-              c.touch
-                ? "The part touches the source and the source's own fields meet the source's tests; that this happens in a level is not claimed."
-                : "The part is in the source's overlap list and the source's own fields meet the source's tests; that this happens in a level is not claimed.",
-            ]),
-          ],
-          evidence,
-        },
-        touch: c.touch,
-        others: [others],
-      });
+            });
+          hit.evidence = uniqueEvidence([...hit.evidence, ...evidence]);
+          // A walk for several paths starts from what they all need: the tests every one of them makes.
+          prior.tests = prior.tests.filter((t) => kept.some((u) => JSON.stringify(u) === JSON.stringify(t)));
+          hit.assumptions = [...new Set([...hit.assumptions, ...proof])];
+          prior.others.push(others);
+          continue;
+        }
+        hits.set(key, {
+          tests: kept,
+          place,
+          hit: {
+            sources: [
+              {
+                type: c.sourceType,
+                part: c.sourcePart,
+                routine: c.routine,
+                ...(c.consumer === undefined ? {} : { consumer: c.consumer }),
+              },
+            ],
+            writes: sortedChanges,
+            condition: { kind: "true" },
+            conditionWords: [],
+            name: "",
+            // Unresolved only because of a query's answer, which is the source's business.
+            confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
+            assumptions: [
+              ...new Set([
+                ...proof,
+                c.touch
+                  ? "The part touches the source and the source's own fields meet the source's tests; that this happens in a level is not claimed."
+                  : "The part is in the source's overlap list and the source's own fields meet the source's tests; that this happens in a level is not claimed.",
+              ]),
+            ],
+            evidence,
+          },
+          touch: c.touch,
+          others: [others],
+        });
+      }
     }
     const list = [...hits.values()].map(({ hit, tests, place, touch, others }) => {
       hit.condition = conjunction(tests);

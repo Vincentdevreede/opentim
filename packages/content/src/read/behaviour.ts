@@ -18,6 +18,7 @@ import type { GearConflictValue } from "./behaviour-gear-model.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
 import { unpackLzexe } from "./lzexe.ts";
+import { findSpeedLimitSetup, type SpeedLimitSetup } from "./behaviour-speed-limits.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findBehaviourTiming } from "./behaviour-timing.ts";
@@ -237,7 +238,13 @@ export interface BehaviourReport {
    * The words of each type record as the program holds them, at `address` in the unpacked image, `stride` bytes per
    * type. A table read the analysis keeps, like a type's mass, can be looked up here for a known type.
    */
-  typeTable?: { address: number; stride: number; words: number[][] };
+  typeTable?: {
+    address: number;
+    stride: number;
+    words: number[][];
+    /** The routine that works out the speed limits, and the types whose limit is a number in every level. */
+    speedLimits?: SpeedLimitSetup;
+  };
 }
 
 const hex = (n: number) => `0x${n.toString(16)}`;
@@ -5695,6 +5702,11 @@ export function readBehaviourInSteps(
         engineCalls: [],
         uncertainEffects: true,
       });
+  const speedLimits = findSpeedLimitSetup(
+    image,
+    { address: list.table, stride: 58, count: list.records.length },
+    list.dataSegment,
+  );
   const typeTable = {
     address: list.table,
     stride: 58,
@@ -5704,6 +5716,7 @@ export function readBehaviourInSteps(
         (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
       ),
     ),
+    ...(speedLimits ? { speedLimits } : {}),
   };
   // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
   const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
