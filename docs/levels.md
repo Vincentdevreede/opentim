@@ -176,11 +176,11 @@ names another part it looks one record further, through each word of the record:
   their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/behaviour.md`), so the file's
   gear links aren't used. The analysis knows these words as the rope links.
 - A rope's two tied parts are in the rope record the word `0x66` points at, at `+2` and `+4` (again at `+6` and
-  `+8`; the rope part itself is at `+0`), in 46 of the 47 Even More ropes the check pairs. The parts a rope ties point
-  at the same record from their own `0x66`, as puzzle 9 shows. Ropes have no place of their own in the file, so the
-  check pairs a rope only when it is the only one on its list. The 47th is the rope of Even More puzzle 105 that ties
-  its two buckets: its `0x66` is 0, so it has no rope record at all, because 105 is one of the puzzles where the
-  recorder runs out of near heap (see the parts bin below). Every rope that has a record holds its tied parts there.
+  `+8`; the rope part itself is at `+0`), in all 47 Even More and 31 TIM 1 ropes the check pairs. The parts a rope ties
+  point at the same record from their own `0x66`, as puzzle 9 shows. Ropes have no place of their own in the file, so
+  the check pairs a rope only when it is the only one on its list. (Before the level recorder's fix of 2026-11-09 one
+  of them, in Even More puzzle 105, had no rope record, because the recorder ran out of near heap there; see [the level
+  recorder](machine-recorder.md#running-a-puzzle).)
 - The third flag word is at `0x0a` in every TIM 1 part and in 4,438 of 4,448 Even More parts. In Even More `0x0a`
   also has the goal marks, so the 10 others may be parts whose constructor sets one; not checked yet.
 
@@ -196,34 +196,28 @@ What the pairing doesn't show:
   title and credits machines, which the reader loads without the flag, get theirs only when their own word isn't 0.
 
 The parts bin is the third list, the one the list head routine picks by the bit `0x0800` (`[0x4cdb]` in Even More,
-English floppy, `[0x5257]` in TIM 1, French): after loading it holds the file's bin parts in the file's order, in 157
-of the 160 Even More puzzles, and their fields go where a placed part's do (tallied as `bin: <field>`), with the first
-state value also at `0x0c`. In puzzle 105 the list stops after the first of its two ropes (5 of 14 parts), and in
-puzzles 106 and 115, with 45 and 15 parts in the bin, it is empty after loading.
+English floppy, `[0x5257]` in TIM 1, French): after loading it holds the file's bin parts in the file's order, in all
+160 Even More and 87 TIM 1 puzzles (1,794 and 881 parts), and their fields go where a placed part's do (tallied as
+`bin: <field>`), with the first state value also at `0x0c`.
 
-That comes from the level recorder, not the game. The level reader takes all of a level's part records from the near
-heap at once (`0x0ecc:0x48bf`, `0x00a2` bytes each), and the recorder loads the puzzle straight from the menu, while
-the menu's title machine still holds its 58 parts. In 105, 106 and 115 the last 9, 1 and 10 allocations then give 0,
-the end of the parts bin, and the parts bin list comes out short or empty. It isn't the emulator's DOS memory, which
-has room. Before the game loads a puzzle itself (at `0x0ecc:0x365a`), it calls `0x0ecc:0x1361`, which calls
-`0x0ecc:0x7e82`: that frees every part of the parts bin, the fixed and the moving list (TIM 1, French: `0x0e44:0x6da7`).
-With that call added to the recorder all three bins load in full, but it isn't enough on its own. In Even More,
-puzzles 106 and 115 then no longer meet their goals early, and in TIM 1 puzzles 54, 70 and 76 run on without
-returning, 76 right after the step where it used to meet its goal. So the recorder needs more of the game's way from
-the menu into a puzzle before it can clear the level; until then it loads as before, and these three puzzles' bins
-are short.
+Before the level recorder's fix of 2026-11-09 the bins of Even More puzzles 105, 106 and 115 came out short. The level
+reader takes all of a level's part records from the near heap at once (`0x0ecc:0x48bf`, `0x00a2` bytes each), and the
+recorder loaded the puzzle while the menu's title machine still held its parts, so the last allocations gave 0. The
+recorder now takes over where the menu has freed its title machine itself (see [the level
+recorder](machine-recorder.md#running-a-puzzle)).
 
 The header's numbers go to one block of words. Searched at every byte below `0x8000`, each one is in all puzzles only
-in its word below, apart from the scroll limits: they are -8 in every shipped puzzle, so they could be either of their
-two words (the file's order puts x first), and in TIM 1 three other words are -8 too.
+in its word below, apart from the scroll limits: they are -8 in every shipped puzzle, and the play screen's entry
+itself sets `0x4cbb` and `0x4cbd` (TIM 1: `0x5237`, `0x5239`) and the view's six words to -8 after loading, so the check
+can't tell where the file's limits go. In the table they are where the block's order puts them.
 
-| Header field   | Even More, English floppy | TIM 1, French      |
-| -------------- | ------------------------- | ------------------ |
-| bonus counters | `0x4cb3`, `0x4cb5`        | `0x522f`, `0x5231` |
-| air pressure   | `0x4cb7`                  | `0x5233`           |
-| gravity        | `0x4cb9`                  | `0x5235`           |
-| scroll limits  | `0x4cbb`, `0x4cbd`        | `0x5237`, `0x5239` |
-| music          | `0x4cbf`                  | `0x523b`           |
+| Header field   | Even More, English floppy  | TIM 1, French              |
+| -------------- | -------------------------- | -------------------------- |
+| bonus counters | `0x4cb3`, `0x4cb5`         | `0x522f`, `0x5231`         |
+| air pressure   | `0x4cb7`                   | `0x5233`                   |
+| gravity        | `0x4cb9`                   | `0x5235`                   |
+| scroll limits  | `0x4cbb`, `0x4cbd` (order) | `0x5237`, `0x5239` (order) |
+| music          | `0x4cbf`                   | `0x523b`                   |
 
 The counts of parts aren't kept as such. The word `0x4a8b` that Even More puzzle 70's goal reads isn't one of these:
 it is a second count of steps. The run loop calls `0x1497` every step, after running and moving the parts, and

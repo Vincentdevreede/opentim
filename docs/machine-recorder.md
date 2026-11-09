@@ -44,27 +44,43 @@ entry point and the relocations) and answers:
 ## Running a puzzle
 
 `packages/content/src/run/game.ts` starts the game, presses Enter at the Dynamix logo (it waits for a key), and lets the
-menu come up. Then it leaves the menu and does what the run button does, with the game's routines (Even More, English
-floppy):
+menu come up. Then it leaves the menu the way the game does and does what the run button does, with the game's
+routines (Even More, English floppy):
 
-1. it sets the puzzle number `[0x4ac1]`, which the goal check `0x14ae` uses to pick its routine;
-2. it calls the puzzle loader `0x0ecc:0x541e`, which reads `L<n>.lev` from the resource files into the moving list
-   `[0x4d7d]` and the fixed list `[0x4e1f]`;
-3. it sets the mode word `[0x4a6d]` to `0x2000` and calls the run loop `0x0000:0x1230`. Each pass from `0x1247` reads
-   input, runs the parts (`0x0e89`), moves them (`0x73f5`), checks the goal (`0x1497`), draws and waits for 8 timer
-   ticks. The recorder saves the lists at the top of each pass, and ends the run by setting the mode back to the
-   menu's `0x8000`.
+1. it presses Enter at the menu and runs on until the menu has ended its round: the menu stops its title machine,
+   resets it, frees its parts (`0x0ecc:0x7e82`) and goes on at `0x0ecc:0x0ba8`, where it would look at what the player
+   chose. The recorder takes over there;
+2. it sets the puzzle number `[0x4ac1]`, which the goal check `0x14ae` uses to pick its routine, and calls the play
+   screen's entry `0x0ecc:0x12f2`, which runs the heap check, calls the puzzle loader `0x0ecc:0x541e` (which reads
+   `L<n>.lev` from the resource files into the moving list `[0x4d7d]`, the fixed list `[0x4e1f]` and the parts bin
+   `[0x4cdb]`), sets the view and the bonus display, and sets the mode to building;
+3. it sets the mode word `[0x4a6d]` to `0x2000`, as the run button does, and calls the run loop `0x0000:0x1230`. Each
+   pass from `0x1247` reads input, runs the parts (`0x0e89`), moves them (`0x73f5`), checks the goal (`0x1497`), draws
+   and waits for 8 timer ticks. The recorder saves the lists at the top of each pass, and ends the run by setting the
+   mode back to the menu's `0x8000`.
+
+Only the building screen is left out: it waits for the player, whose only act here is the run button.
+
+Until 2026-11-09 the recorder stopped the menu at any instruction and called the puzzle loader from there. The menu's
+title machine then kept its parts (58 in Even More, 94 in TIM 1), and the part records ran out in the puzzles with the
+most parts: Even More puzzles 105, 106 and 115 lost the end of their parts bin, and 105's last rope its rope record.
+Calling the menu's own clearing from there wasn't enough either: in the middle of a menu step, the game's state still
+pointed into the title machine, and TIM 1 puzzles 54, 70 and 76 hung (in 76 the fixed list got a part linked from the
+middle of another record). Taking over where the menu has ended its round avoids both.
 
 These addresses are per build, read from the code and kept in `GAME_BUILDS` by the hash of `TIM.EXE`. Two builds are
 there:
 
 |                         | Even More, English floppy | TIM 1, French             |
 | ----------------------- | ------------------------- | ------------------------- |
+| Menu's end of a round   | `0x0ecc:0x0ba8`           | `0x0e44:0x0951`           |
+| Play screen entry       | `0x0ecc:0x12f2`           | `0x0e44:0x1081`           |
 | Puzzle loader           | `0x0ecc:0x541e`           | `0x0e44:0x48a4`           |
 | Puzzle number           | `[0x4ac1]`                | `[0x503d]`                |
 | Run loop, top of a pass | `0x0000:0x1230`, `0x1247` | `0x0000:0x12dc`, `0x12f3` |
 | Mode word, step counter | `[0x4a6d]`, `[0x4aab]`    | `[0x4feb]`, `[0x5027]`    |
 | Moving list, fixed list | `[0x4d7d]`, `[0x4e1f]`    | `[0x52f9]`, `[0x539b]`    |
+| Parts bin               | `[0x4cdb]`                | `[0x5257]`                |
 
 TIM 1 was found the same way: the two routines that join "l", the number and ".lev" (the strings at `0x29f6` and
 `0x29f8`), of which `0x48a4` sets the title flag `[0x55f2]` and is called with `[0x503d]`; the only word the code
@@ -72,9 +88,9 @@ compares with `0x2000` in a loop, `[0x4feb]`; and the two list heads the parts c
 in Even More. The start-up needs nothing different: the same Enter at the logo and the same wait for the menu.
 
 A run ends early when the puzzle's goal check finds the goal met: it sets the mode word to `0x0200`, which ends the run
-loop. Even More puzzles 106 and 115 (after 11 and 13 steps) and TIM 1 puzzle 76 (after 131 steps) end this way with
-only their own parts. Puzzle 106's goal routine `0x27e7` (from the table at `0x201a`) looks for a bucket on the moving
-list, and TIM 1's `0x1f4d` waits for step 130.
+loop. No shipped puzzle of the two builds ends this way with only its own parts in 500 steps. The recorder used to end
+Even More puzzles 106 and 115 (after 11 and 13 steps) and TIM 1 puzzle 76 (after 131) this way, with the title
+machine still holding its parts; in the game, Even More 106's bucket only drops a few pixels by itself.
 
 ## Checking the lists
 

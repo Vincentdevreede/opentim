@@ -54,8 +54,9 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    electric switch, and never a ball. Until then the analysis lets it find any part.
 
    Found (2026-11-08): it does happen. The two routines that make an explosion link it into the fixed list, and the
-   game's own runs of the shipped puzzles show explosions there (7 puzzles in Even More, 4 in TIM 1). So "never" is
-   wrong; the question becomes whether the alligator's search finds only parts of a fixed type and explosions.
+   game's own runs of the shipped puzzles show explosions there (7 puzzles in Even More, 4 in TIM 1; 5 since the
+   level recorder's fix of 2026-11-09). So "never" is wrong; the question becomes whether the alligator's search finds
+   only parts of a fixed type and explosions.
 
    Answered (2026-11-08) by tests in the game, with no assumption needed: the snap flips a switch above the mouth,
    leaves a ball hanging there alone, and does nothing to an explosion. That is what the code gives, since the snap
@@ -258,9 +259,9 @@ game does with the fields whose meaning isn't known.
       gear to gear links, which the loader leaves out; a rope's tied parts go to the rope record at `0x66`, and the
       header to one block of words (`0x4cb3` to `0x4cbf`). `0x4a8b` is a second count of steps.
       The parts bin is the third list; the pulley's rope isn't kept as such; the run loop's two step counts are found
-      in every build. Next: the recorder's way from the menu into a puzzle, so that it frees the title machine first
-      as the game does (without it the bins of Even More puzzles 105, 106 and 115 come out short, and 105's
-      last rope has no rope record).
+      in every build. The level recorder now takes over where the menu has freed its title machine and enters the
+      play screen as the game does (2026-11-09): every parts bin and every rope record loads in both games, and no
+      shipped puzzle ends early on its own parts any more.
 - [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
       and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
       recorded builds.
