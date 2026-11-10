@@ -61,8 +61,11 @@ export interface LevelPart {
   /** The two state values. In TIM 1 and Even More the first is the frame the part shows. */
   state: [number, number];
   size: Size;
-  /** A second size that often equals the first. What sets it apart isn't known; drawing uses the first. */
-  size2: Size;
+  /**
+   * The part's base size, which often equals the first size. The loader keeps it as the record's baseWidth and
+   * baseHeight, which the contact code measures with; drawing uses the first size.
+   */
+  baseSize: Size;
   /** Where the part stands, in pixels of the original game. */
   position: Point;
   /** One more value whose meaning depends on the part; for a rope it seems to be a length. */
@@ -121,7 +124,10 @@ export interface Level {
   scroll?: [number, number];
   /** The number of the music the level plays. Which song each number is isn't known yet. */
   music: number;
-  /** From version 0x105, a word before the parts bin. */
+  /**
+   * From version 0x105, a word before the parts bin. The game's level reader reads the parts bin only when it isn't 0
+   * or when it loads a puzzle, so a puzzle always gets its bin.
+   */
   binFlag?: number;
   parts: LevelPart[];
   /** Every header field, with where it is, for showing the bytes. */
@@ -212,7 +218,10 @@ function readPart(r: Reader, index: number, group: PartGroup, version: number, l
   if (version > 0x100) flags.push(field("flags.2", () => r.u16()));
   const state: [number, number] = [field("state.0", () => r.i16()), field("state.1", () => r.i16())];
   const size = { width: field("size.width", () => r.u16()), height: field("size.height", () => r.u16()) };
-  const size2 = { width: field("size2.width", () => r.u16()), height: field("size2.height", () => r.u16()) };
+  const baseSize = {
+    width: field("baseSize.width", () => r.u16()),
+    height: field("baseSize.height", () => r.u16()),
+  };
   const position = { x: field("position.x", () => r.i16()), y: field("position.y", () => r.i16()) };
   const extra = field("extra", () => r.i16());
 
@@ -243,7 +252,7 @@ function readPart(r: Reader, index: number, group: PartGroup, version: number, l
     flags,
     state,
     size,
-    size2,
+    baseSize,
     position,
     extra,
     belt,

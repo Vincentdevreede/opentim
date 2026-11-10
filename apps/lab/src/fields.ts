@@ -90,8 +90,8 @@ const LEVEL_LABELS: Record<string, string> = {
   airPressure: "air",
   "scroll.x": "scroll x",
   "scroll.y": "scroll y",
-  "size2.width": "width2",
-  "size2.height": "height2",
+  "baseSize.width": "base w",
+  "baseSize.height": "base h",
   "belt.width": "belt w",
   outline: "points",
 };
@@ -112,7 +112,7 @@ function levelKind(key: string): FieldKind {
   if (key === "magic" || key === "version" || key === "type") return "id";
   if (key === "title" || key === "goal") return "text";
   if (key.startsWith("flags.")) return "flags";
-  if (/^(size2?\.|belt\.width)/.test(key)) return "size";
+  if (/^((size|baseSize)\.|belt\.width)/.test(key)) return "size";
   if (/^position\.|\.at\.[xy]$|^outline\.\d/.test(key)) return "position";
   if (/^(belt|ropes\.\d)$|parts\.\d$|^(links|plugs)\.\d$|^(pulley|tunnel)$/.test(key)) return "link";
   return "setting";

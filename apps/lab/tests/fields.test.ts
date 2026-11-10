@@ -44,7 +44,7 @@ describe("fieldsOf", () => {
     const x = fields.find((f) => f.name === "position.x");
     expect(x).toMatchObject({ label: "x", value: "408", kind: "position", group: "part #0 · static · Wood incline" });
     expect(fields.find((f) => f.name === "flags.0")).toMatchObject({ label: "flags", value: "E600", kind: "flags" });
-    expect(fields.find((f) => f.name === "size2.height")).toMatchObject({ label: "height2", value: "32" });
+    expect(fields.find((f) => f.name === "baseSize.height")).toMatchObject({ label: "base h", value: "32" });
     expect(fields.find((f) => f.name === "links.1")).toMatchObject({ label: "link", value: "none", kind: "link" });
     expect(fields.find((f) => f.name === "belt")).toMatchObject({ value: "no", kind: "link" });
   });

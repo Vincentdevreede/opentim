@@ -21,7 +21,7 @@ import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
 import { MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
-import type { GoalCondition, SpriteOf } from "@opentim/content";
+import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
 import { readBehaviourInBackground, type GoalsResult } from "../behaviour.ts";
 import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
@@ -86,6 +86,9 @@ const current = computed(
   () => entries.value.find((e) => e.resource.name === selectedLevel.value) ?? entries.value.find((e) => e.level),
 );
 const level = computed(() => current.value?.level);
+
+/** Where the loaded program's loader puts the header's numbers, for a build the loader was checked on. */
+const loadedHeader = computed(() => (program.value ? LOADED_HEADERS.get(program.value.sha256) : undefined));
 
 const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 const list = computed(() => loadedParts.value?.list);
@@ -368,6 +371,7 @@ onBeforeUnmount(() => {
         :name="current.resource.name"
         :list="list"
         :selected="selectedPart"
+        :header="loadedHeader"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

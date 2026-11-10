@@ -36,11 +36,11 @@ afterEach(() => {
 
 it("stops the read of a program when another program replaces it, and reads it again when asked", async () => {
   const old = new Uint8Array([1]);
-  program.value = { name: "TIM.EXE", data: old };
+  program.value = { name: "TIM.EXE", data: old, sha256: "" };
   const reading = readBehaviourInBackground(old, parts);
   expect(FakeWorker.all).toHaveLength(1);
 
-  program.value = { name: "TIM.EXE", data: new Uint8Array([2]) };
+  program.value = { name: "TIM.EXE", data: new Uint8Array([2]), sha256: "" };
 
   expect(FakeWorker.all[0]!.ended).toBe(true);
   await expect(reading.result).resolves.toEqual({ status: "error", message: "The program was replaced." });
@@ -51,7 +51,7 @@ it("stops the read of a program when another program replaces it, and reads it a
 
 it("stops the read when the files are unloaded", () => {
   const data = new Uint8Array([3]);
-  program.value = { name: "TIM.EXE", data };
+  program.value = { name: "TIM.EXE", data, sha256: "" };
   readBehaviourInBackground(data, parts);
 
   program.value = undefined;
@@ -61,7 +61,7 @@ it("stops the read when the files are unloaded", () => {
 
 it("leaves a finished read alone when its program is replaced, and keeps the read of the new one", async () => {
   const done = new Uint8Array([4]);
-  program.value = { name: "TIM.EXE", data: done };
+  program.value = { name: "TIM.EXE", data: done, sha256: "" };
   const reading = readBehaviourInBackground(done, parts);
   const walks = { status: "done", walks: {}, effects: {}, rests: {}, doings: {}, seconds: 1, perType: false } as const;
   FakeWorker.all[0]!.onmessage!({ data: { kind: "walks", result: walks } });
@@ -72,9 +72,9 @@ it("leaves a finished read alone when its program is replaced, and keeps the rea
   expect(FakeWorker.all[0]!.ended).toBe(true);
   const next = new Uint8Array([5]);
 
-  program.value = { name: "TIM.EXE", data: next };
+  program.value = { name: "TIM.EXE", data: next, sha256: "" };
   readBehaviourInBackground(next, parts);
-  program.value = { name: "TIM.EXE", data: next };
+  program.value = { name: "TIM.EXE", data: next, sha256: "" };
 
   await expect(reading.walks).resolves.toBe(walks);
   await expect(reading.perType).resolves.toBe(perType);
@@ -101,12 +101,12 @@ it("ends the read with an error when its worker can't start, and tries again lat
 
 it("keeps the walks when the program is replaced while the loops are still read per type", async () => {
   const data = new Uint8Array([7]);
-  program.value = { name: "TIM.EXE", data };
+  program.value = { name: "TIM.EXE", data, sha256: "" };
   const reading = readBehaviourInBackground(data, parts);
   const walks = { status: "done", walks: {}, effects: {}, rests: {}, doings: {}, seconds: 1, perType: false } as const;
   FakeWorker.all[0]!.onmessage!({ data: { kind: "walks", result: walks } });
 
-  program.value = { name: "TIM.EXE", data: new Uint8Array([8]) };
+  program.value = { name: "TIM.EXE", data: new Uint8Array([8]), sha256: "" };
 
   expect(FakeWorker.all[0]!.ended).toBe(true);
   await expect(reading.walks).resolves.toBe(walks);

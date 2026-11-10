@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import type { Level, LevelPart, PartGroup, PartList } from "@opentim/content";
+import {
+  GEAR_TYPE,
+  LOADED_FIELDS,
+  type Level,
+  type LevelPart,
+  type LoadedHeader,
+  type LoadedKey,
+  type LoadedPlace,
+  type PartGroup,
+  type PartList,
+} from "@opentim/content";
 import { computed, nextTick, ref, watch } from "vue";
 import { partName } from "../../parts.ts";
 import { hex } from "../../ui.ts";
@@ -14,14 +24,32 @@ import LabPanelHeader from "../LabPanelHeader.vue";
 import LabSidePanel from "../LabSidePanel.vue";
 import LabOpenIn from "../LabOpenIn.vue";
 
-/** Everything read from a level file, field by field, with where each part's bytes are. */
-const props = defineProps<{ level: Level; name: string; list?: PartList; selected?: number }>();
+/**
+ * Everything read from a level file, field by field, with where each part's bytes are and, for TIM 1 and Even More,
+ * where the game's loader keeps each field: the word of the part record, or of the data segment for the header.
+ */
+const props = defineProps<{
+  level: Level;
+  name: string;
+  list?: PartList;
+  selected?: number;
+  /** The header's words in the loaded program, when it is a build the loader was checked on. */
+  header?: LoadedHeader;
+}>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
 const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
-  { group: "static", label: "Static", hint: "Parts the file lists first. Walls, ramps and fixed machines." },
-  { group: "moving", label: "Moving", hint: "Parts the file lists second, like balls." },
-  { group: "bin", label: "Parts bin", hint: "Parts the player can place. They aren’t on the board." },
+  {
+    group: "static",
+    label: "Static",
+    hint: "Walls, ramps and fixed machines. The loader puts them on the fixed list.",
+  },
+  { group: "moving", label: "Moving", hint: "Parts like balls. The loader puts them on the moving list." },
+  {
+    group: "bin",
+    label: "Parts bin",
+    hint: "Parts the player can place, not on the board. The loader puts them on the third list, in this order.",
+  },
 ];
 
 /** What each header field means, and how sure that is. TIM.EXE is the program of TIM 1. */
@@ -48,7 +76,12 @@ const MEANING: Record<string, { status: "decoded" | "hypothesis" | "unsupported"
     label: "scroll",
     title: "How far the view scrolls down, in the same way.",
   },
-  binFlag: { status: "unsupported", label: "unknown", title: "What this number means isn’t known." },
+  binFlag: {
+    status: "decoded",
+    label: "bin switch",
+    title:
+      "The level reader reads the parts bin only when this isn’t 0 or when it loads a puzzle, so a puzzle always gets its bin. 0 in every shipped puzzle.",
+  },
   music: {
     status: "hypothesis",
     label: "song",
@@ -69,7 +102,7 @@ watch(
     if (index === undefined) return;
     open.value = new Set([...open.value, index]);
     void nextTick(() =>
-      document.querySelector(`[data-structure-part="${index}"]`)?.scrollIntoView({ block: "nearest" }),
+      globalThis.document?.querySelector(`[data-structure-part="${index}"]`)?.scrollIntoView({ block: "nearest" }),
     );
   },
   { immediate: true },
@@ -89,6 +122,21 @@ function toggle(index: number) {
 const expandAll = () => (open.value = new Set(props.level.parts.map((p) => p.index)));
 const collapseAll = () => (open.value = new Set());
 
+/** Where the loader puts a header field in the data segment of the loaded build, when it was checked there. */
+function headerTag(key: string) {
+  const h = props.header;
+  const at = h?.words[key];
+  if (!h || at === undefined || props.level.layout !== "tim") return undefined;
+  const guess = h.byOrder.includes(key);
+  return {
+    tag: `→ [${hex(at, 4)}]`,
+    guess,
+    title: guess
+      ? `Where the order of the header's words puts it in ${h.build}. The play screen sets this word to -8 itself after loading, so the check can’t tell.`
+      : `The word of the data segment the loader puts it in, in ${h.build}.`,
+  };
+}
+
 const shown = (value: string | number) => (typeof value === "string" ? `“${value}”` : String(value));
 const word = (n: number) => `0x${n.toString(16).toUpperCase().padStart(4, "0")}`;
 const index = (i: number | null | undefined) => (i === null || i === undefined ? "none" : `#${i}`);
@@ -104,35 +152,87 @@ function flagNote(p: LevelPart) {
   return known.length ? `${known.join(", ")}; other bits unknown` : "other bits unknown";
 }
 
+interface Row {
+  key: string;
+  value: string;
+  note?: string;
+  link?: number;
+  /** Where the loader keeps the field, as a short tag and what it means. */
+  loaded?: { tag: string; title: string; faint?: boolean };
+}
+
+const words = (at: number[]) => at.map((a) => hex(a, 2)).join(" ");
+
+/** The tag for where the loader keeps a field: the record's words, the record they point to, or that it isn't kept. */
+function loadedTag(place: LoadedPlace): Row["loaded"] {
+  const what = [
+    place.names?.length ? place.names.join(", ") : "",
+    place.also?.length ? `also ${words(place.also)}` : "",
+    place.note ?? "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+  if (place.notKept) return { tag: "not kept", title: `The loader doesn’t keep it: ${what}.`, faint: true };
+  const tag = place.through
+    ? `→ [${hex(place.through.word, 2)}] ${place.through.at.map((k) => `+${k}`).join(" ")}`
+    : `→ ${words(place.at)}`;
+  const where = place.through
+    ? `In the record the word ${hex(place.through.word, 2)} points to, at ${place.through.at.map((k) => `+${k}`).join(" and ")}`
+    : `In the part record at ${words(place.at)}${place.bytes ? " (bytes)" : ""}`;
+  return { tag, title: what ? `${where}: ${what}.` : `${where}.` };
+}
+
 /** The fields of a part, as rows of name, value and, when the meaning isn't clear, a note. */
-function rows(p: LevelPart): { key: string; value: string; note?: string; link?: number }[] {
-  const out: { key: string; value: string; note?: string; link?: number }[] = [
-    { key: "type", value: `${p.type} · ${nameOf(p)}` },
-    { key: "flags", value: p.flags.map(word).join(" "), note: flagNote(p) },
-    { key: "state", value: p.state.join(", ") },
-    { key: "position", value: pair(p.position) },
-    { key: "size", value: `${p.size.width} × ${p.size.height}` },
-    { key: "size2", value: `${p.size2.width} × ${p.size2.height}`, note: "meaning unknown" },
-    { key: "extra", value: String(p.extra), note: "depends on the part" },
+function rows(p: LevelPart): Row[] {
+  // Only TIM 1 and Even More levels were loaded with the game's loader.
+  const at = (key: LoadedKey) => (props.level.layout === "tim" ? loadedTag(LOADED_FIELDS[key]) : undefined);
+  const out: Row[] = [
+    { key: "type", value: `${p.type} · ${nameOf(p)}`, loaded: at("type") },
+    { key: "flags", value: p.flags.map(word).join(" "), note: flagNote(p), loaded: at("flags") },
+    { key: "state", value: p.state.join(", "), loaded: at("state") },
+    { key: "position", value: pair(p.position), loaded: at("position") },
+    { key: "size", value: `${p.size.width} × ${p.size.height}`, loaded: at("size") },
+    { key: "base size", value: `${p.baseSize.width} × ${p.baseSize.height}`, loaded: at("baseSize") },
+    { key: "extra", value: String(p.extra), note: "depends on the part", loaded: at("extra") },
   ];
   if (p.belt.parts || p.belt.width || p.belt.at.x || p.belt.at.y)
-    out.push({
-      key: "belt",
-      value: p.belt.parts
-        ? `runs around ${p.belt.parts.map(index).join(" and ")}`
-        : `hub at ${pair(p.belt.at)}, ${p.belt.width} wide`,
-    });
+    out.push(
+      p.belt.parts
+        ? { key: "belt", value: `runs around ${p.belt.parts.map(index).join(" and ")}`, loaded: at("beltParts") }
+        : { key: "belt", value: `hub at ${pair(p.belt.at)}, ${p.belt.width} wide`, loaded: at("beltPlace") },
+    );
   p.ropes.forEach((slot, i) => {
     if (slot.rope)
       out.push({
         key: `rope ${i}`,
         value: `ties ${slot.rope.parts.map(index).join(" and ")}, slots ${slot.rope.slots.join(" and ")}`,
+        loaded: i === 0 ? at("rope") : undefined,
       });
-    else if (slot.at.x || slot.at.y) out.push({ key: `rope slot ${i}`, value: pair(slot.at) });
+    else if (slot.at.x || slot.at.y)
+      out.push({ key: `rope slot ${i}`, value: pair(slot.at), loaded: at(i === 0 ? "ropeSlot.0" : "ropeSlot.1") });
   });
-  if (p.links.some((l) => l !== null)) out.push({ key: "links", value: p.links.map(index).join(", ") });
-  if (p.plugs?.some((l) => l !== null)) out.push({ key: "plugs", value: p.plugs.map(index).join(", ") });
-  if (p.pulley !== undefined) out.push({ key: "pulley", value: index(p.pulley) });
+  if (p.links.some((l) => l !== null)) {
+    // A gear's links to gears aren't kept: the loader leaves those words 0.
+    const linked = p.links.filter((l) => l !== null);
+    const gears = linked.filter((l) => p.type === GEAR_TYPE && props.level.parts[l]?.type === GEAR_TYPE);
+    out.push({
+      key: "links",
+      value: p.links.map(index).join(", "),
+      loaded:
+        props.level.layout !== "tim"
+          ? undefined
+          : gears.length === linked.length
+            ? {
+                tag: "not kept",
+                title: "A gear’s link to a gear stays 0: a gear finds its neighbours by their places.",
+                faint: true,
+              }
+            : at("links"),
+    });
+  }
+  if (p.plugs?.some((l) => l !== null))
+    out.push({ key: "plugs", value: p.plugs.map(index).join(", "), loaded: at("plugs") });
+  if (p.pulley !== undefined) out.push({ key: "pulley", value: index(p.pulley), loaded: at("pulley") });
   if (p.tunnel !== undefined) out.push({ key: "tunnel", value: index(p.tunnel) });
   if (p.toons)
     out.push({
@@ -150,7 +250,7 @@ function rows(p: LevelPart): { key: string; value: string; note?: string; link?:
 </script>
 
 <template>
-  <LabSidePanel aria-label="Structure">
+  <LabSidePanel aria-label="Structure" width="380px">
     <LabPanelHeader title="Structure" :meta="name">
       <div class="-mr-1.5 flex">
         <LabButton variant="ghost" icon aria-label="Expand all" title="Expand all" @click="expandAll">
@@ -175,8 +275,20 @@ function rows(p: LevelPart): { key: string; value: string; note?: string; link?:
           :title="`At ${hex(f.offset, 4)}, ${f.size} bytes`"
         >
           {{ f.key === "magic" || f.key === "version" ? word(Number(f.value)) : shown(f.value) }}
-          <template v-if="MEANING[f.key]" #note>
-            <LabBadge :status="MEANING[f.key]!.status" :label="MEANING[f.key]!.label" :title="MEANING[f.key]!.title" />
+          <template v-if="MEANING[f.key] || headerTag(f.key)" #note>
+            <LabBadge
+              v-if="MEANING[f.key]"
+              :status="MEANING[f.key]!.status"
+              :label="MEANING[f.key]!.label"
+              :title="MEANING[f.key]!.title"
+            />
+            <span
+              v-if="headerTag(f.key)"
+              class="shrink-0 text-2xs"
+              :class="headerTag(f.key)!.guess ? 'text-hypothesis' : 'text-faint'"
+              :title="headerTag(f.key)!.title"
+              >{{ headerTag(f.key)!.tag }}</span
+            >
           </template>
         </LabFact>
       </LabFacts>
@@ -203,7 +315,7 @@ function rows(p: LevelPart): { key: string; value: string; note?: string; link?:
             "
           />
           <div v-if="open.has(p.index)" class="mb-1 ml-[30px] border-l border-line pl-2">
-            <LabFacts label-width="76px" class="pr-3">
+            <LabFacts label-width="84px" class="pr-3">
               <LabFact v-for="r in rows(p)" :key="r.key" :label="r.key">
                 <button
                   v-if="r.link !== undefined"
@@ -214,8 +326,16 @@ function rows(p: LevelPart): { key: string; value: string; note?: string; link?:
                   {{ r.value }}
                 </button>
                 <template v-else>{{ r.value }}</template>
-                <template v-if="r.note" #note>
-                  <span class="shrink-0 font-sans text-2xs text-hypothesis">{{ r.note }}</span>
+                <!-- The note goes under the value, so the value keeps its width next to the record tag. -->
+                <span v-if="r.note" class="block font-sans text-2xs text-hypothesis">{{ r.note }}</span>
+                <template v-if="r.loaded" #note>
+                  <span
+                    v-if="r.loaded"
+                    class="ml-auto shrink-0 text-2xs"
+                    :class="r.loaded.faint ? 'font-sans text-faint italic' : 'text-faint'"
+                    :title="r.loaded.title"
+                    >{{ r.loaded.tag }}</span
+                  >
                 </template>
               </LabFact>
             </LabFacts>

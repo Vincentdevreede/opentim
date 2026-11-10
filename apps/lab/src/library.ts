@@ -108,7 +108,7 @@ export const saving = ref(false);
 /** The version of the game the loaded files are. */
 export const edition = shallowRef<Edition>();
 /** The game's program, like `TIM.EXE`, when it was loaded with the archives. */
-export const program = shallowRef<{ name: string; data: Uint8Array }>();
+export const program = shallowRef<{ name: string; data: Uint8Array; sha256: string }>();
 // The behaviour of a program that was replaced isn't needed anymore, even when no page waits for it now.
 watch(
   () => program.value?.data,
@@ -272,7 +272,7 @@ function load(staged: Staging): void {
   archives.value = staged.files.map(({ name, size }) => ({ name, size }));
   edition.value = staged.edition;
   const exe = staged.files.find((f) => isProgramName(f.name));
-  program.value = exe && { name: exe.name, data: exe.data };
+  program.value = exe && { name: exe.name, data: exe.data, sha256: exe.sha256 };
   readSeconds.value = staged.seconds;
   if (!staged.resources.some((r) => r.name === selected.value)) selected.value = staged.resources[0]?.name;
   failure.value = undefined;
