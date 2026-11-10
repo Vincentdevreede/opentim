@@ -77,7 +77,7 @@ describe("owner and outline return relations", () => {
 });
 
 describe("complete owner-field relations", () => {
-  it("retains conditional state-changing effects without requiring an outline store", () => {
+  it("gives a state it sets on one way a choice with the state as it was, without requiring an outline store", () => {
     const image = Uint8Array.from([
       0x55, 0x8b, 0xec, 0x8b, 0x76, 6, 0x83, 0x7c, 0x12, 0, 0x74, 5, 0xc7, 0x44, 12, 3, 0, 0x5d, 0xcb,
     ]);
@@ -85,7 +85,10 @@ describe("complete owner-field relations", () => {
     const engine = engineFromObjectRelation(routine, layout, new Map());
     expect(engine?.kind).toBe("owner-field-relation");
     expect(engine?.footprint).toMatchObject({ partMemoryComplete: true, preservesPartState: false });
-    expect(engine?.writes.some((write) => write.offset === 12 && write.condition.kind === "and")).toBe(true);
+    const state = engine?.writes.filter((write) => write.offset === 12) ?? [];
+    expect(state).toHaveLength(1);
+    expect(state[0]!.condition).toEqual({ kind: "true" });
+    expect(JSON.stringify(state[0]!.value)).toContain('"object":"part","offset":12');
     expect(engine?.writes.every((write) => write.root === "argument" && !write.path.length)).toBe(true);
   });
 

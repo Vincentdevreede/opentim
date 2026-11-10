@@ -462,6 +462,15 @@ describe("effects of parts that touch", () => {
     expect(line!.description).toBe(
       "An alligator it touches sets velocityY to -|velocityY| - 1024, kept within its speed limit. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
     );
+    // A type whose speed limit is the same number in every level, like the bullet, gets the number.
+    const bullet = {
+      ...trampoline,
+      typeTable: { ...trampoline.typeTable, speedLimits: { fixed: [{ type: 12, limit: 12288 }] } },
+    } as unknown as BehaviourReport;
+    const [fixed] = effectsFromOthers(bullet, evaluateBehaviourCondition).get(12)!.effects;
+    expect(fixed!.description).toBe(
+      "An alligator it touches sets velocityY to -|velocityY| - 1024, kept within its speed limit of 12288. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
+    );
   });
 
   it("keeps a test that names another type, and says when a contact response may follow", () => {
@@ -500,6 +509,64 @@ describe("effects of parts that touch", () => {
   it("leaves out a fixed type by the decided assumption, and a part whose rules read the field", () => {
     expect(lines.get(1)).toEqual({ effects: [], assumptions: [FIXED_LIST_ASSUMPTION] });
     expect(touches(20)).toEqual([]);
+  });
+
+  it("names a field the part's rules read when the contact response that always follows writes it again", () => {
+    const route = (condition: Predicate) => ({ condition, routine: 0x3980, argument: "collider" });
+    const marked = (set: boolean) => compare(and(f(TOUCHER, 6), 1), set ? "!=" : "==", c(0));
+    const responding = {
+      ...report,
+      helpers: [
+        ...report.helpers!,
+        {
+          address: 0x3980,
+          writes: [{ root: "argument", path: [], offset: 0x38, width: 16, condition: { kind: "true" } }],
+        },
+      ],
+      collisionDispatch: [
+        {
+          passes: [{ callbackNonzero: [route(marked(true)), route(marked(false))] }],
+          responses: [{ routine: 0x3980, status: "described", writes: [{ path: [], offset: 0x38, width: 16 }] }],
+        },
+      ],
+      routines: [{ address: 0x1da61, outcomes: [outcome([edge(0)], [touchWrite(0x38, c(0xfa00))], 1)] }],
+    } as unknown as BehaviourReport;
+    const bullet = effectsFromOthers(responding, evaluateBehaviourCondition)
+      .get(20)!
+      .effects.filter((e) => e.touch);
+    expect(bullet.map((e) => e.description)).toEqual([
+      "An alligator it touches sets velocityY to -1536. Only when its contactEdge is 0. Its bounce returns 1 then, so the game always goes on to a contact response, which works velocityY out again from the angle they touch at: which frame it shows next is up to that response.",
+    ]);
+    // Routes that can both be taken, or neither, don't make a response certain.
+    const unsure = {
+      ...responding,
+      collisionDispatch: [
+        { ...responding.collisionDispatch![0]!, passes: [{ callbackNonzero: [route(marked(true))] }] },
+      ],
+    } as unknown as BehaviourReport;
+    const none = effectsFromOthers(unsure, evaluateBehaviourCondition).get(20)?.effects ?? [];
+    expect(none.filter((e) => e.touch)).toEqual([]);
+    // One route for bit 1, one for bit 2 and one for neither: with both bits set, two routes hold.
+    const bit = (mask: number, set: boolean) => compare(and(f(TOUCHER, 6), mask), set ? "!=" : "==", c(0));
+    const bits = {
+      ...responding,
+      collisionDispatch: [
+        {
+          ...responding.collisionDispatch![0]!,
+          passes: [
+            {
+              callbackNonzero: [
+                route(bit(1, true)),
+                route(bit(2, true)),
+                route({ kind: "and", terms: [bit(1, false), bit(2, false)] } as Predicate),
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as BehaviourReport;
+    const twice = effectsFromOthers(bits, evaluateBehaviourCondition).get(20)?.effects ?? [];
+    expect(twice.filter((e) => e.touch)).toEqual([]);
   });
 
   it("keeps a query's answer as a test of the touched part, like the teeter-totter's bounce pool", () => {

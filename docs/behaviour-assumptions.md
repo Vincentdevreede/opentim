@@ -982,6 +982,42 @@ the fan's, can still find it.
 - Read the levels for a part of type 41.
 - Run `check-moving-list` on the builds the level recorder knows: it lists the types that join each list during a run.
 
+## 24. The air pressure
+
+Decided on 2026-11-08 with the user. In the code: `AIR_PRESSURE_ASSUMPTION` and `AIR_PRESSURES` in
+`packages/content/src/read/describe-effects.ts`, used with `speedLimitRange` and `rulesIgnoreLimit` in
+`packages/content/src/read/describe-hits.ts` and `packages/content/src/read/other-part-pairs.ts`. Explained in
+[Mel Schlemming's speed limit](behaviour.md#mel-schlemmings-speed-limit).
+
+**The question.** The fan, the bellows and the teapot push Mel Schlemming and keep his speeds within his speed limit,
+which the game works out from the level's air pressure. His animation only looks at whether he moves up or down faster
+than 1536. Can the analysis take the air pressure as one the game lets the player set, so that his limit is always far
+above 1536?
+
+**What the code shows** (Even More, English floppy; TIM 1 French the same way):
+
+- The speed limit routine (`0x369c`) gives every type but the bullet and type 43 the limit 9728 minus half the air
+  pressure when it is below 70, else minus 16 times it.
+- The control panel (`0x12566` to `0x1257a`) keeps the air pressure it sets from 0 to 128, and a new level starts at 67
+  (`0x15d69`).
+- The level loader reads the air pressure as the level file gives it, without a check.
+- The shipped levels of the eleven builds use 0 to 68.
+
+**What we assume.**
+
+- A level's air pressure is one the game's control panel can set, from 0 to 128. The panel keeps its setting in that range and a new level starts at 67; the level loader reads the word as it is, but only the game writes level files, and the shipped levels use 0 to 68.
+
+Not proved: a level file made outside the game could store another air pressure.
+
+**What it gives.** Every type the routine doesn't fix gets a limit from 7680 to 9728. A walk keeps a velocity within
+7680 when the part's rules can't tell any two of those limits apart, as for Mel. The fan's, the bellows' and the teapot's
+pushes of Mel are described (Even More: 3 pairs).
+
+**How to recheck.**
+
+- Read the air pressure of every level file.
+- Read the control panel's clamp of the air pressure in each build.
+
 ## Recheck of the decided assumptions
 
 Rechecked on 2026-11-07 (step F2 of [the plan](behaviour-plan.md)) in all eleven builds and their 1,281 shipped level

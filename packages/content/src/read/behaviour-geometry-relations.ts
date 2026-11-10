@@ -143,9 +143,16 @@ function finalOwnerFields(routine: RoutineAnalysis, writes: RoutineAnalysis["wri
   const terms = (p: Predicate): Predicate[] => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]);
   const out = new Map<string, RoutineAnalysis["writes"][number]>();
   for (const [key, [offset, width]] of keys.map((key, n) => [key, spans[n]!] as const)) {
+    // A way that stores nothing in the field leaves it as it was: every way's effects are complete.
     const ways = outcomes.map((outcome) => ({
       tests: terms(outcome.condition),
-      value: outcome.fields.find((f) => f.object === "part" && f.offset === offset && f.width === width)?.value,
+      value:
+        outcome.fields.find((f) => f.object === "part" && f.offset === offset && f.width === width)?.value ??
+        (outcome.fields.some(
+          (f) => f.object === "part" && f.offset < offset + width / 8 && offset < f.offset + f.width / 8,
+        )
+          ? undefined
+          : ({ kind: "field", object: "part", offset, width } as const)),
     }));
     if (ways.some((way) => !way.value)) continue;
     const value = chooseByTests(
@@ -160,7 +167,7 @@ function finalOwnerFields(routine: RoutineAnalysis, writes: RoutineAnalysis["wri
       condition: { kind: "true" },
       assumptions: [
         ...example.assumptions,
-        "Every way through the routine was followed and leaves this field with a value; the ways split on their tests, so the field ends with the value of the way whose tests hold.",
+        "Every way through the routine was followed and leaves this field with a value, or as it was when it stores nothing in it; the ways split on their tests, so the field ends with the value of the way whose tests hold.",
       ],
       evidence: [
         ...new Map(

@@ -17,8 +17,9 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, callKinds, choiceOf, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
+import { binary, callKinds, choiceOf, choose, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
+import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
   formula,
@@ -80,6 +81,174 @@ export const MOVING_SEARCH_ASSUMPTION =
  */
 export const MADE_FIXED_ASSUMPTION =
   "An explosion is never on the moving list, so it touches nothing and no search of the moving list finds it. Only part code makes explosions, and it links them into the fixed list; an explosion only happens after another part's action, so no level stores one.";
+/** The lowest and highest air pressure a level can have, by the decided assumption: what the control panel can set. */
+export const AIR_PRESSURES = { min: 0, max: 128 };
+/**
+ * A level's air pressure is one the control panel can set. The panel keeps its setting from 0 to 128 (`0x12566` to
+ * `0x1257a` in Even More, English floppy) and a new level starts at 67 (`0x15d69`). Decided with the user on
+ * 2026-11-08.
+ */
+export const AIR_PRESSURE_ASSUMPTION =
+  "A level's air pressure is one the game's control panel can set, from 0 to 128. The panel keeps its setting in that range and a new level starts at 67; the level loader reads the word as it is, but only the game writes level files, and the shipped levels use 0 to 68.";
+/** The lowest and highest speed limit the air pressures a level can have give a type the routine doesn't fix. */
+export function speedLimitRange(table: BehaviourReport["typeTable"]): { min: number; max: number } | undefined {
+  const setup = table?.speedLimits;
+  if (!setup) return undefined;
+  let min = Infinity,
+    max = -Infinity;
+  for (let air = AIR_PRESSURES.min; air <= AIR_PRESSURES.max; air++) {
+    const limit = limitForAir(setup, air);
+    if (limit === undefined) return undefined;
+    min = Math.min(min, limit);
+    max = Math.max(max, limit);
+  }
+  return { min, max };
+}
+/** What a walk that keeps a value within the lowest limit of the range rests on. */
+export const rangeNote = (range: { min: number; max: number }) =>
+  `Every speed limit the air pressure can give, from ${range.min} to ${range.max}, gives the part the same frames, since its rules don't tell those speeds apart, so the walk keeps the value within ${range.min}.`;
+/**
+ * Whether the part's rules can't tell which limit of the range kept a velocity within it: they read the field only in
+ * tests of that field alone, and each test gives the same answer for every speed from the lowest limit to the highest,
+ * and for every one from minus the highest to minus the lowest. Those are the only speeds two limits of the range can
+ * leave different, so a walk may keep the value within the lowest.
+ */
+export function rulesIgnoreLimit(
+  part: Pick<BehaviourReport["parts"][number], "transitions">,
+  offset: number,
+  range: { min: number; max: number },
+  evaluate: Evaluate,
+): boolean {
+  if (range.min <= 0 || range.max > 0x7fff) return false;
+  const reads = (value: Expression | Predicate) => {
+    const found = new Set<number>();
+    partFields(value, found);
+    return found;
+  };
+  const touches = (found: Set<number>) => found.has(offset) || found.has(offset + 1);
+  /** A test of the field alone that gives one answer over each side of the range. */
+  const blind = (term: Predicate) => {
+    const found = reads(term);
+    if (!touches(found)) return true;
+    if (term.kind !== "compare" || [...found].some((o) => o !== offset)) return false;
+    for (const sign of [1, -1]) {
+      let first: boolean | undefined;
+      for (let speed = range.min; speed <= range.max; speed++) {
+        const answer = evaluate(term, [
+          { object: "part", offset, width: 16, value: wrap(sign * speed, 16), knownMask: 0xffff },
+        ]);
+        if (answer === undefined || (first !== undefined && answer !== first)) return false;
+        first = answer;
+      }
+    }
+    return true;
+  };
+  /**
+   * A value a rule stores that keeps the field's speeds apart no better: a choice by such tests between values that
+   * don't read the field, or, stored in the field itself, the field as it was.
+   */
+  const keeps = (value: Expression, target: number): boolean => {
+    if (!touches(reads(value))) return true;
+    if (value.kind === "field" && value.object === "part" && value.offset === offset && value.width === 16)
+      return target === offset;
+    const choice = choiceOf(value);
+    return !!choice && blind(choice.test) && keeps(choice.then, target) && keeps(choice.otherwise, target);
+  };
+  for (const rule of part.transitions) {
+    if (touches(reads(rule.to))) return false;
+    for (const update of (rule as { updates?: FieldWrite[] }).updates ?? [])
+      if (!terms(update.condition).every(blind) || !keeps(update.value, update.offset)) return false;
+    if (!terms(rule.condition).every(blind)) return false;
+  }
+  return true;
+}
+/**
+ * The fields of the touching part every contact response writes again, when one always follows a bounce that returns
+ * something other than 0: each pass of the contact dispatch picks exactly one response, whatever the touching part's
+ * flags and type, and every response is described and writes the field on every way. Undefined otherwise.
+ */
+export function rewrittenByResponse(report: BehaviourReport, evaluate: Evaluate): Set<number> | undefined {
+  const dispatches = report.collisionDispatch ?? [];
+  if (!dispatches.length) return undefined;
+  let fields: Set<number> | undefined;
+  for (const dispatch of dispatches) {
+    for (const pass of dispatch.passes) {
+      // The routes test the touching part's list flags and type. Each field gets a value for every way its tests can
+      // tell apart: every mix of the bits its masks pick, and for a comparison the constant, its two neighbours, the
+      // extremes and a value no test names.
+      const masks = new Map<number, number>();
+      const compared = new Map<number, Set<number>>();
+      const visit = (v: Expression | Predicate): boolean => {
+        if (v.kind === "compare" || v.kind === "binary") {
+          if (v.left.kind === "field" && v.right.kind === "constant") {
+            if (v.left.object !== "collider") return false;
+            const { offset } = v.left;
+            const value = v.right.value & 0xffff;
+            if (v.operator === "&") masks.set(offset, (masks.get(offset) ?? 0) | value);
+            else if (v.operator in OPPOSITE) compared.set(offset, (compared.get(offset) ?? new Set()).add(value));
+            else return false;
+            return true;
+          }
+          // A test can also be a value, 1 when it holds: those join with `&`.
+          if (v.operator !== "&" && !(v.operator in OPPOSITE)) return false;
+          return visit(v.left) && visit(v.right);
+        }
+        if (v.kind === "and") return v.terms.every(visit);
+        return v.kind === "true" || v.kind === "constant";
+      };
+      if (!pass.callbackNonzero.every((route) => visit(route.condition))) return undefined;
+      // A field both masked and compared whole could need a value that mixes the two: not worked out here.
+      if ([...masks.keys()].some((o) => compared.has(o))) return undefined;
+      const read = new Map<number, number[]>();
+      for (const [offset, mask] of masks) {
+        const bits = [...Array(16).keys()].map((b) => 1 << b).filter((b) => mask & b);
+        if (bits.length > 12) return undefined;
+        read.set(
+          offset,
+          [...Array(2 ** bits.length).keys()].map((n) => bits.reduce((v, b, k) => (n & (1 << k) ? v | b : v), 0)),
+        );
+      }
+      for (const [offset, constants] of compared) {
+        const values = new Set([0, 0x7fff, 0x8000, 0xffff]);
+        for (const c of constants) for (const v of [c - 1, c, c + 1]) values.add(v & 0xffff);
+        let fresh = 0;
+        while (constants.has(fresh)) fresh++;
+        read.set(offset, [...values.add(fresh)]);
+      }
+      const offsets = [...read.keys()];
+      const choices = offsets.map((o) => read.get(o)!);
+      if (choices.reduce((n, list) => n * list.length, 1) > 4096) return undefined;
+      const combine = (n: number, known: { offset: number; value: number }[]): boolean => {
+        if (n === offsets.length) {
+          const fieldsKnown = known.map((k) => ({
+            object: "collider",
+            offset: k.offset,
+            width: 16,
+            value: k.value & 0xffff,
+            knownMask: 0xffff,
+          }));
+          const taken = pass.callbackNonzero.filter((route) => evaluate(route.condition, fieldsKnown) === true);
+          const unsure = pass.callbackNonzero.some((route) => evaluate(route.condition, fieldsKnown) === undefined);
+          return !unsure && taken.length === 1;
+        }
+        return choices[n]!.every((value) => combine(n + 1, [...known, { offset: offsets[n]!, value }]));
+      };
+      if (!combine(0, [])) return undefined;
+    }
+    for (const response of dispatch.responses ?? []) {
+      if (response.status !== "described") return undefined;
+      const helper = report.helpers?.find((h) => h.address === response.routine);
+      if (!helper) return undefined;
+      const own = new Set<number>();
+      // Only stores the response makes on every way through it.
+      for (const w of helper.writes)
+        if (w.root === "argument" && !w.path?.length && w.condition.kind === "true")
+          for (let byte = 0; byte < w.width / 8; byte++) own.add(w.offset + byte);
+      fields = fields ? new Set([...fields].filter((f) => own.has(f))) : own;
+    }
+  }
+  return fields;
+}
 /**
  * The decided assumption that keeps a part off the moving list (its list flags at `0x06` never have `0x1000`), if
  * any: for a part of a fixed type, or the bullet.
@@ -91,7 +260,7 @@ export function offMovingList(
   if (startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0) return FIXED_LIST_ASSUMPTION;
   return part.id === "bullet" ? BULLET_LIST_ASSUMPTION : undefined;
 }
-const CENTRES_ASSUMPTION =
+export const CENTRES_ASSUMPTION =
   "The two centres are less than 32768 apart across and down, so the word differences the centre angle takes are the true ones. When they are the same point there is no direction, and the setter puts the whole speed into velocityY.";
 /**
  * Which way a velocity moves a part on the screen. The code shows that a velocity has the sign of the change of the
@@ -319,6 +488,31 @@ export function objects(
   return { objects: found, unknown };
 }
 
+/** Whether the game found room for an allocation a helper of the source's makes: only the run knows. */
+const ALLOCATION = /^allocation answer of the call at (0x[0-9a-f]+)$/;
+/** The name a line gives the source while it says a value of both parts, so `part` can be the part it changes. */
+const SOURCE = "the source";
+/**
+ * Whether a value or test reads the member with the source, or an allocation answer, and nothing else: a line says it
+ * in words of where the source is, like the wall split's cut from the explosion's centre.
+ */
+export function readsSourcePlace(value: Expression | Predicate, member: string): boolean {
+  let other = false,
+    placed = false;
+  const visit = (v: Expression | Predicate) => {
+    if (v.kind === "unknown") other = true;
+    else if (v.kind === "field") {
+      if (v.unresolved ? ALLOCATION.test(v.object) : v.object === "part") placed = true;
+      else if (v.unresolved || v.object !== member) other = true;
+    } else if (v.kind === "binary" || v.kind === "compare") {
+      visit(v.left);
+      visit(v.right);
+    } else if (v.kind === "table") visit(v.index);
+    else if (v.kind === "and") v.terms.forEach(visit);
+  };
+  visit(value);
+  return placed && !other;
+}
 /** A number for an expression of constants, at its width. */
 function numberOf(e: Expression): number | undefined {
   if (e.kind === "constant") return wrap(e.value, e.width);
@@ -427,7 +621,8 @@ const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">
  */
 export function sourceChoices(value: Expression, limit = 32): { tests: Predicate[]; value: Expression }[] | undefined {
   const split = (e: Expression): { tests: Predicate[]; value: Expression }[] => {
-    const choice = objects(e).objects.has("part") ? choiceOf(e) : undefined;
+    const read = objects(e).objects;
+    const choice = read.has("part") || [...read].some((o) => ALLOCATION.test(o)) ? choiceOf(e) : undefined;
     if (!choice) return [{ tests: [], value: e }];
     const opposite = { ...choice.test, operator: OPPOSITE[choice.test.operator]! };
     return [
@@ -442,6 +637,18 @@ export function sourceChoices(value: Expression, limit = 32): { tests: Predicate
  * A loop's way with each value that picks by the source's tests split into its cases: one way for each, with the
  * case's tests added to the way's and the value it picks. A case that leaves the field as it was writes nothing.
  */
+/** A sum with a negative number read as a difference: "x + -32" as "x - 32". */
+const plainSigns = (words: string) => words.replace(/\+ -(\d)/g, "- $1");
+/** Whether a list of tests has one test and its opposite. */
+function contradicts(tests: Predicate[]): boolean {
+  const keys = new Set(tests.map((t) => JSON.stringify(t)));
+  return tests.some(
+    (t) =>
+      t.kind === "compare" &&
+      !!OPPOSITE[t.operator] &&
+      keys.has(JSON.stringify({ ...t, operator: OPPOSITE[t.operator]! })),
+  );
+}
 export function splitBySource<T extends { condition: Predicate; fields: FieldWrite[] }>(
   outcome: T,
   member: string,
@@ -453,15 +660,18 @@ export function splitBySource<T extends { condition: Predicate; fields: FieldWri
       ways = ways.map((way) => ({ ...way, fields: [...way.fields, w] }));
       continue;
     }
-    ways = ways.flatMap((way) =>
-      cases.map((c) => {
-        const unchanged = c.value.kind === "field" && c.value.object === member && c.value.offset === w.offset;
-        return {
-          tests: [...way.tests, ...c.tests],
-          fields: unchanged ? way.fields : [...way.fields, { ...w, value: c.value }],
-        };
-      }),
-    );
+    ways = ways
+      .flatMap((way) =>
+        cases.map((c) => {
+          const unchanged = c.value.kind === "field" && c.value.object === member && c.value.offset === w.offset;
+          return {
+            tests: [...way.tests, ...c.tests],
+            fields: unchanged ? way.fields : [...way.fields, { ...w, value: c.value }],
+          };
+        }),
+      )
+      // Fields chosen by the same tests, like the wall split's, give ways that contradict themselves: drop them now.
+      .filter((way) => !contradicts(way.tests));
     if (ways.length > 64) return [outcome];
   }
   if (ways.length === 1) return [outcome];
@@ -604,7 +814,7 @@ export function settleForType(
   type: number,
   table: BehaviourReport["typeTable"],
   used: { table: boolean },
-): { value: Expression; kept: boolean } {
+): { value: Expression; kept: boolean; limit?: number; range?: { min: number; max: number } } {
   const settled = forType(withOwnOverlaps(value, member), member, typeOffset, type, table, used);
   const kept = speedLimitOf(settled);
   const limit = kept?.limit;
@@ -615,7 +825,38 @@ export function settleForType(
     limit.segment * 16 + limit.offset === table.address + SPEED_LIMIT &&
     (JSON.stringify(limit.index).includes(`"object":${JSON.stringify(member)},"offset":${typeOffset}`) ||
       (limit.index.kind === "constant" && limit.index.value === type * table.stride));
-  return ownLimit && kept ? { value: kept.speed, kept: true } : { value: settled, kept: false };
+  if (!ownLimit || !kept) return { value: settled, kept: false };
+  // A type whose limit is the same number in every level, like the bullet's 12288.
+  const fixed = table?.speedLimits?.fixed.find((f) => f.type === type)?.limit;
+  if (fixed !== undefined) return { value: kept.speed, kept: true, limit: fixed };
+  // Any other type's limit is one the level's air pressure gives, by the decided assumption within a range.
+  const range = speedLimitRange(table);
+  return range ? { value: kept.speed, kept: true, range } : { value: kept.speed, kept: true };
+}
+/** A speed limit that is a number in every level, as the words give it after "its speed limit". */
+const limitWords = (limit: number | undefined) => (limit === undefined ? "" : ` of ${limit}`);
+/**
+ * A value kept within a speed limit that is a number: `limit if speed > limit, else -limit if speed < -limit, else
+ * speed`, signed, as the speed limit routine leaves it.
+ */
+export function keptWithin(speed: Expression, limit: number): Expression {
+  const number = constant(limit),
+    negative = constant(wrap(-limit, 16));
+  const above: Extract<Predicate, { kind: "compare" }> = {
+    kind: "compare",
+    operator: ">",
+    left: speed,
+    right: number,
+    signed: true,
+  };
+  const below: Extract<Predicate, { kind: "compare" }> = {
+    kind: "compare",
+    operator: "<",
+    left: speed,
+    right: negative,
+    signed: true,
+  };
+  return choose(above, number, choose(below, negative, speed, 16), 16);
 }
 /** The speed limit's word in a type record, which the game works out for every type from the level's air and gravity. */
 const SPEED_LIMIT = 0x0a;
@@ -775,6 +1016,11 @@ interface Candidate {
   memberTerms: Predicate[];
   /** The tests of where the part lies from the source. */
   place: PlaceTest[];
+  /**
+   * Other tests that read the part with the source, or what a call of the source's found only the run knows, like the
+   * wall split's hole edges from the explosion's centre and whether the game had room for the copy. Said in words.
+   */
+  relative: Predicate[];
   /**
    * Whether the source names the part's type, or else the flag tests of the search that found it, when they are all
    * known. Only then may a line keep tests of the part's own fields that its type doesn't decide: a search may keep
@@ -958,9 +1204,34 @@ export function effectsFromOthers(
     !!factory?.constructorFlags?.some((f) => f.type === type && f.field === t.offset && (f.mask & t.mask) === t.mask);
   const fieldName = (offset: number) => fieldNames.get(offset) ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
-  const settingWords = (offset: number, raw: Expression, type?: number) => {
+  /** A test of both parts, or of whether the game had room for a copy, in words. */
+  const relativeWords = (t: Extract<Predicate, { kind: "compare" }>, member: string, source: string) => {
+    const room = [t.left, t.right].find((e) => e.kind === "field" && ALLOCATION.test(e.object));
+    const zero = [t.left, t.right].some((e) => e.kind === "constant" && e.value === 0);
+    if (room?.kind === "field" && zero && (t.operator === "==" || t.operator === "!="))
+      return `${t.operator === "!=" ? "the game finds room" : "the game finds no room"} for the copy the ${source} makes (the allocation at ${ALLOCATION.exec(room.object)![1]})`;
+    return plainSigns(
+      compareWords(
+        { ...t, left: tidyArithmetic(t.left), right: tidyArithmetic(t.right) },
+        {
+          field: fieldName,
+          of: (object, what) => (object === member ? `its ${what}` : `the ${source}'s ${what}`),
+        },
+      ),
+    );
+  };
+  const settingWords = (offset: number, raw: Expression, type?: number, source?: string) => {
     const table = (e: Extract<Expression, { kind: "table" }>) =>
       type !== undefined && isSpeedLimitOf(e, type, report.typeTable) ? "speed limit" : undefined;
+    // A value of where the source is names the source's fields, like "the explosion's centre X".
+    if (source !== undefined) {
+      const names: Names = {
+        field: fieldName,
+        of: (object, what) => (object === SOURCE ? `the ${source}'s ${what}` : what),
+        table,
+      };
+      return `sets ${fieldName(offset)} to ${plainSigns(formula(tidyArithmetic(raw), names))}`;
+    }
     const field = fieldName(offset);
     const value = tidyArithmetic(raw);
     const own = (e: Expression) => e.kind === "field" && e.object === "part" && e.offset === offset && e.width === 16;
@@ -999,7 +1270,13 @@ export function effectsFromOthers(
    * What the writes set on a part of the type: numbers, speeds and values of its own fields. Undefined when a speed
    * isn't a number for it.
    */
-  const settingsOf = (writes: FieldWrite[], member: string, type: number, used: { table: boolean }) => {
+  const settingsOf = (
+    writes: FieldWrite[],
+    member: string,
+    type: number,
+    used: { table: boolean },
+    source?: string,
+  ) => {
     const sets: OtherPartSetting[] = [];
     /** The speeds whose every write points along the line from the source's centre to this part's. */
     const lines = new Map<OtherPartSetting, { routine: number; call: number } | undefined>();
@@ -1012,6 +1289,19 @@ export function effectsFromOthers(
       const number = settled && numberOf(settled.value);
       if (settled && number !== undefined && !settled.kept) {
         sets.push({ kind: "field", offset: w.offset, width: w.width, value: number });
+        continue;
+      }
+      if (settled && source !== undefined && !settled.kept && readsSourcePlace(settled.value, member)) {
+        // A value of where the source is, like the wall split's cut from the explosion's centre: the source's fields
+        // are named, and `part` is this part.
+        const value = rename(rename(settled.value, "part", SOURCE), member, "part");
+        sets.push({
+          kind: "expression",
+          offset: w.offset,
+          width: w.width,
+          value,
+          words: settingWords(w.offset, value, type, source),
+        });
         continue;
       }
       if (settled) {
@@ -1033,8 +1323,8 @@ export function effectsFromOthers(
           value,
           words: settled.kept
             ? unchanged
-              ? `keeps ${fieldName(w.offset)} within its speed limit`
-              : `${settingWords(w.offset, value, type)}, kept within its speed limit`
+              ? `keeps ${fieldName(w.offset)} within its speed limit${limitWords(settled.limit)}`
+              : `${settingWords(w.offset, value, type)}, kept within its speed limit${limitWords(settled.limit)}`
             : settingWords(w.offset, value, type),
         });
         continue;
@@ -1137,8 +1427,13 @@ export function effectsFromOthers(
    * The touch lines of a part: what the bounce of a part it touches sets on it. Paths that set the same, and return
    * the same, are joined where their tests allow it. `read` are the fields the part's own rules read.
    */
+  const rewritten = rewrittenByResponse(report, evaluate);
   const touchLines = (part: BehaviourReport["parts"][number], read: Set<number>, assumptions: Set<string>) => {
     const readsField = (w: FieldWrite) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte));
+    // A field the contact response that always follows a bounce returning nonzero writes again is that response's.
+    const responds = (c: TouchCandidate) => c.returns !== undefined && c.returns !== 0 && !!rewritten;
+    const redone = (w: FieldWrite) =>
+      [...Array(w.width / 8).keys()].every((byte) => rewritten?.has(w.offset + byte) ?? false);
     // The contact dispatch walks the moving list: a part of a fixed type is never on it, by a decided assumption.
     const fixed = !!startingFlags && (startingFlags.values[part.type]! & FIXED_TYPE) !== 0;
     interface Path {
@@ -1166,8 +1461,9 @@ export function effectsFromOthers(
         }
         kept.push(typed);
       }
-      // A write to a field the part's rules read can change its frame: walks are the place for that.
-      if (!possible || c.writes.some(readsField)) continue;
+      // A write to a field the part's rules read can change its frame: walks are the place for that, unless the
+      // contact response that always follows writes the field again.
+      if (!possible || c.writes.some((w) => readsField(w) && !(responds(c) && redone(w)))) continue;
       const settings = settingsOf(c.writes, TOUCHER, part.type, used);
       if (!settings) continue;
       if (fixed) {
@@ -1257,12 +1553,15 @@ export function effectsFromOthers(
         const when = sourcePhrases.length ? `, when ${sourcePhrases.join(" and ")},` : "";
         const only = toucherWords.length ? ` Only when ${toucherWords.join(" and ")}.` : "";
         // The dispatch goes on to a contact response only when the bounce returns something other than 0.
+        const ruled = c.writes.filter(readsField).map((w) => fieldName(w.offset));
         const response =
           c.returns === undefined
             ? " The game may go on to a contact response, which can change these again."
             : c.returns === 0
               ? " Its bounce returns 0 then, so no contact response follows."
-              : ` Its bounce returns ${c.returns} then, so the game may go on to a contact response, which can change these again.`;
+              : ruled.length
+                ? ` Its bounce returns ${c.returns} then, so the game always goes on to a contact response, which works ${listWords([...new Set(ruled)])} out again from the angle they touch at: which frame it shows next is up to that response.`
+                : ` Its bounce returns ${c.returns} then, so the game ${rewritten ? "always goes" : "may go"} on to a contact response, which can change these again.`;
         lines.push({
           sourceType: c.sourceType,
           sourcePart: c.sourcePart,
@@ -1361,6 +1660,11 @@ export function effectsFromOthers(
         )
           continue;
         const member = outcome.object;
+        // The source's own type is known when the callback is its type's alone: its type and its type record's words
+        // are numbers in its tests, like the half width of the teeter-totter's frame.
+        const sourceUsed = { table: false };
+        const ownType = (t: Predicate) =>
+          callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
         const all = outcome.fields.filter((f) => f.object === member);
         if (!all.length || all.length !== outcome.fields.length) continue;
         // What the contact search leaves on the part, and a value read from it after, only the run knows: the line
@@ -1369,26 +1673,38 @@ export function effectsFromOthers(
           const open = openCalls([w.value], kindAt);
           return open.contactSearch && !open.connectionQuery && !open.other;
         });
-        const writes = all.filter((w) => !searched.includes(w));
+        // A value of where the source is reads the source's drawn fields by name, like its frameWidth, and its own
+        // type is known when the callback is its type's alone, as in its tests.
+        const writes = all
+          .filter((w) => !searched.includes(w))
+          .map((w) => {
+            const value = withOwnOverlaps(w.value, member);
+            if (!readsSourcePlace(value, member)) return w;
+            const test = ownType(
+              drawnFields({ kind: "compare", operator: "==", left: value, right: constant(0), signed: false }),
+            );
+            return test.kind === "compare" ? { ...w, value: test.left } : w;
+          });
         if (!writes.length) continue;
         // Every field set needs a number for the part's type, a formula of its own fields, or the speed the speed setter
         // was given: so a value may read only the member and the type table.
         if (
           writes.some((w) => {
-            const read = objects(withOwnOverlaps(w.value, member));
-            return !w.directedSpeed && (read.unknown || [...read.objects].some((o) => o !== member));
+            const value = withOwnOverlaps(w.value, member);
+            const read = objects(value);
+            return (
+              !w.directedSpeed &&
+              (read.unknown || [...read.objects].some((o) => o !== member)) &&
+              !readsSourcePlace(value, member)
+            );
           })
         )
           continue;
         const sourceTerms: Predicate[] = [],
           memberTerms: Predicate[] = [],
+          relative: Predicate[] = [],
           place: PlaceTest[] = [];
         let open = false;
-        // The source's own type is known when the callback is its type's alone: its type and its type record's words
-        // are numbers in its tests, like the half width of the teeter-totter's frame.
-        const sourceUsed = { table: false };
-        const ownType = (t: Predicate) =>
-          callback.shared ? t : predicateForType(t, "part", typeOffset, source.type, report.typeTable, sourceUsed);
         for (const term of terms(outcome.condition).map((t) =>
           ownType(drawnFields(afterQueriesIn(withOwnOverlapsIn(t, member), member, kindAt))),
         )) {
@@ -1403,13 +1719,16 @@ export function effectsFromOthers(
             }
           }
           const placed = unknown ? undefined : placeTest(term, member);
+          const both = readsSourcePlace(term, member);
           // A test of what the source's rope pull answers, or of its own fields after it, is the source's.
           if (sourceRun(term, kindAt)) sourceTerms.push(term);
-          else if (unknown || term.kind === "unknown") open = true;
+          else if ((unknown || term.kind === "unknown") && !both) open = true;
           else if ([...read].every((o) => o === "part")) sourceTerms.push(term);
           else if ([...read].every((o) => o === member)) memberTerms.push(term);
           // A test of where the part lies from the source, like the vacuum cleaner's nozzle below it.
           else if (placed) place.push(placed);
+          // Another test of both parts, like a wall split's hole edge, said as it is.
+          else if (both && term.kind === "compare") relative.push(term);
           else open = true;
         }
         if (open) continue;
@@ -1440,6 +1759,7 @@ export function effectsFromOthers(
           sourceTerms,
           memberTerms,
           place,
+          relative,
         });
       }
       // The contact dispatch calls the bounce of the touched part's type with the part that touched it (`collider`).
@@ -1541,7 +1861,7 @@ export function effectsFromOthers(
       }
       if (!possible || !decided) continue;
       if (c.writes.some((w) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte)))) continue;
-      const settings = settingsOf(c.writes, c.member, part.type, used);
+      const settings = settingsOf(c.writes, c.member, part.type, used, nameOf(c.sourcePart));
       if (!settings) continue;
       const { sets, proofs } = settings;
       // The part would get this line but for its list: a decided assumption keeps it off the moving list.
@@ -1561,13 +1881,16 @@ export function effectsFromOthers(
       }
       const name = nameOf(c.sourcePart);
       const { said, velocityDirection } = sayings(sets, name);
-      const placeSaid = placeWords(c.place, name, fieldName, c.sourcePart);
+      const placeSaid = [
+        ...placeWords(c.place, name, fieldName, c.sourcePart),
+        ...c.relative.map((t) => relativeWords(t as Extract<Predicate, { kind: "compare" }>, c.member, name)),
+      ];
       words.push(...placeSaid);
       const when = c.sourceWords.length ? `, when the ${name} is ${c.sourceWords.join(" and ")},` : "";
       const searchedSaid = c.searched.length
         ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
         : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*its /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*(its|the game) /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
       // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
       const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
@@ -1580,7 +1903,11 @@ export function effectsFromOthers(
         sourceType: c.sourceType,
         sourcePart: c.sourcePart,
         routine: c.routine,
-        sourceCondition: conjunction(c.sourceTerms),
+        // Tests of both parts go with the source's, with `collider` this part, as for a touch.
+        sourceCondition: conjunction([
+          ...c.sourceTerms,
+          ...c.relative.map((t) => renamePredicate(t, c.member, "collider")),
+        ]),
         sourceConditionWords: c.sourceWords,
         sets,
         condition: conjunction(conditionTerms),
