@@ -26,13 +26,16 @@ const GROUPS: { title: string; from: number; to: number }[] = [
 const POINTERS = new Set([0x14, 0x16, 0x18, 0x1a]);
 const LAYERS = new Set([0x1c, 0x1d]);
 
-/** A field's value as it reads best: a number, an address, or "none" for an empty pointer or unused layer. */
+/**
+ * A field's value as it reads best: a number, "a list" for a pointer to one (where it is stays in the tip), or "none"
+ * for an empty pointer or unused layer.
+ */
 function shown(bytes: Uint8Array, field: RecordField) {
   const at = field.offset;
   const word = (o: number) => bytes[o]! | (bytes[o + 1]! << 8);
   const value = field.size === 1 ? bytes[at]! : word(at);
   const raw = `0x${hex(value, field.size * 2)}`;
-  if (POINTERS.has(at)) return { text: value ? raw : "none", raw };
+  if (POINTERS.has(at)) return { text: value ? "a list" : "none", raw };
   if (LAYERS.has(at)) return { text: value === 0xff ? "none" : String(value), raw };
   return { text: String(value > 0x7fff ? value - 0x10000 : value), raw };
 }
