@@ -542,6 +542,34 @@ function rewriteMasked(text: string, mask: string, rewrite: (group: string) => s
   return text;
 }
 
+/**
+ * A word compared as a signed number by flipping its top bit, `(x ^ 0x8000) >= -32766`, as the word compared as it is,
+ * `x >= 2`, for every such compare in the text. The word can hold brackets of its own.
+ */
+function unflipCompares(text: string): string {
+  const flip = / \^ 0x8000\) (>=|>|<=|<|==|!=) (-?\d+)/g;
+  for (let m = flip.exec(text); m; m = flip.exec(text)) {
+    let depth = 0;
+    let open = -1;
+    for (let k = m.index - 1; k >= 0; k--) {
+      if (text[k] === ")") depth++;
+      else if (text[k] === "(") {
+        if (depth === 0) {
+          open = k;
+          break;
+        }
+        depth--;
+      }
+    }
+    if (open < 0) continue;
+    const value = (Number(m[2]) & 0xffff) ^ 0x8000;
+    const out = `${text.slice(open + 1, m.index)} ${m[1]} ${value}`;
+    text = text.slice(0, open) + out + text.slice(m.index + m[0].length);
+    flip.lastIndex = open + out.length;
+  }
+  return text;
+}
+
 /** A group without the brackets around all of it, `(a + b)` as `a + b`. */
 function unbracket(group: string): string {
   if (!group.startsWith("(") || !group.endsWith(")")) return group;
@@ -562,7 +590,7 @@ function unbracket(group: string): string {
 export function tidyWords<T extends string | undefined>(text: T): T {
   if (text === undefined) return text;
   let out: string = text;
-  out = rewriteMasked(out, "0xffff", (group) => group);
+  out = unflipCompares(rewriteMasked(out, "0xffff", (group) => group));
   out = rewriteMasked(out, "0xfff0", (group) => `(${unbracket(group)} rounded down to 16)`);
   return (
     out
@@ -884,6 +912,19 @@ export function writer(
       case "field":
         return place(e.object, e.offset);
       case "binary": {
+        // A word compared as a signed number by flipping its top bit, `(x ^ 0x8000) >= -32766`, is the word compared
+        // as it is: x >= 2.
+        if (
+          ["<", "<=", ">", ">=", "==", "!="].includes(e.operator) &&
+          e.right.kind === "constant" &&
+          e.left.kind === "binary" &&
+          e.left.operator === "^" &&
+          e.left.right.kind === "constant" &&
+          (e.left.right.value & 0xffff) === 0x8000
+        ) {
+          const text = `${expression(e.left.left, true)} ${e.operator} ${(e.right.value & 0xffff) ^ 0x8000}`;
+          return nested ? `(${text})` : text;
+        }
         if (style === "words") {
           // A word taken as signed, `(x ^ 0x8000) - 0x8000`, and a value kept to a word, `x & 0xffff`, read as the
           // value: the numbers are signed words already.
@@ -902,19 +943,6 @@ export function writer(
           // Rounding down to a multiple of 16, the size of a tile, like the explosion's reach.
           if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xfff0)
             return `(${expression(e.left, false, style)} rounded down to 16)`;
-          // A word compared as a signed number by flipping its top bit, `(x ^ 0x8000) >= -32766`, is the word compared
-          // as it is: x >= 2.
-          if (
-            ["<", "<=", ">", ">=", "==", "!="].includes(e.operator) &&
-            e.right.kind === "constant" &&
-            e.left.kind === "binary" &&
-            e.left.operator === "^" &&
-            e.left.right.kind === "constant" &&
-            (e.left.right.value & 0xffff) === 0x8000
-          ) {
-            const text = `${expression(e.left.left, true)} ${e.operator} ${(e.right.value & 0xffff) ^ 0x8000}`;
-            return nested ? `(${text})` : text;
-          }
           const changed = flagChange(e);
           if (changed) return nested ? `(${changed})` : changed;
           const picked = pickOfTwo(e);

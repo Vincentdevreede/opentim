@@ -137,6 +137,11 @@ describe("writer", () => {
     const flipped = binary("^", field(0x12), constant(0x8000));
     expect(expression(binary(">=", flipped, constant(-32766)))).toBe("stateDelta >= 2");
     expect(expression(binary("<", flipped, constant(0x8005)))).toBe("stateDelta < 5");
+    // Also inside a condition, where the numbers around it read signed.
+    const sum = binary("+", constant(7168), binary("*", binary(">=", flipped, constant(-32766)), constant(-512)));
+    expect(predicate({ ...compare(">=", sum, constant(0)), signed: true } as Predicate)).toBe(
+      "7168 + ((stateDelta >= 2) * -512) >= 0",
+    );
   });
 
   it("writes the program's pick of one of two values as the value and when", () => {
@@ -305,6 +310,9 @@ describe("tidyWords", () => {
       "Sets link1 of the part tied to its link0",
     );
     expect(tidyWords("another part's contact side byte at 0x87")).toBe("another part's contact side byte");
+    expect(tidyWords("(((table[0 + (found.type * 58)] ^ 0x8000) >= -32766) * -512)")).toBe(
+      "((table[0 + (found.type * 58)] >= 2) * -512)",
+    );
   });
 });
 
