@@ -1337,12 +1337,12 @@ export function readBehaviourInBackground(program: Uint8Array, parts: ProgramPar
     } catch (e) {
       stop(e instanceof Error ? e.message : "The analysis couldn’t start.");
     }
-    // A failed read isn't kept, so a later call tries again.
+    // A failed read isn't kept, so a later call tries again. Goals that can't be read stay the same on every try, and
+    // the worker goes on with the walks after them, so they keep the read.
     const forget = (r: { status: string }) => {
       if (r.status === "error" && results.get(program) === reading) results.delete(program);
     };
     void reading.result.then(forget);
-    void reading.goals.then(forget);
     void reading.walks.then(forget);
     void reading.perType.then(forget);
   }

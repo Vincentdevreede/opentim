@@ -211,4 +211,11 @@ describe("summariseGoal", () => {
     expect(goal.ways).toEqual([]);
     expect(goal.problem).toBe("it reads an unset value: what a walk leaves in cx");
   });
+
+  it("says why a goal whose routine calls itself doesn't fit, instead of running on forever", () => {
+    const again: GoalStatement = { kind: "call", routine: 0x100, segment: 0, offset: 0x100, stack: 0 };
+    const goal = summary([when(t(word(STEPS), "<", c(20)), [again], [met])]);
+    expect(goal.ways).toEqual([]);
+    expect(goal.problem).toBe("the routine at 0x100 calls itself");
+  });
 });

@@ -274,6 +274,8 @@ interface State {
 class Runner {
   private walks = 0;
   private frames = 0;
+  /** The routines running now, from the goal down to the one that runs. */
+  private readonly calling = new Set<number>();
   readonly met: Formula[] = [];
   /** The data segment words the goal writes, by address. */
   readonly written = new Set<number>();
@@ -296,12 +298,19 @@ class Runner {
     const routine = this.routines.get(address);
     if (!routine) throw new DoesntFit(`the routine at ${hex(address)} isn't read`);
     if (!("body" in routine)) throw new DoesntFit(`the routine at ${hex(address)} isn't read: ${routine.reason}`);
-    const frame = ++this.frames;
-    const returns: State[] = [];
-    // Registers are the routine's own; words of memory are shared.
-    const env: Env = new Map([...state.env].filter(([k]) => k.startsWith("w:")));
-    const end = this.run(shape(withoutSaves(routine.body), this.names), { env, alive: state.alive }, frame, returns);
-    return merge([...returns, end]);
+    // Run on symbols, a routine that calls itself would never stop: its tests don't have numbers to end on.
+    if (this.calling.has(address)) throw new DoesntFit(`the routine at ${hex(address)} calls itself`);
+    this.calling.add(address);
+    try {
+      const frame = ++this.frames;
+      const returns: State[] = [];
+      // Registers are the routine's own; words of memory are shared.
+      const env: Env = new Map([...state.env].filter(([k]) => k.startsWith("w:")));
+      const end = this.run(shape(withoutSaves(routine.body), this.names), { env, alive: state.alive }, frame, returns);
+      return merge([...returns, end]);
+    } finally {
+      this.calling.delete(address);
+    }
   }
 
   private key(target: GoalValue, env: Env, frame: number): string {
