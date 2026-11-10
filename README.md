@@ -91,6 +91,19 @@ What the server needs to do:
 - **Lab:** serve `index.html` for every path that isn't a file, because its pages are routed in the browser. It must
   be served over HTTPS, or the browser won't keep the loaded game files between visits.
 
+### Docker
+
+Each app has a `Dockerfile` that builds it and serves the output with nginx on port 80. Its `nginx.conf` next to it
+does the work listed above. Build from the repository root:
+
+```sh
+docker build -f apps/game/Dockerfile -t opentim-game .
+docker run --rm -p 8080:80 opentim-game
+```
+
+On Coolify, add each app as an application with the Dockerfile build pack. Leave the base directory at `/`, set the
+Dockerfile location to `/apps/<app>/Dockerfile` and the exposed port to `80`. HTTPS is handled by Coolify's proxy.
+
 ## Original game files
 
 No original game files are included. The game and the lab read the files of your own copy of The Incredible Machine,
