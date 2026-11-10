@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { choose, type BehaviourReport, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import {
+  readsSourcePlace,
+  keptWithin,
+  rulesIgnoreLimit,
+  speedLimitRange,
   settleForType,
   sourceChoices,
   splitBySource,
   tidyArithmetic,
   withOwnOverlaps,
 } from "../src/read/describe-effects.ts";
+import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 
 const MEMBER = "overlap candidate at 0x1ac7e";
 const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
@@ -67,6 +72,122 @@ describe("settling a value for the found part's type", () => {
       choose(compare("<", speed, negativeOther), negativeOther, speed),
     );
     expect(settleForType(elsewhere, MEMBER, 4, 4, table, { table: false }).kept).toBe(false);
+  });
+
+  it("gives the limit as a number for a type whose limit is the same in every level", () => {
+    const speed = binary("+", field(0x36), constant(1536));
+    const limit = record(0x0a);
+    const negative = binary("-", constant(0), limit);
+    const kept = choose(compare(">", speed, limit), limit, choose(compare("<", speed, negative), negative, speed));
+    const withLimits = {
+      ...table,
+      speedLimits: { fixed: [{ type: 4, limit: 12288 }] },
+    } as unknown as BehaviourReport["typeTable"];
+    expect(settleForType(kept, MEMBER, 4, 4, withLimits, { table: false })).toEqual({
+      value: speed,
+      kept: true,
+      limit: 12288,
+    });
+    // Another type's limit is still worked out for each level.
+    expect(settleForType(kept, MEMBER, 4, 5, withLimits, { table: false }).limit).toBeUndefined();
+  });
+
+  it("gives a type the routine doesn't fix the range of limits the air pressures a level can have give", () => {
+    const speed = binary("+", field(0x38), constant(1536));
+    const limit = record(0x0a);
+    const negative = binary("-", constant(0), limit);
+    const kept = choose(compare(">", speed, limit), limit, choose(compare("<", speed, negative), negative, speed));
+    const withLimits = {
+      ...table,
+      speedLimits: { fixed: [], base: 9728, air: { address: 0x4cb7, split: 70, below: 1, above: 4 } },
+    } as unknown as BehaviourReport["typeTable"];
+    expect(speedLimitRange(withLimits)).toEqual({ min: 7680, max: 9728 });
+    expect(settleForType(kept, MEMBER, 4, 4, withLimits, { table: false }).range).toEqual({ min: 7680, max: 9728 });
+  });
+
+  it("knows when a part's rules can't tell the limits of the range apart", () => {
+    const speed = field(0x38, "part");
+    const absolute = binary(
+      "-",
+      binary("^", speed, binary(">>", speed, constant(15))),
+      binary(">>", speed, constant(15)),
+    );
+    const range = { min: 7680, max: 9728 };
+    const rules = (condition: Predicate, updates: unknown[] = []) => ({
+      transitions: [{ from: 0, to: constant(1), condition, updates }],
+    });
+    const fast = compare(">", absolute, constant(1536));
+    // Mel's: whether he moves faster than 1536, a note whether faster than 7168, and the speed kept or cleared.
+    const mel = rules(fast, [
+      {
+        offset: 0x9c,
+        value: choose(compare(">", speed, constant(7168)), constant(1), constant(0)),
+        condition: { kind: "true" },
+      },
+      {
+        offset: 0x38,
+        value: choose(compare("!=", field(0x88, "collider"), constant(0)), speed, constant(0)),
+        condition: { kind: "true" },
+      },
+    ]);
+    const ignore = (part: object) =>
+      rulesIgnoreLimit(part as Parameters<typeof rulesIgnoreLimit>[0], 0x38, range, evaluateBehaviourCondition);
+    expect(ignore(mel)).toBe(true);
+    // A test inside the range, or a speed stored elsewhere, tells them apart.
+    expect(ignore(rules(compare(">", absolute, constant(8000))))).toBe(false);
+    expect(ignore(rules(fast, [{ offset: 0x9c, value: speed, condition: { kind: "true" } }]))).toBe(false);
+  });
+
+  it("keeps a value within a limit that is a number as the speed limit routine does", () => {
+    const value = keptWithin(field(0x36, "part"), 12288);
+    const word = (n: number) => ((n % 0x10000) + 0x10000) % 0x10000;
+    // Whether the value is `expected` when velocityX is `speed`.
+    const is = (speed: number, expected: number) =>
+      evaluateBehaviourCondition({ ...compare("==", value, constant(word(expected))), signed: false }, [
+        { object: "part", offset: 0x36, width: 16, value: word(speed), knownMask: 0xffff },
+      ]);
+    expect(is(12288 + 1536, 12288)).toBe(true);
+    expect(is(12288, 12288)).toBe(true);
+    expect(is(100, 100)).toBe(true);
+    expect(is(-12288, -12288)).toBe(true);
+    expect(is(-12288 - 1536, -12288)).toBe(true);
+    expect(is(12288 - 1536, 12288)).toBe(false);
+  });
+});
+
+describe("values of where the source is", () => {
+  const allocation = {
+    kind: "field",
+    object: "allocation answer of the call at 0x1a91c",
+    offset: 0,
+    width: 16,
+    unresolved: true,
+  } as Expression;
+  it("reads the part with the source, or whether an allocation found room, and nothing else", () => {
+    // The wall split's cut: ((the explosion's centre X + 24) & 0xfff0) + 8.
+    const cut = binary("+", binary("&", binary("+", field(0x1e, "part"), constant(24)), constant(0xfff0)), constant(8));
+    expect(readsSourcePlace(cut, MEMBER)).toBe(true);
+    expect(readsSourcePlace(compare("<", field(0x1e), cut), MEMBER)).toBe(true);
+    expect(readsSourcePlace(compare("==", allocation, constant(0)), MEMBER)).toBe(true);
+    // The part alone, a third part or an unknown isn't.
+    expect(readsSourcePlace(field(0x1e), MEMBER)).toBe(false);
+    expect(readsSourcePlace(binary("+", cut, field(0x1e, "member found by the loop at 0x10")), MEMBER)).toBe(false);
+    expect(readsSourcePlace(binary("+", cut, { kind: "unknown", reason: "?", width: 16 }), MEMBER)).toBe(false);
+  });
+
+  it("splits fields chosen by the same tests without the ways that contradict themselves", () => {
+    const test = compare(">", field(0x1e), field(0x1e, "part"));
+    const fields = [0x1e, 0x2a, 0x44, 0x46, 0x20, 0x2c, 0x08].map((offset) => ({
+      object: MEMBER,
+      offset,
+      width: 16,
+      value: choose(test, constant(offset), field(offset)),
+      condition: { kind: "true" },
+    }));
+    const ways = splitBySource({ condition: { kind: "true" }, fields } as never, MEMBER) as { fields: unknown[] }[];
+    // Seven fields of two cases each would make 128 ways; only the two that agree are left.
+    expect(ways).toHaveLength(2);
+    expect(ways.map((way) => way.fields.length).sort()).toEqual([0, 7]);
   });
 });
 

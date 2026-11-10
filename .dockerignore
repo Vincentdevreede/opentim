@@ -1,0 +1,17 @@
+# Each app's Dockerfile builds from the repository root. Keep the context small and
+# let the image install its own dependencies.
+**/node_modules
+**/dist
+**/dev-dist
+**/.output
+**/.nuxt
+**/.nitro
+**/.data
+.git
+.cache
+.claude
+.idea
+.husky
+**/*.log
+.env
+.env.*

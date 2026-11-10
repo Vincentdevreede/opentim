@@ -18,6 +18,7 @@ import type { GearConflictValue } from "./behaviour-gear-model.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
 import { unpackLzexe } from "./lzexe.ts";
+import { findSpeedLimitSetup, type SpeedLimitSetup } from "./behaviour-speed-limits.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findBehaviourTiming } from "./behaviour-timing.ts";
@@ -237,7 +238,13 @@ export interface BehaviourReport {
    * The words of each type record as the program holds them, at `address` in the unpacked image, `stride` bytes per
    * type. A table read the analysis keeps, like a type's mass, can be looked up here for a known type.
    */
-  typeTable?: { address: number; stride: number; words: number[][] };
+  typeTable?: {
+    address: number;
+    stride: number;
+    words: number[][];
+    /** The routine that works out the speed limits, and the types whose limit is a number in every level. */
+    speedLimits?: SpeedLimitSetup;
+  };
 }
 
 const hex = (n: number) => `0x${n.toString(16)}`;
@@ -446,8 +453,9 @@ export function choiceOf(e: Expression): { test: Comparison; then: Expression; o
 }
 /**
  * One value from the ways through a routine, each with its tests and its value, when the ways split like a tree: some
- * test is on every way, as itself or as its opposite, and so on down to one way. Undefined when they don't, when a
- * side is empty, or when a test isn't a comparison: then a way the tests allow may be missing.
+ * test is on every way, as itself or as its opposite, and so on down to one way. The test to split on may be any of the
+ * ways' tests, as the code may make them in another order on each side. Undefined when they don't split, when a side is
+ * empty, or when a test isn't a comparison: then a way the tests allow may be missing.
  */
 export function chooseByTests(
   ways: { tests: Predicate[]; value: Expression }[],
@@ -455,17 +463,23 @@ export function chooseByTests(
 ): Expression | undefined {
   if (!ways.length || ways.some((way) => way.tests.some((test) => test.kind !== "compare"))) return undefined;
   if (ways.length === 1) return ways[0]!.tests.length ? undefined : ways[0]!.value;
-  const test = ways[0]!.tests[0] as Comparison | undefined;
-  if (!test) return undefined;
-  const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
-  const holds = ways.filter((way) => way.tests.some((t) => same(t, test)));
-  const fails = ways.filter((way) => way.tests.some((t) => same(t, opposite)));
-  if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) return undefined;
   const without = (list: typeof ways, drop: Predicate) =>
     list.map((way) => ({ ...way, tests: way.tests.filter((t) => !same(t, drop)) }));
-  const then = chooseByTests(without(holds, test), width);
-  const otherwise = then && chooseByTests(without(fails, opposite), width);
-  return otherwise && choose(test, then, otherwise, width);
+  const tried: Comparison[] = [];
+  for (const way of ways)
+    for (const candidate of way.tests as Comparison[]) {
+      if (tried.some((t) => same(t, candidate))) continue;
+      tried.push(candidate);
+      const opposite: Comparison = { ...candidate, operator: OPPOSITE[candidate.operator]! };
+      tried.push(opposite);
+      const holds = ways.filter((w) => w.tests.some((t) => same(t, candidate)));
+      const fails = ways.filter((w) => w.tests.some((t) => same(t, opposite)));
+      if (!holds.length || !fails.length || holds.length + fails.length !== ways.length) continue;
+      const then = chooseByTests(without(holds, candidate), width);
+      const otherwise = then && chooseByTests(without(fails, opposite), width);
+      if (otherwise) return choose(candidate, then, otherwise, width);
+    }
+  return undefined;
 }
 /**
  * The speed and the limit of a value the speed limit made: `limit if speed > limit, else -limit if speed < -limit,
@@ -733,6 +747,8 @@ export function openCalls(
       else open.other = true;
     } else if (v.kind === "field") {
       if (!v.unresolved || STORED_OVERLAP.test(v.object)) return;
+      // Whether a helper's allocation found room is a test a line says in words.
+      if (/^allocation answer of the call at 0x[0-9a-f]+$/.test(v.object)) return;
       if (at(v.object, / after unresolved write at (0x[0-9a-f]+)$/) === "contact-search") open.contactSearch = true;
       else if (
         at(v.object, /^answer of the query at (0x[0-9a-f]+)$/) === "connection-query" ||
@@ -1695,6 +1711,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (object === "part") return formalArgument(args, base, ownerOffset);
     if (object === consumerMember) return tracked({ kind: "pointer", object, displacement: 0, width: 16 });
     const nested = /^referenced-by\((.*)\+0x([0-9a-f]+)\)$/.exec(object);
+    // The part another argument of the helper points at, like the explosion the wall split gets: the caller's argument.
+    if (nested?.[1] === "argument") return formalArgument(args, base, parseInt(nested[2]!, 16));
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
   };
@@ -1794,6 +1812,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         return tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
+      // Whether a helper's allocation found room, like the wall split's copy: only the run knows, so it is named.
+      const allocation = /^nullable allocation result at (0x[0-9a-f]+)$/.exec(expression.object);
+      if (allocation)
+        return tracked({
+          kind: "field",
+          object: `allocation answer of the call at ${allocation[1]}`,
+          offset: expression.offset,
+          width: expression.width,
+          unresolved: true,
+        } as Expression);
       // A consumer's member is read as it is when the consumer gets it.
       if (expression.object === consumerMember) return tracked(expression);
       if (expression.object === "data")
@@ -2210,8 +2238,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       for (const offset of effect.path) pointer = memoryAt(pointer, offset, 16, s);
       const condition = formalPredicate(effect.condition, args, engine.argumentOffset, s);
       if (!possible(conjunction([...s.conditions, condition]))) continue;
-      // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound.
-      const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : undefined;
+      // A proved frame drawing value is larger than other expressions; it is kept whole up to a wider bound. So is the
+      // one value a relation's field ends with, a choice by the tests of its ways, like the wall split's cut.
+      const chosen =
+        (engine.kind === "owner-field-relation" || engine.kind === "owner-and-outline-relation") &&
+        effect.condition.kind === "true";
+      const budget = engine.frameDrawing ? FRAME_DRAWING_BUDGET : chosen ? 8192 : undefined;
       const links = engine.orderedLinks;
       const link =
         links && !effect.path.length && effect.width === 16
@@ -2410,10 +2442,84 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       engine.list.confidence === "checked" &&
       effect.offset === engine.list.headField &&
       effect.width === 16;
+    // Exact writes of one field whose tests rule each other out, like the jack-in-the-box's push of a teeter-totter by
+    // its frame and which side of its centre the plank is: one choice by all their tests, built as a tree, in place of
+    // a chain that copies the value so far into both sides of each test.
+    const exactTests = (effect: (typeof pending)[number]) =>
+      effect.exact && !effect.certain && !uncertainPredicate(effect.condition)
+        ? effect.condition.kind === "compare"
+          ? [effect.condition]
+          : effect.condition.kind === "and" && effect.condition.terms.every((term) => term.kind === "compare")
+            ? (effect.condition.terms as Comparison[])
+            : undefined
+        : undefined;
+    const fieldKey = (effect: (typeof pending)[number]) =>
+      `${JSON.stringify(effect.pointer.value)}:${effect.offset}:${effect.width}`;
+    const exclusive = new Map<string, (typeof pending)[number][]>();
     for (const effect of pending) {
+      if (!exactTests(effect)) continue;
+      exclusive.set(fieldKey(effect), [...(exclusive.get(fieldKey(effect)) ?? []), effect]);
+    }
+    const apart = (a: Comparison[], b: Comparison[]) =>
+      a.some((t) => b.some((u) => same(u, { ...t, operator: OPPOSITE[t.operator]! })));
+    for (const [key, list] of exclusive)
+      if (list.length < 2 || list.some((a, n) => list.some((b, m) => n < m && !apart(exactTests(a)!, exactTests(b)!))))
+        exclusive.delete(key);
+    const treeOf = (
+      cases: { tests: Comparison[]; value: Expression }[],
+      fallback: Expression,
+      width: number,
+    ): Expression => {
+      if (!cases.length) return fallback;
+      const done = cases.find((c) => !c.tests.length);
+      if (done) return done.value;
+      const test = cases[0]!.tests[0]!;
+      const opposite: Comparison = { ...test, operator: OPPOSITE[test.operator]! };
+      const strip = (c: (typeof cases)[number], drop: Comparison) => ({
+        ...c,
+        tests: c.tests.filter((t) => !same(t, drop)),
+      });
+      const holds = cases.filter((c) => !c.tests.some((t) => same(t, opposite))).map((c) => strip(c, test));
+      const fails = cases.filter((c) => !c.tests.some((t) => same(t, test))).map((c) => strip(c, opposite));
+      return choose(test, treeOf(holds, fallback, width), treeOf(fails, fallback, width), width, 8192);
+    };
+    const merged = new Set<(typeof pending)[number]>();
+    for (const effect of pending) {
+      if (merged.has(effect)) continue;
+      const together = exclusive.get(fieldKey(effect));
       const temporary = "__engine_pointer";
       s.registers.set(temporary, effect.pointer);
       const before = memoryAt(effect.pointer, effect.offset, effect.width, s);
+      if (together) {
+        for (const other of together) merged.add(other);
+        const value = treeOf(
+          together.map((other) => ({ tests: exactTests(other)!, value: asExpression(other.value.value) })),
+          asExpression(before.value),
+          effect.width,
+        );
+        write(
+          {
+            kind: "memory",
+            segment: "ds",
+            base: [temporary],
+            displacement: effect.offset,
+            direct: false,
+            width: effect.width === 8 ? 8 : 16,
+          },
+          tracked(
+            value,
+            uniqueEvidence([
+              ...together.flatMap((other) => [...other.value.evidence, ...other.evidence]),
+              ...before.evidence,
+              evidenceOf(i),
+            ]),
+          ),
+          s,
+          i,
+        );
+        s.registers.delete(temporary);
+        continue;
+      }
       const store = directed?.stores.find((item) => item.field === effect.offset && effect.width === 16);
       const value =
         effect.certain || same(before.value, effect.value.value)
@@ -4954,10 +5060,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
 /**
  * Names of values a run finds itself: a query's answer, a part a loop found, what a list scan leaves behind, a search's
  * found list, what a call writes to parts it selects, the part's own field after such a call, the neighbours an
- * ordered insertion links a part between, or the angle between two parts' centres.
+ * ordered insertion links a part between, the angle between two parts' centres, or whether a helper's allocation found
+ * room.
  */
 const RUN_VALUE =
-  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
+  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer|allocation answer of the call) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
@@ -5695,6 +5802,11 @@ export function readBehaviourInSteps(
         engineCalls: [],
         uncertainEffects: true,
       });
+  const speedLimits = findSpeedLimitSetup(
+    image,
+    { address: list.table, stride: 58, count: list.records.length },
+    list.dataSegment,
+  );
   const typeTable = {
     address: list.table,
     stride: 58,
@@ -5704,6 +5816,7 @@ export function readBehaviourInSteps(
         (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
       ),
     ),
+    ...(speedLimits ? { speedLimits } : {}),
   };
   // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
   const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
