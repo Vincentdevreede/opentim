@@ -20,6 +20,16 @@ export const AFFECT_LABELS: Record<AffectKind, string> = {
   change: "Changes another field",
 };
 
+/** The colour of each kind, from the lab's own state colours. */
+export const AFFECT_COLOURS: Record<AffectKind, string> = {
+  remove: "var(--color-error)",
+  mark: "var(--color-hypothesis)",
+  push: "var(--color-accent)",
+  make: "var(--color-decoded)",
+  touch: "var(--color-partial)",
+  change: "var(--color-soft)",
+};
+
 /** How the part reaches the other: by touching it, by reaching it (a fan's wind, a vacuum's pull), or both. */
 export type AffectHow = "touch" | "reach" | "both";
 

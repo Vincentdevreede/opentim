@@ -115,7 +115,8 @@ the parts a part makes. A square is coloured by the first of what the pair does,
 sets a goal mark, pushes or moves it, makes it, marks a contact, changes another field. It is filled when the part
 reaches the other one (a fan's wind, a vacuum's pull), outlined when it happens as the two touch, and half filled for
 both. A part's name opens what it does and has done to it; a square opens each way, as the Behaviour tab says it.
-The loops read per type come last and add pairs, like the vacuum cleaner's pull. In Even More, English floppy, 331
+The same two lists are the Affects tab of a part on the Parts page, where a row opens in place to its ways. The loops
+read per type come last and add pairs, like the vacuum cleaner's pull. In Even More, English floppy, 331
 pairs of 63 parts before those loops are read.
 
 ## Analysis limits

@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch, watchEffect, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
-import { AFFECT_KINDS, AFFECT_LABELS, affectPairs, type AffectKind, type AffectPair } from "../affects.ts";
+import {
+  AFFECT_COLOURS as COLOURS,
+  AFFECT_KINDS,
+  AFFECT_LABELS,
+  affectPairs,
+  type AffectKind,
+  type AffectPair,
+} from "../affects.ts";
 import { readBehaviourInBackground, readingPerType, walksAfterPerType, type WalksResult } from "../behaviour.ts";
+import AffectsLists from "../components/AffectsLists.vue";
 import LabButton from "../components/LabButton.vue";
 import LabEmpty from "../components/LabEmpty.vue";
 import LabIcon from "../components/LabIcon.vue";
@@ -18,7 +26,7 @@ import BehaviourEffect from "../components/sprites/BehaviourEffect.vue";
 import BehaviourRow from "../components/sprites/BehaviourRow.vue";
 import { edition, program, resources } from "../library.ts";
 import { listIdOf, partName, readLoadedParts } from "../parts.ts";
-import { crumb, selectedPart } from "../ui.ts";
+import { crumb, selectedAffect as selection, selectedPart } from "../ui.ts";
 
 /**
  * Who affects whom: a grid of every part against every other, with a square where the part of the column changes the
@@ -28,15 +36,6 @@ import { crumb, selectedPart } from "../ui.ts";
  */
 const router = useRouter();
 
-/** The colour of each kind, from the lab's own state colours. */
-const COLOURS: Record<AffectKind, string> = {
-  remove: "var(--color-error)",
-  mark: "var(--color-hypothesis)",
-  push: "var(--color-accent)",
-  make: "var(--color-decoded)",
-  touch: "var(--color-partial)",
-  change: "var(--color-soft)",
-};
 const HOWS = [
   { value: "all", label: "All" },
   { value: "reach", label: "Reaches", title: "A part that reaches another, like a fan's wind or a vacuum's pull" },
@@ -118,7 +117,6 @@ const rows = computed(() => {
 });
 
 /** What the panel shows: one part, or one pair. It starts on the vacuum cleaner when there is one. */
-const selection = ref<{ part: number } | { source: number; target: number }>();
 watchEffect(() => {
   if (selection.value || !list.value) return;
   const start = list.value.parts.find((p) => p.id === "vacuum-cleaner") ?? list.value.parts[0];
@@ -135,9 +133,6 @@ const selectedPair = computed(() =>
 );
 const rowLit = computed(() => selectedType.value ?? selectedPair.value?.target);
 const columnLit = computed(() => selectedType.value ?? selectedPair.value?.source);
-
-const does = computed(() => shown.value.filter((p) => p.source === selectedType.value));
-const doneTo = computed(() => shown.value.filter((p) => p.target === selectedType.value));
 
 const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 const howWords = (p: AffectPair) => (p.how === "touch" ? "touching" : p.how === "both" ? "both" : "reaching");
@@ -309,48 +304,12 @@ onBeforeUnmount(() => (crumb.value = []));
         </LabOpenIn>
         <div class="min-h-0 flex-1 overflow-auto pb-2">
           <p class="px-3 pt-2 text-title font-semibold">{{ nameOf(selectedType) }}</p>
-          <LabListHeading title="What it does to others" :meta="String(does.length)" />
-          <button
-            v-for="p in does"
-            :key="`${p.source}:${p.target}`"
-            type="button"
-            class="flex w-full cursor-pointer items-center gap-2 px-3 py-[5px] text-left hover:bg-hover"
-            :title="kindWords(p)"
-            @click="selection = { source: p.source, target: p.target }"
-          >
-            <span class="min-w-0 flex-1 truncate text-soft">{{ nameOf(p.target) }}</span>
-            <span class="text-2xs text-faint">{{ howWords(p) }}</span>
-            <span class="flex w-16 justify-end gap-[3px]">
-              <span
-                v-for="k in p.kinds"
-                :key="k"
-                class="size-2.5 rounded-[2px]"
-                :style="{ background: COLOURS[k] }"
-              ></span>
-            </span>
-          </button>
-          <p v-if="!does.length" class="px-3 py-[5px] text-muted">Nothing found</p>
-          <LabListHeading title="What others do to it" :meta="String(doneTo.length)" />
-          <button
-            v-for="p in doneTo"
-            :key="`${p.source}:${p.target}`"
-            type="button"
-            class="flex w-full cursor-pointer items-center gap-2 px-3 py-[5px] text-left hover:bg-hover"
-            :title="kindWords(p)"
-            @click="selection = { source: p.source, target: p.target }"
-          >
-            <span class="min-w-0 flex-1 truncate text-soft">{{ nameOf(p.source) }}</span>
-            <span class="text-2xs text-faint">{{ howWords(p) }}</span>
-            <span class="flex w-16 justify-end gap-[3px]">
-              <span
-                v-for="k in p.kinds"
-                :key="k"
-                class="size-2.5 rounded-[2px]"
-                :style="{ background: COLOURS[k] }"
-              ></span>
-            </span>
-          </button>
-          <p v-if="!doneTo.length" class="px-3 py-[5px] text-muted">Nothing found</p>
+          <AffectsLists
+            :type="selectedType"
+            :pairs="shown"
+            :name-of="nameOf"
+            @pick="selection = { source: $event.source, target: $event.target }"
+          />
         </div>
       </template>
       <template v-else-if="selectedPair">

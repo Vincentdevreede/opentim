@@ -6,7 +6,10 @@ import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import { outlineShape, pictureFrame } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { partName, sheetFile } from "../../parts.ts";
-import { crumb } from "../../ui.ts";
+import { crumb, selectedAffect } from "../../ui.ts";
+import { affectPairs } from "../../affects.ts";
+import { useRouter } from "vue-router";
+import AffectsLists from "../AffectsLists.vue";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
 import LabCard from "../LabCard.vue";
@@ -75,7 +78,17 @@ const outline = ref(false);
 const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
-const side = ref<"frame" | "behaviour" | "record">("frame");
+const side = ref<"frame" | "behaviour" | "affects" | "record">("frame");
+const router = useRouter();
+/** What this part does to other parts and they to it, from the walks, as the Affects page shows it. */
+const affects = computed(() =>
+  props.walks?.status === "done" ? affectPairs(props.walks.effects, props.walks.doings) : [],
+);
+const nameOfType = (type: number) => props.partNames?.get(type) ?? `Type ${type}`;
+function openInAffects() {
+  selectedAffect.value = { part: props.part.type };
+  void router.push("/affects");
+}
 const stripId = useId();
 const sideId = useId();
 
@@ -247,6 +260,7 @@ const stripTabs = computed(() => [
 const sideTabs = computed(() => [
   { value: "frame" as const, label: strip.value === "frames" ? "Frame" : "Sprite" },
   { value: "behaviour" as const, label: "Behaviour" },
+  { value: "affects" as const, label: "Affects" },
   { value: "record" as const, label: "Record" },
 ]);
 </script>
@@ -475,6 +489,22 @@ const sideTabs = computed(() => [
           :names="partNames"
           @show-frame="showFrame"
         />
+        <template v-else-if="side === 'affects'">
+          <p v-if="noBehaviour" class="px-3 py-2 text-muted">{{ noBehaviour }}</p>
+          <p v-else-if="walks?.status === 'error'" class="px-3 py-2 text-muted">
+            The walks couldn’t be read: {{ walks.message }}
+          </p>
+          <p v-else-if="walks?.status !== 'done'" class="px-3 py-2 text-muted">Reading what the parts do…</p>
+          <template v-else>
+            <div>
+              <LabButton @click="openInAffects"><LabIcon name="affects" />Open in Affects</LabButton>
+            </div>
+            <!-- The lists keep their own row spacing, and reach to the panel's edges like the other lists. -->
+            <div class="-mx-3">
+              <AffectsLists :type="part.type" :pairs="affects" :name-of="nameOfType" inline />
+            </div>
+          </template>
+        </template>
         <RecordPanel v-else-if="side === 'record'" :record="record" />
         <template v-else-if="frame">
           <LabSection title="Layers">
