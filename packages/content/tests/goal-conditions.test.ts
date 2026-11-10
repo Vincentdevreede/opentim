@@ -212,10 +212,20 @@ describe("summariseGoal", () => {
     expect(goal.problem).toBe("it reads an unset value: what a walk leaves in cx");
   });
 
-  it("says why a goal whose routine calls itself doesn't fit, instead of running on forever", () => {
+  it("says why a goal whose routine calls itself without end doesn't fit, instead of running on forever", () => {
     const again: GoalStatement = { kind: "call", routine: 0x100, segment: 0, offset: 0x100, stack: 0 };
     const goal = summary([when(t(word(STEPS), "<", c(20)), [again], [met])]);
     expect(goal.ways).toEqual([]);
-    expect(goal.problem).toBe("the routine at 0x100 calls itself");
+    expect(goal.problem).toBe("the routine at 0x100 calls itself more than 8 deep");
+  });
+
+  it("follows a routine that calls itself once after setting the word its test reads", () => {
+    const again: GoalStatement = { kind: "call", routine: 0x100, segment: 0, offset: 0x100, stack: 0 };
+    // The second time in, the word is 1, so the routine tests the step count instead of calling itself again.
+    const goal = summary([
+      when(t(word(KEPT), "==", c(0)), [set(word(KEPT), c(1)), again], [when(t(word(STEPS), ">=", c(20)), [met])]),
+    ]);
+    expect(goal.problem).toBeUndefined();
+    expect(text(goal)).toEqual([["the step count ≥ 20"]]);
   });
 });

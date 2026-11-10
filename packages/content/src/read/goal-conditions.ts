@@ -53,6 +53,8 @@ const TYPE = 0x04;
 const PART_SIZE = 0xa0;
 /** More ways than this and the conditions say less than the program. */
 const MOST_WAYS = 6;
+/** How deep a routine may call itself before it counts as never stopping. */
+const MOST_CALLS = 8;
 
 type Routines = ReadonlyMap<number, GoalRoutine | GoalProblem>;
 
@@ -274,8 +276,8 @@ interface State {
 class Runner {
   private walks = 0;
   private frames = 0;
-  /** The routines running now, from the goal down to the one that runs. */
-  private readonly calling = new Set<number>();
+  /** The routines running now, from the goal down to the one that runs, with how many times each is. */
+  private readonly calling = new Map<number, number>();
   readonly met: Formula[] = [];
   /** The data segment words the goal writes, by address. */
   readonly written = new Set<number>();
@@ -295,12 +297,17 @@ class Runner {
 
   /** Runs a routine's body in a frame of its own; a return ends only this routine. */
   routine(address: number, state: State): State {
+    // A call on a way the program never takes does nothing. This is also where a routine that calls itself after
+    // setting a word its test reads, like a flag, stops.
+    if (state.alive.kind === "false") return state;
     const routine = this.routines.get(address);
     if (!routine) throw new DoesntFit(`the routine at ${hex(address)} isn't read`);
     if (!("body" in routine)) throw new DoesntFit(`the routine at ${hex(address)} isn't read: ${routine.reason}`);
-    // Run on symbols, a routine that calls itself would never stop: its tests don't have numbers to end on.
-    if (this.calling.has(address)) throw new DoesntFit(`the routine at ${hex(address)} calls itself`);
-    this.calling.add(address);
+    // A routine that calls itself on tests without numbers to end on would never stop.
+    const depth = this.calling.get(address) ?? 0;
+    if (depth >= MOST_CALLS)
+      throw new DoesntFit(`the routine at ${hex(address)} calls itself more than ${MOST_CALLS} deep`);
+    this.calling.set(address, depth + 1);
     try {
       const frame = ++this.frames;
       const returns: State[] = [];
@@ -309,7 +316,8 @@ class Runner {
       const end = this.run(shape(withoutSaves(routine.body), this.names), { env, alive: state.alive }, frame, returns);
       return merge([...returns, end]);
     } finally {
-      this.calling.delete(address);
+      if (depth) this.calling.set(address, depth);
+      else this.calling.delete(address);
     }
   }
 
