@@ -6,9 +6,8 @@ import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import { outlineShape, pictureFrame } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { partName, sheetFile } from "../../parts.ts";
-import { crumb, selectedAffect } from "../../ui.ts";
+import { crumb } from "../../ui.ts";
 import { affectPairs } from "../../affects.ts";
-import { useRouter } from "vue-router";
 import AffectsLists from "../AffectsLists.vue";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -79,16 +78,12 @@ const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
 const side = ref<"frame" | "behaviour" | "affects" | "record">("frame");
-const router = useRouter();
-/** What this part does to other parts and they to it, from the walks, as the Affects page shows it. */
+/** What this part does to other parts and they to it, from the walks, for the Affects tab. */
 const affects = computed(() =>
   props.walks?.status === "done" ? affectPairs(props.walks.effects, props.walks.doings) : [],
 );
 const nameOfType = (type: number) => props.partNames?.get(type) ?? `Type ${type}`;
-function openInAffects() {
-  selectedAffect.value = { part: props.part.type };
-  void router.push("/affects");
-}
+
 const stripId = useId();
 const sideId = useId();
 
@@ -496,12 +491,9 @@ const sideTabs = computed(() => [
           </p>
           <p v-else-if="walks?.status !== 'done'" class="px-3 py-2 text-muted">Reading what the parts do…</p>
           <template v-else>
-            <div>
-              <LabButton @click="openInAffects"><LabIcon name="affects" />Open in Affects</LabButton>
-            </div>
             <!-- The lists keep their own row spacing, and reach to the panel's edges like the other lists. -->
             <div class="-mx-3">
-              <AffectsLists :type="part.type" :pairs="affects" :name-of="nameOfType" inline />
+              <AffectsLists :type="part.type" :pairs="affects" :name-of="nameOfType" />
             </div>
           </template>
         </template>

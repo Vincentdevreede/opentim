@@ -16,9 +16,6 @@ export const openSprite = ref<number>();
 /** True while files are dragged over the window. */
 export const dragging = ref(false);
 
-/** What the Affects page shows on its right: one part, or one pair of a source and a target. */
-export const selectedAffect = ref<{ part: number } | { source: number; target: number }>();
-
 /** The id of the part selected on the Parts page. */
 export const selectedPart = ref<string>();
 

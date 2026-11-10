@@ -7,17 +7,13 @@ import BehaviourRow from "./sprites/BehaviourRow.vue";
 
 /**
  * What a part does to other parts and what they do to it, one row per other part, with how it reaches it and a
- * square for each kind. A row either opens on its own to the ways the Behaviour tab says (`inline`), or asks the page
- * to show the pair.
+ * square for each kind. A row opens in place to its ways, as the Behaviour tab says them.
  */
 const props = defineProps<{
   type: number;
   pairs: readonly AffectPair[];
   nameOf: (type: number) => string;
-  /** Open a row in place to its ways, rather than asking the page to show the pair. */
-  inline?: boolean;
 }>();
-const emit = defineEmits<{ pick: [pair: AffectPair] }>();
 
 const does = computed(() => props.pairs.filter((p) => p.source === props.type));
 const doneTo = computed(() => props.pairs.filter((p) => p.target === props.type));
@@ -29,7 +25,6 @@ watch(
 const key = (p: AffectPair) => `${p.source}:${p.target}`;
 
 function click(p: AffectPair) {
-  if (!props.inline) return emit("pick", p);
   const next = new Set(open.value);
   if (next.has(key(p))) next.delete(key(p));
   else next.add(key(p));
@@ -53,9 +48,9 @@ const kindWords = (p: AffectPair) => p.kinds.map((k) => AFFECT_LABELS[k]).join("
       <button
         type="button"
         class="flex w-full cursor-pointer items-center gap-2 px-3 py-[5px] text-left hover:bg-hover"
-        :class="inline && open.has(key(p)) && 'bg-hover'"
+        :class="open.has(key(p)) && 'bg-hover'"
         :title="kindWords(p)"
-        :aria-expanded="inline ? open.has(key(p)) : undefined"
+        :aria-expanded="open.has(key(p))"
         @click="click(p)"
       >
         <span class="min-w-0 flex-1 truncate text-soft">{{ nameOf(section.other(p)) }}</span>
@@ -69,7 +64,7 @@ const kindWords = (p: AffectPair) => p.kinds.map((k) => AFFECT_LABELS[k]).join("
           ></span>
         </span>
       </button>
-      <div v-if="inline && open.has(key(p))" class="mb-1 ml-3 border-l border-line pl-2">
+      <div v-if="open.has(key(p))" class="mb-1 ml-3 border-l border-line pl-2">
         <BehaviourEffect v-for="(e, k) in p.effects" :key="k" :effect="e" :name="nameOf(p.source)" />
         <BehaviourRow v-for="(d, k) in p.made" :key="`made${k}`" :confidence="d.confidence" :tip="d.description">
           <span class="min-w-0 flex-1 truncate text-soft">{{ d.description }}</span>

@@ -1,14 +1,14 @@
 /**
  * Who affects whom: every pair of parts where one changes the other, from what the walks say other parts do to each
- * part (the Behaviour tab's "From other parts") and the parts a part makes. A pair keeps its effects, so a page can
- * show each way the same as the Behaviour tab does.
+ * part (the Behaviour tab's "From other parts") and the parts a part makes. A pair keeps its effects, so the Affects
+ * tab can show each way the same as the Behaviour tab does.
  */
 import type { Doing, OtherEffect } from "./behaviour.ts";
 
 /** What one part does to another, in the few kinds the page colours. */
 export type AffectKind = "remove" | "mark" | "push" | "make" | "touch" | "change";
 
-/** The kinds, from the one that says most about the pair to the least; a square shows the first it has. */
+/** The kinds, from the one that says most about the pair to the least. */
 export const AFFECT_KINDS: readonly AffectKind[] = ["remove", "mark", "push", "make", "touch", "change"];
 
 export const AFFECT_LABELS: Record<AffectKind, string> = {

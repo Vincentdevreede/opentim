@@ -107,17 +107,14 @@ the rest when it is opened.
   "reached" (a part through a rope, belt or pulley), "the centre angle", "the gear jam", "next in the list after
   the insertion", and a value a test picks as "3 if state == 2, else 5".
 
-## Who affects whom
+## The Affects tab
 
-The lab's "Affects" page puts every part against every other in a grid: a square where the part of the column changes
-the part of the row, from what the walks say other parts do to each part (the Behaviour tab's "From other parts") and
-the parts a part makes. A square is coloured by the first of what the pair does, in this order: takes it out of play,
-sets a goal mark, pushes or moves it, makes it, marks a contact, changes another field. It is filled when the part
-reaches the other one (a fan's wind, a vacuum's pull), outlined when it happens as the two touch, and half filled for
-both. A part's name opens what it does and has done to it; a square opens each way, as the Behaviour tab says it.
-The same two lists are the Affects tab of a part on the Parts page, where a row opens in place to its ways. The loops
-read per type come last and add pairs, like the vacuum cleaner's pull. In Even More, English floppy, 331
-pairs of 63 parts before those loops are read.
+A part on the Parts page has an Affects tab next to Behaviour: what the part does to other parts and what they do to
+it, one row per other part, from what the walks say other parts do to each part (the Behaviour tab's "From other
+parts") and the parts a part makes. A row says whether the part touches the other or reaches it (a fan's wind, a
+vacuum's pull), or both, and has a square for each thing it does: takes it out of play, sets a goal mark, pushes or
+moves it, makes it, marks a contact, changes another field. A row opens in place to each way, as the Behaviour tab
+says it. The loops read per type come last and add rows, like the vacuum cleaner's pull.
 
 ## Analysis limits
 
