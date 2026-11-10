@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { affectPairs, kindOf } from "../src/affects.ts";
+import { interactionPairs, kindOf } from "../src/interactions.ts";
 import type { Doing, OtherEffect } from "../src/behaviour.ts";
 
 const effect = (sourceType: number, sets: OtherEffect["sets"], touch = false) =>
@@ -17,7 +17,7 @@ it("names what a setting does", () => {
 });
 
 it("joins the rows of one source on one target into a pair, with how it reaches it and the parts it makes", () => {
-  const pairs = affectPairs(
+  const pairs = interactionPairs(
     {
       9: [
         effect(51, [

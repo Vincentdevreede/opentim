@@ -1,17 +1,17 @@
 /**
- * Who affects whom: every pair of parts where one changes the other, from what the walks say other parts do to each
- * part (the Behaviour tab's "From other parts") and the parts a part makes. A pair keeps its effects, so the Affects
- * tab can show each way the same as the Behaviour tab does.
+ * The interactions of the parts: every pair of parts where one changes the other, from what the walks say other parts
+ * do to each part and the parts a part makes. A pair keeps its effects, so the Interactions tab can show each way with
+ * the Behaviour tab's own rows.
  */
 import type { Doing, OtherEffect } from "./behaviour.ts";
 
 /** What one part does to another, in the few kinds the page colours. */
-export type AffectKind = "remove" | "mark" | "push" | "make" | "touch" | "change";
+export type InteractionKind = "remove" | "mark" | "push" | "make" | "touch" | "change";
 
 /** The kinds, from the one that says most about the pair to the least. */
-export const AFFECT_KINDS: readonly AffectKind[] = ["remove", "mark", "push", "make", "touch", "change"];
+export const INTERACTION_KINDS: readonly InteractionKind[] = ["remove", "mark", "push", "make", "touch", "change"];
 
-export const AFFECT_LABELS: Record<AffectKind, string> = {
+export const INTERACTION_LABELS: Record<InteractionKind, string> = {
   remove: "Takes out of play",
   mark: "Sets a goal mark",
   push: "Pushes or moves",
@@ -21,7 +21,7 @@ export const AFFECT_LABELS: Record<AffectKind, string> = {
 };
 
 /** The colour of each kind, from the lab's own state colours. */
-export const AFFECT_COLOURS: Record<AffectKind, string> = {
+export const INTERACTION_COLOURS: Record<InteractionKind, string> = {
   remove: "var(--color-error)",
   mark: "var(--color-hypothesis)",
   push: "var(--color-accent)",
@@ -31,14 +31,14 @@ export const AFFECT_COLOURS: Record<AffectKind, string> = {
 };
 
 /** How the part reaches the other: by touching it, by reaching it (a fan's wind, a vacuum's pull), or both. */
-export type AffectHow = "touch" | "reach" | "both";
+export type InteractionHow = "touch" | "reach" | "both";
 
-export interface AffectPair {
+export interface InteractionPair {
   source: number;
   target: number;
-  kinds: AffectKind[];
-  how: AffectHow;
-  /** What the source does to the target, one entry for each row of the target's "From other parts". */
+  kinds: InteractionKind[];
+  how: InteractionHow;
+  /** What the source does to the target, one entry for each way the walks give. */
   effects: OtherEffect[];
   /** The ways the source makes the target, for a part it creates. */
   made: Doing[];
@@ -48,7 +48,7 @@ export interface AffectPair {
 const MOVES = /^(velocity[XY]?|speed( away)?|fine [XY].*|position[XY]|)$/;
 
 /** The kind of one setting of an effect. */
-export function kindOf(set: OtherEffect["sets"][number]): AffectKind {
+export function kindOf(set: OtherEffect["sets"][number]): InteractionKind {
   if (set.what === "out-of-play flag" && set.value === "set") return "remove";
   if (set.what.startsWith("goal mark")) return "mark";
   if (set.what === "contact flag" || set.what === "contactPart") return "touch";
@@ -63,11 +63,11 @@ const madeType = (d: Doing) => {
 };
 
 /** Every pair of a source and a target, by `source:target`, from the walks' effects and doings. */
-export function affectPairs(
+export function interactionPairs(
   effects: Readonly<Record<number, readonly OtherEffect[]>>,
   doings: Readonly<Record<number, readonly Doing[]>> = {},
-): AffectPair[] {
-  const pairs = new Map<string, AffectPair & { touches: boolean; reaches: boolean }>();
+): InteractionPair[] {
+  const pairs = new Map<string, InteractionPair & { touches: boolean; reaches: boolean }>();
   const pairOf = (source: number, target: number) => {
     const key = `${source}:${target}`;
     let p = pairs.get(key);
@@ -99,7 +99,7 @@ export function affectPairs(
     }
   return [...pairs.values()].map(({ touches, reaches, ...p }) => ({
     ...p,
-    kinds: AFFECT_KINDS.filter((k) => p.kinds.includes(k)),
+    kinds: INTERACTION_KINDS.filter((k) => p.kinds.includes(k)),
     how: touches && reaches ? "both" : touches ? "touch" : "reach",
   }));
 }

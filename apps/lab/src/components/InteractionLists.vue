@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { AFFECT_COLOURS, AFFECT_LABELS, type AffectPair } from "../affects.ts";
+import { INTERACTION_COLOURS, INTERACTION_LABELS, type InteractionPair } from "../interactions.ts";
 import LabListHeading from "./LabListHeading.vue";
 import BehaviourEffect from "./sprites/BehaviourEffect.vue";
-import BehaviourRow from "./sprites/BehaviourRow.vue";
+import BehaviourDoing from "./sprites/BehaviourDoing.vue";
 
 /**
  * What a part does to other parts and what they do to it, one row per other part, with how it reaches it and a
@@ -11,7 +11,7 @@ import BehaviourRow from "./sprites/BehaviourRow.vue";
  */
 const props = defineProps<{
   type: number;
-  pairs: readonly AffectPair[];
+  pairs: readonly InteractionPair[];
   nameOf: (type: number) => string;
 }>();
 
@@ -22,24 +22,24 @@ watch(
   () => props.type,
   () => (open.value = new Set()),
 );
-const key = (p: AffectPair) => `${p.source}:${p.target}`;
+const key = (p: InteractionPair) => `${p.source}:${p.target}`;
 
-function click(p: AffectPair) {
+function click(p: InteractionPair) {
   const next = new Set(open.value);
   if (next.has(key(p))) next.delete(key(p));
   else next.add(key(p));
   open.value = next;
 }
 
-const howWords = (p: AffectPair) => (p.how === "touch" ? "touching" : p.how === "both" ? "both" : "reaching");
-const kindWords = (p: AffectPair) => p.kinds.map((k) => AFFECT_LABELS[k]).join(", ");
+const howWords = (p: InteractionPair) => (p.how === "touch" ? "touching" : p.how === "both" ? "both" : "reaching");
+const kindWords = (p: InteractionPair) => p.kinds.map((k) => INTERACTION_LABELS[k]).join(", ");
 </script>
 
 <template>
   <template
     v-for="section in [
-      { title: 'What it does to others', list: does, other: (p: AffectPair) => p.target },
-      { title: 'What others do to it', list: doneTo, other: (p: AffectPair) => p.source },
+      { title: 'What it does to others', list: does, other: (p: InteractionPair) => p.target },
+      { title: 'What others do to it', list: doneTo, other: (p: InteractionPair) => p.source },
     ]"
     :key="section.title"
   >
@@ -60,15 +60,13 @@ const kindWords = (p: AffectPair) => p.kinds.map((k) => AFFECT_LABELS[k]).join("
             v-for="k in p.kinds"
             :key="k"
             class="size-2.5 rounded-[2px]"
-            :style="{ background: AFFECT_COLOURS[k] }"
+            :style="{ background: INTERACTION_COLOURS[k] }"
           ></span>
         </span>
       </button>
       <div v-if="open.has(key(p))" class="mb-1 ml-3 border-l border-line pl-2">
         <BehaviourEffect v-for="(e, k) in p.effects" :key="k" :effect="e" :name="nameOf(p.source)" />
-        <BehaviourRow v-for="(d, k) in p.made" :key="`made${k}`" :confidence="d.confidence" :tip="d.description">
-          <span class="min-w-0 flex-1 truncate text-soft">{{ d.description }}</span>
-        </BehaviourRow>
+        <BehaviourDoing v-for="d in p.made" :key="d.description" :doing="d" />
       </div>
     </template>
     <p v-if="!section.list.length" class="px-3 py-[5px] text-muted">Nothing found</p>

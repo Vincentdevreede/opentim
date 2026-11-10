@@ -7,8 +7,8 @@ import { outlineShape, pictureFrame } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { partName, sheetFile } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
-import { affectPairs } from "../../affects.ts";
-import AffectsLists from "../AffectsLists.vue";
+import { interactionPairs } from "../../interactions.ts";
+import InteractionLists from "../InteractionLists.vue";
 import ReadProgress from "../ReadProgress.vue";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -78,10 +78,10 @@ const outline = ref(false);
 const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
-const side = ref<"frame" | "behaviour" | "affects" | "record">("frame");
-/** What this part does to other parts and they to it, from the walks, for the Affects tab. */
-const affects = computed(() =>
-  props.walks?.status === "done" ? affectPairs(props.walks.effects, props.walks.doings) : [],
+const side = ref<"frame" | "behaviour" | "interactions" | "type">("frame");
+/** What this part does to other parts and they to it, from the walks, for the Interactions tab. */
+const interactions = computed(() =>
+  props.walks?.status === "done" ? interactionPairs(props.walks.effects, props.walks.doings) : [],
 );
 const nameOfType = (type: number) => props.partNames?.get(type) ?? `Type ${type}`;
 
@@ -256,8 +256,8 @@ const stripTabs = computed(() => [
 const sideTabs = computed(() => [
   { value: "frame" as const, label: strip.value === "frames" ? "Frame" : "Sprite" },
   { value: "behaviour" as const, label: "Behaviour" },
-  { value: "affects" as const, label: "Affects" },
-  { value: "record" as const, label: "Record" },
+  { value: "interactions" as const, label: "Interactions" },
+  { value: "type" as const, label: "Type" },
 ]);
 </script>
 
@@ -485,7 +485,7 @@ const sideTabs = computed(() => [
           :names="partNames"
           @show-frame="showFrame"
         />
-        <template v-else-if="side === 'affects'">
+        <template v-else-if="side === 'interactions'">
           <p v-if="noBehaviour" class="px-3 py-2 text-muted">{{ noBehaviour }}</p>
           <p v-else-if="walks?.status === 'error'" class="px-3 py-2 text-muted">
             The walks couldn’t be read: {{ walks.message }}
@@ -493,13 +493,16 @@ const sideTabs = computed(() => [
           <ReadProgress v-else-if="walks?.status !== 'done'" />
           <template v-else>
             <ReadProgress v-if="readingPerType(walks)" />
+            <p v-else-if="walks.perTypeError" class="text-muted">
+              Couldn’t read what other parts do to each type, so some may be missing: {{ walks.perTypeError }}
+            </p>
             <!-- The lists keep their own row spacing, and reach to the panel's edges like the other lists. -->
             <div class="-mx-3">
-              <AffectsLists :type="part.type" :pairs="affects" :name-of="nameOfType" />
+              <InteractionLists :type="part.type" :pairs="interactions" :name-of="nameOfType" />
             </div>
           </template>
         </template>
-        <RecordPanel v-else-if="side === 'record'" :record="record" />
+        <RecordPanel v-else-if="side === 'type'" :record="record" />
         <template v-else-if="frame">
           <LabSection title="Layers">
             <template v-if="layers.length > 1" #action>
