@@ -1031,6 +1031,10 @@ describe("goal marks", () => {
     expect(goalMarkWords("field 0xa hasn't the bits 0x100", [31], setters)).toBe("not marked by Vacuum");
     expect(goalMarkWords("field 0xa has the bits 0x10", [31], setters)).toBe("in a bucket");
     expect(goalMarkWords("field 0xa has the bits 0x800", [31], setters)).toBe("field 0xa has the bits 0x800");
+    expect(goalMarkWords("part.drawingFlags hasn't the bits 0x2000", [31], setters)).toBe("part in play");
+    expect(goalMarkWords("listFlags has the bits 0x8000", [31], setters)).toBe("placed by the puzzle");
+    expect(goalMarkWords("part.0xa hasn't the bits 0x200", [31], setters)).toBe("part not marked by Cat or Alligator");
+    expect(goalMarkWords("drawingFlags has the bits 0x30", [31], setters)).toBe("drawingFlags has the bits 0x30");
     expect(goalMarkWords("field 0xa has the bits 0x80", [31], setters)).toBe("goal mark set");
   });
 });

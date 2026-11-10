@@ -49,11 +49,15 @@ const goalTypes = computed(() => summary.value?.ways.flat().flatMap((c) => c.typ
 /** The words the goal keeps for itself, by their place among them: "its count", or "its word 1" and so on. */
 const ownWords = computed(() => {
   const words = summary.value?.remembered.map((r) => r.word) ?? [];
+  // A word the routine keeps that the summary doesn't list, in the order the routine first uses it.
+  const lines = props.goal.status === "done" ? props.goal.goal.lines : [];
+  for (const line of lines)
+    for (const [word] of line.matchAll(/\bword 0x[0-9a-f]{4}\b/g)) if (!words.includes(word)) words.push(word);
   return new Map(words.map((w, k) => [w, words.length === 1 ? "its count" : `its word ${k + 1}`]));
 });
 /**
  * A test or a value as the panel says it: a goal mark by the parts that set it, a field by the lab's name, and a word
- * the goal keeps for itself by its place among them; the program below keeps the analysis's own words.
+ * the goal keeps for itself by its place among them; the goal routine below reads the same way.
  */
 const say = (text: string, types: readonly number[] = goalTypes.value) => {
   let out = tidyWords(goalMarkWords(text, types, props.markSetters ?? new Map()));
@@ -142,7 +146,7 @@ const countOf = (c: GoalCondition) => {
         <div v-if="goal.status === 'done'" class="p-2">
           <LabDisclosure :title="`Goal routine, ${goal.goal.lines.length} lines`" :open="!!summary.problem">
             <pre class="overflow-x-auto px-3 py-2 font-mono text-meta leading-5 text-soft">{{
-              goal.goal.lines.join("\n")
+              goal.goal.lines.map((line) => say(line)).join("\n")
             }}</pre>
           </LabDisclosure>
         </div>

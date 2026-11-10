@@ -275,7 +275,11 @@ since their loaders aren't read.
 
 A goal's test of a goal mark reads by the parts that set the mark on a part of that type, from what the walks say
 other parts do to it: "marked by cat or alligator" in Even More puzzle 94, "marked by mels-house" in puzzle 88. Until
-the walks are read it says "goal mark set". The goal's own words read "its count" (or "its word 1" and so on), and a
-field the goal names by its offset gets the Lab's name, like `marks` for `0x0a`. A test of a step count says the least time those
+the walks are read it says "goal mark set". A test of
+any other flag bit reads by its name ([flag bits](behaviour.md#flag-bits)): "part in play" for the out-of-play bit,
+"placed by the puzzle" for the bit every part the level places has. The goal's own words read "its count" (or "its word
+1" and so on, also the ones only the routine uses), and a field the goal names by its offset gets the Lab's name, like
+`marks` for `0x0a` and `part.olderX` for `part.0x26`. The goal routine under the rows reads the same way; in Even More
+(English floppy) the goals of the 161 levels show no number in hex, down from 166. A test of a step count says the least time those
 steps take, from the timer ticks the run loop waits for each step: Even More puzzle 70 reads "the second step count ≥
 308 (10 s)".

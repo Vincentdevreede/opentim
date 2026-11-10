@@ -584,6 +584,10 @@ export function tidyWords<T extends string | undefined>(text: T): T {
         const name = ROPE_FIELDS.get(parseInt(offset, 16));
         return name ? `the ${name} of its rope` : all;
       })
+      .replace(/\bpart\.(0x[0-9a-f]{1,2})\b/g, (all, offset: string) => {
+        const name = PART_FIELDS.get(parseInt(offset, 16));
+        return name ? `part.${name}` : all;
+      })
       .replace(/\bfield (0x[0-9a-f]{1,2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
       .replace(
         /\b(its|sets|changes|and|,) (0x[0-9a-f]{2})\b(?! of the record)/g,
@@ -614,19 +618,39 @@ export function goalMarkSetters(effects: Record<number, OtherEffect[]>): Map<str
   return out;
 }
 
+/** The flag words a goal's test names, by the name it gives them. */
+const GOAL_FLAG_WORDS: Record<string, number> = {
+  "field 0xa": 0x0a,
+  "0xa": 0x0a,
+  marks: 0x0a,
+  "0x6": 0x06,
+  listFlags: 0x06,
+  "0x8": 0x08,
+  drawingFlags: 0x08,
+};
+
 /**
- * A goal's test of the goal marks in words, like "field 0xa has the bits 0x100" as "marked by Vacuum", for parts of
- * the types given; a test of bits no part is seen to set stays as it is.
+ * A goal's test of one flag bit in words, for parts of the types given: a goal mark by the parts that set it, like
+ * "field 0xa has the bits 0x100" as "marked by Vacuum", and any other bit by its name, like "part.drawingFlags hasn't
+ * the bits 0x2000" as "part in play". A test of more than one bit, or of a bit without a name, stays as it is.
  */
 export function goalMarkWords(text: string, types: readonly number[], setters: ReadonlyMap<string, string[]>): string {
-  return text.replace(/\bfield 0xa (has|hasn't) the bits (0x[0-9a-f]+)\b/g, (all, has: string, bits: string) => {
-    const bit = parseInt(bits, 16);
-    const by = [...new Set(types.flatMap((t) => setters.get(`${t}:${bit}`) ?? []))];
-    if (by.length) return `${has === "has" ? "" : "not "}marked by ${by.join(" or ")}`;
-    // A goal mark no part is seen to set, or not yet: the walks that say who sets it come last.
-    const mark = FLAG_BITS.get(`10:${bit}`);
-    return mark ? mark[has === "has" ? 0 : 1] : all;
-  });
+  return text.replace(
+    /\b(field 0xa|(?:part\.)?(?:listFlags|drawingFlags|marks|0x6|0x8|0xa)) (has|hasn't) the bits (0x[0-9a-f]+)\b/g,
+    (all, place: string, has: string, bits: string) => {
+      const bit = parseInt(bits, 16);
+      const offset = GOAL_FLAG_WORDS[place.replace(/^part\./, "")];
+      if (offset === undefined || !bit || bit & (bit - 1)) return all;
+      const whose = place.startsWith("part.") ? "part " : "";
+      if (offset === 0x0a) {
+        const by = [...new Set(types.flatMap((t) => setters.get(`${t}:${bit}`) ?? []))];
+        if (by.length) return `${whose}${has === "has" ? "" : "not "}marked by ${by.join(" or ")}`;
+      }
+      // A goal mark no part is seen to set, or not yet: the walks that say who sets it come last.
+      const words = FLAG_BITS.get(`${offset}:${bit}`);
+      return words ? `${whose}${words[has === "has" ? 0 : 1]}` : all;
+    },
+  );
 }
 
 /** Writes expressions and conditions as text, with the names of the part's fields. */
