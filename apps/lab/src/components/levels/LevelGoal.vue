@@ -22,6 +22,8 @@ const props = defineProps<{
   areaNumbers: ReadonlyMap<GoalCondition, number>;
   /** The parts that set each goal mark, by `type:bit`, to say a test of a mark by them. */
   markSetters?: ReadonlyMap<string, string[]>;
+  /** The least time one step of the run takes, to say a number of steps in seconds. */
+  stepMilliseconds?: number;
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
@@ -55,7 +57,19 @@ const ownWords = computed(() => {
 const say = (text: string, types: readonly number[] = goalTypes.value) => {
   let out = tidyWords(goalMarkWords(text, types, props.markSetters ?? new Map()));
   for (const [word, name] of ownWords.value) out = out.split(word).join(name);
+  // A number of steps as the time it takes at the least: the run loop waits for the same timer ticks every step.
+  const ms = props.stepMilliseconds;
+  if (ms)
+    out = out.replace(
+      /\b(the (?:second )?step count) ([<>=≤≥≠]+) (\d+)\b/g,
+      (_, count: string, op: string, n: string) => `${count} ${op} ${n} (${seconds(Number(n) * ms)})`,
+    );
   return out;
+};
+/** A time in seconds, with one decimal below 10 seconds. */
+const seconds = (ms: number) => {
+  const s = ms / 1000;
+  return `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;
 };
 const typeNumbers = (c: GoalCondition) => c.types?.map((t) => t.type) ?? goalTypes.value;
 

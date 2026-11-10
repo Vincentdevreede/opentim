@@ -99,17 +99,22 @@ const goals = shallowRef<GoalsResult | { status: "reading" }>();
 const markSetters = shallowRef<ReadonlyMap<string, string[]>>(new Map());
 /** The part record's fields as the behaviour read names them, for the structure's tags. */
 const recordFields = shallowRef<readonly WriterField[]>();
+/** The least time one step of the run takes, from the timer ticks the run loop waits for. */
+const stepMilliseconds = ref<number>();
 watch(
   () => [program.value?.data, loadedParts.value?.program] as const,
   ([data, parts]) => {
     goals.value = undefined;
     markSetters.value = new Map();
     recordFields.value = undefined;
+    stepMilliseconds.value = undefined;
     if (!data || !parts) return;
     goals.value = { status: "reading" };
     const reading = readBehaviourInBackground(data, parts);
     void reading.result.then((result) => {
-      if (program.value?.data === data && result.status === "done") recordFields.value = result.summary.fields;
+      if (program.value?.data !== data || result.status !== "done") return;
+      recordFields.value = result.summary.fields;
+      stepMilliseconds.value = result.summary.timing.minimumMilliseconds;
     });
     void reading.goals.then((result) => {
       if (program.value?.data === data) goals.value = result;
@@ -355,7 +360,13 @@ onBeforeUnmount(() => {
             </LabFacts>
           </div>
           <div v-if="goal" class="relative min-w-0 flex-[3] border-r border-line">
-            <LevelGoal :goal="goal" :says="level?.goal" :area-numbers="areaNumbers" :mark-setters="markSetters" />
+            <LevelGoal
+              :goal="goal"
+              :says="level?.goal"
+              :area-numbers="areaNumbers"
+              :mark-setters="markSetters"
+              :step-milliseconds="stepMilliseconds"
+            />
           </div>
           <div class="relative min-w-0 flex-[2]">
             <div class="absolute inset-0 flex flex-col">
