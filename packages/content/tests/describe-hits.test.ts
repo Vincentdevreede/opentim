@@ -562,7 +562,14 @@ describe("walks from other parts that change a part's frame", () => {
     // Mel keeps walking while positionY is the word at 0x28, and falls when it isn't and velocityY is above 1536.
     const level = compare(f("part", 0x20), "==", f("part", 0x28));
     const falling = and(compare(f("part", 0x20), "!=", f("part", 0x28)), compare(f("part", 0x38), ">", c(1536)));
-    data.parts.find((p) => p.id === "mel-schlemming")!.transitions = [rule(c(1), level), rule(c(6), falling)] as never;
+    Object.assign(
+      data.parts.find((p) => p.id === "mel-schlemming")!,
+      {
+        transitions: [rule(c(1), level), rule(c(6), falling)],
+        frameCount: 7,
+        routines: [{ slot: 1, address: 100, role: "run callback candidate", ...proof }],
+      },
+    );
     // The cat's rules read only the place.
     data.parts.find((p) => p.id === "cat")!.transitions = [rule(c(1), level)] as never;
     data.parts.push(part("teeter-totter", 3, [], [904]) as never);
@@ -592,6 +599,17 @@ describe("walks from other parts that change a part's frame", () => {
     expect(mel[0]!.assumptions.join(" ")).toContain("runs the contact search on it");
     // Nothing the cat's rules read is known after the launch, so it gets no walk.
     expect(fromTeeter(12)).toEqual([]);
+    // Mel's walk after the launch follows both ways the unknown place decides: walking on, or falling on frame 6.
+    const launched = describeBehaviour(data)
+      .parts.find((p) => p.id === "mel-schlemming")!
+      .animations.find((a) => a.trigger.name === "Hit by a teeter-totter")!;
+    const fromFrame0 = launched.walk.stop!.branches![0]!.walk;
+    expect(fromFrame0.stop).toMatchObject({ kind: "ambiguity" });
+    expect(fromFrame0.reason).toContain("whether the word at +0x20 is the word at +0x28");
+    expect(fromFrame0.stop!.branches!.map((b) => [b.walk.states, b.walk.status])).toEqual([
+      [[1, 1], "rest"],
+      [[6, 6], "rest"],
+    ]);
   });
 
   it("puts place tests in words by the side the part lies on", () => {
