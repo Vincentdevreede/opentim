@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import AffectsPage from "./pages/AffectsPage.vue";
 import AudioPage from "./pages/AudioPage.vue";
 import FilesPage from "./pages/FilesPage.vue";
 import ImportPage from "./pages/ImportPage.vue";
@@ -14,6 +15,7 @@ export const router = createRouter({
     { path: "/", component: ImportPage },
     { path: "/sprites", component: SpritesPage },
     { path: "/parts", component: PartsPage },
+    { path: "/affects", component: AffectsPage },
     { path: "/levels", component: LevelsPage },
     { path: "/files", component: FilesPage },
     { path: "/audio", component: AudioPage },

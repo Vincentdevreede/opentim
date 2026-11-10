@@ -42,6 +42,13 @@ const FILES: NavItem[] = [
 const RESOURCES: NavItem[] = [
   { to: "/sprites", label: "Sprites", icon: "sprites", needsFiles: true, forWhat: "see their sprites" },
   { to: "/parts", label: "Parts", icon: "parts", needsFiles: true, forWhat: "see its parts" },
+  {
+    to: "/affects",
+    label: "Affects",
+    icon: "affects",
+    needsFiles: true,
+    forWhat: "see what its parts do to each other",
+  },
   { to: "/audio", label: "Audio", icon: "audio", needsFiles: true, forWhat: "list and play its sounds" },
   { to: "/levels", label: "Levels", icon: "levels", needsFiles: true, forWhat: "see its levels" },
 ];
