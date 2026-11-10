@@ -89,9 +89,15 @@ the rest when it is opened.
   the program uses on a part has one, like "mirrored", "in a bucket" or "placed by the puzzle". Another part's bit
   starts with its name, "collider on the moving list", and a bit flipped before the test reads the other way. Masks of
   more than one bit keep the form above. The analysis's sentences name a flag without its bit
-  ("its out-of-play flag is clear"), and a field they call by its offset gets the lab's name for it ("its olderY"),
-  with the fields the level loader fills (`marks` at `0x0a`, the belt's and rope slots' places, `extra`). A goal mark
-  another part sets reads "goal mark set" in that part's row.
+  ("its out-of-play flag is clear"), and a field they call by its offset gets the lab's name for it ("its olderY",
+  and in what a part sets on a part it makes, "sets link0 to its link0 … and changes its lists, fineX"), with the
+  fields the level loader fills (`marks` at `0x0a`, the belt's and rope slots' places, `extra`), the relay's byte
+  (`relayByte` at `0x14`), the fine position and the fuse. A field of a rope record reads by its name: the parts at its
+  ends (`end0`, the one that holds it, and `end1`), their slots and their points (`end0X` to `end1Y` at `0x14` to
+  `0x1a`, as `0x7996` reads them). In the sentences too a test of one flag bit reads as its name ("drawingFlags &
+  0x0200 is 0" as "not held this step"), a value kept to a word loses the mask, a position masked with `0xfff0` reads
+  "rounded down to 16", and the address of an allocation is left out. A goal mark another part sets reads "goal mark
+  set" in that part's row.
 - **Numbers in formulas.** A number in a formula reads in decimal and signed ("/ 28000", "-2048"), a mask in hex. A
   word taken as signed (`(x ^ 0x8000) - 0x8000`) and a value kept to a word (`x & 0xffff`) read as the value, and
   `x & 0xfff0` as "x rounded down to 16". A table in the program reads "table[…]" and a value a query, a call or a
@@ -99,7 +105,8 @@ the rest when it is opened.
   flag word with bits set, cleared or switched reads by their names ("drawingFlags with mirrored switched" for
   `drawingFlags ^ 0x10`), the low bits of a number as "mod" ("state mod 4"), and the program's way to pick one of two
   values without a jump, `(a & (c * -1)) | (b & ((c * -1) ^ 0xffff))`, as "a if c, else b". In Even More (English
-  floppy) the Behaviour tab's three views show no number in hex for any of the 63 parts, down from 158.
+  floppy) the Behaviour tab's three views show no number in hex for any of the 63 parts, down from 158, and neither do its
+  folded findings (20 before) or the Interactions tab with every row open (1,906 before).
 - **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
   end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
   asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). A test of

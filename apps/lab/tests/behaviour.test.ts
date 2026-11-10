@@ -65,7 +65,7 @@ describe("writer", () => {
     expect(expression(field(0x0c, "referenced-by(referenced-by(part+0x54)+0x6)"))).toBe("belt.end2.state");
     expect(expression(field(0x09, "referenced-by(part+0x82)"))).toBe("outline[2].y");
     expect(expression(field(0x00, "referenced-by(part+0x66)"))).toBe("rope.part");
-    expect(expression(field(0x02, "referenced-by(part+0x66)"))).toBe("rope+0x02");
+    expect(expression(field(0x02, "referenced-by(part+0x66)"))).toBe("rope.end0");
     expect(expression(field(0x0c, "overlap candidate at 0x4a70"))).toBe("found.state");
     expect(expression(field(0x62))).toBe("socket1");
     expect(expression(field(0x00, "address of part"))).toBe("this");
@@ -263,6 +263,32 @@ describe("tidyWords", () => {
     expect(tidyWords("its out-of-play flag 0x2000 is clear")).toBe("its out-of-play flag is clear");
     expect(tidyWords("its positionY is not its field 0x28")).toBe("its positionY is not its olderY");
     expect(tidyWords("its field 0x70 is 3")).toBe("its field 0x70 is 3");
+  });
+
+  it("reads masks, flag tests and field offsets in the analysis's sentences in words", () => {
+    // A value kept to a word, and a position rounded down to a tile, also with brackets inside.
+    expect(tidyWords("velocityX + (((16 * (80 - |overlapY|)) & 0xffff) >> 1)")).toBe(
+      "velocityX + ((16 * (80 - |overlapY|)) >> 1)",
+    );
+    expect(tidyWords("((the explosion's centre X + 24) & 0xfff0) + 8")).toBe(
+      "(the explosion's centre X + 24 rounded down to 16) + 8",
+    );
+    expect(tidyWords("drawingFlags & 0x0200 is 0")).toBe("not held this step");
+    expect(tidyWords("drawingFlags & 0x4000 is 0")).toBe("drawingFlags & 0x4000 is 0");
+    // What a part sets on a part it makes, and where on its rope a rope end starts.
+    expect(
+      tidyWords("It also sets 0x5a to its 0x5a and 0x26 to its positionX, and changes its 0x06, 0x16, drawX and 0x70."),
+    ).toBe(
+      "It also sets link0 to its link0 and olderX to its positionX, and changes its lists, fineX, drawX and 0x70.",
+    );
+    expect(tidyWords("at positionX = 0x18 of the record of its rope at 0x66")).toBe(
+      "at positionX = the end1X of its rope",
+    );
+    expect(tidyWords("the copy the explosion makes (the allocation at 0x1a91c)")).toBe("the copy the explosion makes");
+    expect(tidyWords("picks the response at 0x3980 over the reflection at 0x3c1c")).toBe(
+      "picks the response over the reflection",
+    );
+    expect(tidyWords("Updates another part's counter at 0x9c.")).toBe("Updates another part's counter (its heat).");
   });
 });
 
@@ -945,7 +971,7 @@ describe("summariseDoings", () => {
     expect(doings.map((d) => [d.on, d.description])).toEqual([
       ["created", cannonball],
       ["itself", ran.replace(" 0x0040", "")],
-      ["others", relay],
+      ["others", relay.replace("field 0x14", "relayByte")],
     ]);
   });
 

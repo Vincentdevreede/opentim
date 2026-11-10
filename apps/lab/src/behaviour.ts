@@ -276,6 +276,13 @@ const PART_FIELDS = new Map([
   [0x00, "nextInList"],
   [0x06, "lists"],
   [0x0a, "marks"],
+  // The byte the relay passes along a part's belt and ropes (`0x65c1`).
+  [0x14, "relayByte"],
+  // The fine position, in 1/512 pixels, as longs.
+  [0x16, "fineX"],
+  [0x18, "fineX.high"],
+  [0x1a, "fineY"],
+  [0x1c, "fineY.high"],
   [0x26, "olderX"],
   [0x28, "olderY"],
   [0x2e, "previousDrawX"],
@@ -312,6 +319,8 @@ const PART_FIELDS = new Map([
   [0x7c, "overlapY"],
   [0x7e, "socketNumber"],
   [0x96, "extra"],
+  // A counter some parts keep, which the check against the recordings calls the heat.
+  [0x9c, "heat"],
 ]);
 /** What a field of a part points to: another part, a belt record, the outline points, or a rope record. */
 const LINKS = new Map<number, Kind>([
@@ -486,19 +495,104 @@ export function recordName(offset: number, fields: readonly WriterField[] = []):
 const NAMED_FLAG = /\b(contact flag|out-of-play flag|ran-this-step mark|goal mark) 0x[0-9a-f]{4}\b/g;
 
 /**
- * A sentence of the analysis as the lab shows it: a flag it names without its bit, and a field it calls by its offset,
- * like "field 0x28", by the name the lab gives that field.
+ * The fields of a rope record by offset: the parts at its two ends (the one in slot 0 holds the record), their rope
+ * slot numbers, and the two ends' points, as the rope code reads them (`0x7996`).
+ */
+const ROPE_FIELDS = new Map([
+  [0x02, "end0"],
+  [0x04, "end1"],
+  [0x0a, "end0Slot"],
+  [0x0b, "end1Slot"],
+  [0x14, "end0X"],
+  [0x16, "end0Y"],
+  [0x18, "end1X"],
+  [0x1a, "end1Y"],
+]);
+
+/** The flag words a sentence names, by the name it gives them. */
+const FLAG_WORD_NAMES: Record<string, number> = { lists: 0x06, listFlags: 0x06, drawingFlags: 0x08, marks: 0x0a };
+
+/**
+ * The bracketed group that ends a value masked as `(group & mask)`, rewritten by `rewrite`, for every such mask in the
+ * text: `((16 * x) & 0xffff) >> 1` with the mask left out reads `(16 * x) >> 1`. The group can hold brackets of its own.
+ */
+function rewriteMasked(text: string, mask: string, rewrite: (group: string) => string): string {
+  const tail = ` & ${mask})`;
+  for (let at = text.indexOf(tail); at >= 0; at = text.indexOf(tail, at + 1)) {
+    let depth = 0;
+    let open = -1;
+    for (let k = at - 1; k >= 0; k--) {
+      if (text[k] === ")") depth++;
+      else if (text[k] === "(") {
+        if (depth === 0) {
+          open = k;
+          break;
+        }
+        depth--;
+      }
+    }
+    if (open < 0) continue;
+    const group = text.slice(open + 1, at);
+    const out = rewrite(group);
+    text = text.slice(0, open) + out + text.slice(at + tail.length);
+    at = open;
+  }
+  return text;
+}
+
+/** A group without the brackets around all of it, `(a + b)` as `a + b`. */
+function unbracket(group: string): string {
+  if (!group.startsWith("(") || !group.endsWith(")")) return group;
+  let depth = 0;
+  for (let k = 0; k < group.length; k++) {
+    if (group[k] === "(") depth++;
+    else if (group[k] === ")") depth--;
+    if (depth === 0 && k < group.length - 1) return group;
+  }
+  return group.slice(1, -1);
+}
+
+/**
+ * A sentence of the analysis as the lab shows it: a flag it names without its bit, a test of one flag bit by its name,
+ * a value kept to a word without the mask, a position rounded down to a tile, and a field it calls by its offset, like
+ * "field 0x28" or "its 0x26", by the name the lab gives that field.
  */
 export function tidyWords<T extends string | undefined>(text: T): T {
   if (text === undefined) return text;
-  return text
-    .replace(NAMED_FLAG, "$1")
-    .replace(/\(([^()]*)\) & 0xfff0\b/g, "$1 rounded down to 16")
-    .replace(/ (?:of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " of the $1")
-    .replace(
-      /\bfield (0x[0-9a-f]{1,2})\b/g,
-      (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all,
-    ) as T;
+  let out: string = text;
+  out = rewriteMasked(out, "0xffff", (group) => group);
+  out = rewriteMasked(out, "0xfff0", (group) => `(${unbracket(group)} rounded down to 16)`);
+  return (
+    out
+      .replace(NAMED_FLAG, "$1")
+      .replace(/\(([^()]*)\) & 0xfff0\b/g, "$1 rounded down to 16")
+      .replace(/\b(\w+) & (0x[0-9a-f]+) is (not )?0\b/g, (all, name: string, mask: string, not?: string) => {
+        const offset = FLAG_WORD_NAMES[name];
+        const words = offset === undefined ? undefined : FLAG_BITS.get(`${offset}:${parseInt(mask, 16)}`);
+        return words ? words[not ? 0 : 1] : all;
+      })
+      .replace(/ (?:of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " of the $1")
+      .replace(/ \(the allocation at 0x[0-9a-f]+\)/g, "")
+      // An address in the program says nothing in a sentence; the instructions in the tip have it.
+      .replace(/ at 0x[0-9a-f]{4,5}\b/g, "")
+      .replace(/\bcounter at (0x[0-9a-f]{2})\b/g, (all, offset: string) => {
+        const name = PART_FIELDS.get(parseInt(offset, 16));
+        return name ? `counter (its ${name})` : all;
+      })
+      .replace(/\bMovement 0x8000\b/g, "Movement -32768")
+      .replace(/\b(0x[0-9a-f]{2}) of the record of its rope at 0x66\b/g, (all, offset: string) => {
+        const name = ROPE_FIELDS.get(parseInt(offset, 16));
+        return name ? `the ${name} of its rope` : all;
+      })
+      .replace(/\bfield (0x[0-9a-f]{1,2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
+      .replace(
+        /\b(its|sets|changes|and|,) (0x[0-9a-f]{2})\b(?! of the record)/g,
+        (all, before: string, offset: string) => {
+          const name = PART_FIELDS.get(parseInt(offset, 16));
+          return name ? `${before} ${name}` : all;
+        },
+      ) as T
+  );
 }
 
 /**
@@ -624,6 +718,7 @@ export function writer(
     }
     if (kind === "belt" && (offset === 4 || offset === 6)) return `${name}.end${offset === 4 ? 1 : 2}`;
     if (kind === "rope" && offset === 0) return `${name}.part`;
+    if (kind === "rope" && ROPE_FIELDS.has(offset)) return `${name}.${ROPE_FIELDS.get(offset)}`;
     if (kind === "outline") return `${name}[${offset >> 2}].${["x", "y", "edge", "edge"][offset & 3]}`;
     if (name === "this" && offset === 0) return "this";
     return raw;
@@ -1062,14 +1157,14 @@ function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummar
     peerField: part.gearRun.propagationRelation.expansion.peer.connectionField,
     drivers: [...drivers.values()],
     text: {
-      activation: gear.activation,
-      connections: gear.connections,
-      conflict: gear.conflict,
-      withoutConflict: gear.withoutConflict,
-      withConflict: gear.withConflict,
-      cycles: gear.cycles,
+      activation: tidyWords(gear.activation),
+      connections: tidyWords(gear.connections),
+      conflict: tidyWords(gear.conflict),
+      withoutConflict: tidyWords(gear.withoutConflict),
+      withConflict: tidyWords(gear.withConflict),
+      cycles: tidyWords(gear.cycles),
       scheduling: gear.scheduling.map((s) => tidyWords(s.description)),
-      limits: gear.limits,
+      limits: gear.limits.map((l) => tidyWords(l)),
     },
   };
 }
@@ -1437,13 +1532,17 @@ function settingOf(
   const added = /^(adds|subtracts) (.+) (?:to|from) (?:field 0x[0-9a-f]+|\w+)(, kept within its speed limit)?$/.exec(
     s.words,
   );
-  if (added) return { what: field, value: `${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}` };
+  if (added)
+    return {
+      what: field,
+      value: tidyWords(`${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}`),
+    };
   if (/^keeps (?:field 0x[0-9a-f]+|\w+) within its speed limit$/.test(s.words))
     return { what: field, value: "kept within its speed limit" };
   if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
   if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
   const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
-  return { what: field, value: to ? to[1]! : write.expression(s.value) };
+  return { what: field, value: to ? tidyWords(to[1]!) : write.expression(s.value) };
 }
 
 /** Both words of the fine position that one value sets, as one: "fine Y" rather than its low and high word. */
