@@ -55,6 +55,11 @@ const PART_SIZE = 0xa0;
 const MOST_WAYS = 6;
 /** How deep a routine may call itself before it counts as never stopping. */
 const MOST_CALLS = 8;
+/**
+ * How many routines a goal may run in all, counting every call, before it counts as never stopping. A routine that calls
+ * itself on both ways of a test doubles the runs at every level; shipped goals run at most 2.
+ */
+const MOST_RUNS = 64;
 
 type Routines = ReadonlyMap<number, GoalRoutine | GoalProblem>;
 
@@ -307,6 +312,7 @@ class Runner {
     const depth = this.calling.get(address) ?? 0;
     if (depth >= MOST_CALLS)
       throw new DoesntFit(`the routine at ${hex(address)} calls itself more than ${MOST_CALLS} deep`);
+    if (this.frames >= MOST_RUNS) throw new DoesntFit(`it runs more than ${MOST_RUNS} routines`);
     this.calling.set(address, depth + 1);
     try {
       const frame = ++this.frames;

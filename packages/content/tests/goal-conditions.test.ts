@@ -228,4 +228,25 @@ describe("summariseGoal", () => {
     expect(goal.problem).toBeUndefined();
     expect(text(goal)).toEqual([["the step count ≥ 20"]]);
   });
+
+  it("stops a goal that runs too many routines in all, though none calls itself", () => {
+    // Eight routines that each call the next one twice: 255 runs.
+    const call = (address: number): GoalStatement => ({
+      kind: "call",
+      routine: address,
+      segment: 0,
+      offset: address,
+      stack: 0,
+    });
+    const routines = new Map(
+      Array.from({ length: 8 }, (_, k) => {
+        const address = 0x100 + k;
+        const body = k < 7 ? [call(address + 1), call(address + 1)] : [when(t(word(STEPS), ">=", c(20)), [met])];
+        return [address, { address, segment: 0, offset: address, body }] as const;
+      }),
+    );
+    const goal = summariseGoal(routines, 0x100, names);
+    expect(goal.ways).toEqual([]);
+    expect(goal.problem).toBe("it runs more than 64 routines");
+  });
 });
