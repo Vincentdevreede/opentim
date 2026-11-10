@@ -106,7 +106,9 @@ the rest when it is opened.
   `drawingFlags ^ 0x10`), the low bits of a number as "mod" ("state mod 4"), and the program's way to pick one of two
   values without a jump, `(a & (c * -1)) | (b & ((c * -1) ^ 0xffff))`, as "a if c, else b". In Even More (English
   floppy) the Behaviour tab's three views show no number in hex for any of the 63 parts, down from 158, and neither do its
-  folded findings (20 before) or the Interactions tab with every row open (1,906 before).
+  folded findings (20 before) or the Interactions tab with every row open (1,906 before). In TIM 1 (English) 4 are
+  left, all in folded findings: the solar panel's search tests the run loop's step count, a word of the data segment
+  (`ds:0x4ea7`) the formulas don't name yet, and the magnifying glass has a term the analysis leaves raw.
 - **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
   end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
   asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). A test of
