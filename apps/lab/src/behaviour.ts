@@ -503,6 +503,8 @@ const ROPE_FIELDS = new Map([
   [0x04, "end1"],
   [0x0a, "end0Slot"],
   [0x0b, "end1Slot"],
+  // A counter: rope callbacks add 1 to it for pull kind 1, and the teeter-totter adds or takes 1.
+  [0x0e, "count"],
   [0x14, "end0X"],
   [0x16, "end0Y"],
   [0x18, "end1X"],
@@ -580,10 +582,16 @@ export function tidyWords<T extends string | undefined>(text: T): T {
         return name ? `counter (its ${name})` : all;
       })
       .replace(/\bMovement 0x8000\b/g, "Movement -32768")
-      .replace(/\b(0x[0-9a-f]{2}) of the record of its rope at 0x66\b/g, (all, offset: string) => {
-        const name = ROPE_FIELDS.get(parseInt(offset, 16));
-        return name ? `the ${name} of its rope` : all;
-      })
+      .replace(
+        /\b(?:field )?(0x[0-9a-f]{2}) of the record of (its rope at 0x66|the rope it is asked about)/g,
+        (all, offset: string, rope: string) => {
+          const name = ROPE_FIELDS.get(parseInt(offset, 16));
+          return name ? `the ${name} of ${rope === "its rope at 0x66" ? "its rope" : rope}` : all;
+        },
+      )
+      .replace(/\bits rope link at 0x66 or 0x68\b/g, "its first or second rope link")
+      .replace(/\brope link (0x[0-9a-f]{2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
+      .replace(/\b(byte|flags) at 0x[0-9a-f]{2}\b/g, "$1")
       .replace(/\bpart\.(0x[0-9a-f]{1,2})\b/g, (all, offset: string) => {
         const name = PART_FIELDS.get(parseInt(offset, 16));
         return name ? `part.${name}` : all;
@@ -894,6 +902,19 @@ export function writer(
           // Rounding down to a multiple of 16, the size of a tile, like the explosion's reach.
           if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xfff0)
             return `(${expression(e.left, false, style)} rounded down to 16)`;
+          // A word compared as a signed number by flipping its top bit, `(x ^ 0x8000) >= -32766`, is the word compared
+          // as it is: x >= 2.
+          if (
+            ["<", "<=", ">", ">=", "==", "!="].includes(e.operator) &&
+            e.right.kind === "constant" &&
+            e.left.kind === "binary" &&
+            e.left.operator === "^" &&
+            e.left.right.kind === "constant" &&
+            (e.left.right.value & 0xffff) === 0x8000
+          ) {
+            const text = `${expression(e.left.left, true)} ${e.operator} ${(e.right.value & 0xffff) ^ 0x8000}`;
+            return nested ? `(${text})` : text;
+          }
           const changed = flagChange(e);
           if (changed) return nested ? `(${changed})` : changed;
           const picked = pickOfTwo(e);

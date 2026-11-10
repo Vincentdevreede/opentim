@@ -133,6 +133,12 @@ describe("writer", () => {
     expect(flags.expression(binary("|", field(0x08), constant(0x4000)))).toBe("drawingFlags | 0x4000");
   });
 
+  it("writes a word compared as a signed number by flipping its top bit as the word compared as it is", () => {
+    const flipped = binary("^", field(0x12), constant(0x8000));
+    expect(expression(binary(">=", flipped, constant(-32766)))).toBe("stateDelta >= 2");
+    expect(expression(binary("<", flipped, constant(0x8005)))).toBe("stateDelta < 5");
+  });
+
   it("writes the program's pick of one of two values as the value and when", () => {
     const all = binary("*", binary("<", field(0x0c), constant(1)), constant(0xffff));
     const pick = binary(
@@ -207,7 +213,7 @@ describe("writer", () => {
     expect(rope.predicate(compare("<=", field(0x12, "argument"), field(0x12, "argument")))).toBe(
       "pullMomentum.high <= pullMomentum.high",
     );
-    expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope+0x0e == 0");
+    expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope.count == 0");
     // Other routines' arguments aren't the rope code's, so they keep the analysis's words.
     expect(writer(named).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument 12 == 2");
   });
@@ -289,6 +295,16 @@ describe("tidyWords", () => {
       "picks the response over the reflection",
     );
     expect(tidyWords("Updates another part's counter at 0x9c.")).toBe("Updates another part's counter (its heat).");
+    expect(tidyWords("Adds 1 to field 0x0e of the record of its rope at 0x66.")).toBe(
+      "Adds 1 to the count of its rope.",
+    );
+    expect(tidyWords("Takes 1 from field 0x0e of the record of the rope it is asked about")).toBe(
+      "Takes 1 from the count of the rope it is asked about",
+    );
+    expect(tidyWords("Sets rope link 0x5c of the part tied to its rope link 0x5a")).toBe(
+      "Sets link1 of the part tied to its link0",
+    );
+    expect(tidyWords("another part's contact side byte at 0x87")).toBe("another part's contact side byte");
   });
 });
 
