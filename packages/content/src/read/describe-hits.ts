@@ -503,6 +503,8 @@ function responseFields(report: BehaviourReport): Set<number> | undefined {
 }
 export const RESPONSE_ASSUMPTION =
   "When the bounce returns anything but 0, the game may go on to a contact response: the fields its relation stores on the touching part (its velocity and fine position, and for the two-part exchange its list flags) are unknown after it, and it changes no other field of it. The exchange's relation lists every store; what stays open about it is only whether it returns when the two weights add up to 0.";
+export const CONTACT_SEARCH_NOTE =
+  "After setting the part's speeds the source runs the contact search on it, which may change its place, drawing place, frame size, list flags and contact record but not its speeds: the walk takes the fields it leaves that the part's rules read as unknown, and follows both ways where a rule tests them.";
 export const PLACE_ASSUMPTION =
   "The part lies where the source's tests of the two places need it, like within a number of pixels from the teeter-totter's end, and the two places are close enough that the 16-bit difference the code takes doesn't wrap round; the walk doesn't follow where parts are, so it says this in words.";
 export const TOUCH_TESTS_ASSUMPTION =
@@ -897,6 +899,14 @@ export function hitsFromOthers(
       if (responds && !afterResponse) continue;
       const responded = (w: FieldWrite) =>
         responds && [...Array(w.width / 8).keys()].some((byte) => afterResponse!.has(w.offset + byte));
+      // A field the contact search the source runs on the part leaves, like where the teeter-totter's launch puts it:
+      // only the run knows, like a field a response may change.
+      const kindAt = callKinds(report, c.routine);
+      const searched = (w: FieldWrite) => {
+        const left = openCalls([w.value], kindAt);
+        return left.contactSearch && !left.other && !left.connectionQuery;
+      };
+      const unknown = (w: FieldWrite) => responded(w) || searched(w);
       const changes = c.writes.filter(readsField);
       // A value with the words of the part's type record its type settles, like a launch speed by its mass, and the
       // overlap its search stored as its own field. A value kept within its speed limit has a number to follow only
@@ -919,7 +929,8 @@ export function hitsFromOthers(
         return value;
       };
       // A number, or a value of the part's own fields as the touch found them, in a field the rules read gives the walk
-      // something to follow; a field a response may change again is unknown, and at least one other must be known.
+      // something to follow; a field a response may change again, or the contact search leaves, is unknown, and at least
+      // one other must be known.
       // A push along the line between the centres, like the bumper's throw, is split into the directions the part's
       // rules tell apart.
       const directed = c.writes.filter((w) => w.directedSpeed);
@@ -929,8 +940,8 @@ export function hitsFromOthers(
           : undefined;
       if (
         !changes.length ||
-        changes.some((w) => (w.directedSpeed ? !directions && !responded(w) : !responded(w) && !own(w))) ||
-        changes.every(responded)
+        changes.some((w) => (w.directedSpeed ? !directions && !responded(w) : !unknown(w) && !own(w))) ||
+        changes.every(unknown)
       )
         continue;
       // The contact dispatch walks the moving list: a part of a fixed type never touches, by a decided assumption.
@@ -967,13 +978,15 @@ export function hitsFromOthers(
             object: "part",
             condition: { kind: "true" },
             value:
-              !responded(w) && value
+              !unknown(w) && value
                 ? value
                 : {
                     kind: "unknown",
                     reason: responded(w)
                       ? "A contact response after the bounce may change it."
-                      : "The source sets it to a value the walk can't work out.",
+                      : searched(w)
+                        ? "The contact search the source runs on it may change it; where it leaves the part, only the run knows."
+                        : "The source sets it to a value the walk can't work out.",
                     width: w.width,
                   },
           };
@@ -1006,6 +1019,7 @@ export function hitsFromOthers(
           ...(ranged ? [AIR_PRESSURE_ASSUMPTION, rangeNote(ranged)] : []),
           ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
           ...(responds && c.writes.some(responded) ? [RESPONSE_ASSUMPTION] : []),
+          ...(changes.some(searched) ? [CONTACT_SEARCH_NOTE] : []),
           ...(c.dropped.both ? [TOUCH_TESTS_ASSUMPTION] : []),
           ...(c.dropped.answer ? [ANSWER_ASSUMPTION] : []),
           ...(c.place?.length ? [PLACE_ASSUMPTION] : []),

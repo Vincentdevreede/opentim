@@ -1278,6 +1278,29 @@ The only pair missing in either game is Even More's teeter-totter launching Mel,
 search the teeter-totter runs on what it launches. Walks go from 1,473 to 1,477 and from 1,223 to 1,227, and every one
 ends; the recordings match as before: 648 and 552 complete.
 
+### The teeter-totter's launch of Mel
+
+After setting a launched part's speeds, the teeter-totter runs the contact search on it (see "Where the teeter-totter's
+launch stops being known"). The search may change the part's place, drawing place, frame size, list flags and contact
+record, but not its speeds. Mel Schlemming's rules read one of those fields: while he walks (frames 0 to 5) he goes on
+walking when his positionY is the word at `0x28` (his positionY two steps back), and when it isn't and |velocityY| is
+above 1536 he starts to fall on frame 6. The launch gives him a velocityY of at least 4096 (by his mass, 0x1400 in Even
+More, English floppy), so only the place the search leaves decides between the two. A walk needs a number in a field
+the rules read, so the pair was missing.
+
+A walk from another part now takes a field the contact search leaves, of those the part's rules read, as unknown, as it
+already did for a field a contact response may change after a bounce. It needs at least one other field the rules read
+to have a number, here velocityY, and follows both ways where a rule tests the unknown one. Its assumptions say so: the
+search may change the place and the other fields above but not the speeds, and the walk takes what it leaves as
+unknown. The other parts the teeter-totter launches stay partly described: their rules read none of its speeds, so
+they have nothing to follow.
+
+Pairs, on all eleven builds: Even More described 405 → 406, missing 1 → 0; TIM 1, which has no Mel, stays at 222 and 0.
+No pair is missing in either game. The walks and recordings of the saved reports don't change (Even More 1,481 and TIM
+1 1,227 walks; 648 and 552 recordings complete), since those reports leave out the loops read once for each type of
+found part, and the teeter-totter's launch is one of them. Mel's four walks show in the pair check and in the Lab's
+"per type" phase.
+
 ### Two values the pair check names
 
 After the teeter-totter's launch, two pairs in each build were left with "a value it sets isn't known to the
