@@ -54,8 +54,9 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    electric switch, and never a ball. Until then the analysis lets it find any part.
 
    Found (2026-11-08): it does happen. The two routines that make an explosion link it into the fixed list, and the
-   game's own runs of the shipped puzzles show explosions there (7 puzzles in Even More, 4 in TIM 1). So "never" is
-   wrong; the question becomes whether the alligator's search finds only parts of a fixed type and explosions.
+   game's own runs of the shipped puzzles show explosions there (7 puzzles in Even More, 4 in TIM 1; 5 since the
+   level recorder's fix of 2026-11-09). So "never" is wrong; the question becomes whether the alligator's search finds
+   only parts of a fixed type and explosions.
 
    Answered (2026-11-08) by tests in the game, with no assumption needed: the snap flips a switch above the mouth,
    leaves a ball hanging there alone, and does nothing to an explosion. That is what the code gives, since the snap
@@ -248,6 +249,46 @@ the teeter-totter runs leaves a part. Recordings stay 648/648 and 552/552.
       teeter-totter's half width reads "centre X (positionX + frameWidth / 2)", the fan's and bellows' push a sum,
       the vacuum cleaner's pull without masks, long conditions as lines under the row, and a "then contact search"
       chip on the launch. See "Words for the Behaviour tab".
+
+## L. The levels
+
+Added (2026-11-08), to do after A5 and before B1. `packages/content/src/read/level.ts` reads every byte of a level
+file, but two things B1 needs aren't read yet: when a puzzle is solved, which isn't in the file at all, and what the
+game does with the fields whose meaning isn't known.
+
+- [ ] **L1. When a puzzle is solved.** Each puzzle has its own goal routine in TIM.EXE: `0x14ae` calls the one the
+      puzzle number at `0x4ac1` picks from the far pointers at `0x201a` (Even More, English floppy). Known so far: in
+      Even More a check goes through the moving list and ends the run when every part of one type has its goal mark,
+      which Mel's house, the vacuum cleaner, the cat, the alligator and the boxing glove set; puzzle 106's looks for a
+      bucket. TIM 1 has no goal marks, and puzzle 76's check waits for step 130. Read every puzzle's routine into a
+      goal the machine can test (which parts, where, which mark, from which step), for all eleven builds, and check
+      it against the puzzles whose run the game's own goal check ends in the level recorder.
+      Started (2026-11-08): every goal routine of all eleven builds is read into a program the machine can run, and
+      `check-goals` finds each one doing what the game's routine does in the emulator, on made-up parts lists (see
+      [the levels](levels.md#puzzle-goals)). `list-goals` says each goal in words next to its level's goal text,
+      and the builds of each game read the same goals (the Even More CD differs in the code of 4). Next: name the
+      words some goals read (the step count, `0x4a8b`), and show the goal in the Lab's level view.
+- [ ] **L2. What the loader does with each field.** The level loader (`0x1386b` in Even More, English floppy) is
+      partly read: the saved state goes to `0x90`, the plugged parts to their fields, and the air pressure and the
+      gravity to the routine that works out each type's acceleration and speed limit. Read where every other field
+      lands in the part record, above all the ones whose meaning isn't known: the second size, `extra` on parts
+      other than the rope, the word before the parts bin, and the flag bits besides tiling and flipping. A field the
+      loader drops needs nothing more; one it keeps gets its name in `level.ts` and goes into B1.
+      Started (2026-11-08): `check-level-fields` loads every shipped puzzle with the game's loader and finds where
+      each field of a placed part goes, in both recorded builds (see [the levels](levels.md#what-the-loader-keeps)):
+      the second size is the base size, the position, state and drawing flags go to the saved words, and `extra` to
+      `0x96`, the belt's parts to the belt record at `0x54`, and the links to `0x5a` to `0x60`, apart from
+      gear to gear links, which the loader leaves out; a rope's tied parts go to the rope record at `0x66`, and the
+      header to one block of words (`0x4cb3` to `0x4cbf`). `0x4a8b` is a second count of steps.
+      The parts bin is the third list; the pulley's rope isn't kept as such; the run loop's two step counts are found
+      in every build. The level recorder now takes over where the menu has freed its title machine and enters the
+      play screen as the game does (2026-11-09): every parts bin and every rope record loads in both games, and no
+      shipped puzzle of the two recorded builds ends early on its own parts in 500 steps any more.
+- [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
+      and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
+      recorded builds.
+- Later, when a game needs them: which song each music number plays, and the byte and word Toons stores per part.
+  Neither changes how a puzzle runs.
 
 ## B. The machine
 

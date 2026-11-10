@@ -20,7 +20,10 @@
     "list-other-part-pairs": "node scripts/list-other-part-pairs.ts",
     "record-cpu-cases": "node scripts/record-cpu-cases.ts",
     "record-level": "node scripts/record-level.ts",
-    "check-moving-list": "node scripts/check-moving-list.ts"
+    "check-moving-list": "node scripts/check-moving-list.ts",
+    "check-goals": "node scripts/check-goals.ts",
+    "list-goals": "node scripts/list-goals.ts",
+    "check-level-fields": "node scripts/check-level-fields.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"
