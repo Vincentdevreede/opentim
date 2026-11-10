@@ -107,6 +107,17 @@ the rest when it is opened.
   "reached" (a part through a rope, belt or pulley), "the centre angle", "the gear jam", "next in the list after
   the insertion", and a value a test picks as "3 if state == 2, else 5".
 
+## Reading in the background
+
+The lab reads the behaviour on a worker after the files load, in five steps: the parts' code (type by type), the
+goals, the walks (a pass over every part as the source of hits, then each part), the loops read per type, and the
+walks again. Each step tells the page how far it has come, and every place that waits for it (the Behaviour and
+Affects tabs, a level's goal) shows the same progress block: a bar over the whole read, the step and what it is at,
+and about how long is left. The status bar shows the bar on every page until the read ends. The bar weighs the steps
+by how long they took on Even More, English floppy (13, 0.2, 95, 25 and 99 seconds in Node); the time left is the time
+so far over the share done, so it settles as the read goes on, and the slow parts (the vacuum cleaner's walks take 14
+seconds) make it jump a little.
+
 ## The Affects tab
 
 A part on the Parts page has an Affects tab next to Behaviour: what the part does to other parts and what they do to

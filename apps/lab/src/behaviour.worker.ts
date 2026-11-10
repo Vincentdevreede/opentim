@@ -18,9 +18,12 @@ import {
 
 const post = (message: BehaviourMessage) => (self as unknown as Worker).postMessage(message);
 
+/** Tells the page how far a step has come. */
+const progress = (step: number) => (done: number, total: number) => post({ kind: "progress", step, done, total });
+
 /** The walks, effects, rests and doings of the report as it stands. */
 function walksOf(report: BehaviourReport, started: number, perType: boolean): WalksResult {
-  const description = describeBehaviour(report);
+  const description = describeBehaviour(report, progress(perType ? 4 : 2));
   return {
     status: "done",
     walks: summariseWalks(report, description),
@@ -36,7 +39,7 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   let started = performance.now();
   let steps: ReturnType<typeof readBehaviourInSteps>;
   try {
-    steps = readBehaviourInSteps(data.program, data.parts);
+    steps = readBehaviourInSteps(data.program, data.parts, progress(0));
     const summary = summariseBehaviour(steps.report);
     post({ kind: "behaviour", result: { status: "done", summary, seconds: (performance.now() - started) / 1000 } });
   } catch (error) {
@@ -45,7 +48,9 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   }
   started = performance.now();
   try {
+    progress(1)(0, 1);
     const read = readProgramGoals(data.program, steps.report);
+    progress(1)(1, 1);
     post({
       kind: "goals",
       result: read.problem
@@ -64,7 +69,7 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   }
   started = performance.now();
   try {
-    steps.readLoopsPerType();
+    steps.readLoopsPerType(progress(3));
     post({ kind: "per type", result: walksOf(steps.report, started, true) });
   } catch (error) {
     post({ kind: "per type", result: { status: "error", message: (error as Error).message } });

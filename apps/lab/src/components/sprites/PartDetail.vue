@@ -2,13 +2,14 @@
 import { compose, drawOrder, type Part, type Placement, type SpriteOf, type TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, useId, watch, watchEffect } from "vue";
-import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
+import { readingPerType, type BehaviourResult, type WalksResult } from "../../behaviour.ts";
 import { outlineShape, pictureFrame } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { partName, sheetFile } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
 import { affectPairs } from "../../affects.ts";
 import AffectsLists from "../AffectsLists.vue";
+import ReadProgress from "../ReadProgress.vue";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
 import LabCard from "../LabCard.vue";
@@ -489,8 +490,9 @@ const sideTabs = computed(() => [
           <p v-else-if="walks?.status === 'error'" class="px-3 py-2 text-muted">
             The walks couldn’t be read: {{ walks.message }}
           </p>
-          <p v-else-if="walks?.status !== 'done'" class="px-3 py-2 text-muted">Reading what the parts do…</p>
+          <ReadProgress v-else-if="walks?.status !== 'done'" />
           <template v-else>
+            <ReadProgress v-if="readingPerType(walks)" />
             <!-- The lists keep their own row spacing, and reach to the panel's edges like the other lists. -->
             <div class="-mx-3">
               <AffectsLists :type="part.type" :pairs="affects" :name-of="nameOfType" />

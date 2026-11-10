@@ -1457,10 +1457,36 @@ export interface BehaviourRequest {
  * per type.
  */
 export type BehaviourMessage =
+  | { kind: "progress"; step: number; done: number; total: number }
   | { kind: "behaviour"; result: BehaviourResult }
   | { kind: "goals"; result: GoalsResult }
   | { kind: "walks"; result: WalksResult }
   | { kind: "per type"; result: WalksResult };
+
+/**
+ * The steps of a read in the background, in the order the worker takes them, with about how much of the whole time
+ * each takes (seconds on Even More, English floppy): the first goes type by type, the walks part by part, the fourth
+ * loop by loop.
+ */
+export const READ_STEPS = [
+  { name: "Reading the parts’ code", share: 13 },
+  { name: "Reading the goals", share: 0.2 },
+  { name: "Following the walks", share: 95 },
+  { name: "Reading what other parts do to each type", share: 25 },
+  { name: "Following the walks again", share: 99 },
+] as const;
+
+/** Where a read in the background is: its step, and how many of the step's items are done; `finished` at its end. */
+export type ReadProgressEvent =
+  { program: Uint8Array; step: number; done: number; total: number } | { program: Uint8Array; finished: true };
+
+const progressListeners = new Set<(e: ReadProgressEvent) => void>();
+/** Tells a listener where every read in the background is, as it goes on; returns how to stop. */
+export function onReadProgress(listener: (e: ReadProgressEvent) => void): () => void {
+  progressListeners.add(listener);
+  return () => progressListeners.delete(listener);
+}
+const tellProgress = (e: ReadProgressEvent) => progressListeners.forEach((l) => l(e));
 
 /** The behaviour and the walks of a program, once per program: a later call gets the same answers, unless one failed. */
 const results = new WeakMap<Uint8Array, BehaviourReading>();
@@ -1503,6 +1529,7 @@ export function readBehaviourInBackground(program: Uint8Array, parts: ProgramPar
     };
     let worker: Worker | undefined;
     const end = () => {
+      tellProgress({ program, finished: true });
       worker?.terminate();
       if (running.get(program) === stop) running.delete(program);
     };
@@ -1520,7 +1547,9 @@ export function readBehaviourInBackground(program: Uint8Array, parts: ProgramPar
     try {
       worker = new Worker(new URL("./behaviour.worker.ts", import.meta.url), { type: "module" });
       worker.onmessage = ({ data }: MessageEvent<BehaviourMessage>) => {
-        if (data.kind === "behaviour") {
+        if (data.kind === "progress") {
+          tellProgress({ program, step: data.step, done: data.done, total: data.total });
+        } else if (data.kind === "behaviour") {
           resolveResult(data.result);
           if (data.result.status === "error") stop(data.result.message);
         } else if (data.kind === "goals") {

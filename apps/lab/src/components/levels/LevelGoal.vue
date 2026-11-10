@@ -7,6 +7,7 @@ import LabChip from "../LabChip.vue";
 import LabDisclosure from "../LabDisclosure.vue";
 import LabListRow from "../LabListRow.vue";
 import LabPanelHeader from "../LabPanelHeader.vue";
+import ReadProgress from "../ReadProgress.vue";
 
 /**
  * When the level's puzzle is solved, as TIM.EXE's goal routine for it tests: one short row per condition, with the
@@ -84,11 +85,11 @@ const countOf = (c: GoalCondition) => {
 <template>
   <div class="absolute inset-0 flex flex-col">
     <LabPanelHeader title="Goal">
-      <span v-if="goal.status === 'reading'" class="text-meta text-muted">reading the program…</span>
-      <LabBadge v-else-if="badge" v-bind="badge" />
+      <LabBadge v-if="badge" v-bind="badge" />
     </LabPanelHeader>
     <div class="min-h-0 flex-1 overflow-auto">
       <p v-if="says" class="truncate px-3 py-[5px] text-soft italic" :title="says">“{{ says }}”</p>
+      <ReadProgress v-if="goal.status === 'reading'" class="px-3 py-2" />
       <p v-if="goal.status === 'none'" class="px-3 py-[5px] text-muted">{{ goal.why }}</p>
       <template v-if="summary">
         <template v-for="(way, w) in summary.ways" :key="w">
