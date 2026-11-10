@@ -135,6 +135,38 @@ The run loops and step counts of the two recorded builds are the ones the level 
 goal needs the second step count to be at least 308 (see [what the loader keeps](#what-the-loader-keeps)).
 
     pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
+      [--conditions]
+
+### Goals as conditions
+
+The pseudo-code is exact but long, so the Lab's level view shows a goal as a few short conditions instead, read by
+`summariseGoal` (`src/read/goal-conditions.ts`). It runs the goal program on symbols rather than numbers: each word
+is kept as an expression of the parts' fields and of the words the step started with, a walk over the parts turns
+into "some part where …" or "how many parts where …", and the tests that lead to "the goal is met" are gathered into
+ways, each a list of conditions that must all hold. A word a walk sets when a test holds is that value after the walk
+when some part passed the test; a word it adds 1 to counts the parts that pass; a register it sets to the part is the
+last part that passes. A walk that only clears a flag then reads as what every part must pass. The conditions are:
+
+- **every**: each part of the types on the lists passes the tests, for the parts a "where" picks when it has one;
+- **none**: no part of the types is on the lists (or none passes the "where");
+- **some**: at least one part passes the tests;
+- **first** or **last**: the part a search stops at, or the last one a walk keeps;
+- **count**: how many parts pass the tests, against a number;
+- **word**: a test of a word, like the step count;
+
+and a word the goal keeps from step to step is shown with what it becomes. Ways are kept short: a test and its
+opposite in two ways give the way without them, a way another one covers is left out, and a test another one implies
+(`state ≠ 0` beside `state ≥ 5`) is dropped. Puzzle 2 of Even More reads "every bowling-ball on the moving list:
+positionY = 264, positionY = previousY", and puzzle 31 "every basketball on the moving list: 342 ≤ positionX ≤ 442,
+positionY ≥ 218". The fields and types are the names the analysis gives them; no word of the game's own is added.
+
+Tests of a part's position against numbers give the goal's area. The Lab draws it on the level as the place the part's
+picture covers while its position is in range, from a part of the same type in the level, and rings the parts of the
+types the goal looks at. In Even More puzzle 1 the area is the hoop.
+
+152 of Even More's 160 goals and 83 of TIM 1's 87 shipped goals read as conditions. The others add up the parts'
+fields or compare two parts with each other (68, 78, 79, 81 in both games, and 101, 113, 136 and 138 in Even More),
+and show only their program, with why. `list-goals --conditions` lists the conditions under each program.
 
 ## What the loader keeps
 

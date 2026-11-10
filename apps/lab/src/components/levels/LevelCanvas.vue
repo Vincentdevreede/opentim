@@ -5,7 +5,8 @@ import { compositionCanvas } from "../pixels.ts";
 
 /**
  * Draws a level: the play area with a margin around it, every part where the file puts it, and the ropes and belts
- * between them. Boxes and numbers can be shown over the parts. A click selects the part under the pointer.
+ * between them. Boxes and numbers can be shown over the parts, and the puzzle's goal: the places it tests and the
+ * parts it looks at. A click selects the part under the pointer.
  */
 const props = defineProps<{
   scene: Scene;
@@ -16,6 +17,10 @@ const props = defineProps<{
   zoom: number;
   bounds: boolean;
   selected?: number;
+  /** The places the puzzle's goal tests, numbered as its conditions show them, in pixels of the level. */
+  goalAreas?: readonly { number: number; box: { x: number; y: number; width: number; height: number } }[];
+  /** The types of the parts the goal looks at, which get a ring. */
+  goalTypes?: ReadonlySet<number>;
 }>();
 const emit = defineEmits<{ select: [index: number | undefined] }>();
 
@@ -74,6 +79,7 @@ watchEffect(() => {
     partial: token("partial"),
     muted: token("muted"),
     ink: token("ink"),
+    goal: token("decoded"),
   };
   el.width = width * zoom;
   el.height = height * zoom;
@@ -126,6 +132,37 @@ watchEffect(() => {
   if (knot)
     for (const line of scene.lines)
       for (const p of line.knots ?? []) context.drawImage(knot, p.x + scene.knot.bounds.x, p.y + scene.knot.bounds.y);
+
+  // The goal over the parts: the parts it looks at ringed, and the places it tests as numbered areas.
+  for (const d of scene.parts) {
+    if (!props.goalTypes?.has(d.part.type) || !d.box.width || !d.box.height) continue;
+    context.save();
+    context.strokeStyle = colors.goal;
+    context.lineWidth = 2 * px;
+    context.strokeRect(d.box.x - 2 * px, d.box.y - 2 * px, d.box.width + 4 * px, d.box.height + 4 * px);
+    context.restore();
+  }
+  for (const { number, box } of props.goalAreas ?? []) {
+    context.save();
+    context.fillStyle = `${colors.goal}26`;
+    context.strokeStyle = colors.goal;
+    context.lineWidth = 1.5 * px;
+    context.setLineDash([5 * px, 3 * px]);
+    context.fillRect(box.x, box.y, box.width, box.height);
+    context.strokeRect(box.x, box.y, box.width, box.height);
+    context.setLineDash([]);
+    const label = String(number);
+    context.font = `600 ${11 * px}px ui-monospace, monospace`;
+    const w = context.measureText(label).width + 6 * px;
+    // The number sits in the area's corner, kept inside the canvas for areas that run off it.
+    const x = Math.max(box.x, -MARGIN);
+    const y = Math.max(box.y, -MARGIN);
+    context.fillStyle = colors.goal;
+    context.fillRect(x, y, w, 14 * px);
+    context.fillStyle = token("accent-ink");
+    context.fillText(label, x + 3 * px, y + 11 * px);
+    context.restore();
+  }
 
   for (const d of scene.parts) {
     const on = d.part.index === selected;

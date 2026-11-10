@@ -1,9 +1,10 @@
 /**
- * Reads the behaviour of the parts away from the page, because it takes seconds, then the walks from them, then the
- * loops over found parts once for each type, which takes longest, and the walks again with what that adds.
+ * Reads the behaviour of the parts away from the page, because it takes seconds, then every puzzle's goal, named with
+ * what the behaviour found, then the walks from the parts' triggers, then the loops over found parts once for each
+ * type, which takes longest, and the walks again with what that adds.
  */
 
-import { describeBehaviour, readBehaviourInSteps, type BehaviourReport } from "@opentim/content";
+import { describeBehaviour, readBehaviourInSteps, readProgramGoals, type BehaviourReport } from "@opentim/content";
 import {
   summariseBehaviour,
   summariseDoings,
@@ -41,6 +42,18 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   } catch (error) {
     post({ kind: "behaviour", result: { status: "error", message: (error as Error).message } });
     return;
+  }
+  started = performance.now();
+  try {
+    const read = readProgramGoals(data.program, steps.report);
+    post({
+      kind: "goals",
+      result: read.problem
+        ? { status: "error", message: read.problem }
+        : { status: "done", goals: read.goals, seconds: (performance.now() - started) / 1000 },
+    });
+  } catch (error) {
+    post({ kind: "goals", result: { status: "error", message: (error as Error).message } });
   }
   started = performance.now();
   try {

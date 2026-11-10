@@ -146,3 +146,11 @@ export type {
   PairResponseFormula,
   PairCentreAngle,
 } from "./read/behaviour-contact-response-pair.ts";
+export { readProgramGoals, type ProgramGoals, type PuzzleGoal } from "./read/program-goals.ts";
+export {
+  conditionText,
+  summariseGoal,
+  type GoalArea,
+  type GoalCondition,
+  type GoalSummary,
+} from "./read/goal-conditions.ts";
