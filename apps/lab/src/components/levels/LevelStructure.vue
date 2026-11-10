@@ -149,14 +149,14 @@ const pair = (p: { x: number; y: number }) => `${p.x}, ${p.y}`;
 /** The record's flag words the file's three flag words go to, in their order. */
 const FLAG_WORDS = [0x06, 0x08, 0x0a];
 
-/** A part's flags in words, from the bits whose meaning is known, with how many other bits are set. */
+/** A part's flags in words, by the names of their bits, with how many bits the program never uses are set. */
 function flagsShown(p: LevelPart): { value: string; note?: string } {
   const read = p.flags.map((f, k) => flagWords(FLAG_WORDS[k]!, f, props.record));
   const words = read.flatMap((r) => r.words);
   const unknown = read.reduce((n, r) => n + r.unknown.toString(2).replace(/0/g, "").length, 0);
   return {
     value: words.join(" · ") || (unknown ? "" : "none"),
-    ...(unknown ? { note: `${unknown} ${unknown === 1 ? "bit" : "bits"} not known` } : {}),
+    ...(unknown ? { note: `${unknown} unused ${unknown === 1 ? "bit" : "bits"}` } : {}),
   };
 }
 

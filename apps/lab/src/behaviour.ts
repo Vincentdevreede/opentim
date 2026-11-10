@@ -303,6 +303,10 @@ const PART_FIELDS = new Map([
   [0x6b, "ropeSlot0Y"],
   [0x6c, "ropeSlot1X"],
   [0x6d, "ropeSlot1Y"],
+  // Where a flame lights a lightable part, from its corner: the candle's wick, the fuse of the dynamite, the cannon and
+  // the rocket. Their reset sets it, and the flame's search (0x448e) looks for it in the flame's box.
+  [0x72, "fuseX"],
+  [0x73, "fuseY"],
   [0x78, "found"],
   [0x7a, "overlapX"],
   [0x7c, "overlapY"],
@@ -350,6 +354,12 @@ export const NAMED_TERMS: { name: string; raw: string; meaning: string }[] = [
   { name: "otherEnd", raw: "[argument+0x06]", meaning: "the part at the other end of the rope" },
   { name: "ropeSlot", raw: "argument+0x0a", meaning: "which of its two rope links the rope is tied to" },
   { name: "ropeKind", raw: "argument+0x0c", meaning: "the kind of pull, with 0x8000 when it only asks" },
+  {
+    name: "pull kind",
+    raw: "ropeKind, argument+0x0c",
+    meaning:
+      "1, 2 or 4 as the rope code works it out (0x7996), with 8 or 16 for the side of the rope; a question has 0x8000 too, when the teeter-totter only asks",
+  },
   { name: "pullMomentum", raw: "argument+0x10", meaning: "the momentum of the part that started the pull" },
   {
     name: "askedRope",
@@ -392,23 +402,52 @@ const MASK_WORDS: Record<string, [string, string]> = {
 };
 
 /**
- * Single bits of a part's flag words whose meaning the program shows, as words for set and clear, by field and bit.
- * The list bits are the ones the list head routine picks the fixed, moving and third list by, and the third list is
- * the parts bin (`docs/levels.md`); 0x40 of the list flags is the level file's tiles bit, which the loader keeps
- * there. The others are the flags `PART_FLAGS` names in `describe-effects.ts`: contact, out of play, ran this step,
- * and the goal marks only goal routines test.
+ * Every bit of a part's three flag words the program uses, as words for set and clear, by field and bit: the list
+ * flags at 0x06, the drawing flags at 0x08 and the marks at 0x0a. What each one does, with the routines that show it in
+ * Even More (English floppy) and TIM 1 (French), is in `docs/behaviour.md` under "Flag bits". The bits not here are
+ * never tested or set on a part: 0x0080 and 0x0100 of the list flags, 0x4000 of the drawing flags, and 0x0800 up of
+ * the marks.
  */
-const FLAG_BITS = new Map<string, [string, string]>([
-  // The level file's mirror bits, which the loader keeps in the drawing flags, for when the layout isn't read.
-  ["8:16", ["mirrored", "not mirrored"]],
-  ["8:32", ["upside down", "not upside down"]],
+export const FLAG_BITS = new Map<string, [string, string]>([
+  // The list flags.
   ["6:1", ["in contact", "not in contact"]],
+  ["6:2", ["hit a fixed part", "didn't hit a fixed part"]],
+  ["6:4", ["hit a moving part", "didn't hit a moving part"]],
+  ["6:8", ["hit handled this step", "hit not handled this step"]],
+  ["6:16", ["made during the run", "not made during the run"]],
+  ["6:32", ["slides with more friction", "slides with normal friction"]],
   ["6:64", ["drawn as tiles", "not drawn as tiles"]],
+  ["6:512", ["can be turned upside down", "can't be turned upside down"]],
+  ["6:1024", ["can be mirrored", "can't be mirrored"]],
   ["6:2048", ["in the parts bin", "not in the parts bin"]],
   ["6:4096", ["on the moving list", "not on the moving list"]],
   ["6:8192", ["on the fixed list", "not on the fixed list"]],
+  ["6:16384", ["fixed kind", "not a fixed kind"]],
+  ["6:32768", ["placed by the puzzle", "not placed by the puzzle"]],
+  // The drawing flags; the level file's mirror bits are kept here, for when the layout isn't read.
+  ["8:1", ["takes a belt", "takes no belt"]],
+  ["8:2", ["has a belt on", "has no belt on"]],
+  ["8:4", ["takes a rope", "takes no rope"]],
+  ["8:8", ["takes a rope at either end", "takes a rope at one place"]],
+  ["8:16", ["mirrored", "not mirrored"]],
+  ["8:32", ["upside down", "not upside down"]],
   ["8:64", ["ran this step", "not run this step"]],
+  ["8:128", ["can be stretched sideways", "can't be stretched sideways"]],
+  ["8:256", ["can be stretched up and down", "can't be stretched up and down"]],
+  ["8:512", ["held this step", "not held this step"]],
+  ["8:1024", ["known free this step", "not known free this step"]],
+  ["8:2048", ["turns by itself", "doesn't turn by itself"]],
+  ["8:4096", ["drawn from pieces", "not drawn from pieces"]],
   ["8:8192", ["out of play", "in play"]],
+  ["8:32768", ["touches like a fixed part", "touches like a moving part"]],
+  // The marks.
+  ["10:1", ["has a plug", "has no plug"]],
+  ["10:2", ["has sockets", "has no sockets"]],
+  ["10:4", ["lightable", "not lightable"]],
+  ["10:8", ["placed freely", "snaps to the grid"]],
+  ["10:16", ["in a bucket", "not in a bucket"]],
+  ["10:32", ["in the drawing layers", "not in the drawing layers"]],
+  ["10:64", ["locked in the editor", "not locked in the editor"]],
   ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask): [string, [string, string]] => [
     `10:${mask}`,
     ["goal mark set", "goal mark clear"],
@@ -632,6 +671,79 @@ export function writer(
       (e.operator === "+" || e.operator === "-") &&
       isAngle(e.left) &&
       e.right.kind === "constant");
+  /**
+   * A flag word of a part with bits set, cleared or switched, like `drawingFlags ^ 0x10`, in words: "drawingFlags with
+   * mirrored switched". Undefined when it is something else or a bit has no name.
+   */
+  const flagChange = (e: Expression): string | undefined => {
+    const steps: string[] = [];
+    let at = e;
+    while (at.kind === "binary" && ["&", "|", "^"].includes(at.operator) && at.right.kind === "constant") {
+      const value = at.right.value & 0xffff;
+      const bits = at.operator === "&" ? ~value & 0xffff : value;
+      if (!bits) return undefined;
+      const names: string[] = [];
+      for (let bit = 1; bit <= 0x8000; bit <<= 1) if (bits & bit) names.push(`${bit}`);
+      steps.unshift(`${at.operator}:${names.join(",")}`);
+      at = at.left;
+    }
+    if (!steps.length || at.kind !== "field" || ![0x06, 0x08, 0x0a].includes(at.offset)) return undefined;
+    if (object(at.object).kind !== "part") return undefined;
+    const field = at;
+    const said: string[] = [];
+    for (const step of steps) {
+      const [operator, list] = step.split(":") as [string, string];
+      const names = list.split(",").map((bit) => bitWordsOf(fields, field.offset, Number(bit))?.[0]);
+      if (names.some((n) => n === undefined)) return undefined;
+      const verb = operator === "|" ? "set" : operator === "&" ? "cleared" : "switched";
+      said.push(`${names.join(" and ")} ${verb}`);
+    }
+    return `${place(field.object, field.offset)} with ${said.join(", then ")}`;
+  };
+  /**
+   * The program's way to pick one of two values without a jump, `(a & (c * -1)) | (b & ((c * -1) ^ 0xffff))`: a when c
+   * holds, else b. Undefined for anything else.
+   */
+  const pickOfTwo = (e: Extract<Expression, { kind: "binary" }>) => {
+    if (e.operator !== "|" || e.left.kind !== "binary" || e.right.kind !== "binary") return undefined;
+    if (e.left.operator !== "&" || e.right.operator !== "&") return undefined;
+    const same = (a: Expression, b: Expression) => JSON.stringify(a) === JSON.stringify(b);
+    /** `c * -1` (all bits when c holds), as c. */
+    const all = (m: Expression) =>
+      m.kind === "binary" &&
+      m.operator === "*" &&
+      m.right.kind === "constant" &&
+      [-1, 0xffff, 0xffffffff].includes(m.right.value)
+        ? m.left
+        : undefined;
+    const sides = [
+      [e.left, e.right],
+      [e.right, e.left],
+    ] as const;
+    for (const [one, other] of sides)
+      for (const [value, mask] of [
+        [one.left, one.right],
+        [one.right, one.left],
+      ] as const) {
+        const condition = all(mask);
+        if (!condition) continue;
+        for (const [rest, notMask] of [
+          [other.left, other.right],
+          [other.right, other.left],
+        ] as const)
+          if (
+            notMask.kind === "binary" &&
+            notMask.operator === "^" &&
+            notMask.right.kind === "constant" &&
+            (notMask.right.value & 0xffff) === 0xffff &&
+            same(notMask.left, mask)
+          )
+            return { condition, value, rest };
+      }
+    return undefined;
+  };
+  /** A mask that keeps the low bits, 3, 7, 15 and so on up to 255, as what it is: the rest after dividing. */
+  const remainderOf = (mask: number) => (mask >= 3 && mask <= 0xff && (mask & (mask + 1)) === 0 ? mask + 1 : 0);
   const expression = (e: Expression, nested = false, style: Numbers = "words"): string => {
     // One of two values a test picks, written as the two values and the test.
     const choice = choiceOf(e);
@@ -663,6 +775,18 @@ export function writer(
           // Rounding down to a multiple of 16, the size of a tile, like the explosion's reach.
           if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xfff0)
             return `(${expression(e.left, false, style)} rounded down to 16)`;
+          const changed = flagChange(e);
+          if (changed) return nested ? `(${changed})` : changed;
+          const picked = pickOfTwo(e);
+          if (picked) {
+            const text = `${expression(picked.value, true, style)} if ${expression(picked.condition, false, style)}, else ${expression(picked.rest, true, style)}`;
+            return nested ? `(${text})` : text;
+          }
+          const divisor = e.operator === "&" && e.right.kind === "constant" ? remainderOf(e.right.value >>> 0) : 0;
+          if (divisor) {
+            const text = `${expression(e.left, true)} mod ${divisor}`;
+            return nested ? `(${text})` : text;
+          }
           const right =
             ["&", "|", "^"].includes(e.operator) && e.right.kind === "constant"
               ? e.right.value >>> 0 < 10
@@ -680,10 +804,22 @@ export function writer(
         const shift = ["<<", ">>", ">>>"].includes(masked.operator);
         const inner: Numbers = bitwise ? "bits" : style;
         const left = expression(masked.left, true, inner);
+        // Low bits of a number that isn't a flag word, like `state & 3`, as the rest after dividing: "state mod 4".
+        const flagWord = masked.left.kind === "field" && [0x06, 0x08, 0x0a].includes(masked.left.offset);
+        const divisor =
+          masked.operator === "&" && masked.right.kind === "constant" && !flagWord
+            ? remainderOf(masked.right.value >>> 0)
+            : 0;
+        if (divisor) {
+          const text = `${left} mod ${divisor}`;
+          return nested ? `(${text})` : text;
+        }
         let operator = masked.operator;
         let right =
           bitwise && masked.right.kind === "constant"
-            ? hex(masked.right.value >>> 0)
+            ? masked.right.value >>> 0 < 10
+              ? String(masked.right.value >>> 0)
+              : hex(masked.right.value >>> 0)
             : expression(masked.right, true, shift ? "unsigned" : inner);
         if ((operator === "+" || operator === "-") && /^-\d/.test(right)) {
           operator = operator === "+" ? "-" : "+";
@@ -729,6 +865,58 @@ export function writer(
     const whose = /^(.+)\.[^.]+$/.exec(place(flags.object, flags.offset))?.[1];
     return `${whose ? `${whose} ` : ""}${words[set ? 0 : 1]}`;
   };
+  /**
+   * A test of the kind of pull a rope callback is asked about, in words: `ropeKind & 0x8006 == 4` as "pull kind 4, not
+   * a question". The rope code (0x7996) gives kind 1, 2 or 4, with 8 or 16 for the side of the rope, and the teeter-
+   * totter adds 0x8000 when it only asks (0x1d2a5).
+   */
+  const ropeTest = (p: Extract<Predicate, { kind: "compare" }>): string | undefined => {
+    if (routine !== "rope" || (p.operator !== "==" && p.operator !== "!=")) return undefined;
+    const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
+    if (against.kind !== "constant") return undefined;
+    const folded = tested.kind === "binary" ? foldMask(tested) : tested;
+    const [field, mask] =
+      folded.kind === "binary" && folded.operator === "&" && folded.right.kind === "constant"
+        ? [folded.left, folded.right.value & 0xffff]
+        : [folded, against.value & 0x8000 ? 0xffff : 0x7fff];
+    if (field.kind !== "field" || field.object !== "argument" || field.offset !== 0x0c) return undefined;
+    const value = against.value & 0xffff & mask;
+    const kind = value & 0x7fff;
+    const asks = (yes: boolean) => (yes ? "a question" : "not a question");
+    if (!(mask & 0x8000)) return `pull kind ${p.operator === "==" ? "" : "isn't "}${kind}`;
+    if (!(mask & 0x7fff)) return asks(!!(value & 0x8000) === (p.operator === "=="));
+    const words = `pull kind ${kind}, ${asks(!!(value & 0x8000))}`;
+    return p.operator === "==" ? words : `not (${words})`;
+  };
+  /**
+   * A test of the top bit of a direction, `(contactAngle - 16384) & 0x8000 != 0`, as the half of the turn it is in:
+   * "contactAngle from 270° to 90°". The top bit is set from 180° on, so a turn added moves that half.
+   */
+  const halfTurn = (p: Extract<Predicate, { kind: "compare" }>): string | undefined => {
+    if (p.operator !== "==" && p.operator !== "!=") return undefined;
+    const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
+    if (against.kind !== "constant" || tested.kind !== "binary" || tested.operator !== "&") return undefined;
+    if (tested.right.kind !== "constant" || (tested.right.value & 0xffff) !== 0x8000) return undefined;
+    const value = against.value & 0xffff;
+    if (value !== 0 && value !== 0x8000) return undefined;
+    let angle = tested.left;
+    let turn = 0;
+    if (
+      angle.kind === "binary" &&
+      (angle.operator === "+" || angle.operator === "-") &&
+      angle.right.kind === "constant"
+    ) {
+      turn = angle.operator === "+" ? angle.right.value : -angle.right.value;
+      angle = angle.left;
+    }
+    if (!isAngle(angle) || angle.kind !== "field") return undefined;
+    const set = (p.operator === "!=") === (value === 0);
+    // The top bit of the angle plus the turn is set for angles from 0x8000 - turn up to 0x10000 - turn.
+    const degrees = (n: number) => Number(((((n % 0x10000) + 0x10000) % 0x10000) * 360) / 0x10000).toFixed(2);
+    const [from, to] = set ? [0x8000 - turn, 0x10000 - turn] : [-turn, 0x8000 - turn];
+    const end = Number(degrees(to)) || 360;
+    return `${place(angle.object, angle.offset)} from ${Number(degrees(from))}° to ${end}°`;
+  };
   const predicate = (p: Predicate): string => {
     switch (p.kind) {
       case "true":
@@ -736,6 +924,10 @@ export function writer(
       case "compare": {
         const bit = bitTest(p);
         if (bit) return bit;
+        const half = halfTurn(p);
+        if (half) return half;
+        const rope = ropeTest(p);
+        if (rope) return rope;
         // A frame, a speed, a position or a control value as a signed number, a direction in degrees, and a value of
         // masked bits in hex like the mask.
         const masked = (e: Expression) => e.kind === "binary" && ["&", "|", "^"].includes(e.operator);

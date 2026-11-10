@@ -266,8 +266,9 @@ The Lab's Structure panel of a level says under each field of a TIM 1 or Even Mo
 by the names the behaviour read of the loaded `TIM.EXE` gives the record's words (`→ savedPositionX/Y` for the
 position), a field the loader keeps in a record of its own by that record (`→ belt record`), a word without a name as
 "kept", and a gear's links to gears and the pulley's rope as "not kept". The offsets are in the tips. A part's flags
-read as the bits whose meaning is known ("on the fixed list · mirrored") and how many bits aren't known, with the
-stored words in the tip. When the loaded `TIM.EXE` is one of the two recorded builds, the header's numbers say "kept",
+read as words by the names of their bits ("on the fixed list · placed by the puzzle · mirrored", see
+[flag bits](behaviour.md#flag-bits)), and how many bits the program never uses are set, with the stored words in the
+tip. When the loaded `TIM.EXE` is one of the two recorded builds, the header's numbers say "kept",
 with their word of the data segment in the tip, and the scroll limits "kept?", since only the block's order puts them
 there. The places are in `src/read/level-loader.ts`, which this check found; Toons and TIM 2 levels have no tags,
 since their loaders aren't read.

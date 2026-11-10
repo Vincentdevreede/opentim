@@ -72,13 +72,13 @@ it("says the header's numbers are kept for a checked build, with the word in the
   expect(visibleText(await html(level([]), undefined, unchecked))).not.toContain("kept");
 });
 
-it("says a part's flags in words, with how many bits aren't known and the stored words in the tip", async () => {
-  const flagged = { ...part(0, 9), flags: [0x1040, 0x0030, 0x0008] };
+it("says a part's flags in words, with how many unused bits are set and the stored words in the tip", async () => {
+  const flagged = { ...part(0, 9), flags: [0x1040, 0x0030, 0x0808] };
   const page = await html(level([flagged]), 0);
   expect(visibleText(page)).toContain(
-    "flags drawn as tiles · on the moving list · mirrored · upside down 1 bit not known",
+    "flags drawn as tiles · on the moving list · mirrored · upside down · placed freely 1 unused bit",
   );
-  expect(page).toContain('title="0x1040 0x0030 0x0008"');
+  expect(page).toContain('title="0x1040 0x0030 0x0808"');
 });
 
 it("leaves the tags out for Toons, whose loader isn't read", async () => {
