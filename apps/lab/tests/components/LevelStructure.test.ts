@@ -46,13 +46,15 @@ const CHECKED = LOADED_HEADERS.get(EVEN_MORE_FLOPPY_EXE);
 const html = (l: Level, selected?: number, header: LoadedHeader | undefined = CHECKED) =>
   renderToString(createSSRApp({ render: () => h(LevelStructure, { level: l, name: "L1.LEV", selected, header }) }));
 
-it("tags each field of a part with the record words the loader keeps it in", async () => {
+it("tags each field of a part with the name of the record word the loader keeps it in", async () => {
   const page = await html(level([part(0, 9, [1, null]), part(1, 2)]), 0);
   const text = visibleText(page);
-  expect(text).toContain("base size 30 × 32 → 0x50 0x52");
-  expect(text).toContain("position 0, 20 → 0x8C 0x8E");
-  expect(text).toContain("links #1, none → 0x5A 0x5C");
-  expect(page).toContain("savedPositionX, savedPositionY");
+  expect(text).toContain("base size 30 × 32 → baseWidth/Height");
+  expect(text).toContain("position 0, 20 → savedPositionX/Y");
+  expect(text).toContain("links #1, none → link0/1");
+  // The offsets are in the tip, and a word without a name reads "kept".
+  expect(page).toContain("In the part record at 0x8C 0x8E");
+  expect(text).toContain("size 32 × 32 kept");
 });
 
 it("says a gear's links to gears aren't kept", async () => {
@@ -60,13 +62,23 @@ it("says a gear's links to gears aren't kept", async () => {
   expect(text).toContain("links #1, none not kept");
 });
 
-it("shows the header's words for a checked build, and the scroll limits only as a guess", async () => {
+it("says the header's numbers are kept for a checked build, with the word in the tip, and the scroll limits as a guess", async () => {
   const page = await html(level([]));
-  expect(visibleText(page)).toContain("gravity 272 → [0x4CB9]");
-  expect(page).toContain("text-hypothesis");
+  expect(visibleText(page)).toContain("gravity 272 kept");
+  expect(page).toContain("in the word 0x4CB9");
+  expect(visibleText(page)).toContain("scroll.x -8 scroll kept?");
   expect(page).toContain("bin switch");
   const unchecked = { build: "", words: {}, byOrder: [] };
-  expect(visibleText(await html(level([]), undefined, unchecked))).not.toContain("→");
+  expect(visibleText(await html(level([]), undefined, unchecked))).not.toContain("kept");
+});
+
+it("says a part's flags in words, with how many bits aren't known and the stored words in the tip", async () => {
+  const flagged = { ...part(0, 9), flags: [0x1040, 0x0030, 0x0008] };
+  const page = await html(level([flagged]), 0);
+  expect(visibleText(page)).toContain(
+    "flags drawn as tiles · on the moving list · mirrored · upside down 1 bit not known",
+  );
+  expect(page).toContain('title="0x1040 0x0030 0x0008"');
 });
 
 it("leaves the tags out for Toons, whose loader isn't read", async () => {

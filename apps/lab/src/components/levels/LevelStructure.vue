@@ -11,6 +11,7 @@ import {
   type PartList,
 } from "@opentim/content";
 import { computed, nextTick, ref, watch } from "vue";
+import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
@@ -26,7 +27,8 @@ import LabOpenIn from "../LabOpenIn.vue";
 
 /**
  * Everything read from a level file, field by field, with where each part's bytes are and, for TIM 1 and Even More,
- * where the game's loader keeps each field: the word of the part record, or of the data segment for the header.
+ * where the game's loader keeps each field: the part record's word by the name the analysis gives it, or a word of the
+ * data segment for the header. The offsets and addresses are in the tips.
  */
 const props = defineProps<{
   level: Level;
@@ -35,6 +37,8 @@ const props = defineProps<{
   selected?: number;
   /** The header's words in the loaded program, when it is a build the loader was checked on. */
   header?: LoadedHeader;
+  /** The part record's fields as the behaviour read of the loaded program names them, once it is read. */
+  record?: readonly WriterField[];
 }>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
@@ -129,11 +133,11 @@ function headerTag(key: string) {
   if (!h || at === undefined || props.level.layout !== "tim") return undefined;
   const guess = h.byOrder.includes(key);
   return {
-    tag: `→ [${hex(at, 4)}]`,
+    tag: guess ? "kept?" : "kept",
     guess,
     title: guess
       ? `Where the order of the header's words puts it in ${h.build}. The play screen sets this word to -8 itself after loading, so the check can’t tell.`
-      : `The word of the data segment the loader puts it in, in ${h.build}.`,
+      : `The loader keeps it in the word ${hex(at, 4)} of the data segment, in ${h.build}.`,
   };
 }
 
@@ -142,19 +146,33 @@ const word = (n: number) => `0x${n.toString(16).toUpperCase().padStart(4, "0")}`
 const index = (i: number | null | undefined) => (i === null || i === undefined ? "none" : `#${i}`);
 const pair = (p: { x: number; y: number }) => `${p.x}, ${p.y}`;
 
-/** The flag bits whose meaning TIM.EXE shows, set on this part. */
-function flagNote(p: LevelPart) {
-  const known = [
-    (p.flags[0] ?? 0) & 0x40 ? "tiles" : "",
-    (p.flags[1] ?? 0) & 0x10 ? "mirrored" : "",
-    (p.flags[1] ?? 0) & 0x20 ? "upside down" : "",
-  ].filter(Boolean);
-  return known.length ? `${known.join(", ")}; other bits unknown` : "other bits unknown";
+/** The record's flag words the file's three flag words go to, in their order. */
+const FLAG_WORDS = [0x06, 0x08, 0x0a];
+
+/** A part's flags in words, from the bits whose meaning is known, with how many other bits are set. */
+function flagsShown(p: LevelPart): { value: string; note?: string } {
+  const read = p.flags.map((f, k) => flagWords(FLAG_WORDS[k]!, f, props.record));
+  const words = read.flatMap((r) => r.words);
+  const unknown = read.reduce((n, r) => n + r.unknown.toString(2).replace(/0/g, "").length, 0);
+  return {
+    value: words.join(" · ") || (unknown ? "" : "none"),
+    ...(unknown ? { note: `${unknown} ${unknown === 1 ? "bit" : "bits"} not known` } : {}),
+  };
+}
+
+/** Names that differ only at their end as one: savedPositionX and savedPositionY as "savedPositionX/Y". */
+function joinNames(names: string[]) {
+  if (names.length < 2) return names.join("");
+  let common = 0;
+  while (names.every((n) => n[common] !== undefined && n[common] === names[0]![common])) common++;
+  return common >= 3 ? `${names[0]!.slice(0, common)}${names.map((n) => n.slice(common)).join("/")}` : names.join(", ");
 }
 
 interface Row {
   key: string;
   value: string;
+  /** The value as stored, when the row says it in words. */
+  raw?: string;
   note?: string;
   link?: number;
   /** Where the loader keeps the field, as a short tag and what it means. */
@@ -163,7 +181,10 @@ interface Row {
 
 const words = (at: number[]) => at.map((a) => hex(a, 2)).join(" ");
 
-/** The tag for where the loader keeps a field: the record's words, the record they point to, or that it isn't kept. */
+/**
+ * The tag for where the loader keeps a field: the record's words by their names, the record they point to, or that it
+ * isn't kept. A word without a name reads "kept"; its offset is in the tip.
+ */
 function loadedTag(place: LoadedPlace): Row["loaded"] {
   const what = [
     place.names?.length ? place.names.join(", ") : "",
@@ -173,9 +194,15 @@ function loadedTag(place: LoadedPlace): Row["loaded"] {
     .filter(Boolean)
     .join("; ");
   if (place.notKept) return { tag: "not kept", title: `The loader doesn’t keep it: ${what}.`, faint: true };
+  const named = place.at.map((a, k) => recordName(a, props.record) ?? place.names?.[k]);
+  const through = place.through && recordName(place.through.word, props.record);
   const tag = place.through
-    ? `→ [${hex(place.through.word, 2)}] ${place.through.at.map((k) => `+${k}`).join(" ")}`
-    : `→ ${words(place.at)}`;
+    ? through
+      ? `→ ${through} record`
+      : "kept"
+    : named.every((n) => n !== undefined)
+      ? `→ ${joinNames(named as string[])}`
+      : "kept";
   const where = place.through
     ? `In the record the word ${hex(place.through.word, 2)} points to, at ${place.through.at.map((k) => `+${k}`).join(" and ")}`
     : `In the part record at ${words(place.at)}${place.bytes ? " (bytes)" : ""}`;
@@ -188,7 +215,7 @@ function rows(p: LevelPart): Row[] {
   const at = (key: LoadedKey) => (props.level.layout === "tim" ? loadedTag(LOADED_FIELDS[key]) : undefined);
   const out: Row[] = [
     { key: "type", value: `${p.type} · ${nameOf(p)}`, loaded: at("type") },
-    { key: "flags", value: p.flags.map(word).join(" "), note: flagNote(p), loaded: at("flags") },
+    { key: "flags", ...flagsShown(p), raw: p.flags.map(word).join(" "), loaded: at("flags") },
     { key: "state", value: p.state.join(", "), loaded: at("state") },
     { key: "position", value: pair(p.position), loaded: at("position") },
     { key: "size", value: `${p.size.width} × ${p.size.height}`, loaded: at("size") },
@@ -237,7 +264,7 @@ function rows(p: LevelPart): Row[] {
   if (p.toons)
     out.push({
       key: "toons",
-      value: [p.toons.byte !== undefined ? `byte ${p.toons.byte}` : "", `word ${word(p.toons.word)}`]
+      value: [p.toons.byte !== undefined ? `byte ${p.toons.byte}` : "", `word ${p.toons.word}`]
         .filter(Boolean)
         .join(", "),
       note: "meaning unknown",
@@ -250,7 +277,7 @@ function rows(p: LevelPart): Row[] {
 </script>
 
 <template>
-  <LabSidePanel aria-label="Structure" width="380px">
+  <LabSidePanel aria-label="Structure">
     <LabPanelHeader title="Structure" :meta="name">
       <div class="-mr-1.5 flex">
         <LabButton variant="ghost" icon aria-label="Expand all" title="Expand all" @click="expandAll">
@@ -284,7 +311,7 @@ function rows(p: LevelPart): Row[] {
             />
             <span
               v-if="headerTag(f.key)"
-              class="shrink-0 text-2xs"
+              class="shrink-0 font-sans text-2xs italic"
               :class="headerTag(f.key)!.guess ? 'text-hypothesis' : 'text-faint'"
               :title="headerTag(f.key)!.title"
               >{{ headerTag(f.key)!.tag }}</span
@@ -325,18 +352,16 @@ function rows(p: LevelPart): Row[] {
                 >
                   {{ r.value }}
                 </button>
-                <template v-else>{{ r.value }}</template>
-                <!-- The note goes under the value, so the value keeps its width next to the record tag. -->
+                <span v-else :title="r.raw">{{ r.value }}</span>
+                <!-- The note and where the loader keeps the field go under the value, so the value keeps its width. -->
                 <span v-if="r.note" class="block font-sans text-2xs text-hypothesis">{{ r.note }}</span>
-                <template v-if="r.loaded" #note>
-                  <span
-                    v-if="r.loaded"
-                    class="ml-auto shrink-0 text-2xs"
-                    :class="r.loaded.faint ? 'font-sans text-faint italic' : 'text-faint'"
-                    :title="r.loaded.title"
-                    >{{ r.loaded.tag }}</span
-                  >
-                </template>
+                <span
+                  v-if="r.loaded"
+                  class="block text-2xs text-faint"
+                  :class="r.loaded.faint && 'font-sans italic'"
+                  :title="r.loaded.title"
+                  >{{ r.loaded.tag }}</span
+                >
               </LabFact>
             </LabFacts>
           </div>

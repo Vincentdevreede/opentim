@@ -53,7 +53,7 @@ the rest when it is opened.
   like the teeter-totter's frame 0. A frame the program keeps as a word reads signed, so the wood incline's
   frame 65535 reads -1, here and in the walks.
 - **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
-  "out-of-play flag set" or "goal mark 0x0100 set", both words of the fine position read as one ("fine Y
+  "out-of-play flag set" or "goal mark set", both words of the fine position read as one ("fine Y
   positionY × 512"), and a number added or a halving reads in words. Lines of one part that say the same are one
   row with how many ways give it, and each way's condition when the row is opened: the analysis keeps a line for
   each test its source makes, so the jack-in-the-box's push on the cat is two rows of 5 ways (mirrored and not)
@@ -90,16 +90,22 @@ the rest when it is opened.
   which the loader keeps there, see [what the loader keeps](levels.md#what-the-loader-keeps)). Another part's bit
   starts with its name, "collider on the moving list", and a bit flipped before the test reads the other way. Other
   bits, and masks of more than one bit, keep the form above. The analysis's sentences name a flag without its bit
-  ("its out-of-play flag is clear"), and a field they call by its offset gets the lab's name for it ("its olderY").
+  ("its out-of-play flag is clear"), and a field they call by its offset gets the lab's name for it ("its olderY"),
+  with the fields the level loader fills (`marks` at `0x0a`, the belt's and rope slots' places, `extra`). A goal mark
+  another part sets reads "goal mark set" in that part's row.
+- **Numbers in formulas.** A number in a formula reads in decimal and signed ("/ 28000", "-2048"), a mask in hex. A
+  word taken as signed (`(x ^ 0x8000) - 0x8000`) and a value kept to a word (`x & 0xffff`) read as the value, and
+  `x & 0xfff0` as "x rounded down to 16". A table in the program reads "table[…]" and a value a query, a call or a
+  loop leaves reads by what it is, "the query's answer", without the address: the instructions in the tip have it.
 - **Rope callbacks.** Their walks and changes name what the rope code passes them: `otherEnd` (the part at the other
   end of the rope), `ropeSlot` (which of its two rope links), `ropeKind` (the kind of pull, with 0x8000 when it only
   asks), `pullMomentum`, and `askedRope`, the record of the rope it is asked about (decided assumption 1). The tip
   gives each name's raw form. In Even More this leaves 22 of the 7,768 conditions the tab shows with raw terms, down
   from 311: the rope callback's argument on two parts' resting frames, the flip's argument on part 47 and a table
   with an unknown index on part 4.
-- **Run values.** A value the run finds itself reads by what it is: "stateDelta after the query at …", "found",
-  "reached" (a part through a rope, belt or pulley), "centre angle at …", "gear jam at …", "next in the list after
-  the insertion at …", and a value a test picks as "3 if state == 2, else 5".
+- **Run values.** A value the run finds itself reads by what it is: "stateDelta after the query", "found",
+  "reached" (a part through a rope, belt or pulley), "the centre angle", "the gear jam", "next in the list after
+  the insertion", and a value a test picks as "3 if state == 2, else 5".
 
 ## Analysis limits
 

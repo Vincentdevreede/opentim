@@ -22,7 +22,7 @@ import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
 import { MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
 import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
-import { readBehaviourInBackground, type GoalsResult } from "../behaviour.ts";
+import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
 import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
@@ -95,14 +95,27 @@ const list = computed(() => loadedParts.value?.list);
 
 /** Every puzzle's goal, read from the program in the background after its behaviour, which names the goals. */
 const goals = shallowRef<GoalsResult | { status: "reading" }>();
+/** The parts that set each goal mark, by `type:bit`, once the walks say what parts do to each other. */
+const markSetters = shallowRef<ReadonlyMap<string, string[]>>(new Map());
+/** The part record's fields as the behaviour read names them, for the structure's tags. */
+const recordFields = shallowRef<readonly WriterField[]>();
 watch(
   () => [program.value?.data, loadedParts.value?.program] as const,
   ([data, parts]) => {
     goals.value = undefined;
+    markSetters.value = new Map();
+    recordFields.value = undefined;
     if (!data || !parts) return;
     goals.value = { status: "reading" };
-    void readBehaviourInBackground(data, parts).goals.then((result) => {
+    const reading = readBehaviourInBackground(data, parts);
+    void reading.result.then((result) => {
+      if (program.value?.data === data && result.status === "done") recordFields.value = result.summary.fields;
+    });
+    void reading.goals.then((result) => {
       if (program.value?.data === data) goals.value = result;
+    });
+    void reading.walks.then((result) => {
+      if (program.value?.data === data && result.status === "done") markSetters.value = goalMarkSetters(result.effects);
     });
   },
   { immediate: true },
@@ -342,7 +355,7 @@ onBeforeUnmount(() => {
             </LabFacts>
           </div>
           <div v-if="goal" class="relative min-w-0 flex-[3] border-r border-line">
-            <LevelGoal :goal="goal" :says="level?.goal" :area-numbers="areaNumbers" />
+            <LevelGoal :goal="goal" :says="level?.goal" :area-numbers="areaNumbers" :mark-setters="markSetters" />
           </div>
           <div class="relative min-w-0 flex-[2]">
             <div class="absolute inset-0 flex flex-col">
@@ -372,6 +385,7 @@ onBeforeUnmount(() => {
         :list="list"
         :selected="selectedPart"
         :header="loadedHeader"
+        :record="recordFields"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />
