@@ -8,7 +8,15 @@
  * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
 import { globalLists, searchedLists, typesLinkedInto } from "./behaviour-list-masks.ts";
-import type { BehaviourReport, Evidence, Expression, FieldWrite, Finding, Predicate } from "./behaviour.ts";
+import type {
+  BehaviourReport,
+  Evidence,
+  Expression,
+  FieldWrite,
+  Finding,
+  Predicate,
+  ReadProgress,
+} from "./behaviour.ts";
 import { callKinds, choiceOf, openCalls } from "./behaviour.ts";
 import { formula as formulaOf } from "./describe-touch.ts";
 import { directionCases } from "./behaviour-centre-angle.ts";
@@ -712,6 +720,8 @@ interface Candidate {
 export function hitsFromOthers(
   report: BehaviourReport,
   evaluate: Evaluate,
+  /** Told after each source part, which is most of the time this takes. */
+  onProgress?: ReadProgress,
 ): Map<number, { hits: PartHit[]; assumptions: string[] }> {
   const result = new Map<number, { hits: PartHit[]; assumptions: string[] }>();
   const typeOffset = report.layout.fields.find((f) => f.name === "type")?.offset;
@@ -740,7 +750,7 @@ export function hitsFromOthers(
     callback.slot === 0
       ? (routines.get(callback.address)?.outcomes ?? []).map((outcome) => ({ ...outcome, object: "collider" }))
       : [];
-  for (const source of report.parts)
+  for (const [done, source] of report.parts.entries()) {
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
       const iterations = routines.get(callback.address)?.iterationOutcomes ?? [];
@@ -827,6 +837,8 @@ export function hitsFromOthers(
         });
       }
     }
+    onProgress?.(done + 1, report.parts.length);
+  }
 
   const afterResponse = responseFields(report);
   const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;

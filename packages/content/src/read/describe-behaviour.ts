@@ -32,6 +32,7 @@ import type {
   Finding,
   PartBehaviour,
   Predicate,
+  ReadProgress,
   RoutineAnalysis,
   Transition,
 } from "./behaviour.ts";
@@ -4270,10 +4271,18 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
   return results;
 }
 
-export function describeBehaviour(report: BehaviourReport): BehaviourDescription {
+export function describeBehaviour(report: BehaviourReport, onProgress?: ReadProgress): BehaviourDescription {
+  // Progress counts the pass over the sources of hits, then the parts one by one; the two take about as long.
+  const total = 2 * report.parts.length + 1;
   const fromOthers = effectsFromOthers(report, evaluateBehaviourCondition);
-  const hits = hitsFromOthers(report, evaluateBehaviourCondition);
-  const parts = report.parts.map((part): PartBehaviourDescription => {
+  onProgress?.(1, total);
+  const hits = hitsFromOthers(report, evaluateBehaviourCondition, (done) => onProgress?.(1 + done, total));
+  const parts = report.parts.map((part, done) => {
+    const described = describePart(part);
+    onProgress?.(2 + report.parts.length + done, total);
+    return described;
+  });
+  function describePart(part: PartBehaviour): PartBehaviourDescription {
     const rest = restOf(report, part);
     const creation = creationOf(report, part);
     if (rest.status !== "known" && report.lifecycle?.reset.length) {
@@ -4708,7 +4717,7 @@ export function describeBehaviour(report: BehaviourReport): BehaviourDescription
         [...(fromOthers.get(part.type)?.assumptions ?? []), ...(hits.get(part.type)?.assumptions ?? [])],
       ),
     };
-  });
+  }
   return {
     listId: report.listId,
     parts,
