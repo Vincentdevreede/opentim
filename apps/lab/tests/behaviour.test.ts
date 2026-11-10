@@ -15,6 +15,7 @@ import {
   summariseEffects,
   summariseRests,
   summariseWalks,
+  tidyWords,
   writer,
 } from "../src/behaviour.ts";
 
@@ -24,6 +25,13 @@ const fields = [
 ];
 const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
 const field = (offset: number, object = "part"): Expression => ({ kind: "field", object, offset, width: 16 });
+const binary = (operator: string, left: Expression, right: Expression): Expression => ({
+  kind: "binary",
+  operator,
+  left,
+  right,
+  width: 16,
+});
 const compare = (operator: string, left: Expression, right: Expression): Predicate => ({
   kind: "compare",
   operator,
@@ -115,13 +123,6 @@ describe("writer", () => {
   });
 
   it("reads numbers in a condition by what they are: signed values, masks in hex and directions in degrees", () => {
-    const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-      kind: "binary",
-      operator,
-      left,
-      right,
-      width: 16,
-    });
     // A speed or a frame is signed, also when a test only says equal or not, and a negative number added is taken off.
     expect(predicate(compare("!=", field(0x12), constant(0xd000)))).toBe("stateDelta != -12288");
     const signedTest: Predicate = {
@@ -186,6 +187,44 @@ describe("writer", () => {
         terms: [compare("!=", field(0x12), constant(0)), compare("==", field(0x0c), constant(4))],
       }),
     ).toBe("stateDelta != 0 and state == 4");
+  });
+
+  it("says a test of one named flag bit in words, for the part itself and for another part", () => {
+    const flags = writer([
+      ...fields,
+      {
+        offset: 0x08,
+        name: "drawingFlags",
+        masks: [
+          { value: 0x10, name: "horizontalFlip" },
+          { value: 0x20, name: "verticalFlip" },
+        ],
+      },
+    ]);
+    const bit = (offset: number, mask: number, object = "part") => binary("&", field(offset, object), constant(mask));
+    expect(flags.predicate(compare("==", bit(0x08, 0x10), constant(0)))).toBe("not mirrored");
+    expect(flags.predicate(compare("!=", bit(0x08, 0x20), constant(0)))).toBe("upside down");
+    expect(flags.predicate(compare("==", bit(0x08, 0x20), constant(0x20)))).toBe("upside down");
+    expect(flags.predicate(compare("==", bit(0x08, 0x2000), constant(0)))).toBe("in play");
+    expect(flags.predicate(compare("!=", bit(0x06, 0x1000, "collider"), constant(0)))).toBe(
+      "collider on the moving list",
+    );
+    expect(flags.predicate(compare("==", bit(0x06, 0x40), constant(0)))).toBe("not drawn as tiles");
+    expect(flags.predicate(compare("!=", bit(0x0a, 0x100), constant(0)))).toBe("goal mark 0x0100 set");
+    // A bit flipped before the test tests the other way.
+    const flipped = binary("&", binary("^", field(0x08), constant(0x10)), constant(0x10));
+    expect(flags.predicate(compare("==", flipped, constant(0)))).toBe("mirrored");
+    // Bits without a name, and more than one bit, keep the analysis's form.
+    expect(flags.predicate(compare("==", bit(0x08, 0x0200), constant(0)))).toBe("drawingFlags & 0x200 == 0");
+    expect(flags.predicate(compare("==", bit(0x08, 0x30), constant(0)))).toBe("drawingFlags & 0x30 == 0");
+  });
+});
+
+describe("tidyWords", () => {
+  it("leaves out the bit of a flag the analysis names, and names a field it calls by its offset", () => {
+    expect(tidyWords("its out-of-play flag 0x2000 is clear")).toBe("its out-of-play flag is clear");
+    expect(tidyWords("its positionY is not its field 0x28")).toBe("its positionY is not its olderY");
+    expect(tidyWords("its field 0x70 is 3")).toBe("its field 0x70 is 3");
   });
 });
 

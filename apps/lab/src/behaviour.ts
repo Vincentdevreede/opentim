@@ -361,9 +361,60 @@ function foldMask(e: Extract<Expression, { kind: "binary" }>): Expression {
   return e;
 }
 
+/** A field of the part record as the writer names it, with the bits of it the analysis names, like `horizontalFlip`. */
+export interface WriterField {
+  offset: number;
+  name: string;
+  masks?: readonly { value: number; name: string }[];
+}
+
+const writerFields = (report: BehaviourReport): WriterField[] =>
+  report.layout.fields.map(({ offset, name, masks }) => ({ offset, name, ...(masks ? { masks } : {}) }));
+
+/** The bits the analysis names in the drawing flags, as words for set and clear. */
+const MASK_WORDS: Record<string, [string, string]> = {
+  horizontalFlip: ["mirrored", "not mirrored"],
+  verticalFlip: ["upside down", "not upside down"],
+  drawFromPieces: ["drawn from pieces", "not drawn from pieces"],
+};
+
+/**
+ * Single bits of a part's flag words whose meaning the program shows, as words for set and clear, by field and bit.
+ * The list bits are the ones the list head routine picks the fixed, moving and third list by, and the third list is
+ * the parts bin (`docs/levels.md`); 0x40 of the list flags is the level file's tiles bit, which the loader keeps
+ * there. The others are the flags `PART_FLAGS` names in `describe-effects.ts`: contact, out of play, ran this step,
+ * and the goal marks only goal routines test.
+ */
+const FLAG_BITS = new Map<string, [string, string]>([
+  ["6:1", ["in contact", "not in contact"]],
+  ["6:64", ["drawn as tiles", "not drawn as tiles"]],
+  ["6:2048", ["in the parts bin", "not in the parts bin"]],
+  ["6:4096", ["on the moving list", "not on the moving list"]],
+  ["6:8192", ["on the fixed list", "not on the fixed list"]],
+  ["8:64", ["ran this step", "not run this step"]],
+  ["8:8192", ["out of play", "in play"]],
+  ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask): [string, [string, string]] => [
+    `10:${mask}`,
+    [`goal mark ${hex(mask, 4)} set`, `goal mark ${hex(mask, 4)} clear`],
+  ]),
+]);
+
+/** Flags the analysis names in its sentences with their bit after them, like "out-of-play flag 0x2000". */
+const NAMED_FLAG = /\b(contact flag|out-of-play flag|ran-this-step mark) 0x[0-9a-f]{4}\b/g;
+
+/**
+ * A sentence of the analysis as the lab shows it: a flag it names without its bit, and a field it calls by its offset,
+ * like "field 0x28", by the name the lab gives that field.
+ */
+export function tidyWords(text: string): string {
+  return text
+    .replace(NAMED_FLAG, "$1")
+    .replace(/\bfield (0x[0-9a-f]{2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all);
+}
+
 /** Writes expressions and conditions as text, with the names of the part's fields. */
 export function writer(
-  fields: readonly { offset: number; name: string }[],
+  fields: readonly WriterField[],
   /** Names that only hold for this part's own fields, like the gear's neighbours. */
   own: ReadonlyMap<number, string> = new Map(),
   /** The routine the expressions come from, when its argument has names: the rope callback's. */
@@ -537,11 +588,47 @@ export function writer(
         return "unknown";
     }
   };
+  /** The words for a bit of a field, from the analysis's names of its bits and the flags the program shows. */
+  const bitWords = (offset: number, mask: number) => {
+    const masked = fields.find((f) => f.offset === offset)?.masks?.find((m) => m.value === mask);
+    return (masked && MASK_WORDS[masked.name]) ?? FLAG_BITS.get(`${offset}:${mask}`);
+  };
+  /**
+   * A test of one named bit of a part's flags in words, like `drawingFlags & 0x10 == 0` as "not mirrored" and
+   * `found.lists & 0x1000 != 0` as "found on the moving list"; undefined for any other test.
+   */
+  const bitTest = (p: Extract<Predicate, { kind: "compare" }>): string | undefined => {
+    if (p.operator !== "==" && p.operator !== "!=") return undefined;
+    const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
+    if (against.kind !== "constant" || tested.kind !== "binary") return undefined;
+    const folded = foldMask(tested);
+    if (folded.kind !== "binary" || folded.operator !== "&" || folded.right.kind !== "constant") return undefined;
+    const mask = folded.right.value >>> 0;
+    if (!mask || (mask & (mask - 1)) !== 0) return undefined;
+    const value = against.value >>> 0;
+    if (value !== 0 && value !== mask) return undefined;
+    // A bit flipped before the test, like `(drawingFlags ^ 0x10) & 0x10`, tests the other way.
+    let flags = folded.left;
+    let flipped = false;
+    if (flags.kind === "binary" && flags.operator === "^" && flags.right.kind === "constant") {
+      if ((flags.right.value & mask) !== 0) flipped = true;
+      flags = flags.left;
+    }
+    if (flags.kind !== "field" || object(flags.object).kind !== "part") return undefined;
+    const words = bitWords(flags.offset, mask);
+    if (!words) return undefined;
+    const set = ((p.operator === "!=") === (value === 0)) !== flipped;
+    // The part the field belongs to, like "found" in "found.lists"; nothing for the part itself.
+    const whose = /^(.+)\.[^.]+$/.exec(place(flags.object, flags.offset))?.[1];
+    return `${whose ? `${whose} ` : ""}${words[set ? 0 : 1]}`;
+  };
   const predicate = (p: Predicate): string => {
     switch (p.kind) {
       case "true":
         return "always";
       case "compare": {
+        const bit = bitTest(p);
+        if (bit) return bit;
         // A frame, a speed, a position or a control value as a signed number, a direction in degrees, and a value of
         // masked bits in hex like the mask.
         const masked = (e: Expression) => e.kind === "binary" && ["&", "|", "^"].includes(e.operator);
@@ -690,7 +777,7 @@ function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummar
 
 function summarisePart(
   part: PartBehaviour,
-  fields: readonly { offset: number; name: string }[],
+  fields: readonly WriterField[],
   stateOffset: number,
   report: BehaviourReport,
 ): PartSummary {
@@ -879,14 +966,14 @@ function walkOf(a: AnimationDescription, write: ReturnType<typeof writer>): Walk
 }
 
 /** The writer for a part: with the names of the gear's neighbours when it is a gear. */
-function partWriter(part: PartBehaviour, fields: readonly { offset: number; name: string }[], routine?: "rope") {
+function partWriter(part: PartBehaviour, fields: readonly WriterField[], routine?: "rope") {
   const own = new Map(gearSlots(part).map((s) => [s.offset, s.name]));
   return writer(fields, own, routine);
 }
 
 /** The walks from the triggers of each part, by type, from the report's description. */
 export function summariseWalks(report: BehaviourReport, description: BehaviourDescription): Record<number, Walk[]> {
-  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const fields = writerFields(report);
   const animations = new Map(description.parts.map((d) => [d.type, d.animations]));
   return Object.fromEntries(
     report.parts.map((p) => [
@@ -901,7 +988,7 @@ export function summariseRests(
   report: BehaviourReport,
   description: BehaviourDescription,
 ): Record<number, RestSummary> {
-  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const fields = writerFields(report);
   const parts = new Map(report.parts.map((p) => [p.type, p]));
   return Object.fromEntries(
     description.parts.map((d) => {
@@ -950,7 +1037,7 @@ const PROVED = /ran-this-step mark|out-of-play flag|goal mark|contact flag|fine 
  * the flags of its own whose meaning the code proves. Ways that say the same are one line.
  */
 export function summariseDoings(report: BehaviourReport, description: BehaviourDescription): Record<number, Doing[]> {
-  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const fields = writerFields(report);
   const parts = new Map(report.parts.map((p) => [p.type, p]));
   return Object.fromEntries(
     description.parts.map((d) => {
@@ -1102,7 +1189,7 @@ export function summariseEffects(
   report: BehaviourReport,
   description: BehaviourDescription,
 ): Record<number, OtherEffect[]> {
-  const fields = report.layout.fields.map(({ offset, name }) => ({ offset, name }));
+  const fields = writerFields(report);
   const write = writer(fields);
   const signedText = (n: number) => String(n > 0x7fff ? n - 0x10000 : n);
   return Object.fromEntries(
@@ -1145,10 +1232,10 @@ export function summariseEffects(
             source: e.sourcePart,
             ...(e.touch ? { touch: true } : {}),
             sets: joinFine(sets),
-            when: e.conditionWords.map((w) => w.replace(/^on the /, "")),
-            sourceWhen: e.sourceConditionWords,
+            when: e.conditionWords.map((w) => tidyWords(w.replace(/^on the /, ""))),
+            sourceWhen: e.sourceConditionWords.map(tidyWords),
             sourceConditions: [write.predicate(e.sourceCondition)],
-            ...(e.cases ? { cases: e.cases.map((c) => c.words) } : {}),
+            ...(e.cases ? { cases: e.cases.map((c) => tidyWords(c.words)) } : {}),
             ...(e.searched?.length ? { searched: e.searched.map((offset) => write.place("part", offset)) } : {}),
             description: e.description,
           };
@@ -1175,7 +1262,9 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   return {
     fields,
     timing,
-    parts: Object.fromEntries(report.parts.map((p) => [p.type, summarisePart(p, fields, stateOffset, report)])),
+    parts: Object.fromEntries(
+      report.parts.map((p) => [p.type, summarisePart(p, writerFields(report), stateOffset, report)]),
+    ),
     assumptions: report.assumptions,
   };
 }
