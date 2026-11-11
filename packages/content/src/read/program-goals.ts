@@ -31,7 +31,7 @@ export interface ProgramGoals {
 }
 
 /** The names a goal is said with, from the program's load image and its behaviour read. */
-export function goalNames(
+function goalNames(
   image: Uint8Array,
   report: Pick<BehaviourReport, "helpers" | "layout" | "parts">,
   routines: ReadonlyMap<number, GoalRoutine | GoalProblem>,

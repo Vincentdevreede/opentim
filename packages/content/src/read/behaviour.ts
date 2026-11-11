@@ -42,6 +42,7 @@ import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
+import { constant, evidenceOf, field, uniqueEvidence, unknown, unsigned } from "./behaviour-terms.ts";
 
 /** The name of whether a helper's allocation found room at a call, like the wall split's copy: only the run knows. */
 export const allocationAnswer = (call: string) => `allocation answer of the call at ${call}`;
@@ -255,9 +256,6 @@ export interface BehaviourReport {
 const hex = (n: number) => `0x${n.toString(16)}`;
 /** How large a proved frame drawing value may grow when a caller puts its own fields in. */
 const FRAME_DRAWING_BUDGET = 1024;
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
-const unknown = (reason: string, width = 16): Expression => ({ kind: "unknown", reason, width });
-const field = (object: string, offset: number, width = 16): Expression => ({ kind: "field", object, offset, width });
 /** The JSON text of each expression, predicate and state list, kept because they are never changed once made. */
 const texts = new WeakMap<object, string>();
 const textOf = (value: unknown) => {
@@ -267,7 +265,6 @@ const textOf = (value: unknown) => {
   return text;
 };
 const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
-const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
 /** The named part fields the asking part keeps: those its own rope callback can't write when a question comes back. */
 const askingKeeps = (connected: NonNullable<EngineSummary["connected"]>) =>
   connected.partFields
@@ -301,8 +298,6 @@ const selectedWrite = (effect: { offset: number; width: number }, i: Instruction
     unresolved: true,
   }) as Expression;
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
-const uniqueEvidence = (items: Evidence[]) => [...new Map(items.map((i) => [i.address, i])).values()];
-const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
 const signed = (n: number, width: number) => {
   const u = unsigned(n, width);
   return u >= 2 ** (width - 1) ? u - 2 ** width : u;
@@ -806,7 +801,7 @@ function predicateUnknownBesidesOverlaps(p: Predicate): boolean {
  * part, like the vacuum cleaner's pull, harder the less the part overlaps it: the part holds that overlap in its own
  * fields, so the way is as known as the part.
  */
-export function onlyStoredOverlapsOpen(outcome: IterationOutcome): boolean {
+function onlyStoredOverlapsOpen(outcome: IterationOutcome): boolean {
   return (
     outcome.effectsComplete &&
     !predicateUnknownBesidesOverlaps(outcome.condition) &&

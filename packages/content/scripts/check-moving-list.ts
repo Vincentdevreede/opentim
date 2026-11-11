@@ -1,5 +1,5 @@
 /**
- * Checks decided assumption 22 (docs/behaviour-assumptions.md) in the game's own run: runs every shipped puzzle of a
+ * Checks decided assumption 22 (docs/assumptions/behaviour-assumptions.md) in the game's own run: runs every shipped puzzle of a
  * build the level recorder knows (`src/run/game.ts`) and, at every step, looks for a part of a fixed type on the
  * moving list, the list the searches of the moving list walk. A type is fixed when the part factory's starting flags
  * for it have 0x4000, as the analysis reads them. It also reports the types that join a list during a run, and parts

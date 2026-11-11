@@ -2,6 +2,7 @@
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { Evidence } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf } from "./behaviour-terms.ts";
 
 export interface BoundedSearchLoop {
   entry: number;
@@ -13,7 +14,6 @@ export interface BoundedSearchLoop {
 }
 const register = (o: Operand | undefined, name: string) => o?.kind === "register" && o.name === name;
 const immediate = (o: Operand | undefined, value: number) => o?.kind === "immediate" && o.value === value;
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
 
 /**
  * The existing jump-table proof supplies bounded keys and targets. This additional proof establishes that each
@@ -88,7 +88,7 @@ export function discoverBoundedSearchLoops(code: RoutineCode): BoundedSearchLoop
       latch: latch.address,
       count: search.count,
       body: [...body],
-      evidence: sequence.map(evidence),
+      evidence: sequence.map(evidenceOf),
     });
   }
   return results;

@@ -5,6 +5,7 @@ import { discoverContactArithmetic, type ContactArithmetic } from "./behaviour-c
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression, Finding } from "./behaviour.ts";
+import { binary, constant, routineEvidence } from "./behaviour-terms.ts";
 
 export interface RotationScalar extends Finding {
   routine: number;
@@ -36,16 +37,7 @@ export interface ContactRotation extends Finding {
   aliasing: "laterStoreWinsOverlappingBytes";
   returnAx: "y";
 }
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
 const input = (object: string): Expression => ({ kind: "field", object, offset: 0, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression, width = 16): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width,
-});
-const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
 /** The result remains a runtime table read; image words are separate conditional snapshot evidence. */
 export function rotationScalarExpression(relation: RotationScalar, angle: Expression): Expression {
@@ -97,7 +89,7 @@ export function discoverRotationScalar(code: RoutineCode, image: Uint8Array): Ro
         snapshot: "loadedImage",
       },
       confidence: "inferred",
-      evidence: proof(code),
+      evidence: routineEvidence(code),
       assumptions: [
         "The far scalar call has a valid private stack with its word argument at SS:SP+4. The code segment and lookup storage are valid, separate from the caller's outputs, and stable during this call.",
         "The optional phase addition wraps to a word before four logical shifts. Their result is between zero and 4095; the upper half maps to 4096 minus that value. Thus every lookup index is between zero and 2048 inclusive, including the endpoint at 2048.",
@@ -193,7 +185,7 @@ function discoverShift(
         ? "Shifts the 32-bit pair DX:AX left by CL, combining cross-word bits and discarding overflow."
         : "Shifts the signed 32-bit pair DX:AX right by CL, preserving cross-word bits and the sign.",
     confidence: "inferred",
-    evidence: proof(code),
+    evidence: routineEvidence(code),
     assumptions: [
       "CL is between zero and 31. Below 16, the two shifted words combine with the cross-word bits; at least 16, the word exchange and remaining shift give the same long operation. Arithmetic shifts extend the sign; left shifts discard bits beyond the long width.",
       near
@@ -308,7 +300,7 @@ export function discoverContactRotation(
     const finding: Finding = {
       confidence: "inferred",
       evidence: [
-        ...proof(code),
+        ...routineEvidence(code),
         ...unshifted.evidence,
         ...quarterShifted.evidence,
         ...multiplication.evidence,

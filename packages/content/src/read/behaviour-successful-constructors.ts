@@ -4,15 +4,10 @@ import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isMemory, isRegister, storesToMemory } from "./behaviour-terms.ts";
 
-const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && (name === undefined || o.name === name);
-const mem = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
-const evidence = ({ address, bytes, text }: Instruction) => ({ address, bytes, text });
-const stores = (i: Instruction) =>
-  mem(i.operands[0]) && !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
 const writesRegister = (i: Instruction, name: string) =>
-  reg(i.operands[0], name) && i.flow === "next" && !["push", "cmp", "test"].includes(i.mnemonic);
+  isRegister(i.operands[0], name) && i.flow === "next" && !["push", "cmp", "test"].includes(i.mnemonic);
 
 /** The routine is analysed symbolically, never invoked on a constructed game object. */
 export function successfulOwnerConstructor(
@@ -62,10 +57,10 @@ export function successfulOwnerConstructor(
   const [push, move] = code.instructions;
   if (
     push?.mnemonic !== "push" ||
-    !reg(push.operands[0], "bp") ||
+    !isRegister(push.operands[0], "bp") ||
     move?.mnemonic !== "mov" ||
-    !reg(move.operands[0], "bp") ||
-    !reg(move.operands[1], "sp")
+    !isRegister(move.operands[0], "bp") ||
+    !isRegister(move.operands[1], "sp")
   )
     return;
   const returns = code.instructions.filter((i) => i.flow === "return");
@@ -73,24 +68,26 @@ export function successfulOwnerConstructor(
   const ownerLoad = code.instructions.find(
     (i) =>
       i.mnemonic === "mov" &&
-      reg(i.operands[0]) &&
+      isRegister(i.operands[0]) &&
       ["si", "di"].includes(i.operands[0].name) &&
-      mem(i.operands[1]) &&
+      isMemory(i.operands[1]) &&
       i.operands[1].segment === "ss" &&
       i.operands[1].base.join() === "bp" &&
       i.operands[1].displacement === 6,
   );
-  if (!ownerLoad || !reg(ownerLoad.operands[0])) return;
+  if (!ownerLoad || !isRegister(ownerLoad.operands[0])) return;
   const owner = ownerLoad.operands[0].name;
   const loadIndex = code.instructions.indexOf(ownerLoad);
   const saves = code.instructions.slice(2, loadIndex);
-  if (saves.some((i) => i.mnemonic !== "push" || !reg(i.operands[0]) || !["si", "di"].includes(i.operands[0].name)))
+  if (
+    saves.some((i) => i.mnemonic !== "push" || !isRegister(i.operands[0]) || !["si", "di"].includes(i.operands[0].name))
+  )
     return;
   const saved = saves.map((i) => (i.operands[0] as Extract<Operand, { kind: "register" }>).name);
   if (new Set(saved).size !== saved.length || !saved.includes(owner)) return;
   const popNames = [...saved].reverse().concat("bp");
   const epilogue = code.instructions.slice(-popNames.length - 1, -1);
-  if (!epilogue.every((i, n) => i.mnemonic === "pop" && reg(i.operands[0], popNames[n]))) return;
+  if (!epilogue.every((i, n) => i.mnemonic === "pop" && isRegister(i.operands[0], popNames[n]))) return;
   const firstPop = epilogue[0]!.address;
   if (
     code.instructions.some(
@@ -123,7 +120,7 @@ export function successfulOwnerConstructor(
     byAddress = new Map(code.instructions.map((i) => [i.address, i]));
   for (const edge of code.edges)
     if (edge.to !== null) outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
-  for (const store of code.instructions.filter(stores)) {
+  for (const store of code.instructions.filter(storesToMemory)) {
     const pending = [code.address],
       seen = new Set<number>();
     while (pending.length) {
@@ -145,7 +142,11 @@ export function successfulOwnerConstructor(
     if (
       delta < -0x7fff ||
       (delta > -2 &&
-        !(i.mnemonic === "pop" && reg(i.operands[0], "bp") && returns.some((r) => r.address === i.address + i.size)) &&
+        !(
+          i.mnemonic === "pop" &&
+          isRegister(i.operands[0], "bp") &&
+          returns.some((r) => r.address === i.address + i.size)
+        ) &&
         i.flow !== "return") ||
       (i.flow === "return" && delta !== 0)
     )
@@ -159,10 +160,10 @@ export function successfulOwnerConstructor(
       }
     }
   }
-  for (const i of code.instructions.filter(stores)) {
+  for (const i of code.instructions.filter(storesToMemory)) {
     const dest = i.operands[0];
     if (
-      !mem(dest) ||
+      !isMemory(dest) ||
       dest.segment !== "ds" ||
       dest.base.join() !== owner ||
       dest.displacement < 0 ||
@@ -197,7 +198,7 @@ export function successfulOwnerConstructor(
     return;
   return {
     confidence: "inferred",
-    evidence: code.instructions.map(evidence),
+    evidence: code.instructions.map(evidenceOf),
     assumptions: [
       "All constructor stores stay inside the fresh owner. The type and current state are unchanged, no callees or implicit memory effects occur, and every symbolic return is zero.",
       "The decoded C convention preserves the entry frame and nonvolatile registers; the constructor is conditional on valid fresh-part and stack storage.",
@@ -220,7 +221,7 @@ export function addSuccessfulConstructors(
     if (!factory || !code || !engine.allocationSize) continue;
     const table = factory.constructorTable;
     const calls = code.calls.filter(
-      (c) => c.far && mem(c.operand) && c.operand.segment === "ds" && c.operand.displacement === table.offset,
+      (c) => c.far && isMemory(c.operand) && c.operand.segment === "ds" && c.operand.displacement === table.offset,
     );
     if (calls.length !== 1) continue;
     const call = calls[0]!,
@@ -228,9 +229,9 @@ export function addSuccessfulConstructors(
     const [pop, compare, branch] = code.instructions.slice(index + 1, index + 4);
     if (
       pop?.mnemonic !== "pop" ||
-      !reg(pop.operands[0], "cx") ||
+      !isRegister(pop.operands[0], "cx") ||
       compare?.mnemonic !== "cmp" ||
-      !reg(compare.operands[0], "ax") ||
+      !isRegister(compare.operands[0], "ax") ||
       compare.operands[1]?.kind !== "immediate" ||
       compare.operands[1].value !== 1 ||
       branch?.mnemonic !== "jne" ||
@@ -255,14 +256,14 @@ export function addSuccessfulConstructors(
           i.address > allocation.instruction &&
           i.address < allocation.instruction + 16 &&
           i.mnemonic === "mov" &&
-          reg(i.operands[0]) &&
-          reg(i.operands[1], "ax"),
+          isRegister(i.operands[0]) &&
+          isRegister(i.operands[1], "ax"),
       );
-    if (!capture || !reg(capture.operands[0])) continue;
+    if (!capture || !isRegister(capture.operands[0])) continue;
     const capturedOwner = capture.operands[0].name;
     const pushIndex = code.instructions.slice(0, index).findLastIndex((i) => i.mnemonic === "push");
     const pushed = code.instructions[pushIndex];
-    if (!pushed || !reg(pushed.operands[0], capture.operands[0].name)) continue;
+    if (!pushed || !isRegister(pushed.operands[0], capture.operands[0].name)) continue;
     const bridge = code.instructions.slice(pushIndex, index + 4);
     if (
       !bridge.every(
@@ -279,7 +280,7 @@ export function addSuccessfulConstructors(
         .some(
           (i) =>
             i.flow !== "next" ||
-            mem(i.operands[0]) ||
+            isMemory(i.operands[0]) ||
             [capturedOwner, "sp", "bp", "ds", "ss"].some((name) => writesRegister(i, name)),
         )
     )
@@ -301,8 +302,8 @@ export function addSuccessfulConstructors(
           address,
           evidence: [
             ...factory.noConstructor.evidence,
-            ...bridge.map(evidence),
-            evidence(guard),
+            ...bridge.map(evidenceOf),
+            evidenceOf(guard),
             ...proof.evidence,
             {
               address: at,

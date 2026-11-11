@@ -12,6 +12,7 @@ import type { ContactMotionAngle } from "./behaviour-contact-motion-angle.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Finding } from "./behaviour.ts";
+import { routineEvidence } from "./behaviour-terms.ts";
 
 /** Named values below are acyclic mathematical definitions, not independently assignable object fields. */
 export type PairResponseFormula =
@@ -117,7 +118,6 @@ const sx = (value: PairResponseFormula): PairResponseFormula => ({ kind: "sign-e
 const neg = (value: PairResponseFormula) => b("-", c(0), value);
 const abs = (value: PairResponseFormula) => choose(b("signed<", value, c(0)), neg(value), value);
 const product = (left: PairResponseFormula, right: PairResponseFormula) => b("signed-word-product", left, right, 32);
-const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
 /** The damping adds or subtracts a word constant before its second signed test. */
 export function responseDampingFormula(value: PairResponseFormula): PairResponseFormula {
@@ -157,7 +157,7 @@ export function discoverPairCentreAngle(
     return;
   return {
     confidence: "inferred",
-    evidence: [...proof(code), ...backend.contactMotionAngle.evidence],
+    evidence: [...routineEvidence(code), ...backend.contactMotionAngle.evidence],
     assumptions: [
       ...backend.contactMotionAngle.assumptions,
       "The two complete part objects and private stack are valid and separate from code and lookup storage. Centres use signed arithmetic shifts of current frame dimensions; sums and differences wrap to words before sign extension. The backend is called with those sign-extended word differences, inside its certified bounded domain.",
@@ -309,7 +309,7 @@ export function discoverContactResponsePair(
     confidence: "inferred",
     assumptions: [...new Set(assumptions)],
     evidence: [
-      ...proof(code),
+      ...routineEvidence(code),
       ...resource.evidence,
       ...rotation.evidence,
       ...multiplication.evidence,

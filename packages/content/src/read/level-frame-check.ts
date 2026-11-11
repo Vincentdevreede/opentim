@@ -1,6 +1,6 @@
 /**
  * Checks the frames shipped levels save against what the behaviour description allows (step E1 of
- * docs/behaviour-plan.md). A level stores each part's saved frame and control value; the level reset starts the part
+ * the finished behaviour plan). A level stores each part's saved frame and control value; the level reset starts the part
  * from them. The check needs no game code: it reads the description and the level files.
  */
 import { CONTROL_VALUES, LEVEL_FRAMES } from "./behaviour-saved-frames.ts";

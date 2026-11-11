@@ -4,6 +4,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { LoopSummary } from "./behaviour-loops.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, sameOperand } from "./behaviour-terms.ts";
 
 type Memory = Extract<Operand, { kind: "memory" }>;
 
@@ -19,7 +20,6 @@ const register = (operand: Operand | undefined, name?: string): operand is Extra
 const memory = (operand: Operand | undefined): operand is Memory => operand?.kind === "memory";
 const immediate = (operand: Operand | undefined, value: number) =>
   operand?.kind === "immediate" && operand.value === value;
-const same = (a: Operand | undefined, b: Operand | undefined) => JSON.stringify(a) === JSON.stringify(b);
 const local = (operand: Operand | undefined): operand is Memory =>
   memory(operand) &&
   operand.width === 16 &&
@@ -27,8 +27,9 @@ const local = (operand: Operand | undefined): operand is Memory =>
   operand.base.join() === "bp" &&
   operand.displacement < -1;
 const is = (i: Instruction | undefined, mnemonic: string, ...operands: (Operand | undefined)[]) =>
-  i?.mnemonic === mnemonic && i.operands.length === operands.length && operands.every((o, n) => same(o, i.operands[n]));
-const evidence = ({ address, bytes, text }: Instruction) => ({ address, bytes, text });
+  i?.mnemonic === mnemonic &&
+  i.operands.length === operands.length &&
+  operands.every((o, n) => sameOperand(o, i.operands[n]));
 
 /** The certificate requires an active iteration and nonnegative counter when its transfer is applied. */
 export function proveEmptyConnections(
@@ -91,7 +92,7 @@ export function proveEmptyConnections(
   if (
     index?.mnemonic !== "mov" ||
     !register(index.operands[0], "bx") ||
-    !same(index.operands[1], loop.counter) ||
+    !sameOperand(index.operands[1], loop.counter) ||
     shift?.mnemonic !== "shl" ||
     !register(shift.operands[0], "bx") ||
     !immediate(shift.operands[1], 1) ||
@@ -158,18 +159,18 @@ export function proveEmptyConnections(
     !register(cleanup.operands[0], "sp") ||
     !immediate(cleanup.operands[1], 8) ||
     saveReturn?.mnemonic !== "mov" ||
-    !same(saveReturn.operands[0], accumulator) ||
+    !sameOperand(saveReturn.operands[0], accumulator) ||
     !register(saveReturn.operands[1], "ax") ||
     update?.mnemonic !== "inc" ||
     update.address !== loop.proof.update ||
-    !same(update.operands[0], loop.counter)
+    !sameOperand(update.operands[0], loop.counter)
   )
     return undefined;
   const header = byAddress.get(loop.header),
     latch = byAddress.get(loop.latch);
   if (
     header?.mnemonic !== "cmp" ||
-    !same(header.operands[0], loop.counter) ||
+    !sameOperand(header.operands[0], loop.counter) ||
     !immediate(header.operands[1], loop.limit) ||
     latch?.mnemonic !== (loop.signed ? "jl" : "jb") ||
     latch.target?.address !== loop.bodyEntry
@@ -277,7 +278,7 @@ export function proveEmptyConnections(
     zeroRegisters: ["ax"],
     scratchRegisters: ["bx"],
     confidence: "inferred",
-    evidence: [pushFrame, setFrame, reserve, definition, ...instructions, header, latch].map(evidence),
+    evidence: [pushFrame, setFrame, reserve, definition, ...instructions, header, latch].map(evidenceOf),
     assumptions: [
       ...loop.assumptions,
       "The existing counted-loop entry proof establishes an active iteration and a nonnegative counter. Every examined owner connection word is zero and the complete part and private stack occupy separate valid storage.",

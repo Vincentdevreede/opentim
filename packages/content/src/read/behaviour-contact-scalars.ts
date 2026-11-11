@@ -4,23 +4,15 @@ import { rangePatterns, typesPatterns } from "./behaviour-contact-patterns.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression } from "./behaviour.ts";
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const argument = (offset: number): Expression => ({ kind: "field", object: "argument", offset, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
+import { argumentField, binary, constant } from "./behaviour-terms.ts";
 
 /** Complete CFG matches check every accepting branch and the zero return before constructing a closed relation. */
 export function discoverContactScalar(code: RoutineCode): EngineSummary | undefined {
   const range = rangePatterns.some((pattern) => matchHeapRoutine(code, pattern, new Map()));
   if (!range && !typesPatterns.some((pattern) => matchHeapRoutine(code, pattern, new Map()))) return;
-  const a = argument(6),
-    b = argument(8),
-    c = argument(10);
+  const a = argumentField(6),
+    b = argumentField(8),
+    c = argumentField(10);
   let value: Expression;
   if (range) {
     const ordered = binary("<=", binary("^", b, constant(0x8000)), binary("^", c, constant(0x8000)));

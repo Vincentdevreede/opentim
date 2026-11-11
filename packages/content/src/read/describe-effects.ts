@@ -54,6 +54,7 @@ import {
   type PlaceTest,
   type SearchTest,
 } from "./describe-hits.ts";
+import { conjunction, constant, uniqueEvidence, unsigned } from "./behaviour-terms.ts";
 
 /**
  * The list flags of a part at `0x06`: the routine that puts a part on a list (`0x6469` in Even More, English floppy)
@@ -91,7 +92,7 @@ export const MOVING_SEARCH_ASSUMPTION =
 export const MADE_FIXED_ASSUMPTION =
   "An explosion is never on the moving list, so it touches nothing and no search of the moving list finds it. Only part code makes explosions, and it links them into the fixed list; an explosion only happens after another part's action, so no level stores one.";
 /** The lowest and highest air pressure a level can have, by the decided assumption: what the control panel can set. */
-export const AIR_PRESSURES = { min: 0, max: 128 };
+const AIR_PRESSURES = { min: 0, max: 128 };
 /**
  * A level's air pressure is one the control panel can set. The panel keeps its setting from 0 to 128 (`0x12566` to
  * `0x1257a` in Even More, English floppy) and a new level starts at 67 (`0x15d69`). Decided with the user on
@@ -144,7 +145,7 @@ export function rulesIgnoreLimit(
       let first: boolean | undefined;
       for (let speed = range.min; speed <= range.max; speed++) {
         const answer = evaluate(term, [
-          { object: "part", offset, width: 16, value: wrap(sign * speed, 16), knownMask: 0xffff },
+          { object: "part", offset, width: 16, value: unsigned(sign * speed, 16), knownMask: 0xffff },
         ]);
         if (answer === undefined || (first !== undefined && answer !== first)) return false;
         first = answer;
@@ -176,7 +177,7 @@ export function rulesIgnoreLimit(
  * something other than 0: each pass of the contact dispatch picks exactly one response, whatever the touching part's
  * flags and type, and every response is described and writes the field on every way. Undefined otherwise.
  */
-export function rewrittenByResponse(report: BehaviourReport, evaluate: Evaluate): Set<number> | undefined {
+function rewrittenByResponse(report: BehaviourReport, evaluate: Evaluate): Set<number> | undefined {
   const dispatches = report.collisionDispatch ?? [];
   if (!dispatches.length) return undefined;
   let fields: Set<number> | undefined;
@@ -304,7 +305,7 @@ export const TYPE_TABLE_ASSUMPTION =
  *   (`0x256e`), and one check wants `0x0400` on fish bowls (`0x28ae`). A search of the whole program for tests of these
  *   bits, in all eleven builds, finds no other.
  */
-export const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[] = [
+const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[] = [
   {
     offset: LIST_FLAGS,
     mask: 0x0001,
@@ -466,15 +467,11 @@ export type Evaluate = (
   fields: Pick<KnownField, "object" | "offset" | "width" | "value" | "knownMask">[],
 ) => boolean | undefined;
 
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
-const wrap = (value: number, width: number) => ((value % 2 ** width) + 2 ** width) % 2 ** width;
 export const terms = (predicate: Predicate): Predicate[] =>
   predicate.kind === "and" ? predicate.terms.flatMap(terms) : predicate.kind === "true" ? [] : [predicate];
 /** Names in a list: "a", "a and b", "a, b and c". */
 const listWords = (names: string[]) =>
   names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-const conjunction = (list: Predicate[]): Predicate =>
-  list.length === 0 ? { kind: "true" } : list.length === 1 ? list[0]! : { kind: "and", terms: list };
 
 /** The objects whose fields an expression reads, and whether it holds something unknown. */
 export function objects(
@@ -522,14 +519,14 @@ export function readsSourcePlace(value: Expression | Predicate, member: string):
 }
 /** A number for an expression of constants, at its width. */
 function numberOf(e: Expression): number | undefined {
-  if (e.kind === "constant") return wrap(e.value, e.width);
+  if (e.kind === "constant") return unsigned(e.value, e.width);
   if (e.kind !== "binary") return undefined;
   const a = numberOf(e.left),
     b = numberOf(e.right);
   if (a === undefined || b === undefined) return undefined;
   // A comparison gives 1 or 0, read unsigned at the width of what it compares, as the walks read it.
   if (["==", "!=", "<", "<=", ">", ">="].includes(e.operator)) {
-    const [x, y] = [wrap(a, e.left.width), wrap(b, e.left.width)];
+    const [x, y] = [unsigned(a, e.left.width), unsigned(b, e.left.width)];
     const op = e.operator;
     return Number(
       op === "=="
@@ -549,7 +546,7 @@ function numberOf(e: Expression): number | undefined {
   if (e.operator === ">>") {
     const size = 2 ** e.left.width;
     const value = a >= size / 2 ? a - size : a;
-    return wrap(Math.floor(value / 2 ** b), e.width);
+    return unsigned(Math.floor(value / 2 ** b), e.width);
   }
   const result =
     e.operator === "+"
@@ -569,7 +566,7 @@ function numberOf(e: Expression): number | undefined {
                   : e.operator === ">>>"
                     ? Math.floor(a / 2 ** b)
                     : undefined;
-  return result === undefined ? undefined : wrap(result, e.width);
+  return result === undefined ? undefined : unsigned(result, e.width);
 }
 
 /** Puts the member's type in, and reads the type table where its index is then known. */
@@ -591,7 +588,7 @@ function forType(
   if (e.kind === "table") {
     const index = numberOf(forType(e.index, member, typeOffset, type, table, used));
     if (index === undefined || !table || e.width !== 16) return e;
-    const at = e.segment * 16 + wrap(e.offset + index, 16) - table.address;
+    const at = e.segment * 16 + unsigned(e.offset + index, 16) - table.address;
     const record = table.words[Math.floor(at / table.stride)];
     if (at < 0 || at % 2 || !record || at % table.stride >= table.stride - 1) return e;
     // The game writes this word while it runs (0x107dc and 0x1084c in Even More), so the program's word isn't it.
@@ -757,11 +754,7 @@ const AFTER_EFFECT = / after field effect at (0x[0-9a-f]+)$/;
  * A value with a found part's field read after the source's rope pull (a connection query) read as the part's own
  * field: the loop reads the part as it is then, which is how a line reads it, as with the overlap its search stored.
  */
-export function afterQueries(
-  e: Expression,
-  member: string,
-  kindAt: (instruction: number) => string | undefined,
-): Expression {
+function afterQueries(e: Expression, member: string, kindAt: (instruction: number) => string | undefined): Expression {
   if (e.kind === "field" && e.unresolved && e.object.startsWith(`${member} after field effect at `)) {
     const at = AFTER_EFFECT.exec(e.object);
     if (at && kindAt(Number(at[1])) === "connection-query")
@@ -848,7 +841,7 @@ const limitWords = (limit: number | undefined) => (limit === undefined ? "" : ` 
  */
 export function keptWithin(speed: Expression, limit: number): Expression {
   const number = constant(limit),
-    negative = constant(wrap(-limit, 16));
+    negative = constant(unsigned(-limit, 16));
   const above: Extract<Predicate, { kind: "compare" }> = {
     kind: "compare",
     operator: ">",
@@ -984,7 +977,6 @@ export function partFields(value: Expression | Predicate, found: Set<number>) {
   else if (value.kind === "and") value.terms.forEach((t) => partFields(t, found));
 }
 
-const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.address, e])).values()];
 /**
  * Ids are never renamed once published, so a part whose id doesn't say what it is in TIM 1 and Even More gets its
  * words here: part 43 has the id "pinball", but in these games it is the cannonball the cannon fires.
@@ -1059,7 +1051,7 @@ function readsTable(
  * Whether a table word is the speed limit of a part of the type: the game works it out for every type when a level
  * starts, so it is the part's own, like a field, though it is no number before the level.
  */
-export function isSpeedLimitOf(
+function isSpeedLimitOf(
   e: Extract<Expression, { kind: "table" }>,
   type: number,
   table: BehaviourReport["typeTable"],

@@ -5,6 +5,7 @@ import { discoverContactScalar } from "./behaviour-contact-scalars.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
+import { argumentField, binary, compare, constant } from "./behaviour-terms.ts";
 
 export type ContactSmallRelation =
   | {
@@ -40,23 +41,7 @@ export type ContactSmallRelation =
 export interface ContactSmallSummary extends EngineSummary {
   contactSmall: ContactSmallRelation;
 }
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
 const field = (offset: number, width = 16): Expression => ({ kind: "field", object: "part", offset, width });
-const argument = (offset: number): Expression => ({ kind: "field", object: "argument", offset, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
-const compare = (operator: string, left: Expression, right: Expression, signed = false): Predicate => ({
-  kind: "compare",
-  operator,
-  left,
-  right,
-  signed,
-});
 const and = (...terms: Predicate[]): Predicate => ({ kind: "and", terms });
 
 const extension = `push bp
@@ -305,7 +290,7 @@ export function discoverContactSmall(
   if (range?.kind !== "contact-coordinate-range" || !range.returns[0]) return;
   const a = field(0),
     b = field(4),
-    coordinate = argument(8);
+    coordinate = argumentField(8);
   const ordered = binary("<=", binary("^", a, constant(0x8000)), binary("^", b, constant(0x8000)));
   const inside = binary(
     "|",

@@ -1,6 +1,7 @@
 /** Finds the PIT programming and the wait on its counter by instruction structure, without executing code. */
 import { readRoutineCode } from "./behaviour-code.ts";
 import { decodeInstruction } from "./x86.ts";
+import { wordAt } from "./behaviour-terms.ts";
 
 export interface TimingEvidence {
   address: number;
@@ -32,8 +33,6 @@ export interface BehaviourTiming {
   };
   diagnostics: string[];
 }
-
-const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
 
 /** A structural signature; null marks an instruction operand whose value is read from the image. */
 export function matchesInstructions(image: Uint8Array, at: number, pattern: (number | null)[]): boolean {
@@ -106,8 +105,9 @@ export function findBehaviourTiming(image: Uint8Array, runDispatchSites: number[
     const callers: { at: number; parameter: number; segment: number }[] = [];
     for (let p = 0; p + 9 <= image.length; p++) {
       if (!matchesInstructions(image, p, [0xb8, null, null, 0x50, 0x9a, null, null, null, null])) continue;
-      const segment = word(image, p + 7);
-      if (segment * 16 + word(image, p + 5) === entry) callers.push({ at: p, parameter: word(image, p + 1), segment });
+      const segment = wordAt(image, p + 7);
+      if (segment * 16 + wordAt(image, p + 5) === entry)
+        callers.push({ at: p, parameter: wordAt(image, p + 1), segment });
     }
     const parameters = new Set(callers.map((c) => c.parameter));
     if (parameters.size !== 1 || !callers.length) continue;
@@ -120,7 +120,7 @@ export function findBehaviourTiming(image: Uint8Array, runDispatchSites: number[
         !matchesInstructions(image, p, [0x1e, 0x8c, 0xc8, 0x8e, 0xd8, 0xba, null, null, 0xb8, 0x08, 0x25, 0xcd, 0x21])
       )
         continue;
-      handler = caller.segment * 16 + word(image, p + 6);
+      handler = caller.segment * 16 + wordAt(image, p + 6);
       vector = p;
       break;
     }
@@ -147,7 +147,7 @@ export function findBehaviourTiming(image: Uint8Array, runDispatchSites: number[
         ])
       )
         continue;
-      if (word(image, p + 6) === word(image, p + 13)) {
+      if (wordAt(image, p + 6) === wordAt(image, p + 13)) {
         irq = p;
         break;
       }
@@ -158,7 +158,7 @@ export function findBehaviourTiming(image: Uint8Array, runDispatchSites: number[
       parameter: caller.parameter,
       divisor: Math.floor(0xffff / caller.parameter),
       interruptHandler: handler,
-      counter: word(image, irq + 6),
+      counter: wordAt(image, irq + 6),
       confidence: "inferred",
       evidence: [
         ...instructionEvidence(image, at - setup.length, at + ports.length),
@@ -184,13 +184,13 @@ export function findBehaviourTiming(image: Uint8Array, runDispatchSites: number[
   for (let at = 0; at + 12 < image.length; at++) {
     if (!matchesInstructions(image, at, [0xb8, null, null, 0x2b, 0x06, null, null, 0x3d, null, null, 0x7c, 0xf4]))
       continue;
-    if (word(image, at + 5) !== result.pit.counter) continue;
-    const reset = word(image, at + 1);
-    const minimumInterrupts = word(image, at + 8);
+    if (wordAt(image, at + 5) !== result.pit.counter) continue;
+    const reset = wordAt(image, at + 1);
+    const minimumInterrupts = wordAt(image, at + 8);
     if (!minimumInterrupts || minimumInterrupts >= reset) continue;
     for (let p = at + 12; p < Math.min(image.length - 6, at + 48); p++) {
       if (!matchesInstructions(image, p, [0xc7, 0x06, null, null, null, null])) continue;
-      if (word(image, p + 2) !== result.pit.counter || word(image, p + 4) !== reset) continue;
+      if (wordAt(image, p + 2) !== result.pit.counter || wordAt(image, p + 4) !== reset) continue;
       waits.push({
         counter: result.pit.counter,
         waitSites: [at],

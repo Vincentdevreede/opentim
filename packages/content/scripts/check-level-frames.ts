@@ -1,6 +1,6 @@
 /**
  * Checks every shipped level's saved frames against the behaviour description, build by build (step E1 of
- * docs/behaviour-plan.md). Fails when a level saves a part on a frame the description doesn't allow, or a decided
+ * the finished behaviour plan). Fails when a level saves a part on a frame the description doesn't allow, or a decided
  * control value outside its numbers. The builds are read side by side (`--jobs` sets how many at once).
  *
  *   pnpm --filter @opentim/content check-level-frames --tim1 <game folder> --evenmore <game folder>

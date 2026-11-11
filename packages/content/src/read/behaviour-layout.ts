@@ -3,6 +3,7 @@ import { decodeInstruction, type Instruction } from "./x86.ts";
 import { discoverObjectFieldRoles } from "./behaviour-fields.ts";
 import { findDataSegment } from "./type-table.ts";
 import { instructionEvidence, matchesInstructions, type TimingEvidence } from "./behaviour-timing.ts";
+import { wordAt } from "./behaviour-terms.ts";
 
 export interface LayoutFact {
   confidence: "checked" | "inferred" | "unresolved";
@@ -45,8 +46,6 @@ export interface BehaviourLayout {
   diagnostics: string[];
 }
 
-const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
-
 /**
  * The 58-byte stride and the table address come from the already discovered type table. Callback labels describe
  * candidate roles; the indirect calls prove which record fields are code pointers, not their full event semantics.
@@ -72,16 +71,16 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
     if (
       matchesInstructions(image, at, [0x26, 0xff, 0x9f, null, null]) &&
       matchesInstructions(image, at - 12, [0xba, 58, 0, 0xf7, 0xea, 0xba, null, null, 0x8b, 0xd8, 0x8e, 0xc2]) &&
-      word(image, at - 6) * 16 === table
+      wordAt(image, at - 6) * 16 === table
     ) {
-      field = word(image, at + 3);
+      field = wordAt(image, at + 3);
       start = at - 12;
       end = at + 5;
     } else if (
       matchesInstructions(image, at, [0xff, 0x9f, null, null]) &&
       matchesInstructions(image, at - 7, [0xba, 58, 0, 0xf7, 0xea, 0x8b, 0xd8])
     ) {
-      field = word(image, at + 2) - tableOffset;
+      field = wordAt(image, at + 2) - tableOffset;
       start = at - 7;
       end = at + 4;
     } else continue;
@@ -177,7 +176,7 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
       if (
         farTable &&
         matchesInstructions(image, p, [0xc7, 0x46, null, null, null]) &&
-        word(image, p + 3) * 16 === table
+        wordAt(image, p + 3) * 16 === table
       ) {
         tableReference = p;
         tableReferenceSize = 5;
@@ -185,7 +184,7 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
       if (
         !farTable &&
         matchesInstructions(image, p, [0xba, 58, 0, 0xf7, 0xea, 0x05, null, null]) &&
-        word(image, p + 6) === tableOffset
+        wordAt(image, p + 6) === tableOffset
       ) {
         tableReference = p;
         tableReferenceSize = 8;
@@ -371,7 +370,7 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
         0xd8,
       ]);
       if (!farPieces && !nearPieces) continue;
-      flags.masks!.push({ value: word(image, at + 3), name: "drawFromPieces" });
+      flags.masks!.push({ value: wordAt(image, at + 3), name: "drawFromPieces" });
       flags.evidence.push(...instructionEvidence(image, at, at + (farPieces ? 21 : 20)));
       flags.assumptions.push(
         "The tested drawing flag selects the checked record field +0x16 containing linked frame pieces.",

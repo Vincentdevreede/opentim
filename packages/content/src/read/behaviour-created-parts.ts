@@ -5,8 +5,8 @@
  * the gun pushes `0x14` before its call at `0x1b3a1`, so it makes a bullet.
  */
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Evidence, Finding, RoutineAnalysis } from "./behaviour.ts";
-import type { Instruction } from "./x86.ts";
+import type { Finding, RoutineAnalysis } from "./behaviour.ts";
+import { evidenceOf } from "./behaviour-terms.ts";
 
 export interface CreatedPart extends Finding {
   /** The routine that makes the part and the address of its call to the factory. */
@@ -15,8 +15,6 @@ export interface CreatedPart extends Finding {
   /** The type it passes, which the factory stores as the new part's type. */
   type: number;
 }
-
-const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
 
 /**
  * Each call to the part factory whose type argument is a number pushed right before it: `push` of the number, or

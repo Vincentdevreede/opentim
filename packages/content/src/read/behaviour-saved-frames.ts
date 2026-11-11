@@ -1,5 +1,5 @@
 /**
- * States a part is never in, decided after reading the code (docs/behaviour-assumptions.md). A level stores a part's
+ * States a part is never in, decided after reading the code (docs/assumptions/behaviour-assumptions.md). A level stores a part's
  * saved frame, at `0x90`, not the frame it shows while the machine runs, and the reset sets the monkey bike's counter
  * at `0x96` to 0. In play the monkey bike reaches frames 5 to 12 only from its bounce, which starts that counter in
  * the same step, and its run leaves them when the counter runs out. So it is on those frames with the counter at 0
@@ -69,7 +69,7 @@ export const WOOD_INCLINE_ASSUMPTION =
   'A wood incline starts on the frame its width gives: its width divided by 16, less 1. That is frame 0 to 3 for the widths 16 to 64 the editor allows, and frame -1 for an incline of width 0, which two Even More levels have ("Ambulance Driver", L117, and "Rocket Launcher", L143) though the editor can\'t make it.';
 
 /** The frame the wood incline's resize gives a width: the width as a signed word divided by 16, rounded to 0, less 1. */
-export const inclineFrame = (width: number) => Math.trunc((((width & 0xffff) ^ 0x8000) - 0x8000) / 16) - 1;
+const inclineFrame = (width: number) => Math.trunc((((width & 0xffff) ^ 0x8000) - 0x8000) / 16) - 1;
 
 /**
  * By part id: the frames a level can start a part on, and why: for a type without a frame list, and for one with a

@@ -270,7 +270,7 @@ const instructions = (evidence: readonly Evidence[]): Instruction[] =>
  * Fields of a part the analysis doesn't name, read from the program's code: the found list and overlaps that the
  * searches at 0x417e and 0x437d write, the history that each step shifts (0x87ed), momentum (0x3855), and the links,
  * of which the last two are sockets (0x5d14). The level loader puts the file's third flag word (with the goal marks),
- * the belt's place and width, the rope slots' places and the extra word in the others (`docs/levels.md`).
+ * the belt's place and width, the rope slots' places and the extra word in the others (`docs/research/levels.md`).
  */
 const PART_FIELDS = new Map([
   [0x00, "nextInList"],
@@ -413,7 +413,7 @@ const MASK_WORDS: Record<string, [string, string]> = {
 /**
  * Every bit of a part's three flag words the program uses, as words for set and clear, by field and bit: the list
  * flags at 0x06, the drawing flags at 0x08 and the marks at 0x0a. What each one does, with the routines that show it in
- * Even More (English floppy) and TIM 1 (French), is in `docs/behaviour.md` under "Flag bits". The bits not here are
+ * Even More (English floppy) and TIM 1 (French), is in `docs/research/behaviour/in-the-lab.md` under "Flag bits". The bits not here are
  * never tested or set on a part: 0x0080 and 0x0100 of the list flags, 0x4000 of the drawing flags, and 0x0800 up of
  * the marks.
  */

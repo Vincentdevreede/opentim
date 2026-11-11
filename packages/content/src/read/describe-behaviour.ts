@@ -36,6 +36,7 @@ import type {
   RoutineAnalysis,
   Transition,
 } from "./behaviour.ts";
+import { listWords, toSigned, unsigned } from "./behaviour-terms.ts";
 
 export interface KnownField extends Finding {
   object: string;
@@ -223,10 +224,8 @@ interface Bits {
 }
 type Bindings = Map<string, Bits>;
 const full = (width: number) => 2 ** width - 1;
-const wrap = (value: number, width: number) => ((value % 2 ** width) + 2 ** width) % 2 ** width;
-const signed = (value: number, width: number) => (value >= 2 ** (width - 1) ? value - 2 ** width : value);
 const bits = (value: number, mask: number, width: number): Bits => ({
-  value: wrap(value, width) & mask,
+  value: unsigned(value, width) & mask,
   mask: mask & full(width),
   width,
 });
@@ -311,8 +310,8 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
   if (!known(left) || !known(right))
     return expression.operator === "+" ? choiceBits(expression, bindings) : unknownBits(width);
   if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
-    const a = wrap(left.value, expression.left.width),
-      b = wrap(right.value, expression.left.width),
+    const a = unsigned(left.value, expression.left.width),
+      b = unsigned(right.value, expression.left.width),
       op = expression.operator;
     return bits(
       Number(
@@ -353,9 +352,9 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
       break;
     case "s/":
     case "s%": {
-      const denominator = signed(right.value, right.width);
+      const denominator = toSigned(right.value, right.width);
       if (!denominator) return unknownBits(width);
-      const dividend = signed(left.value, left.width);
+      const dividend = toSigned(left.value, left.width);
       value = expression.operator === "s/" ? Math.trunc(dividend / denominator) : dividend % denominator;
       break;
     }
@@ -366,7 +365,7 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
       value = left.value >>> right.value;
       break;
     case ">>":
-      value = signed(left.value, left.width) >> right.value;
+      value = toSigned(left.value, left.width) >> right.value;
       break;
     default:
       return unknownBits(width);
@@ -411,8 +410,8 @@ function predicateWithoutConstraints(predicate: Predicate, bindings: Bindings): 
   )
     return predicate.operator === "!=";
   if (!known(left) || !known(right)) return undefined;
-  const a = predicate.signed ? signed(wrap(left.value, width), width) : wrap(left.value, width);
-  const b = predicate.signed ? signed(wrap(right.value, width), width) : wrap(right.value, width);
+  const a = predicate.signed ? toSigned(unsigned(left.value, width), width) : unsigned(left.value, width);
+  const b = predicate.signed ? toSigned(unsigned(right.value, width), width) : unsigned(right.value, width);
   return predicate.operator === "=="
     ? a === b
     : predicate.operator === "!="
@@ -470,8 +469,8 @@ function predicateOf(predicate: Predicate, bindings: Bindings, constraints: Pred
   for (const term of compatible) {
     if (term.right.kind !== "constant") continue;
     const value = term.signed
-      ? signed(wrap(term.right.value, term.left.width), term.left.width)
-      : wrap(term.right.value, term.left.width);
+      ? toSigned(unsigned(term.right.value, term.left.width), term.left.width)
+      : unsigned(term.right.value, term.left.width);
     if (term.operator === "==") {
       low = Math.max(low, value);
       high = Math.min(high, value);
@@ -482,8 +481,8 @@ function predicateOf(predicate: Predicate, bindings: Bindings, constraints: Pred
     else if (term.operator === ">=") low = Math.max(low, value);
   }
   const value = predicate.signed
-    ? signed(wrap(predicate.right.value, predicate.left.width), predicate.left.width)
-    : wrap(predicate.right.value, predicate.left.width);
+    ? toSigned(unsigned(predicate.right.value, predicate.left.width), predicate.left.width)
+    : unsigned(predicate.right.value, predicate.left.width);
   if (predicate.operator === "==")
     return value < low || value > high || excluded.has(value)
       ? false
@@ -949,8 +948,6 @@ function frameBits(expression: Expression, stateOffset: number): { kept: number;
     : { kept: bits.kept & ~number, set: bits.set | number };
 }
 const bitList = (mask: number) => [...Array(16).keys()].filter((bit) => mask & (1 << bit));
-const listWords = (items: string[]) =>
-  items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 const bitWords = (mask: number) =>
   `bit${bitList(mask).length === 1 ? "" : "s"} ${listWords(bitList(mask).map(String))}`;
 const framesWords = (frames: number[]) =>
@@ -1481,7 +1478,7 @@ function countdownFields(
       if (equality) {
         const [start, number] = left!.offset !== undefined ? [left!, right!] : [right!, left!];
         const values = testedValues.get(start.offset!) ?? new Set<number>();
-        values.add(wrap(number.add - start.add, 16));
+        values.add(unsigned(number.add - start.add, 16));
         testedValues.set(start.offset!, values);
       }
     }
@@ -1656,14 +1653,14 @@ function linearOf(expression: Expression, bindings: Bindings): { offset?: number
     return undefined;
   return {
     ...((left.offset ?? right.offset) !== undefined ? { offset: (left.offset ?? right.offset)! } : {}),
-    add: wrap(expression.operator === "+" ? left.add + right.add : left.add - right.add, 16),
+    add: unsigned(expression.operator === "+" ? left.add + right.add : left.add - right.add, 16),
   };
 }
 const startField = (offset: number): Expression => ({ kind: "field", object: START, offset, width: 16 });
 function linearExpression(linear: { offset?: number; add: number }): Expression {
-  const constant: Expression = { kind: "constant", value: wrap(linear.add, 16), width: 16 };
+  const constant: Expression = { kind: "constant", value: unsigned(linear.add, 16), width: 16 };
   if (linear.offset === undefined) return constant;
-  if (!wrap(linear.add, 16)) return startField(linear.offset);
+  if (!unsigned(linear.add, 16)) return startField(linear.offset);
   return { kind: "binary", operator: "+", left: startField(linear.offset), right: constant, width: 16 };
 }
 /** Whether a countdown moved in these bindings, each field worked out once while they don't change. */
@@ -1726,7 +1723,7 @@ function countdownPredicate(predicate: Predicate, bindings: Bindings, moved = co
       return {
         ...predicate,
         left: startField(start.offset!),
-        right: { kind: "constant", value: wrap(number.add - start.add, 16), width: 16 },
+        right: { kind: "constant", value: unsigned(number.add - start.add, 16), width: 16 },
       };
     }
   }
@@ -1821,7 +1818,7 @@ function countdownTests(tests: Predicate[], bindings: Bindings, type: number): P
       known(change) &&
       test.kind === "compare" &&
       test.right.kind === "constant" &&
-      !!countdownValues.get(`${type}:${offset}`)?.has(wrap(test.right.value + change.value, 16))
+      !!countdownValues.get(`${type}:${offset}`)?.has(unsigned(test.right.value + change.value, 16))
     );
   });
 }
@@ -1835,7 +1832,7 @@ function shiftedTest(test: Predicate, shift: Map<number, number>): Predicate | u
   if (!fields.some((field) => field.object === START)) return test;
   const offset = startTestOffset(test);
   if (offset === undefined || !shift.has(offset) || test.right.kind !== "constant") return undefined;
-  return { ...test, right: { ...test.right, value: wrap(test.right.value - shift.get(offset)!, 16) } };
+  return { ...test, right: { ...test.right, value: unsigned(test.right.value - shift.get(offset)!, 16) } };
 }
 /** The countdown a test is about, when it compares a starting value with a number. */
 function startTestOffset(test: Predicate): number | undefined {
@@ -2589,7 +2586,7 @@ export function walkBehaviourRules(
     for (const other of explored.counted.get(signature(withoutCountdowns(bindings))) ?? []) {
       if (other.change!.size !== mine.size || [...mine.keys()].some((offset) => !other.change!.has(offset))) continue;
       const shift = new Map(
-        [...mine].map(([offset, change]) => [offset, wrap(change - other.change!.get(offset)!, 16)]),
+        [...mine].map(([offset, change]) => [offset, unsigned(change - other.change!.get(offset)!, 16)]),
       );
       if ([...shift.values()].every((by) => !by)) continue;
       const moved = other.testList!.map((test) => shiftedTest(test, shift));
@@ -3064,7 +3061,7 @@ function producerPartitions(
       return;
     const id = `${write.offset}:${write.width}`;
     const values = producers.get(id) ?? new Map<number, FieldWrite>();
-    const value = wrap(write.value.value, write.width);
+    const value = unsigned(write.value.value, write.width);
     const prior = values.get(value);
     values.set(value, prior ? { ...prior, evidence: evidence(prior.evidence, write.evidence) } : write);
     producers.set(id, values);
@@ -3270,15 +3267,15 @@ function conditionalInputCases(
             object: field.object,
             offset: field.offset,
             width: field.width,
-            value: wrap(term.right.value, field.width),
+            value: unsigned(term.right.value, field.width),
             knownMask: full(field.width),
             ...proof,
           });
         if (field.offset === stateOffset) {
           const value = term.signed
-            ? signed(wrap(term.right.value, field.width), field.width)
-            : wrap(term.right.value, field.width);
-          if (term.operator === "==") exactState = wrap(value, field.width);
+            ? toSigned(unsigned(term.right.value, field.width), field.width)
+            : unsigned(term.right.value, field.width);
+          if (term.operator === "==") exactState = unsigned(value, field.width);
           if (term.operator === "<" || term.operator === "<=") {
             high = Math.min(high, value - (term.operator === "<" ? 1 : 0));
             bounded = true;
@@ -3289,7 +3286,7 @@ function conditionalInputCases(
       }
       if (term.operator === "==") {
         const affine = affineState(term.left, stateOffset);
-        if (affine?.scale === 1) exactState = wrap(term.right.value - affine.amount, term.left.width);
+        if (affine?.scale === 1) exactState = unsigned(term.right.value - affine.amount, term.left.width);
       }
       if (term.left.kind === "binary" && term.left.operator === "&") {
         const field = term.left.left.kind === "field" ? term.left.left : term.left.right;
@@ -3779,7 +3776,7 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
     // A frame, a speed or the control value is a signed word, so 0xd000 reads -12288 as in the lab's conditions.
     const right =
       term.right.kind === "constant" && (term.signed || (leftName !== undefined && SIGNED_WORDS.test(leftName)))
-        ? String(signed(wrap(term.right.value, term.left.width), term.left.width))
+        ? String(toSigned(unsigned(term.right.value, term.left.width), term.left.width))
         : fieldName(term.right);
     if (
       term.left.kind === "binary" &&
@@ -3843,7 +3840,7 @@ function walkWords(walk: BehaviourWalk): string {
   const labels = walk.frames.slice(0, 12).map(
     (frame) =>
       // A frame is a signed word, like the wood incline's -1.
-      `${frame.frame === undefined ? "state" : "frame"} ${signed(wrap(frame.state, 16), 16)}${frame.runCalls > 1 ? ` for ${frame.runCalls} run invocations` : ""}`,
+      `${frame.frame === undefined ? "state" : "frame"} ${toSigned(unsigned(frame.state, 16), 16)}${frame.runCalls > 1 ? ` for ${frame.runCalls} run invocations` : ""}`,
   );
   const prefix = labels.join(", ") + (walk.frames.length > 12 ? ", followed by the remaining recorded frames" : "");
   if (walk.status === "rest") return `Shows ${prefix}, then holds the last frame.`;
@@ -4077,7 +4074,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
     if (e.kind !== "binary" || !["+", "-"].includes(e.operator) || e.right.kind !== "constant") return;
     const before = affine(e.left);
     if (before === undefined) return;
-    const value = signed(wrap(e.right.value, e.right.width), e.right.width);
+    const value = toSigned(unsigned(e.right.value, e.right.width), e.right.width);
     return before + (e.operator === "+" ? value : -value);
   };
   const periodOf = (e: Expression): number | undefined => {
@@ -4167,7 +4164,7 @@ function periodicAnimations(report: BehaviourReport, part: PartBehaviour): Anima
         )
           fields.push({
             ...term.left,
-            value: wrap(term.right.value, term.left.width),
+            value: unsigned(term.right.value, term.left.width),
             knownMask: full(term.left.width),
             ...proof,
           });

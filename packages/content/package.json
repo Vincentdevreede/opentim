@@ -23,7 +23,8 @@
     "check-moving-list": "node scripts/check-moving-list.ts",
     "check-goals": "node scripts/check-goals.ts",
     "list-goals": "node scripts/list-goals.ts",
-    "check-level-fields": "node scripts/check-level-fields.ts"
+    "check-level-fields": "node scripts/check-level-fields.ts",
+    "fingerprint-behaviour": "node scripts/fingerprint-behaviour.ts"
   },
   "dependencies": {
     "@opentim/resources": "workspace:*"

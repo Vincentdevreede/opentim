@@ -4,11 +4,10 @@
  * of the found list. Checked against its complete instruction graph. Unlike the other overlap queries it does not
  * skip the owner, so its list may hold the owner itself.
  */
-import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
-import type { Evidence } from "./behaviour.ts";
 import { outlineSearchPatterns } from "./behaviour-outline-search-patterns.ts";
+import { matchFirst, outsideStores, routineEvidence } from "./behaviour-terms.ts";
 
 /** The found list's head on the owner and its link on each listed part. */
 const FOUND = 0x78;
@@ -16,33 +15,6 @@ export const OUTLINE_SEARCH_ASSUMPTIONS = [
   "The parts lists are finite and without cycles, and each part is on them once, so each part is put on the found list at most once.",
   "The search may list the owner itself: it does not skip it.",
 ];
-
-const proof = (code: RoutineCode): Evidence[] =>
-  code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
-
-/**
- * The instructions that store to memory outside the stack frame: the compact evidence a caller's findings carry. The
- * summary itself keeps the whole routine.
- */
-const stores = (code: RoutineCode): Evidence[] =>
-  code.instructions
-    .filter(
-      (i) =>
-        i.flow === "next" &&
-        !["cmp", "test", "push"].includes(i.mnemonic) &&
-        i.operands[0]?.kind === "memory" &&
-        !(i.operands[0].segment === "ss" && i.operands[0].base.join() === "bp"),
-    )
-    .map(({ address, bytes, text }) => ({ address, bytes, text }));
-
-function match(code: RoutineCode, patterns: string[]): Map<string, number> | undefined {
-  if (code.status !== "complete") return undefined;
-  for (const pattern of patterns) {
-    const bound = matchHeapRoutine(code, pattern, new Map());
-    if (bound) return bound;
-  }
-  return undefined;
-}
 
 /** A callee that only reads: no part, record or global write. */
 const reads = (summary: EngineSummary | undefined) =>
@@ -60,18 +32,18 @@ export function addOutlineSearchSummary(
   patterns: string[] = outlineSearchPatterns,
 ): void {
   for (const code of codes.values()) {
-    const bound = match(code, patterns);
+    const bound = matchFirst(code, patterns);
     if (!bound) continue;
     const head = summaries.get(bound.get("listHead")!);
     const next = summaries.get(bound.get("listNext")!);
     const segments = summaries.get(bound.get("segments")!);
     if (head?.kind !== "list-head" || next?.kind !== "list-next" || !reads(head) || !reads(next)) continue;
     if (segments?.kind !== "argument-buffer-update" || !segments.footprint.partMemoryComplete) continue;
-    const evidence = [...proof(code), ...head.evidence, ...next.evidence, ...segments.evidence];
+    const evidence = [...routineEvidence(code), ...head.evidence, ...next.evidence, ...segments.evidence];
     const assumptions = [...new Set([...OUTLINE_SEARCH_ASSUMPTIONS, ...head.assumptions, ...next.assumptions])];
     const link = (root: "argument" | "unknown"): EngineWrite => ({
       confidence: "inferred",
-      evidence: stores(code),
+      evidence: outsideStores(code),
       assumptions: OUTLINE_SEARCH_ASSUMPTIONS,
       root,
       ...(root === "unknown" ? { selection: "overlap-candidate" as const } : {}),
@@ -112,7 +84,7 @@ export function addOutlineSearchSummary(
         nextField: FOUND,
         excludesArgument: false,
         confidence: "checked",
-        evidence: stores(code),
+        evidence: outsideStores(code),
         // It tests no flag of the parts it walks, only their outline.
         memberTests: [],
         assumptions: [

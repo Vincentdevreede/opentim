@@ -23,6 +23,9 @@ Each app is built and deployed separately, on its own (sub)domain:
 - `play.opentim.app` is the game, installable as a PWA
 - `lab.opentim.app` is the lab
 
+The [docs](docs/README.md) have a map of the code, what the research found out about the original games, the
+decided assumptions and the open plans.
+
 ## Getting started
 
 Requires Node 24+ and pnpm (`corepack enable`).

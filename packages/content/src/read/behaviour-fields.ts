@@ -3,6 +3,7 @@ import type { FieldContext, LayoutField } from "./behaviour-layout.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findDataSegment, RECORD_SIZE } from "./type-table.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { isRegister, memoryOperand } from "./behaviour-terms.ts";
 
 interface RoutineContext {
   code: RoutineCode;
@@ -12,10 +13,6 @@ const registers = ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp"];
 const bit = (name: string) => 1 << registers.indexOf(name);
 const evidence = (instructions: Instruction[]) =>
   instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
-const memory = (operand: Operand | undefined): Extract<Operand, { kind: "memory" }> | undefined =>
-  operand?.kind === "memory" ? operand : undefined;
-const reg = (operand: Operand | undefined, name?: string): operand is Extract<Operand, { kind: "register" }> =>
-  operand?.kind === "register" && (name === undefined || operand.name === name);
 const immediate = (operand: Operand | undefined, value?: number) =>
   operand?.kind === "immediate" && (value === undefined || operand.value === value);
 const contiguous = (instructions: Instruction[]) =>
@@ -31,7 +28,7 @@ const sameMemory = (a: Operand | undefined, b: Operand | undefined) =>
   a.displacement === b.displacement &&
   a.base.join() === b.base.join();
 const objectMemory = (operand: Operand | undefined, base?: string) => {
-  const value = memory(operand);
+  const value = memoryOperand(operand);
   return value?.segment === "ds" && value.base.length === 1 && (base === undefined || value.base[0] === base)
     ? value
     : undefined;
@@ -173,8 +170,8 @@ export function discoverObjectFieldRoles(
         !source ||
         !destination ||
         source.base.join() !== destination.base.join() ||
-        !reg(load.operands[0]) ||
-        !reg(store.operands[1], load.operands[0]?.kind === "register" ? load.operands[0].name : "")
+        !isRegister(load.operands[0]) ||
+        !isRegister(store.operands[1], load.operands[0]?.kind === "register" ? load.operands[0].name : "")
       )
         continue;
       for (const [draw, name] of [
@@ -219,23 +216,23 @@ export function discoverObjectFieldRoles(
       const velocity = objectMemory(store.operands[0], position?.base[0]);
       if (
         load.mnemonic !== "mov" ||
-        !reg(load.operands[0], "ax") ||
+        !isRegister(load.operands[0], "ax") ||
         !position ||
         subtract.mnemonic !== "sub" ||
-        !reg(subtract.operands[0], "ax") ||
+        !isRegister(subtract.operands[0], "ax") ||
         !previous ||
         store.mnemonic !== "mov" ||
-        !reg(store.operands[1], "ax") ||
+        !isRegister(store.operands[1], "ax") ||
         !velocity ||
         count.mnemonic !== "mov" ||
-        !reg(count.operands[0], "cl") ||
+        !isRegister(count.operands[0], "cl") ||
         !immediate(count.operands[1]) ||
         adjust.mnemonic !== "sub" ||
-        !reg(adjust.operands[0], "cl") ||
+        !isRegister(adjust.operands[0], "cl") ||
         adjust.operands[1]?.kind !== "memory" ||
         shift.mnemonic !== "shl" ||
         !sameMemory(shift.operands[0], velocity) ||
-        !reg(shift.operands[1], "cl")
+        !isRegister(shift.operands[1], "cl")
       )
         continue;
       for (const [axis, name] of [
@@ -362,14 +359,14 @@ export function discoverObjectFieldRoles(
       for (let n = 0; n < 4; n++) {
         const load = sequence[n]!;
         const source = objectMemory(load.operands[1]);
-        if (load.mnemonic !== "mov" || !source || !reg(load.operands[0])) continue;
+        if (load.mnemonic !== "mov" || !source || !isRegister(load.operands[0])) continue;
         for (let m = n + 1; m < 4; m++) {
           const store = sequence[m]!;
           const destination = objectMemory(store.operands[0], source.base[0]);
           if (
             store.mnemonic === "mov" &&
             destination &&
-            reg(store.operands[1], load.operands[0]?.kind === "register" ? load.operands[0].name : "")
+            isRegister(store.operands[1], load.operands[0]?.kind === "register" ? load.operands[0].name : "")
           )
             copies.push({ source: source.displacement, destination: destination.displacement });
           if (
@@ -414,7 +411,7 @@ export function discoverObjectFieldRoles(
       const possibleReload = sequence[5]!;
       if (
         possibleReload.mnemonic === "mov" &&
-        reg(possibleReload.operands[0], "bx") &&
+        isRegister(possibleReload.operands[0], "bx") &&
         sameMemory(possibleReload.operands[1], sequence[0]!.operands[1])
       )
         sequence = code.instructions.slice(k, k + 7);
@@ -430,22 +427,22 @@ export function discoverObjectFieldRoles(
       const angleStore = sequence.at(-1)!;
       if (
         base.mnemonic !== "mov" ||
-        !reg(base.operands[0], "bx") ||
-        memory(base.operands[1])?.direct !== true ||
+        !isRegister(base.operands[0], "bx") ||
+        memoryOperand(base.operands[1])?.direct !== true ||
         other.mnemonic !== "mov" ||
-        !reg(other.operands[0], "ax") ||
-        memory(other.operands[1])?.direct !== true ||
+        !isRegister(other.operands[0], "ax") ||
+        memoryOperand(other.operands[1])?.direct !== true ||
         link.mnemonic !== "mov" ||
-        !reg(link.operands[1], "ax") ||
+        !isRegister(link.operands[1], "ax") ||
         !objectMemory(link.operands[0], "bx") ||
         angle.mnemonic !== "mov" ||
-        !reg(angle.operands[0], "ax") ||
-        memory(angle.operands[1])?.segment !== "ss" ||
+        !isRegister(angle.operands[0], "ax") ||
+        memoryOperand(angle.operands[1])?.segment !== "ss" ||
         turn.mnemonic !== "add" ||
-        !reg(turn.operands[0], "ax") ||
+        !isRegister(turn.operands[0], "ax") ||
         !immediate(turn.operands[1], 0x8000) ||
         angleStore.mnemonic !== "mov" ||
-        !reg(angleStore.operands[1], "ax") ||
+        !isRegister(angleStore.operands[1], "ax") ||
         !objectMemory(angleStore.operands[0], "bx")
       )
         continue;
@@ -462,15 +459,15 @@ export function discoverObjectFieldRoles(
         if (
           contiguous(candidate) &&
           load.mnemonic === "mov" &&
-          reg(load.operands[0], "ax") &&
-          memory(load.operands[1])?.segment === "ss" &&
+          isRegister(load.operands[0], "ax") &&
+          memoryOperand(load.operands[1])?.segment === "ss" &&
           decrement.mnemonic === "dec" &&
-          reg(decrement.operands[0], "ax") &&
+          isRegister(decrement.operands[0], "ax") &&
           reload.mnemonic === "mov" &&
-          reg(reload.operands[0], "bx") &&
+          isRegister(reload.operands[0], "bx") &&
           sameMemory(reload.operands[1], base.operands[1]) &&
           store.mnemonic === "mov" &&
-          reg(store.operands[1], "ax") &&
+          isRegister(store.operands[1], "ax") &&
           objectMemory(store.operands[0], "bx") &&
           after.mnemonic === "mov"
         ) {
@@ -541,7 +538,7 @@ export function discoverObjectFieldRoles(
       const source = objectMemory(load.operands[1]);
       if (
         load.mnemonic !== "mov" ||
-        !reg(load.operands[0]) ||
+        !isRegister(load.operands[0]) ||
         !source ||
         source.width !== 16 ||
         ((identities.get(load.address) ?? 0) & bit(source.base[0]!)) === 0
@@ -558,7 +555,7 @@ export function discoverObjectFieldRoles(
       const advance = code.instructions.find(
         (instruction) =>
           instruction.mnemonic === "add" &&
-          reg(instruction.operands[0], point) &&
+          isRegister(instruction.operands[0], point) &&
           immediate(instruction.operands[1], 4),
       );
       const orientation = code.instructions.find(
@@ -571,7 +568,7 @@ export function discoverObjectFieldRoles(
       const countLoads = code.instructions.filter(
         (instruction) =>
           instruction.mnemonic === "mov" &&
-          reg(instruction.operands[0], "ax") &&
+          isRegister(instruction.operands[0], "ax") &&
           objectMemory(instruction.operands[1], source.base[0])?.width === 16 &&
           ((identities.get(instruction.address) ?? 0) & bit(source.base[0]!)) !== 0,
       );
@@ -581,8 +578,8 @@ export function discoverObjectFieldRoles(
         );
         return (
           next?.mnemonic === "cmp" &&
-          reg(next.operands[0], "ax") &&
-          memory(next.operands[1])?.segment === "ss" &&
+          isRegister(next.operands[0], "ax") &&
+          memoryOperand(next.operands[1])?.segment === "ss" &&
           code.instructions.some(
             (candidate) =>
               candidate.address === next.address + next.size &&

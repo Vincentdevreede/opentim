@@ -2,7 +2,7 @@
 import type { Finding } from "./behaviour.ts";
 import type { RoutineCode, RoutineCall } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isWordRegister } from "./behaviour-terms.ts";
 
 export interface ListConsumerCall extends Finding {
   instruction: number;
@@ -12,9 +12,6 @@ export interface ListConsumerCall extends Finding {
   headField: number;
   nextField: number;
 }
-const register = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && o.width === 16 && (name === undefined || o.name === name);
-const evidence = ({ address, bytes, text }: Instruction) => ({ address, bytes, text });
 
 /** No capability crosses a possible object store or another call. Alternative fresh producers must cover every path. */
 export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number, EngineSummary>): ListConsumerCall[] {
@@ -31,7 +28,7 @@ export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number
   const ownerPush = (call: RoutineCall, kind: "near" | "far") => {
     let i = before.get(call.instruction);
     while (i?.mnemonic === "nop") i = before.get(i.address);
-    const pushedSegment = i?.mnemonic === "push" && register(i.operands[0], "cs");
+    const pushedSegment = i?.mnemonic === "push" && isWordRegister(i.operands[0], "cs");
     if (kind === "far" ? (call.far ? pushedSegment : !pushedSegment) : call.far || pushedSegment) return;
     if (pushedSegment) i = before.get(i!.address);
     while (i?.mnemonic === "nop") i = before.get(i.address);
@@ -45,7 +42,7 @@ export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number
       if (parents.length !== 1 || parents[0] !== cursor) return;
       cursor = next;
     }
-    return i.mnemonic === "push" && register(i.operands[0]) && ["si", "di"].includes(i.operands[0].name)
+    return i.mnemonic === "push" && isWordRegister(i.operands[0]) && ["si", "di"].includes(i.operands[0].name)
       ? i
       : undefined;
   };
@@ -61,7 +58,7 @@ export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number
     )
       continue;
     const pushed = ownerPush(call, consumer.returnConvention.kind);
-    if (!pushed || !register(pushed.operands[0])) continue;
+    if (!pushed || !isWordRegister(pushed.operands[0])) continue;
     const owner = pushed.operands[0].name;
     const queries = new Map(
       code.calls.flatMap((q) => {
@@ -82,7 +79,7 @@ export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number
           proof.headField === consumer.headField &&
           proof.nextField === consumer.nextField &&
           p &&
-          register(p.operands[0], owner)
+          isWordRegister(p.operands[0], owner)
           ? [[q.instruction, { call: q, helper: helper!, push: p }] as const]
           : [];
       }),
@@ -132,13 +129,16 @@ export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number
       const writes = !["cmp", "test", "push", "nop"].includes(i.mnemonic) && i.flow === "next";
       if (
         writes &&
-        register(dest, "sp") &&
+        isWordRegister(dest, "sp") &&
         !(["add", "sub"].includes(i.mnemonic) && i.operands[1]?.kind === "immediate" && i.operands[1].value % 2 === 0)
       ) {
         invalid = true;
         break;
       }
-      if (writes && (dest?.kind === "memory" || (register(dest) && [owner, "bp", "ds", "ss"].includes(dest.name)))) {
+      if (
+        writes &&
+        (dest?.kind === "memory" || (isWordRegister(dest) && [owner, "bp", "ds", "ss"].includes(dest.name)))
+      ) {
         invalid = true;
         break;
       }
@@ -155,10 +155,10 @@ export function discoverListConsumerCalls(code: RoutineCode, helpers: Map<number
       confidence: "inferred",
       evidence: [
         ...consumer.evidence,
-        ...proofs.flatMap((p) => [...p.helper.overlapProducer!.evidence, ...p.call.evidence, evidence(p.push)]),
-        ...[...between].map((at) => evidence(byAddress.get(at)!)),
+        ...proofs.flatMap((p) => [...p.helper.overlapProducer!.evidence, ...p.call.evidence, evidenceOf(p.push)]),
+        ...[...between].map((at) => evidenceOf(byAddress.get(at)!)),
         ...call.evidence,
-        evidence(pushed),
+        evidenceOf(pushed),
       ],
       assumptions: [
         ...new Set([

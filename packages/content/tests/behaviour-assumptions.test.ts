@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DECIDED_ASSUMPTIONS } from "../src/read/behaviour-assumptions.ts";
 
-const page = readFileSync(new URL("../../../docs/behaviour-assumptions.md", import.meta.url), "utf8").replace(
-  /\s+/g,
-  " ",
-);
+const page = readFileSync(
+  new URL("../../../docs/assumptions/behaviour-assumptions.md", import.meta.url),
+  "utf8",
+).replace(/\s+/g, " ");
 
 describe("the decided assumptions", () => {
   it.each(DECIDED_ASSUMPTIONS.flatMap((group) => group.assumptions))(

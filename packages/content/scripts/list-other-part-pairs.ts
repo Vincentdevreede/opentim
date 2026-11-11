@@ -1,6 +1,6 @@
 /**
  * Lists which part types can do something to which, as the code allows it, and where each pair is described in the
- * part's "From other parts" (step C2 of docs/behaviour-plan.md). Fails when a pair is neither described, ruled out by
+ * part's "From other parts" (step C2 of the finished behaviour plan). Fails when a pair is neither described, ruled out by
  * a decided assumption, nor missing with a reason. The builds are read side by side (`--jobs` sets how many at once).
  *
  *   pnpm --filter @opentim/content list-other-part-pairs --tim1 <game folder> --evenmore <game folder>

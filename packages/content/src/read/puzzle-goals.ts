@@ -11,6 +11,7 @@
  * can test a goal the way the game does.
  */
 import { decodeInstruction, type Instruction, type Operand, operandText } from "./x86.ts";
+import { wordAt } from "./behaviour-terms.ts";
 
 /** A value a goal program works with: all are 16-bit words. */
 export type GoalValue =
@@ -78,7 +79,6 @@ export interface GoalTable {
 }
 
 const hex = (value: number) => `0x${value.toString(16)}`;
-const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
 /** A routine starts with `push bp; mov bp, sp`. */
 const startsRoutine = (image: Uint8Array, at: number) =>
   image[at] === 0x55 && image[at + 1] === 0x8b && image[at + 2] === 0xec;
@@ -128,8 +128,8 @@ export function findGoalTable(image: Uint8Array, dataSegment: number): GoalTable
     for (let puzzle = 1; ; puzzle++) {
       const at = table + 4 * puzzle;
       if (at + 4 > image.length) break;
-      const offset = word(image, at);
-      const routineSegment = word(image, at + 2);
+      const offset = wordAt(image, at);
+      const routineSegment = wordAt(image, at + 2);
       const address = routineSegment * 16 + offset;
       if (routineSegment >= dataSegment || !startsRoutine(image, address)) break;
       routines.push({ puzzle, segment: routineSegment, offset, address });

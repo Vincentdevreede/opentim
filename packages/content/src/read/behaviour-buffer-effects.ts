@@ -2,15 +2,13 @@
 import type { RoutineCode, RoutineCall } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { implicitMemory, isRegister } from "./behaviour-terms.ts";
 
-const register = (operand: Operand | undefined, name?: string): operand is Extract<Operand, { kind: "register" }> =>
-  operand?.kind === "register" && (name === undefined || operand.name === name);
 const stack = (operand: Operand | undefined): operand is Extract<Operand, { kind: "memory" }> =>
   operand?.kind === "memory" && operand.segment === "ss" && operand.base.join() === "bp";
 const stores = (i: Instruction) =>
   i.operands[0]?.kind === "memory" &&
   !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
-const implicit = (i: Instruction) => /^(movs|stos|ins|enter|pusha|popa|int|into|iret|bound|esc)/.test(i.mnemonic);
 const evidence = (i: Instruction) => ({ address: i.address, bytes: i.bytes, text: i.text });
 const byteParent: Record<string, string> = {
   al: "ax",
@@ -49,12 +47,12 @@ function argumentBases(code: RoutineCode, first: number): Map<number, Map<string
     const [dest, source] = i.operands;
     if (i.flow === "call") for (const name of ["ax", "bx", "cx", "dx", "es"]) state.delete(name);
     else if (i.mnemonic === "xchg") {
-      if (register(dest)) state.delete(byteParent[dest.name] ?? dest.name);
-      if (register(source)) state.delete(byteParent[source.name] ?? source.name);
+      if (isRegister(dest)) state.delete(byteParent[dest.name] ?? dest.name);
+      if (isRegister(source)) state.delete(byteParent[source.name] ?? source.name);
     } else if (
-      register(dest) &&
+      isRegister(dest) &&
       !["cmp", "test", "push"].includes(i.mnemonic) &&
-      !(["or", "and"].includes(i.mnemonic) && register(source, dest.name))
+      !(["or", "and"].includes(i.mnemonic) && isRegister(source, dest.name))
     ) {
       const input =
         i.mnemonic === "mov" &&
@@ -63,7 +61,7 @@ function argumentBases(code: RoutineCode, first: number): Map<number, Map<string
         source.displacement >= first &&
         (source.displacement - first) % 2 === 0
           ? source.displacement
-          : i.mnemonic === "mov" && register(source)
+          : i.mnemonic === "mov" && isRegister(source)
             ? state.get(source.name)
             : undefined;
       const aliases: Record<string, string> = {
@@ -102,17 +100,17 @@ function frameSize(code: RoutineCode): number | undefined {
   const [push, move, reserve] = code.instructions;
   if (
     push?.mnemonic !== "push" ||
-    !register(push.operands[0], "bp") ||
+    !isRegister(push.operands[0], "bp") ||
     move?.mnemonic !== "mov" ||
-    !register(move.operands[0], "bp") ||
-    !register(move.operands[1], "sp")
+    !isRegister(move.operands[0], "bp") ||
+    !isRegister(move.operands[1], "sp")
   )
     return;
   if (
     code.instructions.some(
       (i) =>
         i.mnemonic === "pop" &&
-        register(i.operands[0], "bp") &&
+        isRegister(i.operands[0], "bp") &&
         code.instructions.find((next) => next.address === i.address + i.size)?.flow !== "return",
     )
   )
@@ -120,21 +118,21 @@ function frameSize(code: RoutineCode): number | undefined {
   if (
     code.instructions.some(
       (i) =>
-        implicit(i) ||
+        implicitMemory(i) ||
         /^(lods|scas|cmps|outs|xlat|lahf|aaa|aas|daa|das|aam|aad)/.test(i.mnemonic) ||
         i.mnemonic === "lds" ||
-        (register(i.operands[0], "sp") &&
+        (isRegister(i.operands[0], "sp") &&
           !["cmp", "test", "push"].includes(i.mnemonic) &&
-          !(i.mnemonic === "mov" && register(i.operands[1], "bp")) &&
+          !(i.mnemonic === "mov" && isRegister(i.operands[1], "bp")) &&
           !(["add", "sub"].includes(i.mnemonic) && i.operands[1]?.kind === "immediate")) ||
-        (register(i.operands[0], "bp") && !["cmp", "test", "push", "pop"].includes(i.mnemonic) && i !== move) ||
-        (register(i.operands[0], "ds") && !["cmp", "test", "push"].includes(i.mnemonic)) ||
-        (register(i.operands[0], "ss") && !["cmp", "test", "push"].includes(i.mnemonic)),
+        (isRegister(i.operands[0], "bp") && !["cmp", "test", "push", "pop"].includes(i.mnemonic) && i !== move) ||
+        (isRegister(i.operands[0], "ds") && !["cmp", "test", "push"].includes(i.mnemonic)) ||
+        (isRegister(i.operands[0], "ss") && !["cmp", "test", "push"].includes(i.mnemonic)),
     )
   )
     return;
   const size =
-    reserve?.mnemonic === "sub" && register(reserve.operands[0], "sp") && reserve.operands[1]?.kind === "immediate"
+    reserve?.mnemonic === "sub" && isRegister(reserve.operands[0], "sp") && reserve.operands[1]?.kind === "immediate"
       ? reserve.operands[1].value
       : 0;
   if (
@@ -185,28 +183,28 @@ function privateOutputs(
     if (i.mnemonic === "nop") continue;
     if (first && !call.far && returned.kind === "far") {
       first = false;
-      if (i.mnemonic !== "push" || !register(i.operands[0], "cs")) return undefined;
+      if (i.mnemonic !== "push" || !isRegister(i.operands[0], "cs")) return undefined;
       continue;
     }
     first = false;
     if (i.mnemonic === "push") {
       const value = i.operands[0];
       if (
-        register(value) &&
+        isRegister(value) &&
         callee.writes.some((write) => (write.argumentOffset ?? callee.argumentOffset) === argument)
       ) {
         const definition = previous();
         if (!definition) return undefined;
         if (
           definition.mnemonic === "lea" &&
-          register(definition.operands[0], value.name) &&
+          isRegister(definition.operands[0], value.name) &&
           stack(definition.operands[1])
         )
           pointers.set(argument, definition.operands[1].displacement);
         else return undefined;
       }
       argument += 2;
-    } else if (!(i.mnemonic === "lea" && register(i.operands[0]) && stack(i.operands[1]))) setup.push(i);
+    } else if (!(i.mnemonic === "lea" && isRegister(i.operands[0]) && stack(i.operands[1]))) setup.push(i);
   }
   if (argument <= required || setup.length) return undefined;
   const outputs: { offset: number; width: number }[] = [];

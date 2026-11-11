@@ -3,6 +3,7 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression } from "./behaviour.ts";
+import { binary, constant } from "./behaviour-terms.ts";
 
 const pattern = `push bp
 mov bp,sp
@@ -26,14 +27,6 @@ const sharedReturn = pattern
   .replace("jmp @done", "bridge: jmp @done")
   .replace("mov ax,#2\njmp @done", "mov ax,#2\njmp @bridge")
   .replace("mov ax,dx\ndone:", "mov ax,dx\njmp @bridge\ndone:");
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
 
 /** Matching the complete graph checks the two exceptional boundaries and all other returns. */
 export function discoverAngleClassifier(code: RoutineCode): EngineSummary | undefined {

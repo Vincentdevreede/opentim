@@ -3,14 +3,12 @@
  * rope it crosses into two, with new rope pieces from the part factory. Checked against its complete instruction graph,
  * its summary says which fields of existing parts and rope records a cut can change, so the scissors keep their state.
  */
-import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
-import type { Evidence } from "./behaviour.ts";
 import { ropeCutPatterns } from "./behaviour-rope-cut-patterns.ts";
+import { matchFirst, outsideStores, routineEvidence, wordFields } from "./behaviour-terms.ts";
 
 type Field = { offset: number; width: number };
-const words = (...offsets: number[]): Field[] => offsets.map((offset) => ({ offset, width: 16 }));
 
 /** Part fields that point to rope, belt and pulley records: a belt at 0x54, ropes at 0x66 and 0x68. */
 const RECORD_LINKS = [0x54, 0x66, 0x68];
@@ -21,42 +19,16 @@ export const ROPE_CUT_ASSUMPTIONS = [
   "The parts list and a pulley chain each end: a finite chain without cycles. The fields written are the same on every pass.",
 ];
 /** The links of an existing part the cut rewrites: its rope records and the neighbours on the rope. */
-const PART_LINKS = words(0x5a, 0x5c, 0x66, 0x68);
+const PART_LINKS = wordFields(0x5a, 0x5c, 0x66, 0x68);
 /** The fields of the cut rope's own record: its far end, its slot byte and its two end points. */
 const RECORD_FIELDS: Field[] = [
-  ...words(0x04, 0x1c, 0x1e, 0x20, 0x22, 0x24, 0x26, 0x28, 0x2a),
+  ...wordFields(0x04, 0x1c, 0x1e, 0x20, 0x22, 0x24, 0x26, 0x28, 0x2a),
   { offset: 0x0b, width: 8 },
 ];
 
-const proof = (code: RoutineCode): Evidence[] =>
-  code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 const union = (...lists: Field[][]): Field[] => [
   ...new Map(lists.flat().map(({ offset, width }) => [`${offset}:${width}`, { offset, width }])).values(),
 ];
-
-/**
- * The instructions that store to memory outside the stack frame: the compact evidence a caller's findings carry. The
- * summary itself keeps the whole routine.
- */
-const stores = (code: RoutineCode): Evidence[] =>
-  code.instructions
-    .filter(
-      (i) =>
-        i.flow === "next" &&
-        !["cmp", "test", "push"].includes(i.mnemonic) &&
-        i.operands[0]?.kind === "memory" &&
-        !(i.operands[0].segment === "ss" && i.operands[0].base.join() === "bp"),
-    )
-    .map(({ address, bytes, text }) => ({ address, bytes, text }));
-
-function match(code: RoutineCode, patterns: string[]): Map<string, number> | undefined {
-  if (code.status !== "complete") return undefined;
-  for (const pattern of patterns) {
-    const bound = matchHeapRoutine(code, pattern, new Map());
-    if (bound) return bound;
-  }
-  return undefined;
-}
 
 /** Adds the rope cut's summary where its graph matches and its callees have the summaries the proof needs. */
 export function addRopeCutSummary(
@@ -65,7 +37,7 @@ export function addRopeCutSummary(
   patterns: string[] = ropeCutPatterns,
 ): void {
   for (const code of codes.values()) {
-    const bound = match(code, patterns);
+    const bound = matchFirst(code, patterns);
     if (!bound) continue;
     const of = (name: string, kind: string) => {
       const summary = summaries.get(bound.get(name)!);
@@ -89,12 +61,12 @@ export function addRopeCutSummary(
       geometry.writes.filter((write) => write.root === "argument"),
     );
     const callees = [segments, factory, insert, shift, position, geometry, wrapper];
-    const evidence = [...proof(code), ...callees.flatMap((callee) => callee.evidence)];
+    const evidence = [...routineEvidence(code), ...callees.flatMap((callee) => callee.evidence)];
     const assumptions = [...new Set([...ROPE_CUT_ASSUMPTIONS, ...geometry.assumptions, ...insert.assumptions])];
     const note = "The cut saves and restores a global word, and the list insertion can change a global list head.";
     const unknownWrites: EngineWrite[] = [...partFields, ...recordFields].map((field) => ({
       confidence: "inferred",
-      evidence: stores(code),
+      evidence: outsideStores(code),
       assumptions: ROPE_CUT_ASSUMPTIONS,
       root: "unknown",
       path: [],
@@ -133,7 +105,7 @@ export function addRopeCutSummary(
       },
       connected: {
         confidence: "inferred",
-        evidence: stores(code),
+        evidence: outsideStores(code),
         assumptions,
         partFields,
         recordFields,

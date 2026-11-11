@@ -1,6 +1,6 @@
 /**
  * Which part types can do something to which, as the code allows it, and where each pair is described (step C2 of
- * docs/behaviour-plan.md). Three ways reach another part:
+ * the finished behaviour plan). Three ways reach another part:
  *
  * - a touch: the contact dispatch calls the bounce callback of the touched part's type with the moving part that
  *   touched it (`collider`), so a bounce's writes to `collider` are what the touched part does to the toucher;
@@ -101,32 +101,31 @@ export interface OtherPartPairs {
   selfCallPaths: { sourcePart: string; paths: number }[];
 }
 
-export const NO_COMPLETE_EFFECTS = "the path's effects aren't complete, so the analysis doesn't know all it writes";
+const NO_COMPLETE_EFFECTS = "the path's effects aren't complete, so the analysis doesn't know all it writes";
 export const UNRESOLVED_PATH = "the path is unresolved: a test or value on it isn't read";
 export const SEARCH_UNREAD =
   "its rules read a field the source sets, so it needs a walk, and a walk needs the source to name the part's type or the tests its search makes on the part, which aren't read for this search";
 export const CONTACT_SEARCH =
   "the source runs the contact search on the part: where that leaves the part, with its contact record and list flags, only the run knows";
-export const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
-export const OPEN_TEST = "a test depends on something besides the two parts' own fields, like where the part is";
+const OTHER_OBJECTS = "the same path also writes another object, which a line or walk of one part can't say";
+const OPEN_TEST = "a test depends on something besides the two parts' own fields, like where the part is";
 export const LEFT_LOCAL =
   "a test reads a local the source sets in its loop for some parts only: for this part it holds what the loop last left there for an earlier part, or what the stack held when no earlier part set it, which only the run knows";
-export const DIRECTED_RULE_FIELD =
+const DIRECTED_RULE_FIELD =
   "its rules read the velocity it sets, whose direction depends on where the two parts are, so a walk can't follow it";
 export const UNKNOWN_VALUE = "a value it sets isn't known to the analysis";
 export const HELPER_VALUE =
   "a value it sets comes from a helper the source calls on the part, whose tests the analysis doesn't carry into the loop";
 export const BUDGET_VALUE = "a value it sets grew past the size the analysis keeps for one value";
-export const OPEN_VALUE = "a value it sets reads something besides the two parts' fields";
+const OPEN_VALUE = "a value it sets reads something besides the two parts' fields";
 export const SOURCE_VALUE = "a value it sets depends on the source's own fields, like where the source is";
-export const TABLE_VALUE =
-  "a value it sets reads a table word the part's type doesn't settle, like one picked by an angle";
-export const RESPONSE_FIELDS = "a contact response after the bounce may change every field the part's rules read";
+const TABLE_VALUE = "a value it sets reads a table word the part's type doesn't settle, like one picked by an angle";
+const RESPONSE_FIELDS = "a contact response after the bounce may change every field the part's rules read";
 export const LIMIT_RULE_FIELD =
   "its rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a walk can't follow it";
-export const UNDECIDED_TEST =
+const UNDECIDED_TEST =
   "a test of the part's own fields isn't settled by its type, and the source names no type and its search's flag tests aren't all read";
-export const UNCLASSIFIED = "not described, for a reason this check doesn't name";
+const UNCLASSIFIED = "not described, for a reason this check doesn't name";
 export const CONSUMER_UNREAD =
   "the helper that walks the list is read only as a footprint (which member fields it may write), not path by path";
 

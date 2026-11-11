@@ -6,6 +6,7 @@ import type { Evidence, Finding } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { discoverEmptyContactReturn, type EmptyContactReturn } from "./behaviour-contact-empty.ts";
+import { evidenceOf, isMemory, isRegister } from "./behaviour-terms.ts";
 
 export interface ContactObjectWrite extends Finding {
   objectGlobal: number;
@@ -33,11 +34,7 @@ interface Scope {
   evidence: Evidence[];
   assumptions: string[];
 }
-const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && (name === undefined || o.name === name);
-const mem = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
-const stack = (o: Operand | undefined) => mem(o) && o.segment === "ss" && o.base.join() === "bp";
-const proof = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
+const stack = (o: Operand | undefined) => isMemory(o) && o.segment === "ss" && o.base.join() === "bp";
 const same = (a: Base | undefined, b: Base | undefined) =>
   !!a && !!b && a.root === b.root && a.id === b.id && a.displacement === b.displacement;
 const parent: Record<string, string> = {
@@ -51,8 +48,8 @@ const parent: Record<string, string> = {
   dh: "dx",
 };
 const store = (i: Instruction) =>
-  mem(i.operands[0]) && !["cmp", "test", "push", "mul", "imul", "div", "idiv", "call", "jmp"].includes(i.mnemonic);
-const writesRegister = (i: Instruction) => reg(i.operands[0]) && !["cmp", "test", "push"].includes(i.mnemonic);
+  isMemory(i.operands[0]) && !["cmp", "test", "push", "mul", "imul", "div", "idiv", "call", "jmp"].includes(i.mnemonic);
+const writesRegister = (i: Instruction) => isRegister(i.operands[0]) && !["cmp", "test", "push"].includes(i.mnemonic);
 const unique = (items: Evidence[]) => [...new Map(items.map((e) => [e.address, e])).values()];
 
 /** A bounded meet keeps only identical pointer origins on all incoming paths; no scalar game values are evaluated. */
@@ -65,10 +62,10 @@ export function proveContactFootprint(
   const [push, frame] = code.instructions;
   if (
     push?.mnemonic !== "push" ||
-    !reg(push.operands[0], "bp") ||
+    !isRegister(push.operands[0], "bp") ||
     frame?.mnemonic !== "mov" ||
-    !reg(frame.operands[0], "bp") ||
-    !reg(frame.operands[1], "sp")
+    !isRegister(frame.operands[0], "bp") ||
+    !isRegister(frame.operands[1], "sp")
   )
     return;
   if (
@@ -84,7 +81,7 @@ export function proveContactFootprint(
           i !== frame &&
           !(
             i.mnemonic === "pop" &&
-            reg(i.operands[0], "bp") &&
+            isRegister(i.operands[0], "bp") &&
             code.instructions.find((n) => n.address === i.address + i.size)?.flow === "return"
           )),
     )
@@ -94,8 +91,8 @@ export function proveContactFootprint(
     code.instructions.some(
       (i) =>
         writesRegister(i) &&
-        reg(i.operands[0], "sp") &&
-        !(i.mnemonic === "mov" && reg(i.operands[1], "bp")) &&
+        isRegister(i.operands[0], "sp") &&
+        !(i.mnemonic === "mov" && isRegister(i.operands[1], "bp")) &&
         !(["add", "sub"].includes(i.mnemonic) && i.operands[1]?.kind === "immediate"),
     )
   )
@@ -104,7 +101,7 @@ export function proveContactFootprint(
   if (!returns.length || returns.some((i) => i.mnemonic !== "retf" || i.operands.length)) return;
   const reserve = code.instructions[2];
   const frameBytes =
-    reserve?.mnemonic === "sub" && reg(reserve.operands[0], "sp") && reserve.operands[1]?.kind === "immediate"
+    reserve?.mnemonic === "sub" && isRegister(reserve.operands[0], "sp") && reserve.operands[1]?.kind === "immediate"
       ? reserve.operands[1].value
       : 0;
   if (frameBytes < 0 || frameBytes > 32767) return;
@@ -145,8 +142,8 @@ export function proveContactFootprint(
   const states = new Map<number, State>([[code.address, new Map()]]),
     pending = [code.address];
   const value = (o: Operand | undefined, s: State): Base | undefined => {
-    if (reg(o)) return o.width === 16 ? s.get(o.name) : undefined;
-    if (!mem(o) || o.width !== 16) return;
+    if (isRegister(o)) return o.width === 16 ? s.get(o.name) : undefined;
+    if (!isMemory(o) || o.width !== 16) return;
     if (stack(o))
       return o.displacement >= 6
         ? { root: "argument", id: o.displacement, displacement: 0 }
@@ -170,13 +167,13 @@ export function proveContactFootprint(
       if (before.flow !== "next" || before.address + before.size !== at) return;
       at = before.address;
       if (before.mnemonic === "push") {
-        if (skipSegment && reg(before.operands[0], "cs")) {
+        if (skipSegment && isRegister(before.operands[0], "cs")) {
           skipSegment = false;
           continue;
         }
         if (skipSegment) return;
         if (count++ === (offset - 6) / 2) return value(before.operands[0], states.get(at) ?? s);
-      } else if (before.mnemonic === "pop" || (writesRegister(before) && reg(before.operands[0], "sp"))) return;
+      } else if (before.mnemonic === "pop" || (writesRegister(before) && isRegister(before.operands[0], "sp"))) return;
     }
   };
   const callEffects = (call: RoutineCall, s: State): Scope | undefined => {
@@ -215,7 +212,7 @@ export function proveContactFootprint(
       !call.far &&
       (incoming.get(call.instruction)?.length !== 1 ||
         previous?.mnemonic !== "push" ||
-        !reg(previous.operands[0], "cs"))
+        !isRegister(previous.operands[0], "cs"))
     )
       return;
     const privateOutput =
@@ -266,12 +263,13 @@ export function proveContactFootprint(
       if (i.mnemonic === "mov") next = value(source, s);
       else if (i.mnemonic === "lea" && stack(source))
         next = { root: "stack", id: 0, displacement: (source as Extract<Operand, { kind: "memory" }>).displacement };
-      else if (["add", "sub"].includes(i.mnemonic) && reg(dest) && source?.kind === "immediate") {
+      else if (["add", "sub"].includes(i.mnemonic) && isRegister(dest) && source?.kind === "immediate") {
         const old = s.get(dest.name);
         if (old)
           next = { ...old, displacement: old.displacement + (i.mnemonic === "add" ? source.value : -source.value) };
-      } else if (["or", "and"].includes(i.mnemonic) && reg(dest) && reg(source, dest.name)) next = s.get(dest.name);
-      if (store(i) && mem(dest)) {
+      } else if (["or", "and"].includes(i.mnemonic) && isRegister(dest) && isRegister(source, dest.name))
+        next = s.get(dest.name);
+      if (store(i) && isMemory(dest)) {
         if (stack(dest)) {
           for (const key of s.keys())
             if (key.startsWith("local:") && Math.abs(Number(key.slice(6)) - dest.displacement) < 2) s.delete(key);
@@ -282,7 +280,7 @@ export function proveContactFootprint(
           if (next && dest.width === 16) s.set(`global:${dest.displacement}`, next);
         }
       }
-      if (writesRegister(i) && reg(dest)) {
+      if (writesRegister(i) && isRegister(dest)) {
         const name = parent[dest.name] ?? dest.name;
         if (next && dest.width === 16) s.set(name, next);
         else s.delete(name);
@@ -303,7 +301,7 @@ export function proveContactFootprint(
       }
     }
   }
-  const result: Scope = { objectWrites: [], globals: [], evidence: code.instructions.map(proof), assumptions: [] };
+  const result: Scope = { objectWrites: [], globals: [], evidence: code.instructions.map(evidenceOf), assumptions: [] };
   for (const i of code.instructions) {
     const s = states.get(i.address);
     if (!s) return;
@@ -325,7 +323,7 @@ export function proveContactFootprint(
       continue;
     }
     if (dest.segment !== "ds" || dest.width > 16) return;
-    if (dest.direct) result.globals.push({ offset: dest.displacement, width: dest.width, evidence: [proof(i)] });
+    if (dest.direct) result.globals.push({ offset: dest.displacement, width: dest.width, evidence: [evidenceOf(i)] });
     else {
       const base = dest.base.length === 1 ? s.get(dest.base[0]!) : undefined;
       if (!base || base.root === "stack") return;
@@ -334,7 +332,7 @@ export function proveContactFootprint(
         offset: base.displacement + dest.displacement,
         displacement: 0,
         width: dest.width,
-        evidence: [proof(i)],
+        evidence: [evidenceOf(i)],
       });
     }
   }
@@ -390,15 +388,15 @@ export function addContactEffectSummaries(
           code.instructions.some(
             (i) =>
               i.mnemonic === "mov" &&
-              mem(i.operands[0]) &&
+              isMemory(i.operands[0]) &&
               i.operands[0].direct &&
               i.operands[0].displacement === g.offset &&
-              reg(i.operands[1], "ax") &&
+              isRegister(i.operands[1], "ax") &&
               code.instructions.some(
                 (p) =>
                   p.address + p.size === i.address &&
                   p.mnemonic === "mov" &&
-                  reg(p.operands[0], "ax") &&
+                  isRegister(p.operands[0], "ax") &&
                   stack(p.operands[1]) &&
                   (p.operands[1] as Extract<Operand, { kind: "memory" }>).displacement === 6,
               ),
@@ -407,7 +405,7 @@ export function addContactEffectSummaries(
       if (subjectGlobal === undefined || !subjects.has(subjectGlobal)) continue;
       const candidateGlobal =
         [...candidates].find((g) =>
-          code.instructions.some((i) => i.operands.some((o) => mem(o) && o.direct && o.displacement === g)),
+          code.instructions.some((i) => i.operands.some((o) => isMemory(o) && o.direct && o.displacement === g)),
         ) ?? [...candidates][0];
       if (candidateGlobal === undefined) continue;
       scopes.set(code.address, scope);

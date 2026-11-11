@@ -1,7 +1,7 @@
 /**
  * Every assumption the behaviour analysis states, collected from its reports into one generated list, so they can be
  * rechecked later. A check fails when the analysis states an assumption the list doesn't have yet, so none slips in
- * unseen. The decided ones are explained by hand in docs/behaviour-assumptions.md.
+ * unseen. The decided ones are explained by hand in docs/assumptions/behaviour-assumptions.md.
  */
 import type { BehaviourReport } from "./behaviour.ts";
 import { DECIDED_ASSUMPTIONS } from "./behaviour-assumptions.ts";
@@ -94,7 +94,7 @@ export function renderAssumptions(table: AssumptionTable, builds: Record<Game, n
     "Regenerate it after changing the analysis, with every build you have:",
     "",
     "```sh",
-    "pnpm --filter @opentim/content list-assumptions --out ../../docs/behaviour-assumptions-all.md --tim1 <game folder> --evenmore <game folder>",
+    "pnpm --filter @opentim/content list-assumptions --out ../../docs/assumptions/behaviour-assumptions-all.md --tim1 <game folder> --evenmore <game folder>",
     "```",
     "",
     "With `--check` instead of `--out`, the command fails when the analysis states an assumption this list doesn't",
@@ -120,7 +120,7 @@ export function renderAssumptions(table: AssumptionTable, builds: Record<Game, n
 }
 
 /** The assumptions the generated list's table holds. */
-export function listedAssumptions(document: string): Set<string> {
+function listedAssumptions(document: string): Set<string> {
   const listed = new Set<string>();
   const start = document.indexOf("| Assumption |");
   if (start < 0) return listed;

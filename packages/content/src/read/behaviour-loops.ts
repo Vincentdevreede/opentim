@@ -5,6 +5,7 @@ import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { proveEmptyConnections, type EmptyConnections } from "./behaviour-empty-connections.ts";
 import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
+import { evidenceOf, implicitMemory, isRegister, sameOperand } from "./behaviour-terms.ts";
 
 export interface LoopField {
   object: "part" | "related" | "stack" | "data" | "buffer" | "other";
@@ -47,19 +48,14 @@ export interface LoopSummary extends Finding {
   possibleFields: LoopField[];
 }
 
-const evidence = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
-const register = (operand: Operand | undefined, name?: string): operand is Extract<Operand, { kind: "register" }> =>
-  operand?.kind === "register" && (name === undefined || operand.name === name);
 const memory = (operand: Operand | undefined): operand is Extract<Operand, { kind: "memory" }> =>
   operand?.kind === "memory";
 const immediate = (operand: Operand | undefined, value?: number): operand is Extract<Operand, { kind: "immediate" }> =>
   operand?.kind === "immediate" && (value === undefined || operand.value === value);
-const same = (a: Operand | undefined, b: Operand | undefined) => JSON.stringify(a) === JSON.stringify(b);
 const writesFirst = (i: Instruction) =>
   !["cmp", "test", "push", "call", "jmp", "mul", "div", "idiv"].includes(i.mnemonic) &&
   i.flow === "next" &&
   !/^(j|loop)/.test(i.mnemonic);
-const implicitMemory = (i: Instruction) => /^(movs|stos|ins|enter|pusha|popa|int|into|iret|bound|esc)/.test(i.mnemonic);
 const volatile = new Set(["ax", "bx", "cx", "dx", "es"]);
 const overlaps = (at: number, width: number, state: number) => at < state + 2 && state < at + width / 8;
 const byteParents: Record<string, string> = {
@@ -96,7 +92,7 @@ function storageOrigins(code: RoutineCode, bufferFields: Set<number>, argumentOf
     if (!i) continue;
     const state = new Map(inputs.get(at)!);
     const sourceRoot = (op: Operand | undefined): number => {
-      if (register(op)) return state.get(whole(op.name)) ?? unknown;
+      if (isRegister(op)) return state.get(whole(op.name)) ?? unknown;
       if (!memory(op)) return unknown;
       const saved = local(op);
       if (saved && op.width === 16) return state.get(saved) ?? unknown;
@@ -114,10 +110,10 @@ function storageOrigins(code: RoutineCode, bufferFields: Set<number>, argumentOf
     };
     const [dest, source] = i.operands;
     if (i.flow === "call") for (const name of volatile) state.set(name, unknown);
-    if (writesFirst(i) && (register(dest) || local(dest))) {
-      const name = register(dest) ? whole(dest.name) : local(dest)!;
+    if (writesFirst(i) && (isRegister(dest) || local(dest))) {
+      const name = isRegister(dest) ? whole(dest.name) : local(dest)!;
       let root = unknown;
-      if (i.mnemonic === "mov" && (register(dest) || memory(dest)) && dest.width === 16) root = sourceRoot(source);
+      if (i.mnemonic === "mov" && (isRegister(dest) || memory(dest)) && dest.width === 16) root = sourceRoot(source);
       else if (["add", "sub"].includes(i.mnemonic) && immediate(source) && state.get(name) === buffer) root = buffer;
       state.set(name, root);
     }
@@ -180,7 +176,7 @@ export function discoverCountedLoops(
   const ownerDefinitions = code.instructions.filter(
     (i) =>
       i.mnemonic === "mov" &&
-      register(i.operands[0]) &&
+      isRegister(i.operands[0]) &&
       memory(i.operands[1]) &&
       i.operands[1].segment === "ss" &&
       i.operands[1].base.length === 1 &&
@@ -188,7 +184,7 @@ export function discoverCountedLoops(
       i.operands[1].displacement === argumentOffset,
   );
   const ownerRegisters = new Set(
-    ownerDefinitions.flatMap((i) => (register(i.operands[0]) ? [i.operands[0].name] : [])),
+    ownerDefinitions.flatMap((i) => (isRegister(i.operands[0]) ? [i.operands[0].name] : [])),
   );
   const domination = new Map<string, boolean>();
   const dominates = (definition: number, target: number, start: number): boolean => {
@@ -227,7 +223,7 @@ export function discoverCountedLoops(
     if (!relation || !compare || compare.mnemonic !== "cmp" || !latch.target || latch.target.address >= compare.address)
       continue;
     const [counter, bound] = compare.operands;
-    if ((!register(counter) && !memory(counter)) || !immediate(bound) || counter.width !== 16) continue;
+    if ((!isRegister(counter) && !memory(counter)) || !immediate(bound) || counter.width !== 16) continue;
     if (
       memory(counter) &&
       !(counter.segment === "ss" && counter.base.length === 1 && counter.base[0] === "bp" && counter.displacement < 0)
@@ -285,7 +281,7 @@ export function discoverCountedLoops(
     const instructions = [...body].map((address) => byAddress.get(address)!).sort((a, b) => a.address - b.address);
     const updates = instructions.filter(
       (i) =>
-        same(i.operands[0], counter) &&
+        sameOperand(i.operands[0], counter) &&
         ((step === 1 && i.mnemonic === "inc") ||
           (step === -1 && i.mnemonic === "dec") ||
           (i.mnemonic === (step === 1 ? "add" : "sub") && immediate(i.operands[1], 1))),
@@ -296,7 +292,7 @@ export function discoverCountedLoops(
     const counterWrites = instructions.filter((i) => {
       if (!writesFirst(i)) return false;
       const dest = i.operands[0];
-      if (register(counter) && register(dest)) return whole(dest.name) === whole(counter.name);
+      if (isRegister(counter) && isRegister(dest)) return whole(dest.name) === whole(counter.name);
       return (
         memory(counter) &&
         memory(dest) &&
@@ -309,7 +305,7 @@ export function discoverCountedLoops(
     });
     if (counterWrites.length !== 1 || counterWrites[0]!.address !== update.address) continue;
     if (
-      register(counter) &&
+      isRegister(counter) &&
       instructions.some(
         (i) =>
           (["mul", "imul", "div", "idiv", "cwd", "cbw", "lahf", "loop", "loope", "loopne"].includes(i.mnemonic) &&
@@ -343,7 +339,7 @@ export function discoverCountedLoops(
     ]);
     const modified = new Set(
       instructions.flatMap((i) =>
-        writesFirst(i) && register(i.operands[0]) && !["push", "pop"].includes(i.mnemonic)
+        writesFirst(i) && isRegister(i.operands[0]) && !["push", "pop"].includes(i.mnemonic)
           ? [whole(i.operands[0].name)]
           : [],
       ),
@@ -354,7 +350,7 @@ export function discoverCountedLoops(
           !modified.has(name) &&
           !volatile.has(name) &&
           ownerDefinitions.some(
-            (i) => register(i.operands[0], name) && dominates(i.address, compare.address, code.address),
+            (i) => isRegister(i.operands[0], name) && dominates(i.address, compare.address, code.address),
           ),
       ),
     );
@@ -370,7 +366,7 @@ export function discoverCountedLoops(
       if (seen.has(key)) return undefined;
       seen.add(key);
       const previous = instructions
-        .filter((i) => i.address < at && writesFirst(i) && register(i.operands[0], name))
+        .filter((i) => i.address < at && writesFirst(i) && isRegister(i.operands[0], name))
         .at(-1);
       if (!previous || previous.mnemonic !== "mov" || !dominates(previous.address, at, bodyEntry)) return undefined;
       if (
@@ -379,7 +375,7 @@ export function discoverCountedLoops(
       )
         return undefined;
       const source = previous.operands[1];
-      if (register(source)) return pointerBase(source.name, previous.address, seen);
+      if (isRegister(source)) return pointerBase(source.name, previous.address, seen);
       if (!memory(source) || source.width !== 16 || source.segment !== "ds") return undefined;
       if (!source.base.some((base) => pointerBase(base, previous.address, new Set(seen)))) return undefined;
       return "related";
@@ -388,20 +384,20 @@ export function discoverCountedLoops(
       if (
         implicitMemory(i) ||
         /^(lods|scas|cmps|movs|stos|ins|outs)/.test(i.mnemonic) ||
-        (writesFirst(i) && register(i.operands[0]) && ["ss", "ds", "bp"].includes(i.operands[0].name))
+        (writesFirst(i) && isRegister(i.operands[0]) && ["ss", "ds", "bp"].includes(i.operands[0].name))
       ) {
         invalid = true;
         break;
       }
       if (
         writesFirst(i) &&
-        register(i.operands[0], "sp") &&
+        isRegister(i.operands[0], "sp") &&
         !(["add", "sub"].includes(i.mnemonic) && immediate(i.operands[1]))
       ) {
         invalid = true;
         break;
       }
-      if (writesFirst(i) && register(i.operands[0])) writtenRegisters.add(whole(i.operands[0].name));
+      if (writesFirst(i) && isRegister(i.operands[0])) writtenRegisters.add(whole(i.operands[0].name));
       if (
         i.mnemonic === "mul" ||
         i.mnemonic === "imul" ||
@@ -426,27 +422,27 @@ export function discoverCountedLoops(
           invalid = true;
           break;
         }
-        if (register(counter) && volatile.has(counter.name)) {
+        if (isRegister(counter) && volatile.has(counter.name)) {
           invalid = true;
           break;
         }
         if (
           memory(counter) &&
           !helper.footprint.preservesArgumentMemory &&
-          instructions.some((p) => p.mnemonic === "lea" && same(p.operands[1], counter))
+          instructions.some((p) => p.mnemonic === "lea" && sameOperand(p.operands[1], counter))
         ) {
           invalid = true;
           break;
         }
         if (!helper.footprint.preservesArgumentMemory && helper.argumentKind === "object") {
           let previous = before.get(i.address);
-          if (previous?.mnemonic === "push" && register(previous.operands[0], "cs"))
+          if (previous?.mnemonic === "push" && isRegister(previous.operands[0], "cs"))
             previous = before.get(previous.address);
           while (previous?.mnemonic === "nop") previous = before.get(previous.address);
           if (
             !previous ||
             previous.mnemonic !== "push" ||
-            !register(previous.operands[0]) ||
+            !isRegister(previous.operands[0]) ||
             pointerBase(previous.operands[0].name, previous.address) !== "part"
           ) {
             invalid = true;
@@ -456,7 +452,7 @@ export function discoverCountedLoops(
         if (helper.partGraph && helper.partGraph.objectArguments.length > 1) {
           // The second object comes from a bounded connection slot, copied intact through a private word.
           let firstPush = before.get(i.address);
-          if (firstPush?.mnemonic === "push" && register(firstPush.operands[0], "cs"))
+          if (firstPush?.mnemonic === "push" && isRegister(firstPush.operands[0], "cs"))
             firstPush = before.get(firstPush.address);
           while (firstPush?.mnemonic === "nop") firstPush = before.get(firstPush.address);
           const secondPush = firstPush && before.get(firstPush.address),
@@ -489,11 +485,11 @@ export function discoverCountedLoops(
             slot.displacement >= 0 ||
             stores.length !== 1 ||
             store?.mnemonic !== "mov" ||
-            !same(store.operands[0], slot) ||
-            !register(store.operands[1], "ax") ||
+            !sameOperand(store.operands[0], slot) ||
+            !isRegister(store.operands[1], "ax") ||
             !dominates(store.address, secondPush.address, bodyEntry) ||
             load?.mnemonic !== "mov" ||
-            !register(load.operands[0], "ax") ||
+            !isRegister(load.operands[0], "ax") ||
             !memory(source) ||
             source.width !== 16 ||
             source.segment !== "ds" ||
@@ -502,11 +498,11 @@ export function discoverCountedLoops(
             !source.base.some((r) => stableOwners.has(r)) ||
             source.displacement !== helper.partGraph.links[0] ||
             shift?.mnemonic !== "shl" ||
-            !register(shift.operands[0], "bx") ||
+            !isRegister(shift.operands[0], "bx") ||
             !immediate(shift.operands[1], 1) ||
             index?.mnemonic !== "mov" ||
-            !register(index.operands[0], "bx") ||
-            !same(index.operands[1], counter)
+            !isRegister(index.operands[0], "bx") ||
+            !sameOperand(index.operands[1], counter)
           ) {
             invalid = true;
             break;
@@ -586,13 +582,13 @@ export function discoverCountedLoops(
           if (depth > 8) return undefined;
           const definition = instructions
             .filter(
-              (previous) => previous.address < at && writesFirst(previous) && register(previous.operands[0], name),
+              (previous) => previous.address < at && writesFirst(previous) && isRegister(previous.operands[0], name),
             )
             .at(-1);
           if (!definition || !dominates(definition.address, at, bodyEntry)) return undefined;
           const source = definition.operands[1];
-          if (definition.mnemonic === "mov" && same(source, counter)) return { scale: 1, bias: 0 };
-          if (definition.mnemonic === "mov" && register(source))
+          if (definition.mnemonic === "mov" && sameOperand(source, counter)) return { scale: 1, bias: 0 };
+          if (definition.mnemonic === "mov" && isRegister(source))
             return affine(source.name, definition.address, depth + 1);
           if (!["shl", "add", "sub"].includes(definition.mnemonic) || !immediate(source)) return undefined;
           const before = affine(name, definition.address, depth + 1);
@@ -653,12 +649,12 @@ export function discoverCountedLoops(
         operand: dest,
         ...(root === "related" &&
         i.mnemonic === "mov" &&
-        register(i.operands[1]) &&
+        isRegister(i.operands[1]) &&
         (() => {
           const load = before.get(i.address);
           return (
             load?.mnemonic === "mov" &&
-            register(load.operands[0], i.operands[1].name) &&
+            isRegister(load.operands[0], i.operands[1].name) &&
             memory(load.operands[1]) &&
             load.operands[1].segment === "ds" &&
             load.operands[1].base.length === 1 &&
@@ -702,7 +698,7 @@ export function discoverCountedLoops(
       }
       const i = byAddress.get(address)!;
       let change = i.mnemonic === "push" ? -2 : i.mnemonic === "pop" ? 2 : 0;
-      if (["add", "sub"].includes(i.mnemonic) && register(i.operands[0], "sp") && immediate(i.operands[1]))
+      if (["add", "sub"].includes(i.mnemonic) && isRegister(i.operands[0], "sp") && immediate(i.operands[1]))
         change = i.operands[1].value * (i.mnemonic === "add" ? 1 : -1);
       if (i.flow === "call") {
         const call = code.calls.find((c) => c.instruction === i.address)!;
@@ -715,7 +711,7 @@ export function discoverCountedLoops(
           break;
         }
         const previous = before.get(i.address);
-        const pushedSegment = previous?.mnemonic === "push" && register(previous.operands[0], "cs");
+        const pushedSegment = previous?.mnemonic === "push" && isRegister(previous.operands[0], "cs");
         if (helper?.returnConvention) {
           if (
             (call.far && helper.returnConvention.kind !== "far") ||
@@ -729,7 +725,7 @@ export function discoverCountedLoops(
         if (
           !call.far &&
           previous?.mnemonic === "push" &&
-          register(previous.operands[0], "cs") &&
+          isRegister(previous.operands[0], "cs") &&
           helper?.argumentOffset === 6
         )
           change += 2;
@@ -780,7 +776,7 @@ export function discoverCountedLoops(
       evidence: [
         ...new Map(
           [...instructions, compare, latch]
-            .map(evidence)
+            .map(evidenceOf)
             .concat(helperEvidence)
             .map((e) => [e.address, e]),
         ).values(),

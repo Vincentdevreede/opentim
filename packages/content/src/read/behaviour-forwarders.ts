@@ -3,6 +3,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Expression, Predicate } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf } from "./behaviour-terms.ts";
 
 const register = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
   o?.kind === "register" && (name === undefined || o.name === name);
@@ -10,7 +11,6 @@ const argument = (o: Operand | undefined, offset: number) =>
   o?.kind === "memory" && o.segment === "ss" && o.base.join() === "bp" && o.displacement === offset && o.width === 16;
 const writesFirst = (i: Instruction) =>
   i.flow === "next" && !["push", "cmp", "test", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
-const evidence = ({ address, bytes, text }: Instruction) => ({ address, bytes, text });
 
 /** The summary fields a forwarder can carry over from its callees; any other one changes how a caller reads a call. */
 const PLAIN = new Set([
@@ -327,7 +327,7 @@ export function addStatePreservingForwarders(
         returns: [],
         calls: callees.map((c) => c.address),
         confidence: "inferred",
-        evidence: [...code.instructions.map(evidence), ...callees.flatMap((c) => c.evidence)],
+        evidence: [...code.instructions.map(evidenceOf), ...callees.flatMap((c) => c.evidence)],
         assumptions: [
           ...new Set([
             ...callees.flatMap((c) => c.assumptions),
