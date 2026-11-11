@@ -8,15 +8,7 @@
  * the search needs, like the candle's first search, which keeps only parts with 0x0004 in field 0x0a.
  */
 import { globalLists, searchedLists, typesLinkedInto } from "./behaviour-list-masks.ts";
-import type {
-  BehaviourReport,
-  Evidence,
-  Expression,
-  FieldWrite,
-  Finding,
-  Predicate,
-  ReadProgress,
-} from "./behaviour.ts";
+import type { BehaviourReport, Expression, FieldWrite, Finding, Predicate, ReadProgress } from "./behaviour.ts";
 import { callKinds, choiceOf, openCalls } from "./behaviour.ts";
 import { formula as formulaOf } from "./describe-touch.ts";
 import { directionCases } from "./behaviour-centre-angle.ts";
@@ -54,6 +46,7 @@ import {
   renamePredicate,
   terms,
 } from "./describe-effects.ts";
+import { conjunction, uniqueEvidence } from "./behaviour-terms.ts";
 
 const MOVING_LIST = 0x1000;
 /**
@@ -84,9 +77,6 @@ export interface PartHit extends Finding {
   name: string;
 }
 
-const conjunction = (list: Predicate[]): Predicate =>
-  list.length === 0 ? { kind: "true" } : list.length === 1 ? list[0]! : { kind: "and", terms: list };
-const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.address, e])).values()];
 /** The type a test `member type == type` names. */
 function namedType(term: Predicate, member: string, typeOffset: number): number | undefined {
   return term.kind === "compare" &&
@@ -304,7 +294,7 @@ function comparedPlaces(term: Predicate, member: string): PlaceTest | undefined 
  * Points of a part the place tests use, by the part's id, its field and the shift. The teeter-totter's list consumer
  * measures from `positionX + 74` and `positionX`, the two ends of its board as seen on screen.
  */
-export const NAMED_POINTS: Record<string, Record<string, string>> = {
+const NAMED_POINTS: Record<string, Record<string, string>> = {
   "teeter-totter": { "positionX:74": "right end", "positionX:0": "left end" },
 };
 /**
@@ -459,7 +449,7 @@ function movingListHead(report: BehaviourReport): number | undefined {
  * The head of the fixed list: of the lists the list head routine picks by its mask, the one that is neither the moving
  * list nor the list the list next routine goes on to by itself (`0x4e1f` in Even More, English floppy).
  */
-export function fixedListHead(report: BehaviourReport): number | undefined {
+function fixedListHead(report: BehaviourReport): number | undefined {
   const moving = movingListHead(report);
   const lists = report.helpers && globalLists(report.helpers);
   if (moving === undefined || !lists) return undefined;
@@ -509,13 +499,13 @@ function responseFields(report: BehaviourReport): Set<number> | undefined {
     }
   return fields;
 }
-export const RESPONSE_ASSUMPTION =
+const RESPONSE_ASSUMPTION =
   "When the bounce returns anything but 0, the game may go on to a contact response: the fields its relation stores on the touching part (its velocity and fine position, and for the two-part exchange its list flags) are unknown after it, and it changes no other field of it. The exchange's relation lists every store; what stays open about it is only whether it returns when the two weights add up to 0.";
-export const CONTACT_SEARCH_NOTE =
+const CONTACT_SEARCH_NOTE =
   "After setting the part's speeds the source runs the contact search on it, which may change its place, drawing place, frame size, list flags and contact record but not its speeds: the walk takes the fields it leaves that the part's rules read as unknown, and follows both ways where a rule tests them.";
-export const PLACE_ASSUMPTION =
+const PLACE_ASSUMPTION =
   "The part lies where the source's tests of the two places need it, like within a number of pixels from the teeter-totter's end, and the two places are close enough that the 16-bit difference the code takes doesn't wrap round; the walk doesn't follow where parts are, so it says this in words.";
-export const TOUCH_TESTS_ASSUMPTION =
+const TOUCH_TESTS_ASSUMPTION =
   "The tests of the bounce that compare the two parts, like where the part is on the source, hold; the walk doesn't follow the source's fields, so it doesn't keep them.";
 
 /** A value worked out from the member's own fields alone, with `part` the member: a walk can work it out. */

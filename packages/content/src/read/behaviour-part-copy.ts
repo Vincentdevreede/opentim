@@ -9,6 +9,7 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import { partCopyPatterns } from "./behaviour-part-copy-patterns.ts";
+import { routineEvidence } from "./behaviour-terms.ts";
 
 export const PART_COPY_ASSUMPTIONS = [
   "A part copy gets fresh memory, and so do the belt, rope and outline records it makes for the copy: none of it overlaps an existing part, a rope, belt or pulley record or other storage.",
@@ -18,8 +19,6 @@ export const PART_COPY_ASSUMPTIONS = [
 const PART_SIZE = 0xa2;
 /** The fields of the copy its release frees: the outline buffer, the belt record and the rope record. */
 const RELEASED_FIELDS = [0x82, 0x54, 0x66];
-
-const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
 /** Adds the part copy's summary where its graph matches and its allocator and release are the ones the proof needs. */
 export function addPartCopySummary(
@@ -39,7 +38,7 @@ export function addPartCopySummary(
     const releaseCode = codes.get(bound.get("release")!);
     const cleanup = releaseCode && discoverConstructorCleanup(releaseCode, PART_SIZE);
     if (!cleanup || cleanup.releaseFields.some((field, n) => field !== RELEASED_FIELDS[n])) continue;
-    const evidence = [...proof(code), ...allocate.evidence, ...cleanup.evidence];
+    const evidence = [...routineEvidence(code), ...allocate.evidence, ...cleanup.evidence];
     const assumptions = [...new Set([...PART_COPY_ASSUMPTIONS, ...allocate.assumptions])];
     const note = "Allocating and releasing change the heap's own records and globals.";
     summaries.set(code.address, {
@@ -56,7 +55,7 @@ export function addPartCopySummary(
       returns: [
         {
           confidence: "inferred",
-          evidence: proof(code).filter((i) => i.text.startsWith("mov ax, si")),
+          evidence: routineEvidence(code).filter((i) => i.text.startsWith("mov ax, si")),
           assumptions: PART_COPY_ASSUMPTIONS,
           register: "ax",
           value: { kind: "unknown", reason: "The copy's address is determined by the heap.", width: 16 },
@@ -65,7 +64,7 @@ export function addPartCopySummary(
         },
         {
           confidence: "inferred",
-          evidence: proof(code).filter((i) => i.text.startsWith("xor ax, ax")),
+          evidence: routineEvidence(code).filter((i) => i.text.startsWith("xor ax, ax")),
           assumptions: [],
           register: "ax",
           value: { kind: "constant", value: 0, width: 16 },

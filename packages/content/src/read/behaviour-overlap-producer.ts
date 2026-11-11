@@ -4,6 +4,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Finding } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isImmediate, isWordRegister } from "./behaviour-terms.ts";
 
 export interface OverlapProducer extends Finding {
   headField: number;
@@ -76,19 +77,14 @@ const shared = (pattern: string) => {
     .replaceAll("jmp @done", () => (first ? ((first = false), "bridge: jmp @done") : "jmp @bridge"))
     .replace("zero: xor ax,ax\ndone:", "zero: xor ax,ax\njmp @bridge\ndone:");
 };
-const register = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && o.width === 16 && (name === undefined || o.name === name);
 const memory = (o: Operand | undefined, base?: string): o is Extract<Operand, { kind: "memory" }> =>
   o?.kind === "memory" && (base === undefined || o.base.join() === base);
-const immediate = (o: Operand | undefined, value?: number): o is Extract<Operand, { kind: "immediate" }> =>
-  o?.kind === "immediate" && (value === undefined || o.value === value);
 const stack = (o: Operand | undefined, offset?: number) =>
   memory(o, "bp") && o.width === 16 && o.segment === "ss" && (offset === undefined || o.displacement === offset);
 const part = (o: Operand | undefined, base: string, offset?: number) =>
   memory(o, base) && o.width === 16 && o.segment === "ds" && (offset === undefined || o.displacement === offset);
 const overlaps = (a: number, width: number, b: number) => a < b + 2 && b < a + width / 8;
 const writes = (i: Instruction) => i.flow === "next" && !["push", "cmp", "test", "cwd", "nop"].includes(i.mnemonic);
-const evidence = ({ address, bytes, text }: Instruction) => ({ address, bytes, text });
 
 /** The certificate makes no unconditional claim that a malformed global chain returns. */
 export function proveOverlapProducer(
@@ -166,26 +162,26 @@ export function proveOverlapProducer(
   const [pushBP, frame, reserve, pushSI, pushDI, owner, clear] = instructions;
   if (
     pushBP?.mnemonic !== "push" ||
-    !register(pushBP.operands[0], "bp") ||
+    !isWordRegister(pushBP.operands[0], "bp") ||
     frame?.mnemonic !== "mov" ||
-    !register(frame.operands[0], "bp") ||
-    !register(frame.operands[1], "sp") ||
+    !isWordRegister(frame.operands[0], "bp") ||
+    !isWordRegister(frame.operands[1], "sp") ||
     reserve?.mnemonic !== "sub" ||
-    !register(reserve.operands[0], "sp") ||
-    !immediate(reserve.operands[1]) ||
+    !isWordRegister(reserve.operands[0], "sp") ||
+    !isImmediate(reserve.operands[1]) ||
     reserve.operands[1].value < 0 ||
     reserve.operands[1].value % 2 !== 0 ||
     reserve.operands[1].value > 0x7ffe ||
     pushSI?.mnemonic !== "push" ||
-    !register(pushSI.operands[0], "si") ||
+    !isWordRegister(pushSI.operands[0], "si") ||
     pushDI?.mnemonic !== "push" ||
-    !register(pushDI.operands[0], "di") ||
+    !isWordRegister(pushDI.operands[0], "di") ||
     owner?.mnemonic !== "mov" ||
-    !register(owner.operands[0], "di") ||
+    !isWordRegister(owner.operands[0], "di") ||
     !stack(owner.operands[1], 6) ||
     clear?.mnemonic !== "mov" ||
     !part(clear.operands[0], "di", field) ||
-    !immediate(clear.operands[1], 0)
+    !isImmediate(clear.operands[1], 0)
   )
     return;
   const frameSize = reserve.operands[1].value;
@@ -193,21 +189,21 @@ export function proveOverlapProducer(
     [popDI, popSI, restore, popBP, ret] = epilogue;
   if (
     popDI?.mnemonic !== "pop" ||
-    !register(popDI.operands[0], "di") ||
+    !isWordRegister(popDI.operands[0], "di") ||
     popSI?.mnemonic !== "pop" ||
-    !register(popSI.operands[0], "si") ||
+    !isWordRegister(popSI.operands[0], "si") ||
     restore?.mnemonic !== "mov" ||
-    !register(restore.operands[0], "sp") ||
-    !register(restore.operands[1], "bp") ||
+    !isWordRegister(restore.operands[0], "sp") ||
+    !isWordRegister(restore.operands[1], "bp") ||
     popBP?.mnemonic !== "pop" ||
-    !register(popBP.operands[0], "bp") ||
+    !isWordRegister(popBP.operands[0], "bp") ||
     ret?.mnemonic !== "retf" ||
     ret.operands.length !== 0 ||
     instructions.filter((i) => i.flow === "return").length !== 1
   )
     return;
   const gateways = instructions.filter(
-    (i) => i.mnemonic === "mov" && register(i.operands[0], "si") && register(i.operands[1], "ax"),
+    (i) => i.mnemonic === "mov" && isWordRegister(i.operands[0], "si") && isWordRegister(i.operands[1], "ax"),
   );
   if (gateways.length !== 1) return;
   const gateway = gateways[0]!,
@@ -216,8 +212,8 @@ export function proveOverlapProducer(
     branch = instructions[gatewayIndex + 2];
   if (
     guard?.mnemonic !== "or" ||
-    !register(guard.operands[0], "si") ||
-    !register(guard.operands[1], "si") ||
+    !isWordRegister(guard.operands[0], "si") ||
+    !isWordRegister(guard.operands[1], "si") ||
     !branch ||
     !["je", "jne"].includes(branch.mnemonic)
   )
@@ -229,7 +225,7 @@ export function proveOverlapProducer(
   const bridgeBefore = (at: number) => {
     const tail: Instruction[] = [];
     let i = before.get(at);
-    while (i?.mnemonic === "nop" || (i?.mnemonic === "push" && register(i.operands[0], "cs"))) {
+    while (i?.mnemonic === "nop" || (i?.mnemonic === "push" && isWordRegister(i.operands[0], "cs"))) {
       tail.unshift(i);
       i = before.get(i.address);
     }
@@ -246,31 +242,31 @@ export function proveOverlapProducer(
   const headDefinition = headPush && before.get(headPush.address);
   const headFromConstant =
     headPush?.mnemonic === "push" &&
-    register(headPush.operands[0], "ax") &&
+    isWordRegister(headPush.operands[0], "ax") &&
     headDefinition?.mnemonic === "mov" &&
-    register(headDefinition.operands[0], "ax") &&
-    immediate(headDefinition.operands[1]) &&
+    isWordRegister(headDefinition.operands[0], "ax") &&
+    isImmediate(headDefinition.operands[1]) &&
     headDefinition.operands[1].value >= 0 &&
     headDefinition.operands[1].value <= 0xffff;
   const nextFromConstant =
     maskDefinition?.mnemonic === "mov" &&
-    register(maskDefinition.operands[0], "ax") &&
-    immediate(maskDefinition.operands[1]) &&
+    isWordRegister(maskDefinition.operands[0], "ax") &&
+    isImmediate(maskDefinition.operands[1]) &&
     maskDefinition.operands[1].value >= 0 &&
     maskDefinition.operands[1].value <= 0xffff;
   const nextFromArgument =
     maskDefinition?.mnemonic === "and" &&
-    register(maskDefinition.operands[0], "ax") &&
-    immediate(maskDefinition.operands[1], 4096) &&
+    isWordRegister(maskDefinition.operands[0], "ax") &&
+    isImmediate(maskDefinition.operands[1], 4096) &&
     loadMask?.mnemonic === "mov" &&
-    register(loadMask.operands[0], "ax") &&
+    isWordRegister(loadMask.operands[0], "ax") &&
     stack(loadMask.operands[1], 8);
   if (
     (!headFromArgument && !headFromConstant) ||
     nodePush?.mnemonic !== "push" ||
-    !register(nodePush.operands[0], "si") ||
+    !isWordRegister(nodePush.operands[0], "si") ||
     maskPush?.mnemonic !== "push" ||
-    !register(maskPush.operands[0], "ax") ||
+    !isWordRegister(maskPush.operands[0], "ax") ||
     (!nextFromConstant && !nextFromArgument)
   )
     return;
@@ -310,7 +306,7 @@ export function proveOverlapProducer(
     let count = 0;
     return (
       linear(call.address + call.size, gateway.address, (i) => {
-        if (i.mnemonic === "pop" && register(i.operands[0], "cx")) {
+        if (i.mnemonic === "pop" && isWordRegister(i.operands[0], "cx")) {
           count++;
           return count <= pops;
         }
@@ -353,14 +349,14 @@ export function proveOverlapProducer(
   const insertions = instructions.filter(
     (i, n) =>
       i.mnemonic === "mov" &&
-      register(i.operands[0], "ax") &&
+      isWordRegister(i.operands[0], "ax") &&
       part(i.operands[1], "di", field) &&
       instructions[n + 1]?.mnemonic === "mov" &&
       part(instructions[n + 1]?.operands[0], "si", field) &&
-      register(instructions[n + 1]?.operands[1], "ax") &&
+      isWordRegister(instructions[n + 1]?.operands[1], "ax") &&
       instructions[n + 2]?.mnemonic === "mov" &&
       part(instructions[n + 2]?.operands[0], "di", field) &&
-      register(instructions[n + 2]?.operands[1], "si"),
+      isWordRegister(instructions[n + 2]?.operands[1], "si"),
   );
   if (insertions.length !== 1) return;
   const insertion = insertions[0]!,
@@ -391,8 +387,8 @@ export function proveOverlapProducer(
     if (
       i.mnemonic !== "cmp" ||
       !(
-        (register(i.operands[0], "di") && register(i.operands[1], "si")) ||
-        (register(i.operands[0], "si") && register(i.operands[1], "di"))
+        (isWordRegister(i.operands[0], "di") && isWordRegister(i.operands[1], "si")) ||
+        (isWordRegister(i.operands[0], "si") && isWordRegister(i.operands[1], "di"))
       )
     )
       return false;
@@ -446,7 +442,7 @@ export function proveOverlapProducer(
     if (!allowed.has(i.mnemonic)) return;
     if (!writes(i)) continue;
     const dest = i.operands[0];
-    if (register(dest)) {
+    if (isWordRegister(dest)) {
       if (
         (dest.name === "di" && i !== owner && i !== popDI) ||
         (dest.name === "si" && i !== gateway && i !== guard && i !== popSI) ||
@@ -524,7 +520,7 @@ export function proveOverlapProducer(
     acyclic: true,
     excludesOwner: true,
     confidence: "inferred",
-    evidence: [code, headCode, nextCode].flatMap((c) => c.instructions.map(evidence)),
+    evidence: [code, headCode, nextCode].flatMap((c) => c.instructions.map(evidenceOf)),
     assumptions: [
       "The owner and every nonzero enumerated pointer are complete nonwrapping part bases. Distinct parts occupy disjoint storage; global head words and valid private stack storage are separate from every part.",
       "Global head words, primary next fields and class flags remain stable during the query. The verified query and its read-only enumerator helpers cannot change them under the storage separation assumption; no external writer intervenes.",

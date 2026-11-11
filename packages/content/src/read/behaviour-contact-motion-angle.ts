@@ -5,6 +5,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Expression, Finding, Predicate } from "./behaviour.ts";
+import { binary, constant, partField } from "./behaviour-terms.ts";
 
 export interface ContactMotionAngle extends Finding {
   backend: number;
@@ -210,15 +211,6 @@ pop si
 pop bp
 retf`;
 const wrapperBridge = wrapperPattern.replace("add sp,#8\npop si", "add sp,#8\njmp @done\ndone: pop si");
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const field = (offset: number): Expression => ({ kind: "field", object: "part", offset, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
 const compare = (operator: string, left: Expression, right: Expression): Predicate => ({
   kind: "compare",
   operator,
@@ -342,16 +334,16 @@ export function addContactMotionAngleSummaries(
     const zero: Predicate = {
       kind: "and",
       terms: [
-        compare("==", field(fields.positionX), field(fields.previousX)),
-        compare("==", field(fields.positionY), field(fields.previousY)),
+        compare("==", partField(fields.positionX), partField(fields.previousX)),
+        compare("==", partField(fields.positionY), partField(fields.previousY)),
       ],
     };
     const changed = compare(
       "!=",
       binary(
         "|",
-        binary("-", field(fields.previousX), field(fields.positionX)),
-        binary("-", field(fields.positionY), field(fields.previousY)),
+        binary("-", partField(fields.previousX), partField(fields.positionX)),
+        binary("-", partField(fields.positionY), partField(fields.previousY)),
       ),
       constant(0),
     );

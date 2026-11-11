@@ -13,6 +13,7 @@ import {
   walkBehaviourRules,
   WIDENING_ASSUMPTION,
 } from "./describe-behaviour.ts";
+import { isRecord } from "./behaviour-terms.ts";
 
 export interface DescribedWalkMatch {
   clip: string;
@@ -59,8 +60,6 @@ export interface DescribedWalkCoverage {
   completeWithUntouchedStart: number;
   matches: DescribedWalkMatch[];
 }
-const object = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 
 /**
@@ -68,7 +67,7 @@ const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
  * fields, including zeros from its old artificial objects, are supplied to this compatibility check.
  */
 function recordedFields(report: BehaviourReport | undefined, clip: MeasuredClip, touched = false): RecordedField[] {
-  const seed = object(clip.input.seed) ? clip.input.seed : {};
+  const seed = isRecord(clip.input.seed) ? clip.input.seed : {};
   const write = recorderWrite(clip, 0);
   const named = namedFields(report, { ...clip.partSeed, ...seed, ...clip.frames[0], ...write });
   return touched ? named : [...named, RECORDER_CONTACT];
@@ -102,12 +101,12 @@ const SAVED_IN_FULL = new Set(["state", "control", "timer", "heat"]);
  */
 function recorderWrite(clip: MeasuredClip, tick: number): Record<string, number> | undefined {
   const { hold, holdTicks, release } = clip.input;
-  if (!object(hold)) return undefined;
+  if (!isRecord(hold)) return undefined;
   const values =
     typeof holdTicks !== "number" || tick < holdTicks
       ? hold
       : tick === holdTicks
-        ? object(release)
+        ? isRecord(release)
           ? release
           : { control: 0 }
         : undefined;
@@ -132,7 +131,7 @@ type Restarts = { restarts: Restart[]; forever: boolean } | { unsupported: strin
  * from the fields of the run its cycle repeats.
  */
 function recorderRestarts(report: BehaviourReport | undefined, clip: MeasuredClip): Restarts {
-  if (!object(clip.input.hold)) return { restarts: [], forever: false };
+  if (!isRecord(clip.input.hold)) return { restarts: [], forever: false };
   const { frames, loopStart } = clip,
     count = frames.length,
     forever = typeof clip.input.holdTicks !== "number";
@@ -1079,7 +1078,7 @@ function benchStart(report: BehaviourReport, partType: number, clip: MeasuredCli
   word(0x80, 20);
   word(0x82, 0x7200);
   word(0x84, 0x7600);
-  const seed = object(clip.input.seed) ? clip.input.seed : {};
+  const seed = isRecord(clip.input.seed) ? clip.input.seed : {};
   const values: Record<string, unknown> = { ...clip.partSeed, ...seed, ...recorderWrite(clip, 0) };
   const state = report.layout.fields.find((field) => field.name === "state")?.offset ?? 12;
   const delta = report.layout.fields.find((field) => field.name === "stateDelta")?.offset ?? 18;

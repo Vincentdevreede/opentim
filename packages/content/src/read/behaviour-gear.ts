@@ -5,6 +5,7 @@ import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Expression, Predicate } from "./behaviour.ts";
 import type { GearAdvanceRelation, GearPropagationRelation } from "./behaviour-gear-model.ts";
+import { constant, partField } from "./behaviour-terms.ts";
 
 const propagate = `push bp
 mov bp,sp
@@ -163,8 +164,6 @@ const propagateSharedReturn = propagate
   .replace("push bx\npush si", "push 16:ss[bp+-6]\npush si")
   .replace("F: mov ax,16:ss[bp+12]\npop di", "F: mov ax,16:ss[bp+12]\njmp @N\nN: pop di");
 
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const field = (offset: number): Expression => ({ kind: "field", object: "part", offset, width: 16 });
 const compare = (operator: string, left: Expression, value: number): Predicate => ({
   kind: "compare",
   operator,
@@ -252,8 +251,8 @@ export function addGearSummaries(
     const sum: Expression = {
       kind: "binary",
       operator: "+",
-      left: field(state.offset),
-      right: field(delta.offset),
+      left: partField(state.offset),
+      right: partField(delta.offset),
       width: 16,
     };
     const argument = (offset: number): Expression => ({ kind: "field", object: "argument", offset, width: 16 });

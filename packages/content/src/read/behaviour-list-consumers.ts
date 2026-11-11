@@ -1,9 +1,10 @@
 /** Conditional contracts for routines that consume a list supplied by their caller. */
-import type { Evidence, Finding, IterationOutcome } from "./behaviour.ts";
+import type { Finding, IterationOutcome } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import { discoverListLoops, type ListLoopSummary } from "./behaviour-list-loops.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isImmediate, isMemory, isRegister, wholeRegister } from "./behaviour-terms.ts";
 
 /** These effects hold only when the caller proves every listed requirement. */
 export interface ExternalListConsumer extends Finding {
@@ -20,13 +21,6 @@ export interface ExternalListConsumer extends Finding {
   /** What it does to one member, path by path, read from the consumer once its own analysis is done. */
   memberOutcomes?: IterationOutcome[];
 }
-const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && (name === undefined || o.name === name);
-const mem = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
-const imm = (o: Operand | undefined): o is Extract<Operand, { kind: "immediate" }> => o?.kind === "immediate";
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
-const parent = (name: string) =>
-  ({ al: "ax", ah: "ax", bl: "bx", bh: "bx", cl: "cx", ch: "cx", dl: "dx", dh: "dx" })[name] ?? name;
 const prefixOperations = new Set([
   "mov",
   "add",
@@ -57,16 +51,20 @@ function frame(code: RoutineCode, loop: ListLoopSummary, head: Instruction) {
   if (
     first?.address !== code.address ||
     first.mnemonic !== "push" ||
-    !reg(first.operands[0], "bp") ||
+    !isRegister(first.operands[0], "bp") ||
     second?.mnemonic !== "mov" ||
-    !reg(second.operands[0], "bp") ||
-    !reg(second.operands[1], "sp")
+    !isRegister(second.operands[0], "bp") ||
+    !isRegister(second.operands[1], "sp")
   )
     return;
   let cursor = 2,
     locals = 0;
   const allocation = ordered[cursor];
-  if (allocation?.mnemonic === "sub" && reg(allocation.operands[0], "sp") && imm(allocation.operands[1])) {
+  if (
+    allocation?.mnemonic === "sub" &&
+    isRegister(allocation.operands[0], "sp") &&
+    isImmediate(allocation.operands[1])
+  ) {
     locals = allocation.operands[1].value;
     if (locals <= 0 || locals % 2 || locals > 0x7fff) return;
     cursor++;
@@ -82,7 +80,7 @@ function frame(code: RoutineCode, loop: ListLoopSummary, head: Instruction) {
   const saved: string[] = [];
   while (
     ordered[cursor]?.mnemonic === "push" &&
-    reg(ordered[cursor]!.operands[0]) &&
+    isRegister(ordered[cursor]!.operands[0]) &&
     ["si", "di"].includes((ordered[cursor]!.operands[0] as Extract<Operand, { kind: "register" }>).name)
   ) {
     saved.push((ordered[cursor]!.operands[0] as Extract<Operand, { kind: "register" }>).name);
@@ -100,13 +98,14 @@ function frame(code: RoutineCode, loop: ListLoopSummary, head: Instruction) {
     if (i.flow !== "next" || !prefixOperations.has(i.mnemonic)) return;
     const [destination] = i.operands;
     const writes = !["cmp", "test", "cwd", "cbw", "nop"].includes(i.mnemonic);
-    if (writes && reg(destination)) {
+    if (writes && isRegister(destination)) {
       if (["bp", "sp", "ss", "ds", "cs", "es"].includes(destination.name)) return;
-      if (["si", "di"].includes(parent(destination.name)) && !saved.includes(parent(destination.name))) return;
+      if (["si", "di"].includes(wholeRegister(destination.name)) && !saved.includes(wholeRegister(destination.name)))
+        return;
     }
     if (
       writes &&
-      mem(destination) &&
+      isMemory(destination) &&
       !(
         destination.segment === "ss" &&
         destination.base.join() === "bp" &&
@@ -118,10 +117,11 @@ function frame(code: RoutineCode, loop: ListLoopSummary, head: Instruction) {
     )
       return;
     // A frame address cannot escape through a value operand or an alternative SS/SP addressing form.
-    if (i.operands.some((o) => reg(o) && ["bp", "sp", "ss"].includes(o.name))) return;
+    if (i.operands.some((o) => isRegister(o) && ["bp", "sp", "ss"].includes(o.name))) return;
     if (
       i.operands.some(
-        (o) => mem(o) && (o.segment === "ss" ? o.base.join() !== "bp" : o.base.some((b) => ["bp", "sp"].includes(b))),
+        (o) =>
+          isMemory(o) && (o.segment === "ss" ? o.base.join() !== "bp" : o.base.some((b) => ["bp", "sp"].includes(b))),
       )
     )
       return;
@@ -140,11 +140,16 @@ function frame(code: RoutineCode, loop: ListLoopSummary, head: Instruction) {
   let at = 0;
   for (const name of [...saved].reverse()) {
     const i = tail[at++];
-    if (i?.mnemonic !== "pop" || !reg(i.operands[0], name)) return;
+    if (i?.mnemonic !== "pop" || !isRegister(i.operands[0], name)) return;
   }
-  if (tail[at]?.mnemonic === "mov" && reg(tail[at]!.operands[0], "sp") && reg(tail[at]!.operands[1], "bp")) at++;
+  if (
+    tail[at]?.mnemonic === "mov" &&
+    isRegister(tail[at]!.operands[0], "sp") &&
+    isRegister(tail[at]!.operands[1], "bp")
+  )
+    at++;
   else if (locals) return;
-  if (tail[at]?.mnemonic !== "pop" || !reg(tail[at]!.operands[0], "bp")) return;
+  if (tail[at]?.mnemonic !== "pop" || !isRegister(tail[at]!.operands[0], "bp")) return;
   const returned = tail[++at];
   if (!returned || !["ret", "retf"].includes(returned.mnemonic) || returned.operands.length || at !== tail.length - 1)
     return;
@@ -184,8 +189,8 @@ export function discoverExternalListConsumers(
     const [destination, source] = head.operands;
     if (
       head.mnemonic !== "mov" ||
-      !reg(destination) ||
-      !mem(source) ||
+      !isRegister(destination) ||
+      !isMemory(source) ||
       source.segment !== "ds" ||
       source.base.length !== 1 ||
       source.width !== 16
@@ -196,8 +201,8 @@ export function discoverExternalListConsumers(
       !code.instructions.some(
         (i) =>
           i.mnemonic === "mov" &&
-          reg(i.operands[0], destination.name) &&
-          mem(i.operands[1]) &&
+          isRegister(i.operands[0], destination.name) &&
+          isMemory(i.operands[1]) &&
           i.operands[1].base.join() === destination.name &&
           i.operands[1].displacement === source.displacement &&
           i.operands[1].width === 16,
@@ -257,7 +262,7 @@ export function discoverExternalListConsumers(
         confidence: "inferred",
         evidence: [
           ...new Map(
-            [...code.instructions.map(evidence), ...loop.evidence].map((item) => [JSON.stringify(item), item]),
+            [...code.instructions.map(evidenceOf), ...loop.evidence].map((item) => [JSON.stringify(item), item]),
           ).values(),
         ],
         assumptions: [

@@ -5,6 +5,7 @@ import { segmentPatterns } from "./behaviour-contact-segment-patterns.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression, Finding } from "./behaviour.ts";
+import { binary } from "./behaviour-terms.ts";
 
 export interface ContactSegmentTest extends Finding {
   firstArgument: number;
@@ -32,13 +33,6 @@ export interface ContactSegmentTest extends Finding {
   outputWrittenBeforeAcceptance: true;
   normalReturnValues: [0, 1];
 }
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
 const input = (object: string, offset: number): Expression => ({ kind: "field", object, offset, width: 16 });
 
 /** The full match includes both determinant paths, the output stores, all four range calls and every return. */

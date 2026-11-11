@@ -4,12 +4,11 @@ import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Evidence, Finding } from "./behaviour.ts";
 import type { Operand } from "./x86.ts";
+import { isMemory, isRegister } from "./behaviour-terms.ts";
 
 type Root = "owner" | "buffer";
-const register = (o: Operand | undefined): o is Extract<Operand, { kind: "register" }> => o?.kind === "register";
-const memory = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
 const local = (o: Operand | undefined) =>
-  memory(o) && o.segment === "ss" && o.base.join() === "bp" && o.displacement < 0;
+  isMemory(o) && o.segment === "ss" && o.base.join() === "bp" && o.displacement < 0;
 const aliases: Record<string, string> = {
   al: "ax",
   ah: "ax",
@@ -52,12 +51,12 @@ export function discoverConstructorEffects(
       const [push, move] = code.instructions;
       if (
         push?.mnemonic !== "push" ||
-        !register(push.operands[0]) ||
+        !isRegister(push.operands[0]) ||
         push.operands[0].name !== "bp" ||
         move?.mnemonic !== "mov" ||
-        !register(move.operands[0]) ||
+        !isRegister(move.operands[0]) ||
         move.operands[0].name !== "bp" ||
-        !register(move.operands[1]) ||
+        !isRegister(move.operands[1]) ||
         move.operands[1].name !== "sp"
       )
         return fail();
@@ -65,7 +64,7 @@ export function discoverConstructorEffects(
         code.instructions.some(
           (i) =>
             i.mnemonic === "pop" &&
-            register(i.operands[0]) &&
+            isRegister(i.operands[0]) &&
             i.operands[0].name === "bp" &&
             code.instructions.find((next) => next.address === i.address + i.size)?.flow !== "return",
         )
@@ -102,27 +101,27 @@ export function discoverConstructorEffects(
         if (
           /^(movs|stos|lods|scas|cmps|ins|outs|enter|pusha|popa|int|into|iret|bound|esc)/.test(i.mnemonic) ||
           i.mnemonic === "lds" ||
-          (register(dest) && ["ss", "ds"].includes(dest.name) && !["push", "cmp", "test"].includes(i.mnemonic)) ||
-          (register(dest) &&
+          (isRegister(dest) && ["ss", "ds"].includes(dest.name) && !["push", "cmp", "test"].includes(i.mnemonic)) ||
+          (isRegister(dest) &&
             dest.name === "sp" &&
             !["push", "cmp", "test"].includes(i.mnemonic) &&
-            !(i.mnemonic === "mov" && register(source) && source.name === "bp") &&
+            !(i.mnemonic === "mov" && isRegister(source) && source.name === "bp") &&
             !(["add", "sub"].includes(i.mnemonic) && source?.kind === "immediate")) ||
-          (register(dest) && dest.name === "bp" && !["push", "pop", "cmp", "test"].includes(i.mnemonic) && i !== move)
+          (isRegister(dest) && dest.name === "bp" && !["push", "pop", "cmp", "test"].includes(i.mnemonic) && i !== move)
         )
           return fail();
         const store =
-          memory(dest) && !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
-        if (store && memory(dest) && local(dest)) {
+          isMemory(dest) && !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
+        if (store && isMemory(dest) && local(dest)) {
           for (const key of state.keys())
             if (key.startsWith("stack:")) {
               const offset = Number(key.slice(6));
               if (offset < dest.displacement + dest.width / 8 && dest.displacement < offset + 2) state.delete(key);
             }
-          const root = register(source) ? state.get(source.name) : undefined;
+          const root = isRegister(source) ? state.get(source.name) : undefined;
           if (dest.width === 16 && root) state.set(`stack:${dest.displacement}`, root);
         }
-        if (store && memory(dest) && !local(dest)) {
+        if (store && isMemory(dest) && !local(dest)) {
           if (dest.segment !== "ds" || dest.base.length !== 1 || !state.has(dest.base[0]!)) return fail();
         }
         if (i.flow === "call") {
@@ -146,7 +145,7 @@ export function discoverConstructorEffects(
           if (call.far && !farReturn) return fail();
           let push = before.get(at);
           if (!call.far && farReturn) {
-            if (push?.mnemonic !== "push" || !register(push.operands[0]) || push.operands[0].name !== "cs")
+            if (push?.mnemonic !== "push" || !isRegister(push.operands[0]) || push.operands[0].name !== "cs")
               return fail();
             push = before.get(push.address);
           }
@@ -154,8 +153,8 @@ export function discoverConstructorEffects(
           const pushed = push?.operands[0];
           const owner =
             push?.mnemonic === "push" &&
-            ((register(pushed) && state.get(pushed.name) === "owner") ||
-              (memory(pushed) &&
+            ((isRegister(pushed) && state.get(pushed.name) === "owner") ||
+              (isMemory(pushed) &&
                 pushed.segment === "ss" &&
                 pushed.base.join() === "bp" &&
                 pushed.displacement === first &&
@@ -187,28 +186,28 @@ export function discoverConstructorEffects(
           for (const name of ["ax", "bx", "cx", "dx", "es"]) state.delete(name);
           if (allocated) state.set("ax", "buffer");
         } else if (
-          register(dest) &&
+          isRegister(dest) &&
           !["push", "cmp", "test"].includes(i.mnemonic) &&
           i.flow !== "branch" &&
           i.flow !== "jump" &&
-          !(["or", "and"].includes(i.mnemonic) && register(source) && source.name === dest.name)
+          !(["or", "and"].includes(i.mnemonic) && isRegister(source) && source.name === dest.name)
         ) {
           const name = aliases[dest.name] ?? dest.name;
           let root: Root | undefined;
           if (i.mnemonic === "mov" && dest.width === 16) {
-            if (register(source)) root = state.get(source.name);
+            if (isRegister(source)) root = state.get(source.name);
             else if (
-              memory(source) &&
+              isMemory(source) &&
               source.segment === "ss" &&
               source.base.join() === "bp" &&
               source.displacement === first &&
               source.width === 16
             )
               root = "owner";
-            else if (memory(source) && source.width === 16 && local(source))
+            else if (isMemory(source) && source.width === 16 && local(source))
               root = state.get(`stack:${source.displacement}`);
             else if (
-              memory(source) &&
+              isMemory(source) &&
               source.segment === "ds" &&
               source.base.length === 1 &&
               state.get(source.base[0]!) === "owner" &&
@@ -226,7 +225,7 @@ export function discoverConstructorEffects(
           state.delete(name);
           if (root) state.set(name, root);
         }
-        if (i.mnemonic === "xchg" && register(source)) state.delete(aliases[source.name] ?? source.name);
+        if (i.mnemonic === "xchg" && isRegister(source)) state.delete(aliases[source.name] ?? source.name);
         if (["mul", "imul", "div", "idiv", "cwd"].includes(i.mnemonic)) {
           state.delete("ax");
           state.delete("dx");

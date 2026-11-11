@@ -15,7 +15,8 @@ import {
 import type { RoutineCode } from "./behaviour-code.ts";
 import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Expression, Finding } from "./behaviour.ts";
+import type { Finding } from "./behaviour.ts";
+import { argumentField, routineEvidence } from "./behaviour-terms.ts";
 
 /** What the speed setter does with its three arguments, the part, the angle and the speed. */
 export interface DirectedVelocity extends Finding {
@@ -72,10 +73,7 @@ mov sp,bp
 pop bp
 retf`;
 /** The compiler forms of the speed setter in the supplied builds: the English CD calls the shift far. */
-export const directedVelocityPatterns = [nearShift, nearShift.replaceAll("call $shift", "callf $shift")];
-
-const argument = (offset: number): Expression => ({ kind: "field", object: "argument", offset, width: 16 });
-const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
+const directedVelocityPatterns = [nearShift, nearShift.replaceAll("call $shift", "callf $shift")];
 
 /** The speed setter's summary, where the routine's graph and its four callees match. */
 export function discoverDirectedVelocity(
@@ -108,7 +106,7 @@ export function discoverDirectedVelocity(
     const finding: Finding = {
       confidence: "inferred",
       evidence: [
-        ...proof(code),
+        ...routineEvidence(code),
         ...horizontal.evidence,
         ...vertical.evidence,
         ...multiplication.evidence,
@@ -156,10 +154,10 @@ export function discoverDirectedVelocity(
         // The speed times the coefficient of the angle, as a signed long shifted right by 14: its low word.
         value: shiftedLowWord(
           signedProduct(
-            argument(directedVelocity.arguments.speed),
+            argumentField(directedVelocity.arguments.speed),
             rotationScalarExpression(
               field === 0x36 ? horizontal : vertical,
-              argument(directedVelocity.arguments.angle),
+              argumentField(directedVelocity.arguments.angle),
             ),
           ),
         ),

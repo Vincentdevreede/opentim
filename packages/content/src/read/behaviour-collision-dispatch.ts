@@ -10,6 +10,7 @@ import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
 import type { Evidence, Expression, Finding, PartBehaviour, Predicate } from "./behaviour.ts";
 import type { CodeAddress, Instruction } from "./x86.ts";
+import { constant, evidenceOf, wordAt } from "./behaviour-terms.ts";
 
 export interface CollisionTarget extends CodeAddress {
   type: number;
@@ -68,8 +69,6 @@ export interface CollisionDispatch extends Finding {
   advance: "readCurrentNextAfterCallbacks";
   description: string;
 }
-const fact = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
 const field = (offset: number): Expression => ({ kind: "field", object: "collider", offset, width: 16 });
 const compare = (operator: string, left: Expression, right = constant(0)): Predicate => ({
   kind: "compare",
@@ -86,7 +85,6 @@ const masked = (offset: number, mask: number): Expression => ({
   width: 16,
 });
 const and = (...terms: Predicate[]): Predicate => ({ kind: "and", terms });
-const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
 
 /** Only complete return-only bodies receive a constant return; no callback is evaluated on an object. */
 function constantReturn(code: RoutineCode | undefined): number | undefined {
@@ -217,8 +215,8 @@ export function discoverCollisionDispatch(
         !record.bytes.every((byte, n) => image[record.at + n] === byte)
       )
         break;
-      const offset = word(image, at),
-        segment = word(image, at + 2),
+      const offset = wordAt(image, at),
+        segment = wordAt(image, at + 2),
         address = segment * 16 + offset;
       if (address >= image.length) break;
       const value = constantReturn(codes.get(address));
@@ -231,7 +229,7 @@ export function discoverCollisionDispatch(
         shared: false,
         pointer: { address: at, bytes: Array.from(image.subarray(at, at + 4)) },
         ...(value !== undefined
-          ? { constantReturn: value, returnEvidence: codes.get(address)!.instructions.map(fact) }
+          ? { constantReturn: value, returnEvidence: codes.get(address)!.instructions.map(evidenceOf) }
           : {}),
       });
     }
@@ -334,7 +332,7 @@ export function discoverCollisionDispatch(
             : [],
           ...(relation ? { relation } : {}),
           confidence: known ? helper.confidence : "unresolved",
-          evidence: known ? helper.evidence : (codes.get(routine)?.instructions.map(fact) ?? []),
+          evidence: known ? helper.evidence : (codes.get(routine)?.instructions.map(evidenceOf) ?? []),
           assumptions: known
             ? [
                 ...helper.assumptions,
@@ -374,7 +372,7 @@ export function discoverCollisionDispatch(
       description:
         "For an eligible moving part, selects a contact callback from the recorded partner's type and passes the moving part. A zero return skips the response; a nonzero return chooses a response using flags read after the callback.",
       confidence: "inferred",
-      evidence: sequence.map(fact),
+      evidence: sequence.map(evidenceOf),
       assumptions: [
         ...bounce.assumptions,
         "This is a complete per-node region, not a proof that a collision occurs or that every part is visited once per game step. The containing routine enters with the discovered data segment; callbacks preserve DS, SI and the C stack frame on normal return.",

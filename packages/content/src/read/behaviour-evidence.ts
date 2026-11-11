@@ -1,15 +1,14 @@
 /** Shares repeated instruction evidence in saved JSON, while retaining each finding's instruction addresses. */
 import type { Evidence } from "./behaviour.ts";
+import { isRecord } from "./behaviour-terms.ts";
 
 export const EVIDENCE_ENCODING = "opentim-instruction-evidence-1";
 interface EvidenceReference {
   address: number;
   evidenceIndex: number;
 }
-const object = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 const instructionEvidence = (value: unknown): value is Evidence =>
-  object(value) &&
+  isRecord(value) &&
   typeof value.address === "number" &&
   Array.isArray(value.bytes) &&
   value.bytes.every((byte) => typeof byte === "number") &&
@@ -69,7 +68,7 @@ export function createEvidenceWriter() {
 
 /** Restores saved references in place. Legacy reports and unrelated JSON are returned unchanged. */
 export function restoreEvidenceDocument(value: unknown): unknown {
-  if (!object(value) || value.evidenceEncoding !== EVIDENCE_ENCODING) return value;
+  if (!isRecord(value) || value.evidenceEncoding !== EVIDENCE_ENCODING) return value;
   const pool = value.evidencePool;
   if (!Array.isArray(pool) || !pool.every(instructionEvidence))
     throw new Error("The saved instruction evidence pool is invalid");
@@ -113,7 +112,7 @@ export function restoreEvidenceDocument(value: unknown): unknown {
           if (!evidence) throw new Error(`No saved instruction evidence matches address 0x${entry.toString(16)}`);
           return evidence;
         }
-        if (!object(entry) || !Number.isInteger(entry.evidenceIndex) || typeof entry.address !== "number")
+        if (!isRecord(entry) || !Number.isInteger(entry.evidenceIndex) || typeof entry.address !== "number")
           throw new Error("A saved instruction evidence reference is invalid");
         const evidence = pool[entry.evidenceIndex as number];
         if (!evidence || evidence.address !== entry.address)

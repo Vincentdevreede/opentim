@@ -10,6 +10,7 @@
  */
 import type { Expression, Finding, Predicate, RoutineAnalysis } from "./behaviour.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
+import { constant } from "./behaviour-terms.ts";
 
 export interface FrameDrawing extends Finding {
   /** The part fields the helper writes, each with one value for every path. */
@@ -22,7 +23,6 @@ type Build = (operator: string, left: Expression, right: Expression, width?: num
 type Compare = Extract<Predicate, { kind: "compare" }>;
 
 const hex = (n: number) => `0x${n.toString(16)}`;
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
 const partField = (offset: number): Expression => ({ kind: "field", object: "part", offset, width: 16 });
 const textOf = (value: unknown) => JSON.stringify(value);
 const inverse: Record<string, string> = { "==": "!=", "!=": "==" };

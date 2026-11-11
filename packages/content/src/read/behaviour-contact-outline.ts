@@ -4,6 +4,7 @@ import { candidateOutlinePatterns, subjectOutlinePatterns } from "./behaviour-co
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression, Finding, Predicate } from "./behaviour.ts";
+import { binary, compare, constant, field } from "./behaviour-terms.ts";
 
 export interface OutlineContext {
   subject: number;
@@ -141,22 +142,6 @@ export interface ContactOutline extends Finding {
   };
   incomplete: string[];
 }
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
-const field = (object: string, offset: number, width = 16): Expression => ({ kind: "field", object, offset, width });
-const binary = (operator: string, left: Expression, right: Expression, width = 16): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width,
-});
-const compare = (operator: string, left: Expression, right: Expression, signed = false): Predicate => ({
-  kind: "compare",
-  operator,
-  left,
-  right,
-  signed,
-});
 const all = (...terms: Predicate[]): Predicate => ({ kind: "and", terms });
 const predicateValue = (predicate: Predicate): Expression => {
   if (predicate.kind === "true") return constant(1);

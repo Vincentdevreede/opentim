@@ -1,16 +1,10 @@
 /** Finds separately allocated node pools and bounds routines which only modify those pools. */
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Evidence, Finding } from "./behaviour.ts";
+import type { Finding } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isImmediate, isMemory, isRegister, storesToMemory } from "./behaviour-terms.ts";
 
-const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && (name === undefined || o.name === name);
-const mem = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
-const imm = (o: Operand | undefined): o is Extract<Operand, { kind: "immediate" }> => o?.kind === "immediate";
-const ev = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
-const stores = (i: Instruction) =>
-  mem(i.operands[0]) && !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
 const contiguous = (sequence: Instruction[]) =>
   sequence.every((i, n) => n === 0 || sequence[n - 1]!.address + sequence[n - 1]!.size === i.address);
 /**
@@ -21,8 +15,8 @@ const contiguous = (sequence: Instruction[]) =>
 function freeListPush(code: Instruction[]): { length: number; head: number } | undefined {
   const headLoad = (i: Instruction | undefined) =>
     i?.mnemonic === "mov" &&
-    reg(i.operands[0], "ax") &&
-    mem(i.operands[1]) &&
+    isRegister(i.operands[0], "ax") &&
+    isMemory(i.operands[1]) &&
     i.operands[1].segment === "ds" &&
     i.operands[1].direct &&
     i.operands[1].width === 16
@@ -30,29 +24,30 @@ function freeListPush(code: Instruction[]): { length: number; head: number } | u
       : undefined;
   const headStore = (i: Instruction | undefined, head: number, source: string) =>
     i?.mnemonic === "mov" &&
-    mem(i.operands[0]) &&
+    isMemory(i.operands[0]) &&
     i.operands[0].direct &&
     i.operands[0].segment === "ds" &&
     i.operands[0].displacement === head &&
-    reg(i.operands[1], source);
+    isRegister(i.operands[1], source);
   const link = (i: Instruction | undefined, base: string) =>
     i?.mnemonic === "mov" &&
-    mem(i.operands[0]) &&
+    isMemory(i.operands[0]) &&
     i.operands[0].segment === "ds" &&
     i.operands[0].base.join() === base &&
     i.operands[0].displacement === 0 &&
     i.operands[0].width === 16 &&
-    reg(i.operands[1], "ax");
+    isRegister(i.operands[1], "ax");
   const local = (o: Operand | undefined) =>
-    mem(o) && o.segment === "ss" && o.base.join() === "bp" && o.displacement < 0 && o.width === 16 ? o : undefined;
+    isMemory(o) && o.segment === "ss" && o.base.join() === "bp" && o.displacement < 0 && o.width === 16 ? o : undefined;
   const [first, second, third, fourth, fifth, sixth] = code;
-  if (first?.mnemonic === "mov" && reg(first.operands[0]) && reg(first.operands[1], "ax")) {
+  if (first?.mnemonic === "mov" && isRegister(first.operands[0]) && isRegister(first.operands[1], "ax")) {
     const r = first.operands[0].name,
       head = headLoad(second);
     if (r !== "ax" && head !== undefined && link(third, r) && headStore(fourth, head, r)) return { length: 4, head };
   }
-  const slot = first?.mnemonic === "mov" && reg(first.operands[1], "ax") ? local(first.operands[0]) : undefined;
-  if (!slot || second?.mnemonic !== "mov" || !reg(second.operands[0]) || second.operands[0].name === "ax") return;
+  const slot = first?.mnemonic === "mov" && isRegister(first.operands[1], "ax") ? local(first.operands[0]) : undefined;
+  if (!slot || second?.mnemonic !== "mov" || !isRegister(second.operands[0]) || second.operands[0].name === "ax")
+    return;
   const r = second.operands[0].name,
     head = headLoad(third),
     reload = local(fifth?.operands[1]);
@@ -61,7 +56,7 @@ function freeListPush(code: Instruction[]): { length: number; head: number } | u
     head !== undefined &&
     link(fourth, r) &&
     fifth?.mnemonic === "mov" &&
-    reg(fifth.operands[0], "ax") &&
+    isRegister(fifth.operands[0], "ax") &&
     reload?.displacement === slot.displacement &&
     headStore(sixth, head, "ax")
   )
@@ -85,16 +80,16 @@ function pools(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSum
       if (
         before.length !== 4 ||
         before[0]!.mnemonic !== "mov" ||
-        !reg(before[0]!.operands[0], "ax") ||
-        !imm(before[0]!.operands[1]) ||
+        !isRegister(before[0]!.operands[0], "ax") ||
+        !isImmediate(before[0]!.operands[1]) ||
         before[1]!.mnemonic !== "push" ||
-        !reg(before[1]!.operands[0], "ax") ||
+        !isRegister(before[1]!.operands[0], "ax") ||
         before[2]!.mnemonic !== "mov" ||
-        !reg(before[2]!.operands[0], "ax") ||
-        !imm(before[2]!.operands[1]) ||
+        !isRegister(before[2]!.operands[0], "ax") ||
+        !isImmediate(before[2]!.operands[1]) ||
         before[2]!.operands[1].value !== 1 ||
         before[3]!.mnemonic !== "push" ||
-        !reg(before[3]!.operands[0], "ax")
+        !isRegister(before[3]!.operands[0], "ax")
       )
         continue;
       const size = before[0]!.operands[1].value;
@@ -110,8 +105,8 @@ function pools(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSum
         (i, index) =>
           i.address < before[0]!.address &&
           i.mnemonic === "xor" &&
-          reg(i.operands[0], "ax") &&
-          reg(i.operands[1], "ax") &&
+          isRegister(i.operands[0], "ax") &&
+          isRegister(i.operands[1], "ax") &&
           code.instructions[index + 1]?.mnemonic === "mov" &&
           code.instructions[index + 2]?.mnemonic === "mov",
       );
@@ -121,11 +116,11 @@ function pools(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSum
         if (
           !initial.every(
             (i) =>
-              mem(i.operands[0]) &&
+              isMemory(i.operands[0]) &&
               i.operands[0].direct &&
               i.operands[0].segment === "ds" &&
               i.operands[0].width === 16 &&
-              reg(i.operands[1], "ax"),
+              isRegister(i.operands[1], "ax"),
           )
         )
           continue;
@@ -163,11 +158,11 @@ function pools(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSum
           initializer: code.address,
           confidence: "inferred",
           evidence: [
-            ev(clear),
-            ...initial.map(ev),
-            ...before.map(ev),
+            evidenceOf(clear),
+            ...initial.map(evidenceOf),
+            ...before.map(evidenceOf),
             ...call.evidence,
-            ...after.map(ev),
+            ...after.map(evidenceOf),
             ...allocator.evidence,
           ],
           assumptions: [
@@ -190,16 +185,16 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
     const [push, frame] = code.instructions;
     if (
       push?.mnemonic !== "push" ||
-      !reg(push.operands[0], "bp") ||
+      !isRegister(push.operands[0], "bp") ||
       frame?.mnemonic !== "mov" ||
-      !reg(frame.operands[0], "bp") ||
-      !reg(frame.operands[1], "sp")
+      !isRegister(frame.operands[0], "bp") ||
+      !isRegister(frame.operands[1], "sp")
     )
       continue;
     for (const pool of allocated) {
       if (
         !code.instructions.some((i) =>
-          i.operands.some((o) => mem(o) && o.direct && o.segment === "ds" && pool.heads.includes(o.displacement)),
+          i.operands.some((o) => isMemory(o) && o.direct && o.segment === "ds" && pool.heads.includes(o.displacement)),
         )
       )
         continue;
@@ -229,18 +224,18 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
             i.mnemonic,
           ) ||
           i.mnemonic === "lds" ||
-          (reg(dest) && ["ss", "ds"].includes(dest.name) && !["push", "cmp", "test"].includes(i.mnemonic)) ||
-          (reg(dest, "bp") && !["push", "pop", "cmp", "test"].includes(i.mnemonic) && i !== frame) ||
-          (i.mnemonic === "pop" && reg(dest, "bp") && byAddress.get(i.address + i.size)?.flow !== "return") ||
-          (reg(dest, "sp") &&
+          (isRegister(dest) && ["ss", "ds"].includes(dest.name) && !["push", "cmp", "test"].includes(i.mnemonic)) ||
+          (isRegister(dest, "bp") && !["push", "pop", "cmp", "test"].includes(i.mnemonic) && i !== frame) ||
+          (i.mnemonic === "pop" && isRegister(dest, "bp") && byAddress.get(i.address + i.size)?.flow !== "return") ||
+          (isRegister(dest, "sp") &&
             !["push", "cmp", "test"].includes(i.mnemonic) &&
-            !(i.mnemonic === "mov" && reg(source, "bp")) &&
-            !(["add", "sub"].includes(i.mnemonic) && imm(source)))
+            !(i.mnemonic === "mov" && isRegister(source, "bp")) &&
+            !(["add", "sub"].includes(i.mnemonic) && isImmediate(source)))
         ) {
           invalid = true;
           break;
         }
-        if (stores(i) && mem(dest)) {
+        if (storesToMemory(i) && isMemory(dest)) {
           const privateSlot = dest.segment === "ss" && dest.base.join() === "bp" && dest.displacement < 0;
           const global =
             dest.segment === "ds" && dest.direct && pool.heads.includes(dest.displacement) && dest.width === 16;
@@ -260,7 +255,7 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
               i.mnemonic === "mov" &&
               dest.width === 16 &&
               (global || dest.displacement === pool.next) &&
-              ((reg(source) && nodes.has(source.name)) || (imm(source) && source.value === 0))
+              ((isRegister(source) && nodes.has(source.name)) || (isImmediate(source) && source.value === 0))
             )
           ) {
             invalid = true;
@@ -268,13 +263,18 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
           }
           if (node) nodeWrites++;
         }
-        if (reg(dest) && !["push", "cmp", "test"].includes(i.mnemonic) && i.flow !== "branch" && i.flow !== "jump") {
-          const identity = ["or", "and"].includes(i.mnemonic) && reg(source, dest.name);
+        if (
+          isRegister(dest) &&
+          !["push", "cmp", "test"].includes(i.mnemonic) &&
+          i.flow !== "branch" &&
+          i.flow !== "jump"
+        ) {
+          const identity = ["or", "and"].includes(i.mnemonic) && isRegister(source, dest.name);
           const pointer =
             i.mnemonic === "mov" &&
             dest.width === 16 &&
-            ((reg(source) && nodes.has(source.name)) ||
-              (mem(source) &&
+            ((isRegister(source) && nodes.has(source.name)) ||
+              (isMemory(source) &&
                 source.width === 16 &&
                 source.segment === "ds" &&
                 ((source.direct && pool.heads.includes(source.displacement)) ||
@@ -291,7 +291,7 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
             if (pointer) nodes.add(name);
           }
         }
-        if (i.mnemonic === "xchg" && reg(source))
+        if (i.mnemonic === "xchg" && isRegister(source))
           nodes.delete(
             (
               { al: "ax", ah: "ax", bl: "bx", bh: "bx", cl: "cx", ch: "cx", dl: "dx", dh: "dx" } as Record<
@@ -332,7 +332,7 @@ export function addNodePoolSummaries(codes: Map<number, RoutineCode>, summaries:
         nodePool: { nodeSize: pool.size },
         confidence: "inferred",
         assumptions,
-        evidence: [...pool.evidence, ...code.instructions.map(ev)],
+        evidence: [...pool.evidence, ...code.instructions.map(evidenceOf)],
         footprint: {
           complete: false,
           partMemoryComplete: false,

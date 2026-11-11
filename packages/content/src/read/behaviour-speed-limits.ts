@@ -11,6 +11,7 @@
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import type { Evidence, Finding } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isRegister, sameOperand, wordAt } from "./behaviour-terms.ts";
 
 export interface SpeedLimitSetup extends Finding {
   /** The routine's address in the unpacked image. */
@@ -35,11 +36,6 @@ const REACH = 512;
 /** How many ways through the loop's body are followed before giving up. */
 const MAX_WAYS = 256;
 
-const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
-const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
-const sameOperand = (a: Operand | undefined, b: Operand | undefined) => JSON.stringify(a) === JSON.stringify(b);
-const isRegister = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && (name === undefined || o.name === name);
 const immediate = (o: Operand | undefined) => (o?.kind === "immediate" ? o.value & 0xffff : undefined);
 /** A local of the routine's frame: a word below `bp`. */
 const isLocal = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> =>
@@ -77,8 +73,8 @@ function writes(i: Instruction, target: Operand): boolean {
 function farCallers(image: Uint8Array, entry: number): { at: number; segment: number }[] {
   const callers = [];
   for (let at = 0; at + 5 <= image.length; at++)
-    if (image[at] === 0x9a && word(image, at + 3) * 16 + word(image, at + 1) === entry)
-      callers.push({ at, segment: word(image, at + 3) });
+    if (image[at] === 0x9a && wordAt(image, at + 3) * 16 + wordAt(image, at + 1) === entry)
+      callers.push({ at, segment: wordAt(image, at + 3) });
   return callers;
 }
 
@@ -377,5 +373,5 @@ export function limitForAir(setup: SpeedLimitSetup, air: number): number | undef
 }
 
 /** What taking the routine's numbers as the limits needs. */
-export const speedLimitSetupAssumption = (routine: number) =>
+const speedLimitSetupAssumption = (routine: number) =>
   `The game works out every type's speed limit with the routine at 0x${routine.toString(16)} before any part moves: the level loader calls it after reading the air pressure, and the control panel after the player sets a new one. No other code writes a type record's speed limit, and the calls it makes (long multiplication and division) don't write the type records.`;

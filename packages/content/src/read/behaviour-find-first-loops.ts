@@ -9,6 +9,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Evidence } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf } from "./behaviour-terms.ts";
 
 export interface FindFirstLoop {
   /** The null test of the member pointer at the loop head. */
@@ -52,7 +53,6 @@ const NOT_WRITING = ["cmp", "test", "push", "nop", "cld", "std", "clc", "stc", "
 const writes = (i: Instruction) => i.flow === "next" && !NOT_WRITING.includes(i.mnemonic) && i.operands.length > 0;
 const local = (op: Operand | undefined): boolean =>
   op?.kind === "memory" && op.segment === "ss" && op.base.join() === "bp" && op.displacement < 0;
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
 
 /** A callee that changes no part and no record: it may only read, or write globals. */
 function pure(summary: EngineSummary | undefined): boolean {
@@ -223,7 +223,7 @@ export function discoverFindFirstLoops(
       passCalls,
       excludesOwner,
       nextField,
-      evidence: [evidence(guard), evidence(branch), evidence(advance)],
+      evidence: [evidenceOf(guard), evidenceOf(branch), evidenceOf(advance)],
     });
   }
   return loops;

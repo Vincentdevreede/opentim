@@ -10,6 +10,7 @@ import {
 import { specializeNullConstructor, type EngineSummary } from "./behaviour-helpers.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Finding } from "./behaviour.ts";
+import { overlapsWord } from "./behaviour-terms.ts";
 
 const cleanupPattern = `push bp
 mov bp,sp
@@ -71,8 +72,6 @@ export function discoverConstructorCleanup(code: RoutineCode, size: number): Con
   };
 }
 
-const overlap = (offset: number, width: number, field: number) => offset < field + 2 && field < offset + width / 8;
-
 /** Ownership of failure cleanup does not by itself certify the successful constructor's memory scope. */
 export function ownedConstructorContract(
   failure: ConstructorFailureOwnership,
@@ -127,7 +126,7 @@ export function addOwnedConstructors(
     // Every shared prefix and suffix call has already been checked by the null-constructor proof. Check that none
     // of its explicit or transitive owner stores can overwrite a cleanup-owned word before or after construction.
     const directOverlap = metadata.noConstructor.writes.some((w) =>
-      cleanup.releaseFields.some((f) => overlap(w.offset, w.width, f)),
+      cleanup.releaseFields.some((f) => overlapsWord(w.offset, w.width, f)),
     );
     if (directOverlap) continue;
     const dispatch = code.calls.find((call) => !call.target && call.operand?.kind === "memory");
@@ -182,7 +181,7 @@ export function addOwnedConstructors(
                 (w) =>
                   w.root !== "argument" ||
                   w.path.length ||
-                  cleanup.releaseFields.some((f) => overlap(w.offset, w.width, f)),
+                  cleanup.releaseFields.some((f) => overlapsWord(w.offset, w.width, f)),
               )))
         );
       })

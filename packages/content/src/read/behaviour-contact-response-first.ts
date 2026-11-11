@@ -10,7 +10,8 @@ import {
 } from "./behaviour-contact-rotation.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Evidence, Finding } from "./behaviour.ts";
+import type { Finding } from "./behaviour.ts";
+import { routineEvidence } from "./behaviour-terms.ts";
 
 /** Named stages are computed values, rather than independently assignable part fields. */
 export type FirstResponseFormula =
@@ -103,8 +104,6 @@ const clamp = (value: FirstResponseFormula): FirstResponseFormula =>
     input("limit"),
     select(binary("signed<", value, negative(input("limit"))), negative(input("limit")), value),
   );
-const evidence = (code: RoutineCode): Evidence[] =>
-  code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
 /** The pattern binds a complete graph. Only proved transitive dependencies grant a complete field footprint. */
 export function discoverFirstContactResponse(
@@ -194,7 +193,7 @@ export function discoverFirstContactResponse(
     "The limiter has the same runtime type table and applies its signed upper-priority rule to vertical and then horizontal velocity. Return-register values remain unspecified. The complete footprint establishes preservation of unrelated part fields, not that this response is reached by a runtime collision.",
   ];
   const proof = [
-    ...evidence(code),
+    ...routineEvidence(code),
     ...first.evidence,
     ...second.evidence,
     ...multiplication.evidence,

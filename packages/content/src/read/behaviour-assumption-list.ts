@@ -120,7 +120,7 @@ export function renderAssumptions(table: AssumptionTable, builds: Record<Game, n
 }
 
 /** The assumptions the generated list's table holds. */
-export function listedAssumptions(document: string): Set<string> {
+function listedAssumptions(document: string): Set<string> {
   const listed = new Set<string>();
   const start = document.indexOf("| Assumption |");
   if (start < 0) return listed;

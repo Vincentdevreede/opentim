@@ -4,6 +4,7 @@ import type { BehaviourLayout, LayoutField } from "./behaviour-layout.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findDataSegment } from "./type-table.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { constant, evidenceOf, memoryOperand } from "./behaviour-terms.ts";
 
 export interface ResetLifecycle extends Finding {
   fields: FieldWrite[];
@@ -30,17 +31,13 @@ export interface BehaviourLifecycle {
   diagnostics: string[];
 }
 
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
 const unique = (items: Evidence[]) => [...new Map(items.map((item) => [item.address, item])).values()];
 const register = (operand: Operand | undefined): string | undefined =>
   operand?.kind === "register" ? operand.name : undefined;
-const memory = (operand: Operand | undefined): Extract<Operand, { kind: "memory" }> | undefined =>
-  operand?.kind === "memory" ? operand : undefined;
 const objectMemory = (operand: Operand | undefined, base: string) => {
-  const field = memory(operand);
+  const field = memoryOperand(operand);
   return field?.segment === "ds" && field.base.length === 1 && field.base[0] === base ? field : undefined;
 };
-const constant = (value: number, width: number): Expression => ({ kind: "constant", value, width });
 
 /** Standard iterative dominance, with no assumptions about which branches or loop iterations the program takes. */
 function dominators(code: RoutineCode): Map<number, Set<number>> {
@@ -337,7 +334,7 @@ export function discoverBehaviourLifecycle(
       if (
         !code.instructions.some(
           (instruction) =>
-            instruction.mnemonic === "mov" && memory(instruction.operands[1])?.displacement === snapshotOffset,
+            instruction.mnemonic === "mov" && memoryOperand(instruction.operands[1])?.displacement === snapshotOffset,
         )
       )
         continue;
@@ -347,7 +344,7 @@ export function discoverBehaviourLifecycle(
       for (let k = 0; k + 3 < code.instructions.length; k++) {
         const sequence = code.instructions.slice(k, k + 4),
           [previous, older, current, snapshot] = sequence as [Instruction, Instruction, Instruction, Instruction];
-        const base = memory(previous.operands[1])?.base[0];
+        const base = memoryOperand(previous.operands[1])?.base[0];
         if (
           !base ||
           !sequence.every(
@@ -377,9 +374,9 @@ export function discoverBehaviourLifecycle(
           (instruction) =>
             instruction.mnemonic === "mov" &&
             register(instruction.operands[0]) === base &&
-            memory(instruction.operands[1])?.segment === "ss" &&
-            memory(instruction.operands[1])?.base.join() === "bp" &&
-            memory(instruction.operands[1])?.displacement === 6 &&
+            memoryOperand(instruction.operands[1])?.segment === "ss" &&
+            memoryOperand(instruction.operands[1])?.base.join() === "bp" &&
+            memoryOperand(instruction.operands[1])?.displacement === 6 &&
             dominance.get(previous.address)?.has(instruction.address),
         );
         if (!argument || !sameObjectUntil(code, argument.address, previous.address, base)) continue;
@@ -407,7 +404,7 @@ export function discoverBehaviourLifecycle(
             "Both history assignments dominate every return of this helper, whose first far-call argument supplies the object.",
             "The helper's call frequency and placement relative to simulation cycles require separate caller evidence.",
           ],
-          evidence: unique([evidence(argument), ...evidenceList(sequence), ...callers]),
+          evidence: unique([evidenceOf(argument), ...evidenceList(sequence), ...callers]),
         });
         break;
       }
@@ -416,7 +413,7 @@ export function discoverBehaviourLifecycle(
   return result;
 }
 
-const evidenceList = (instructions: Instruction[]) => instructions.map(evidence);
+const evidenceList = (instructions: Instruction[]) => instructions.map(evidenceOf);
 
 /** Names saved level inputs by the named live fields restored from them, rather than assigning initial values. */
 export function discoverLifecycleFieldRoles(lifecycle: BehaviourLifecycle, layout: BehaviourLayout): LayoutField[] {

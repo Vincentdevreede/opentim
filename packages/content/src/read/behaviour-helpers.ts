@@ -45,6 +45,7 @@ import { discoverConnectionBypass, type ConnectionBypass } from "./behaviour-con
 import { addNodePoolSummaries } from "./behaviour-node-pools.ts";
 import { ownerPathStores, ownerStoreConditions } from "./behaviour-owner-paths.ts";
 import type { FrameDrawing } from "./behaviour-frame-drawing.ts";
+import { constant, evidenceOf, field, implicitMemory, isRegister, unknown } from "./behaviour-terms.ts";
 
 export type EnginePointer =
   | { kind: "argument"; argument: number; path: number[]; displacement?: number }
@@ -268,12 +269,6 @@ export interface EngineSummary extends Finding {
   };
 }
 
-const evidence = (i: Instruction): Evidence => ({ address: i.address, bytes: i.bytes, text: i.text });
-const constant = (value: number, width = 16): Expression => ({ kind: "constant", value, width });
-const unknown = (reason: string, width = 16): Expression => ({ kind: "unknown", reason, width });
-const field = (object: string, offset: number, width = 16): Expression => ({ kind: "field", object, offset, width });
-const isRegister = (operand: Operand | undefined, name?: string): operand is Extract<Operand, { kind: "register" }> =>
-  operand?.kind === "register" && (name === undefined || operand.name === name);
 const isMemory = (operand: Operand | undefined, base?: string): operand is Extract<Operand, { kind: "memory" }> =>
   operand?.kind === "memory" && (base === undefined || (operand.base.length === 1 && operand.base[0] === base));
 const isImmediate = (
@@ -287,12 +282,11 @@ const stackMemory = (
   isMemory(operand, "bp") && operand.segment === "ss";
 const explicitWrite = (i: Instruction) =>
   isMemory(i.operands[0]) && !["cmp", "test", "push", "call", "jmp", "mul", "imul", "div", "idiv"].includes(i.mnemonic);
-const implicitWrite = (i: Instruction) => /^(movs|stos|ins|enter|pusha|popa|int|into|iret|bound|esc)/.test(i.mnemonic);
 const firstArgument = (code: RoutineCode) => (code.instructions.some((i) => i.mnemonic === "retf") ? 6 : 4);
 const fact = (items: Instruction[], confidence: Confidence = "inferred", assumptions: string[] = []): Finding => ({
   confidence,
   assumptions,
-  evidence: items.map(evidence),
+  evidence: items.map(evidenceOf),
 });
 const truePredicate: Predicate = { kind: "true" };
 
@@ -350,7 +344,7 @@ function directFootprint(code: RoutineCode, dataSegment: number): { writes: Engi
     } else if (isRegister(dest) && !["cmp", "test", "push", "pop"].includes(i.mnemonic)) bindings.delete(dest.name);
     if (i.mnemonic === "mov" && stackMemory(dest) && isRegister(source) && bindings.has(source.name))
       locals.set(dest.displacement, bindings.get(source.name)!);
-    if (implicitWrite(i))
+    if (implicitMemory(i))
       unknownEffects.add(
         `Implicit memory effects at 0x${i.address.toString(16)} (${i.mnemonic}) are not bounded by this summary.`,
       );
@@ -415,7 +409,7 @@ function memoryPreserving(code: RoutineCode): boolean {
     code.status === "complete" &&
     privateStackSafe(code) &&
     !code.calls.length &&
-    !code.instructions.some((i) => implicitWrite(i) || (explicitWrite(i) && !stackMemory(i.operands[0])))
+    !code.instructions.some((i) => implicitMemory(i) || (explicitWrite(i) && !stackMemory(i.operands[0])))
   );
 }
 
@@ -482,7 +476,7 @@ function doublyLinkedSplice(
   code: RoutineCode,
   owner: string,
 ): { link: number; back: number; stores: Instruction[] } | undefined {
-  if (code.status !== "complete" || code.calls.length || code.instructions.some(implicitWrite)) return undefined;
+  if (code.status !== "complete" || code.calls.length || code.instructions.some(implicitMemory)) return undefined;
   for (let n = 0; n + 3 < code.instructions.length; n++) {
     const [read, next, previous, insert] = code.instructions.slice(n, n + 4) as [
       Instruction,
@@ -620,7 +614,7 @@ function candidateFlagTests(
       const step = byAddress.get(at);
       if (!step || steps > 16 || step.flow !== "next") return undefined;
       if (explicitWrite(step) && isMemory(step.operands[0]) && !stackMemory(step.operands[0])) return undefined;
-      if (implicitWrite(step)) return undefined;
+      if (implicitMemory(step)) return undefined;
       at = step.address + step.size;
     }
   }
@@ -646,7 +640,7 @@ function excludesOwner(code: RoutineCode, owner: string, node: string, insertion
     const advance = [...code.calls].sort((a, b) => a.instruction - b.instruction).at(-1)?.instruction;
     const pending = [edge.to];
     const visited = new Set<number>();
-    const proof: Evidence[] = [evidence(compare), evidence(branch)];
+    const proof: Evidence[] = [evidenceOf(compare), evidenceOf(branch)];
     let reachedInsertion = false;
     while (pending.length) {
       const at = pending.pop()!;
@@ -661,7 +655,7 @@ function excludesOwner(code: RoutineCode, owner: string, node: string, insertion
         reachedInsertion = true;
         break;
       }
-      proof.push(evidence(instruction));
+      proof.push(evidenceOf(instruction));
       if (at === advance || instruction.flow === "return") continue;
       pending.push(...code.edges.filter((e) => e.from === at && e.to !== null).map((e) => e.to!));
     }
@@ -1126,14 +1120,14 @@ function nullCleanupProof(code: RoutineCode): Evidence[] | undefined {
         i.flow === "call" ||
         (i.flow === "branch" && i.address !== branch.address) ||
         i.flow === "jump" ||
-        implicitWrite(i) ||
+        implicitMemory(i) ||
         i.operands.some((o) => isMemory(o) && !stackMemory(o)),
     )
   )
     return undefined;
   const pending = [zero];
   const visited = new Set<number>();
-  const proof = prefix.map(evidence);
+  const proof = prefix.map(evidenceOf);
   while (pending.length) {
     const at = pending.pop()!;
     if (visited.has(at)) continue;
@@ -1142,11 +1136,11 @@ function nullCleanupProof(code: RoutineCode): Evidence[] | undefined {
     if (
       !instruction ||
       instruction.flow === "call" ||
-      implicitWrite(instruction) ||
+      implicitMemory(instruction) ||
       instruction.operands.some((o) => isMemory(o) && !stackMemory(o))
     )
       return undefined;
-    proof.push(evidence(instruction));
+    proof.push(evidenceOf(instruction));
     if (instruction.flow === "return") continue;
     const edges = code.edges.filter((e) => e.from === at && e.to !== null);
     if (!edges.length) return undefined;
@@ -1455,12 +1449,12 @@ export function specializeNullConstructor(
     const instruction = instructions.get(path.at);
     if (
       !instruction ||
-      implicitWrite(instruction) ||
+      implicitMemory(instruction) ||
       instruction.mnemonic === "lds" ||
       (isRegister(instruction.operands[0], "ds") && !["push", "cmp", "test"].includes(instruction.mnemonic))
     )
       return undefined;
-    proof.push(evidence(instruction));
+    proof.push(evidenceOf(instruction));
     if (explicitWrite(instruction)) {
       const dest = instruction.operands[0] as Extract<Operand, { kind: "memory" }>;
       if (stackMemory(dest)) {
@@ -1599,7 +1593,7 @@ export function specializeNullConstructor(
     }
   }
   if (!noConstructorTypes.length) return undefined;
-  proof.push(...allocationClosure.flatMap((c) => c.instructions.map(evidence)), ...pointerEvidence);
+  proof.push(...allocationClosure.flatMap((c) => c.instructions.map(evidenceOf)), ...pointerEvidence);
   for (const w of summary.writes) mark(w.offset, w.width);
   // With an owned constructor, the factory itself may write any field before it returns, so no word is known.
   const zeroWords = owned
@@ -1647,7 +1641,7 @@ export function specializeNullConstructor(
         assumptions: [
           "The factory's type table keeps the words it has in the program, and the factory gives each new part the word for its type.",
         ],
-        evidence: [evidence(load), evidence(store)],
+        evidence: [evidenceOf(load), evidenceOf(store)],
         field,
         table: { segment: dataSegment, offset, stride },
         values,
@@ -1823,7 +1817,7 @@ export function discoverEngineSummaries(
       ).length >= 2;
     if (
       insertion &&
-      !code.instructions.some(implicitWrite) &&
+      !code.instructions.some(implicitMemory) &&
       owner === insertion.owner &&
       nonStackWrites.every(
         (i) =>
@@ -1857,7 +1851,7 @@ export function discoverEngineSummaries(
         nextField: insertion.offset,
         excludesArgument: exclusion !== undefined,
         confidence: exclusion ? "checked" : "unresolved",
-        evidence: [...insertion.instructions.map(evidence), ...(exclusion ?? [])],
+        evidence: [...insertion.instructions.map(evidenceOf), ...(exclusion ?? [])],
         assumptions: [
           "The list describes nodes accepted during this query; later writes can change it. A finite acyclic traversal requires a separate list invariant.",
         ],
@@ -1953,7 +1947,7 @@ export function discoverEngineSummaries(
     if (
       code.status === "complete" &&
       !code.calls.length &&
-      !code.instructions.some(implicitWrite) &&
+      !code.instructions.some(implicitMemory) &&
       nonStackWrites.length >= 12 &&
       farNodeWrites.length + globals.length === nonStackWrites.length &&
       globals.length >= 4 &&
@@ -2036,7 +2030,7 @@ export function discoverEngineSummaries(
       (resourceListService || scalarSwitchService) &&
       owner &&
       callTargets.length === 1 &&
-      !code.instructions.some(implicitWrite) &&
+      !code.instructions.some(implicitMemory) &&
       nonStackWrites.length === 0 &&
       (tableMapping || directIdentifierGate)
     ) {
@@ -2045,7 +2039,7 @@ export function discoverEngineSummaries(
       summary.purpose = tableMapping
         ? "Maps scalar identifiers through tables, checks global gates and invokes a shared resource service."
         : "Checks scalar identifiers against numeric and global gates before invoking a shared resource service.";
-      summary.evidence.push(...service!.instructions.map(evidence));
+      summary.evidence.push(...service!.instructions.map(evidenceOf));
       summary.footprint.preservesArgumentMemory = true;
       summary.footprint.preservesPartState = true;
       summary.footprint.partMemoryComplete = true;
@@ -2152,7 +2146,7 @@ export function discoverEngineSummaries(
       summary.argumentKind = "object";
       summary.purpose =
         "Loads the owner's frame dimensions from type data or stored extents according to the current state and flags.";
-      summary.footprint.complete = code.status === "complete" && !code.instructions.some(implicitWrite);
+      summary.footprint.complete = code.status === "complete" && !code.instructions.some(implicitMemory);
       summary.footprint.preservesPartState =
         stateOffset !== undefined &&
         ![widthOffset, heightOffset].some((offset) => offset < stateOffset + 2 && stateOffset < offset + 2);
@@ -2201,7 +2195,7 @@ export function discoverEngineSummaries(
         changed = true;
         continue;
       }
-      const noDirect = !directStores.length && !code.instructions.some(implicitWrite);
+      const noDirect = !directStores.length && !code.instructions.some(implicitMemory);
       const onlyKnownOwner =
         summary.kind === "frame-position" && summary.writes.every((w) => w.root === "argument" && !w.path.length);
       if (
@@ -2233,7 +2227,7 @@ export function discoverEngineSummaries(
         summaries.has(code.address) ||
         code.status !== "complete" ||
         !privateStackSafe(code) ||
-        code.instructions.some(implicitWrite) ||
+        code.instructions.some(implicitMemory) ||
         code.instructions.some(
           (i) =>
             i.mnemonic === "lds" || (isRegister(i.operands[0], "ds") && !["push", "cmp", "test"].includes(i.mnemonic)),

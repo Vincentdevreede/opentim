@@ -1,5 +1,6 @@
 /** Compares recorded state sequences with static transition expressions. It never executes instructions or callbacks. */
 import type { Expression, Predicate, Transition } from "./behaviour.ts";
+import { toSigned, unsigned } from "./behaviour-terms.ts";
 
 export interface MeasuredFrame {
   state: number;
@@ -89,18 +90,16 @@ const fields = new Map([
   [0x36, "vx"],
   [0x38, "vy"],
 ]);
-const wrap = (value: number, width: number) => ((value % 2 ** width) + 2 ** width) % 2 ** width;
-const signed = (value: number, width: number) => (value >= 2 ** (width - 1) ? value - 2 ** width : value);
 
 /** Substitutes recorded field values into graph algebra, not into machine instructions. */
 function expressionValue(expression: Expression, frame: MeasuredFrame): number | undefined {
   const width = expression.width;
-  if (expression.kind === "constant") return wrap(expression.value, width);
+  if (expression.kind === "constant") return unsigned(expression.value, width);
   if (expression.kind === "field") {
     if (expression.object !== "part") return undefined;
     const name = fields.get(expression.offset);
     const value = name && frame[name];
-    return typeof value === "number" ? wrap(value, width) : undefined;
+    return typeof value === "number" ? unsigned(value, width) : undefined;
   }
   if (expression.kind !== "binary") return undefined;
   // The oracle records only these bits of +8. Other bits must remain unknown.
@@ -115,16 +114,16 @@ function expressionValue(expression: Expression, frame: MeasuredFrame): number |
       (mask.value & ~0x3030) === 0 &&
       typeof frame.flags8 === "number"
     )
-      return wrap(frame.flags8 & mask.value, width);
+      return unsigned(frame.flags8 & mask.value, width);
   }
   const left = expressionValue(expression.left, frame);
   const right = expressionValue(expression.right, frame);
   if (left === undefined || right === undefined) return undefined;
   if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
-    const a = wrap(left, expression.left.width),
-      b = wrap(right, expression.left.width),
+    const a = unsigned(left, expression.left.width),
+      b = unsigned(right, expression.left.width),
       op = expression.operator;
-    return wrap(
+    return unsigned(
       Number(
         op === "=="
           ? a === b
@@ -165,7 +164,7 @@ function expressionValue(expression: Expression, frame: MeasuredFrame): number |
       value = left << right;
       break;
     case ">>":
-      value = signed(left, expression.left.width) >> right;
+      value = toSigned(left, expression.left.width) >> right;
       break;
     case ">>>":
       value = left >>> right;
@@ -180,16 +179,16 @@ function expressionValue(expression: Expression, frame: MeasuredFrame): number |
       break;
     case "s/":
     case "s%": {
-      const denominator = signed(right, expression.right.width);
+      const denominator = toSigned(right, expression.right.width);
       if (!denominator) return undefined;
-      const dividend = signed(left, expression.left.width);
+      const dividend = toSigned(left, expression.left.width);
       value = expression.operator === "s/" ? Math.trunc(dividend / denominator) : dividend % denominator;
       break;
     }
     default:
       return undefined;
   }
-  return wrap(value, width);
+  return unsigned(value, width);
 }
 
 function predicateValue(predicate: Predicate, frame: MeasuredFrame): boolean | undefined {
@@ -202,11 +201,11 @@ function predicateValue(predicate: Predicate, frame: MeasuredFrame): boolean | u
   let left = expressionValue(predicate.left, frame);
   let right = expressionValue(predicate.right, frame);
   if (left === undefined || right === undefined) return undefined;
-  left = wrap(left, predicate.left.width);
-  right = wrap(right, predicate.left.width);
+  left = unsigned(left, predicate.left.width);
+  right = unsigned(right, predicate.left.width);
   if (predicate.signed) {
-    left = signed(left, predicate.left.width);
-    right = signed(right, predicate.left.width);
+    left = toSigned(left, predicate.left.width);
+    right = toSigned(right, predicate.left.width);
   }
   switch (predicate.operator) {
     case "==":
@@ -282,7 +281,7 @@ export function validateMeasuredPart(transitions: Transition[], clips: MeasuredC
         const condition = predicateValue(transition.condition, frame);
         if (condition === false) return;
         const destination = expressionValue(transition.to, frame);
-        if (destination !== undefined && destination !== wrap(next.state, transition.to.width)) return;
+        if (destination !== undefined && destination !== unsigned(next.state, transition.to.width)) return;
         const status =
           condition === undefined || destination === undefined || transition.confidence === "unresolved"
             ? "unresolved"

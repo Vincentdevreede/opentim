@@ -28,10 +28,10 @@ export interface FrameSize {
 }
 
 /** The word of a type record that holds the frame list while the part's pictures are loaded. */
-export const FRAME_LIST_WORD = 0x14;
+const FRAME_LIST_WORD = 0x14;
 const RECORD_STRIDE = 58;
 
-export const SHEET_FRAME_ASSUMPTION =
+const SHEET_FRAME_ASSUMPTION =
   "While a level runs, the frame list at +0x14 of a part's type record is the list the game built when it loaded the part's pictures, from PARTn.BMP of the same build (the name it builds from part, the type number and .bmp), and nothing changes a frame's width and height in it after that. The game's resource routines find that file and its INF:, SCN: and OFF: chunks the way the resource reader does, and fill only their own state and the buffers they are given.";
 
 export interface SheetFrameList extends Finding {

@@ -4,6 +4,7 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression } from "./behaviour.ts";
+import { binary, constant } from "./behaviour-terms.ts";
 
 const pattern = `push bp
 mov bp,sp
@@ -89,14 +90,6 @@ const sharedReturn = pattern
   .replace("jmp @accept\nsecond:", "mov 16:ss[bp+-4],#1\njmp @check\nsecond:")
   .replace("jne @pivot\ntrue: mov ax,#1\njmp @done", "jne @pivot\njmp @true")
   .replace("jmp @true\nzero: xor ax,ax\ndone:", "true: mov ax,#1\njmp @bridge\nzero: jmp @zeroEntry\ndone:");
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
 const global = (offset: number): Expression => ({ kind: "field", object: "data", offset, width: 16 });
 
 /** Every accepted angle window lies entirely inside one of the separately verified classifier sectors. */

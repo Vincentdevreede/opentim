@@ -14,6 +14,7 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Finding } from "./behaviour.ts";
+import { routineEvidence } from "./behaviour-terms.ts";
 
 export interface CentreAngle extends Finding {
   routine: number;
@@ -90,8 +91,6 @@ const demo = evenMore.replace(
 );
 export const centreAnglePatterns = [evenMore, tim1, demo];
 
-const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
-
 /** Adds the centre angle to the summaries of the routines whose graph matches and that call the angle helper. */
 export function addCentreAngleSummaries(
   codes: Map<number, RoutineCode>,
@@ -111,7 +110,7 @@ export function addCentreAngleSummaries(
     if (!bound || !backend || backend.backend !== bound.get("backend") || backend.wrapper || !prior) continue;
     const centreAngle: CentreAngle = {
       confidence: "inferred",
-      evidence: [...proof(code), ...backend.evidence],
+      evidence: [...routineEvidence(code), ...backend.evidence],
       assumptions: [
         ...backend.assumptions,
         "Both arguments are complete parts with valid position and frame size words. Each centre and each difference wraps to a word, and CWD sign-extends the differences before the movement angle helper, whose argument copies the eight-byte cleanup discards. AX holds the helper's answer on return.",

@@ -3,10 +3,9 @@
  * instruction graph. They say which fields of a rope, belt or pulley record and of a connected part a call may change,
  * so a caller can keep every other field instead of losing the whole part.
  */
-import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
-import type { Evidence, Expression } from "./behaviour.ts";
+import type { Expression } from "./behaviour.ts";
 import {
   beltEndsPatterns,
   hitTestPatterns,
@@ -15,6 +14,7 @@ import {
   ropeReversePatterns,
   searchPatterns,
 } from "./behaviour-relay-patterns.ts";
+import { matchFirst, routineEvidence, wordFields } from "./behaviour-terms.ts";
 
 type Field = { offset: number; width: number };
 export interface ConnectionPatterns {
@@ -51,24 +51,12 @@ export const FLIP_BELT_ASSUMPTION =
 
 /** Part fields that point to rope, belt and pulley records: a belt at 0x54, ropes at 0x66 and 0x68. */
 const RECORD_LINKS = [0x54, 0x66, 0x68];
-const words = (...offsets: number[]): Field[] => offsets.map((offset) => ({ offset, width: 16 }));
 const bytes = (...offsets: number[]): Field[] => offsets.map((offset) => ({ offset, width: 8 }));
-const proof = (code: RoutineCode): Evidence[] =>
-  code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 const unknown = (reason: string, width: number): Expression => ({ kind: "unknown", reason, width });
 const RECORDS =
   "Rope, belt and pulley records are allocations of their own, reached only through a part's link fields at 0x54, 0x66 and 0x68; they never overlap a part.";
 const CHAINS =
   "A pulley chain and the parts list each end: a finite chain without cycles. The fields written are the same on every pass, so the count of passes does not change the footprint.";
-
-function match(code: RoutineCode, patterns: string[]): Map<string, number> | undefined {
-  if (code.status !== "complete") return undefined;
-  for (const pattern of patterns) {
-    const bound = matchHeapRoutine(code, pattern, new Map());
-    if (bound) return bound;
-  }
-  return undefined;
-}
 
 /** A callee that changes no part and no record: only stack, and globals when `globals` allows. */
 function inert(summary: EngineSummary | undefined, globals: boolean): boolean {
@@ -94,11 +82,11 @@ function connection(
   callees: EngineSummary[],
   globals: boolean,
 ): EngineSummary {
-  const evidence = [...proof(code), ...callees.flatMap((callee) => callee.evidence)];
+  const evidence = [...routineEvidence(code), ...callees.flatMap((callee) => callee.evidence)];
   const assumptions = [...new Set([RECORDS, CHAINS, ...callees.flatMap((callee) => callee.assumptions)])];
   const writes: EngineWrite[] = argumentFields.map((field) => ({
     confidence: "inferred",
-    evidence: proof(code),
+    evidence: routineEvidence(code),
     assumptions: [RECORDS],
     root: "argument",
     argumentOffset: 6,
@@ -141,7 +129,7 @@ function connection(
 function unknownWrites(code: RoutineCode, fields: Field[]): EngineWrite[] {
   return fields.map((field) => ({
     confidence: "inferred",
-    evidence: proof(code),
+    evidence: routineEvidence(code),
     assumptions: [RECORDS],
     root: "unknown",
     path: [],
@@ -175,7 +163,7 @@ function composite(
   argumentWrites: EngineWrite[] = [],
 ): EngineSummary {
   const callees = [...connected, ...recordArguments];
-  const evidence = [...proof(code), ...callees.flatMap((callee) => callee.evidence)];
+  const evidence = [...routineEvidence(code), ...callees.flatMap((callee) => callee.evidence)];
   const assumptions = [...new Set([RECORDS, CHAINS, ...callees.flatMap((callee) => callee.assumptions)])];
   const globals = callees.some((callee) => callee.footprint.unknownGlobalEffects?.length);
   const note = "A called notification may queue screen rectangles in global storage.";
@@ -226,7 +214,7 @@ export function addConnectionSummaries(
   patterns: ConnectionPatterns = PATTERNS,
 ): void {
   for (const code of codes.values()) {
-    const geometry = match(code, patterns.ropeGeometry);
+    const geometry = matchFirst(code, patterns.ropeGeometry);
     if (geometry) {
       const point = summaries.get(geometry.get("ropePoint")!);
       if (inert(point, false))
@@ -236,15 +224,15 @@ export function addConnectionSummaries(
             code,
             "rope-geometry",
             "Places a rope's ends from its parts and pulleys, updates each pulley's rope record and the end words of the rope's first part.",
-            words(0x14, 0x16, 0x18, 0x1a),
-            words(0x96, 0x9c),
-            words(0x14, 0x16),
+            wordFields(0x14, 0x16, 0x18, 0x1a),
+            wordFields(0x96, 0x9c),
+            wordFields(0x14, 0x16),
             [point!],
             false,
           ),
         );
     }
-    const reverse = match(code, patterns.ropeReverse);
+    const reverse = matchFirst(code, patterns.ropeReverse);
     if (reverse) {
       const notify = summaries.get(reverse.get("notify")!);
       if (inert(notify, true))
@@ -254,9 +242,9 @@ export function addConnectionSummaries(
             code,
             "rope-reversal",
             "Turns a rope around: swaps the links and rope records of every pulley on it, then the rope's own ends, and notifies its first part.",
-            [...words(0x02, 0x04, 0x06, 0x08), ...bytes(0x0a, 0x0b, 0x0c, 0x0d)],
-            words(0x5a, 0x5c, 0x5e, 0x60, 0x6a, 0x6c),
-            words(0x14, 0x16, 0x18, 0x1a, 0x1c, 0x1e, 0x20, 0x22, 0x24, 0x26, 0x28, 0x2a),
+            [...wordFields(0x02, 0x04, 0x06, 0x08), ...bytes(0x0a, 0x0b, 0x0c, 0x0d)],
+            wordFields(0x5a, 0x5c, 0x5e, 0x60, 0x6a, 0x6c),
+            wordFields(0x14, 0x16, 0x18, 0x1a, 0x1c, 0x1e, 0x20, 0x22, 0x24, 0x26, 0x28, 0x2a),
             [notify!],
             true,
           ),
@@ -268,7 +256,7 @@ export function addConnectionSummaries(
     return kind === undefined || summary?.kind === kind ? summary : undefined;
   };
   for (const code of codes.values()) {
-    const bound = patterns.hitTest && match(code, patterns.hitTest);
+    const bound = patterns.hitTest && matchFirst(code, patterns.hitTest);
     const reverse = bound && of(bound, "ropeReverse", "rope-reversal");
     if (reverse)
       summaries.set(
@@ -278,14 +266,14 @@ export function addConnectionSummaries(
           "part-hit-test",
           "Tests whether a point hits a part, its belt end or a rope end; it can swap the belt's ends or turn a rope around.",
           8,
-          words(0x04, 0x06),
+          wordFields(0x04, 0x06),
           [],
           [reverse],
         ),
       );
   }
   for (const code of codes.values()) {
-    const bound = patterns.search && match(code, patterns.search);
+    const bound = patterns.search && matchFirst(code, patterns.search);
     const hit = bound && of(bound, "hitTest", "part-hit-test");
     if (bound && hit && inert(of(bound, "listHead"), false) && inert(of(bound, "listNext"), false))
       summaries.set(
@@ -302,7 +290,7 @@ export function addConnectionSummaries(
       );
   }
   for (const code of codes.values()) {
-    const bound = patterns.beltEnds && match(code, patterns.beltEnds);
+    const bound = patterns.beltEnds && matchFirst(code, patterns.beltEnds);
     const search = bound && of(bound, "search", "part-hit-search");
     if (bound && search && inert(of(bound, "pointCheck"), false))
       summaries.set(
@@ -319,7 +307,7 @@ export function addConnectionSummaries(
       );
   }
   for (const code of codes.values()) {
-    const bound = patterns.relay && match(code, patterns.relay);
+    const bound = patterns.relay && matchFirst(code, patterns.relay);
     if (!bound) continue;
     const geometry = of(bound, "ropeGeometry", "rope-geometry");
     const ends = of(bound, "beltEnds", "belt-end-check");
@@ -336,7 +324,7 @@ export function addConnectionSummaries(
     // The owner gets the byte first, unless its type (field 0x04) is 49, the number the pattern matches.
     const owner: EngineWrite = {
       confidence: "inferred",
-      evidence: proof(code),
+      evidence: routineEvidence(code),
       assumptions: [],
       root: "argument",
       argumentOffset: 6,

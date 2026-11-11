@@ -3,6 +3,7 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { Expression, Finding, Predicate } from "./behaviour.ts";
+import { constant, partField } from "./behaviour-terms.ts";
 
 export interface ConnectionBypass extends Finding {
   ownerArgument: 8;
@@ -113,8 +114,6 @@ const sharedReturn = query
   )
   .replace("finish: mov ax,16:ss[bp+-4]\ndone:", "finish: mov ax,16:ss[bp+-4]\njmp @bridge\ndone:");
 const dataTable = (pattern: string) => pattern.replace("mov dx,#{tableSegment}\nmov bx,ax\nmov es,dx", "mov bx,ax");
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const field = (offset: number): Expression => ({ kind: "field", object: "part", offset, width: 16 });
 const compare = (operator: string, left: Expression): Predicate => ({
   kind: "compare",
   operator,
@@ -187,12 +186,18 @@ export function discoverConnectionBypass(code: RoutineCode, layout?: BehaviourLa
     (mask & (mask - 1)) !== 0
   )
     return;
-  const tested: Expression = { kind: "binary", operator: "&", left: field(flags), right: constant(mask), width: 16 };
+  const tested: Expression = {
+    kind: "binary",
+    operator: "&",
+    left: partField(flags),
+    right: constant(mask),
+    width: 16,
+  };
   const connections: Expression = {
     kind: "binary",
     operator: "|",
-    left: field(links),
-    right: field(links + 2),
+    left: partField(links),
+    right: partField(links + 2),
     width: 16,
   };
   const clear = compare("==", tested);

@@ -1,8 +1,9 @@
 /** Certifies a constructor's allocation-failure path without granting its success helper a memory contract. */
-import type { Evidence, Finding } from "./behaviour.ts";
+import type { Finding } from "./behaviour.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
-import type { Instruction, Operand } from "./x86.ts";
+import type { Operand } from "./x86.ts";
+import { evidenceOf, isImmediate, isMemory, isRegister, overlapsWord } from "./behaviour-terms.ts";
 
 export interface InitialZeroFields extends Finding {
   fields: { offset: number; width: 16; value: 0 }[];
@@ -20,15 +21,8 @@ export interface ConstructorFailureOwnership extends Finding {
   successEntry: number;
   successHelper: number;
 }
-const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
-  o?.kind === "register" && (name === undefined || o.name === name);
-const mem = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
-const immediate = (o: Operand | undefined, value?: number): o is Extract<Operand, { kind: "immediate" }> =>
-  o?.kind === "immediate" && (value === undefined || o.value === value);
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
 const ownerWord = (o: Operand | undefined, owner: string) =>
-  mem(o) && o.segment === "ds" && o.base.join() === owner && o.width === 16;
-const overlaps = (offset: number, width: number, field: number) => offset < field + 2 && field < offset + width / 8;
+  isMemory(o) && o.segment === "ds" && o.base.join() === owner && o.width === 16;
 
 /**
  * The entry zero facts must come from the factory's cleared-allocation and prefix proofs. This certificate proves
@@ -52,25 +46,25 @@ export function proveConstructorFailureOwnership(
     !releaseFields.length ||
     new Set(releaseFields).size !== releaseFields.length ||
     releaseFields.some((offset) => !Number.isInteger(offset) || offset < 0 || offset + 2 > size) ||
-    releaseFields.some((offset, n) => releaseFields.some((other, m) => n !== m && overlaps(offset, 16, other)))
+    releaseFields.some((offset, n) => releaseFields.some((other, m) => n !== m && overlapsWord(offset, 16, other)))
   )
     return;
   const logical = code.instructions.filter((i) => i.mnemonic !== "nop");
   const [pushFrame, frame] = logical;
   if (
     pushFrame?.mnemonic !== "push" ||
-    !reg(pushFrame.operands[0], "bp") ||
+    !isRegister(pushFrame.operands[0], "bp") ||
     frame?.mnemonic !== "mov" ||
-    !reg(frame.operands[0], "bp") ||
-    !reg(frame.operands[1], "sp")
+    !isRegister(frame.operands[0], "bp") ||
+    !isRegister(frame.operands[1], "sp")
   )
     return;
   const ownerIndex = logical.findIndex(
     (i) =>
       i.mnemonic === "mov" &&
-      reg(i.operands[0]) &&
+      isRegister(i.operands[0]) &&
       ["si", "di"].includes(i.operands[0].name) &&
-      mem(i.operands[1]) &&
+      isMemory(i.operands[1]) &&
       i.operands[1].segment === "ss" &&
       i.operands[1].base.join() === "bp" &&
       i.operands[1].width === 16 &&
@@ -79,7 +73,9 @@ export function proveConstructorFailureOwnership(
   if (ownerIndex < 3) return;
   const owner = (logical[ownerIndex]!.operands[0] as Extract<Operand, { kind: "register" }>).name;
   const saved = logical.slice(2, ownerIndex);
-  if (saved.some((i) => i.mnemonic !== "push" || !reg(i.operands[0]) || !["si", "di"].includes(i.operands[0].name)))
+  if (
+    saved.some((i) => i.mnemonic !== "push" || !isRegister(i.operands[0]) || !["si", "di"].includes(i.operands[0].name))
+  )
     return;
   const saves = saved.map((i) => (i.operands[0] as Extract<Operand, { kind: "register" }>).name);
   if (new Set(saves).size !== saves.length || !saves.includes(owner)) return;
@@ -108,41 +104,41 @@ export function proveConstructorFailureOwnership(
   if (
     !sizeLoad ||
     sizeLoad.mnemonic !== "mov" ||
-    !reg(sizeLoad.operands[0], "ax") ||
-    !immediate(sizeLoad.operands[1]) ||
+    !isRegister(sizeLoad.operands[0], "ax") ||
+    !isImmediate(sizeLoad.operands[1]) ||
     sizeLoad.operands[1].value <= 0 ||
     pushSize?.mnemonic !== "push" ||
-    !reg(pushSize.operands[0], "ax") ||
+    !isRegister(pushSize.operands[0], "ax") ||
     pushCount?.mnemonic !== "push" ||
     !ownerWord(pushCount.operands[0], owner) ||
     popCount?.mnemonic !== "pop" ||
-    !reg(popCount.operands[0], "cx") ||
+    !isRegister(popCount.operands[0], "cx") ||
     popSize?.mnemonic !== "pop" ||
-    !reg(popSize.operands[0], "cx") ||
+    !isRegister(popSize.operands[0], "cx") ||
     store?.mnemonic !== "mov" ||
     !ownerWord(store.operands[0], owner) ||
-    !reg(store.operands[1], "ax") ||
+    !isRegister(store.operands[1], "ax") ||
     test?.mnemonic !== "or" ||
-    !reg(test.operands[0], "ax") ||
-    !reg(test.operands[1], "ax") ||
+    !isRegister(test.operands[0], "ax") ||
+    !isRegister(test.operands[1], "ax") ||
     branch?.mnemonic !== "jne" ||
     branch.target?.address !== pushOwner?.address ||
     failure?.mnemonic !== "mov" ||
-    !reg(failure.operands[0], "ax") ||
-    !immediate(failure.operands[1], 1) ||
+    !isRegister(failure.operands[0], "ax") ||
+    !isImmediate(failure.operands[1], 1) ||
     failureJump?.flow !== "jump" ||
     failureJump.target?.address !== logical[firstEpilogue]?.address ||
     pushOwner?.mnemonic !== "push" ||
-    !reg(pushOwner.operands[0], owner) ||
+    !isRegister(pushOwner.operands[0], owner) ||
     popOwner?.mnemonic !== "pop" ||
-    !reg(popOwner.operands[0], "cx") ||
+    !isRegister(popOwner.operands[0], "cx") ||
     (successJump !== undefined &&
       (successJump.mnemonic !== "jmp" ||
         successJump.flow !== "jump" ||
         ![failureJump?.address, logical[firstEpilogue]?.address].includes(successJump.target?.address))) ||
     success?.mnemonic !== "xor" ||
-    !reg(success.operands[0], "ax") ||
-    !reg(success.operands[1], "ax")
+    !isRegister(success.operands[0], "ax") ||
+    !isRegister(success.operands[1], "ax")
   )
     return;
   const allocationCall = code.calls.find((c) => c.instruction === allocate?.address),
@@ -169,7 +165,7 @@ export function proveConstructorFailureOwnership(
   if (
     restored.some(
       (name, n) =>
-        logical[firstEpilogue + n]?.mnemonic !== "pop" || !reg(logical[firstEpilogue + n]!.operands[0], name),
+        logical[firstEpilogue + n]?.mnemonic !== "pop" || !isRegister(logical[firstEpilogue + n]!.operands[0], name),
     ) ||
     logical.at(-1)?.mnemonic !== "retf" ||
     logical.at(-1)!.operands.length
@@ -183,7 +179,7 @@ export function proveConstructorFailureOwnership(
     requiredInitialZeroFields.some(
       (offset) =>
         !initiallyZero.fields.some((f) => f.offset === offset && f.width === 16 && f.value === 0) ||
-        metadata.noConstructor.writes.some((write) => overlaps(write.offset, write.width, offset)),
+        metadata.noConstructor.writes.some((write) => overlapsWord(write.offset, write.width, offset)),
     )
   )
     return;
@@ -239,7 +235,7 @@ export function proveConstructorFailureOwnership(
       ...initiallyZero.evidence,
       ...metadata.noConstructor.evidence,
       ...allocator.evidence,
-      ...code.instructions.map(evidence),
+      ...code.instructions.map(evidenceOf),
     ],
     assumptions: [
       ...new Set([

@@ -1,10 +1,11 @@
 /** Certifies the per-node flag clear and guarded gear dispatch without assuming a runtime list or driver. */
-import type { Evidence, Finding } from "./behaviour.ts";
+import type { Finding } from "./behaviour.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import type { GearRunContract } from "./behaviour-gear-run.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import { findDataSegment } from "./type-table.ts";
 import type { Instruction, Operand } from "./x86.ts";
+import { evidenceOf, isMemory, wordAt } from "./behaviour-terms.ts";
 
 export interface GearScheduling extends Finding {
   routine: number;
@@ -28,20 +29,17 @@ export interface GearScheduling extends Finding {
 }
 const reg = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
   o?.kind === "register" && o.width === 16 && (name === undefined || o.name === name);
-const mem = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> => o?.kind === "memory";
 const imm = (o: Operand | undefined, value?: number): o is Extract<Operand, { kind: "immediate" }> =>
   o?.kind === "immediate" && (value === undefined || o.value === value);
-const word = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
 const object = (o: Operand | undefined, base: string, offset?: number) =>
-  mem(o) &&
+  isMemory(o) &&
   o.segment === "ds" &&
   o.width === 16 &&
   o.base.join() === base &&
   !o.direct &&
   (offset === undefined || o.displacement === offset);
 const direct = (o: Operand | undefined): o is Extract<Operand, { kind: "memory" }> =>
-  mem(o) && o.segment === "ds" && o.width === 16 && o.direct;
+  isMemory(o) && o.segment === "ds" && o.width === 16 && o.direct;
 const plain = (i: Instruction | undefined, name: string) => !!i && i.mnemonic === name && !i.prefixes.length;
 const jump = (i: Instruction | undefined, name: string, target: Instruction) =>
   plain(i, name) && i!.target?.address === target.address;
@@ -148,13 +146,13 @@ function dispatch(
     call = candidate!;
     table = segment!.operands[1].value * 16;
     const operand = call.operands[0];
-    if (!mem(operand) || operand.segment !== "es" || operand.displacement !== field) return;
+    if (!isMemory(operand) || operand.segment !== "es" || operand.displacement !== field) return;
   } else if (sequence.length === 8) {
     const [index, candidate] = sequence.slice(4, 6);
     if (!plain(index, "mov") || !reg(index!.operands[0], "bx") || !reg(index!.operands[1], "ax")) return;
     call = candidate!;
     const operand = call.operands[0];
-    if (!mem(operand) || operand.segment !== "ds") return;
+    if (!isMemory(operand) || operand.segment !== "ds") return;
     table = ds * 16 + operand.displacement - field;
   } else return;
   const operand = call.operands[0],
@@ -166,7 +164,7 @@ function dispatch(
     !call.far ||
     call.target ||
     call.operands.length !== 1 ||
-    !mem(operand) ||
+    !isMemory(operand) ||
     operand.width !== 32 ||
     operand.base.join() !== "bx" ||
     operand.direct ||
@@ -195,7 +193,7 @@ function containing(image: Uint8Array, codes: Map<number, RoutineCode>, sites: n
   for (const code of codes.values())
     for (const call of code.calls) if (call.target) add(call.target.address, call.target.segment);
   for (let at = 0; at + 5 <= image.length; at++)
-    if (image[at] === 0x9a) add(word(image, at + 3) * 16 + word(image, at + 1), word(image, at + 3));
+    if (image[at] === 0x9a) add(wordAt(image, at + 3) * 16 + wordAt(image, at + 1), wordAt(image, at + 3));
   for (const site of missing) {
     if ([...found.values()].some((c) => c.instructions.some((i) => i.address === site))) continue;
     let candidates = 0;
@@ -289,7 +287,7 @@ export function discoverGearScheduling(
         if (recordOffset < 0 || recordOffset + 4 > 65536) continue;
         const record = dispatched.table + 14 * 58 + run.field;
         if (record < 0 || record + 4 > image.length) continue;
-        const address = word(image, record + 2) * 16 + word(image, record);
+        const address = wordAt(image, record + 2) * 16 + wordAt(image, record);
         const gear = gearRuns.find(
           (g) => g.address === address && g.flagsField === flags.offset && g.visitedMask === 64,
         );
@@ -369,7 +367,7 @@ export function discoverGearScheduling(
             evidence: [
               ...new Map(
                 [...clear, ...pass]
-                  .map(evidence)
+                  .map(evidenceOf)
                   .concat(gear.evidence, run.evidence, flags.evidence, type.evidence)
                   .map((e) => [e.address, e]),
               ).values(),

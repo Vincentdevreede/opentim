@@ -4,6 +4,7 @@ import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Expression, Finding, Predicate } from "./behaviour.ts";
+import { binary, constant, partField, routineEvidence } from "./behaviour-terms.ts";
 
 export type ContactResponse =
   | {
@@ -29,15 +30,6 @@ export type ContactResponse =
       arithmetic: "wrappedWordAbsoluteValuesAndSumThenSignedComparison";
       audiblePlaybackEstablished: false;
     };
-const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
-const field = (offset: number): Expression => ({ kind: "field", object: "part", offset, width: 16 });
-const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-  kind: "binary",
-  operator,
-  left,
-  right,
-  width: 16,
-});
 const compare = (operator: string, left: Expression, right: Expression): Predicate => ({
   kind: "compare",
   operator,
@@ -46,7 +38,6 @@ const compare = (operator: string, left: Expression, right: Expression): Predica
   signed: true,
 });
 const and = (...terms: Predicate[]): Predicate => ({ kind: "and", terms });
-const proof = (code: RoutineCode) => code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 
 export function discoverContactResponse(
   code: RoutineCode,
@@ -58,7 +49,7 @@ export function discoverContactResponse(
 ): EngineSummary | undefined {
   const finding: Finding = {
     confidence: "inferred",
-    evidence: proof(code),
+    evidence: routineEvidence(code),
     assumptions: [
       "The far C call receives a complete nonwrapping part at BP+6. Its storage is separate from the private stack; DS and the C preserved registers retain their calling-convention meanings.",
     ],
@@ -90,15 +81,15 @@ export function discoverContactResponse(
       kind: "table",
       segment,
       offset: offset + 10,
-      index: binary("*", field(4), constant(58)),
+      index: binary("*", partField(4), constant(58)),
       width: 16,
     };
     const negative = binary("-", constant(0), limit);
     const cases = [56, 54].flatMap((offset) => [
-      { field: offset, condition: compare(">", field(offset), limit), value: limit },
+      { field: offset, condition: compare(">", partField(offset), limit), value: limit },
       {
         field: offset,
-        condition: and(compare("<=", field(offset), limit), compare("<", field(offset), negative)),
+        condition: and(compare("<=", partField(offset), limit), compare("<", partField(offset), negative)),
         value: negative,
       },
     ]);
@@ -168,8 +159,8 @@ export function discoverContactResponse(
       return binary("-", binary("^", value, sign), sign);
     };
     const condition = and(
-      compare("==", field(4), constant(0)),
-      compare(">", binary("+", absolute(field(54)), absolute(field(56))), constant(4096)),
+      compare("==", partField(4), constant(0)),
+      compare(">", binary("+", absolute(partField(54)), absolute(partField(56))), constant(4096)),
     );
     const combined = {
       ...finding,

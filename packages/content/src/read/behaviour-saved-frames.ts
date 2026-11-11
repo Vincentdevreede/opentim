@@ -69,7 +69,7 @@ export const WOOD_INCLINE_ASSUMPTION =
   'A wood incline starts on the frame its width gives: its width divided by 16, less 1. That is frame 0 to 3 for the widths 16 to 64 the editor allows, and frame -1 for an incline of width 0, which two Even More levels have ("Ambulance Driver", L117, and "Rocket Launcher", L143) though the editor can\'t make it.';
 
 /** The frame the wood incline's resize gives a width: the width as a signed word divided by 16, rounded to 0, less 1. */
-export const inclineFrame = (width: number) => Math.trunc((((width & 0xffff) ^ 0x8000) - 0x8000) / 16) - 1;
+const inclineFrame = (width: number) => Math.trunc((((width & 0xffff) ^ 0x8000) - 0x8000) / 16) - 1;
 
 /**
  * By part id: the frames a level can start a part on, and why: for a type without a frame list, and for one with a

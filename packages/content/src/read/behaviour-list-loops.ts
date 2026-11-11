@@ -6,6 +6,7 @@ import type { LoopField } from "./behaviour-loops.ts";
 import type { Instruction, Operand } from "./x86.ts";
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { discoverBoundedSearchLoops } from "./behaviour-search-loops.ts";
+import { evidenceOf, overlapsWord, wholeRegister } from "./behaviour-terms.ts";
 
 /** Stated on a loop over a list whose query may hold the owner itself. */
 export const INCLUSIVE_LIST_ASSUMPTION =
@@ -41,10 +42,6 @@ const writesFirst = (i: Instruction) =>
   i.flow === "next" &&
   !["cmp", "test", "push", "mul", "imul", "div", "idiv", "cwd", "cbw", "nop", "cld", "std"].includes(i.mnemonic);
 const volatile = ["ax", "bx", "cx", "dx", "es"];
-const whole = (name: string) =>
-  ({ al: "ax", ah: "ax", bl: "bx", bh: "bx", cl: "cx", ch: "cx", dl: "dx", dh: "dx" })[name] ?? name;
-const evidence = ({ address, bytes, text }: Instruction): Evidence => ({ address, bytes, text });
-const overlaps = (offset: number, width: number, field: number) => offset < field + 2 && field < offset + width / 8;
 
 /**
  * An overlap query must exclude its owner. Global lists may include the owner, so their bodies cannot write
@@ -190,7 +187,7 @@ export function discoverListLoops(
         (i) =>
           writesFirst(i) &&
           register(i.operands[0]) &&
-          whole(i.operands[0].name) === node.name &&
+          wholeRegister(i.operands[0].name) === node.name &&
           !progress.has(i.address),
       )
     )
@@ -278,7 +275,7 @@ export function discoverListLoops(
         const chosen = branch.mnemonic === "jne" ? branch.target.address : branch.address + branch.size;
         if (!(outgoing.get(branch.address) ?? []).includes(chosen)) continue;
         outgoing.set(branch.address, [chosen]);
-        stateProof.push(evidence(compare), evidence(branch));
+        stateProof.push(evidenceOf(compare), evidenceOf(branch));
       }
       if (!stateProof.length) continue;
       const reachable = new Set<number>(),
@@ -304,7 +301,7 @@ export function discoverListLoops(
         !instruction ||
         (writesFirst(instruction) &&
           register(instruction.operands[0]) &&
-          [owner, node.name].includes(whole(instruction.operands[0].name))) ||
+          [owner, node.name].includes(wholeRegister(instruction.operands[0].name))) ||
         instruction.mnemonic === "xchg" ||
         (instruction.flow === "call" && [owner, node.name].some((name) => volatile.includes(name)))
       ) {
@@ -421,8 +418,8 @@ export function discoverListLoops(
     const proof = [
       ...boundedSearches.filter((s) => s.body.every((at) => body.has(at))).flatMap((s) => s.evidence),
       ...stateProof,
-      evidence(head),
-      evidence(ownerDefinition),
+      evidenceOf(head),
+      evidenceOf(ownerDefinition),
       ...globalProofs.flatMap((helper) => helper.evidence),
       ...queries.flatMap((call) => [...call.evidence, ...helpers.get(call.target!.address)!.list!.evidence]),
     ];
@@ -531,7 +528,7 @@ export function discoverListLoops(
             invalid = true;
             break;
           }
-          if (write.path.length && !write.separateStorage && overlaps(write.offset, write.width, nextField)) {
+          if (write.path.length && !write.separateStorage && overlapsWord(write.offset, write.width, nextField)) {
             invalid = true;
             break;
           }
@@ -543,14 +540,15 @@ export function discoverListLoops(
           const root = write.separateStorage === "outline" ? "buffer" : write.path.length ? "part" : argumentRoot;
           if (
             (globalSource && root === "other") ||
-            ((root === "other" || (globalSource && root === "part")) && overlaps(write.offset, write.width, nextField))
+            ((root === "other" || (globalSource && root === "part")) &&
+              overlapsWord(write.offset, write.width, nextField))
           ) {
             invalid = true;
             break;
           }
           if (
             (root === "part" || (inclusive && root === "other")) &&
-            overlaps(write.offset, write.width, stateOffset)
+            overlapsWord(write.offset, write.width, stateOffset)
           ) {
             invalid = true;
             break;
@@ -563,7 +561,7 @@ export function discoverListLoops(
         unknownGlobals ||= !!callee.footprint.unknownGlobalEffects?.length;
         for (const assumption of callee.assumptions) assumptions.add(assumption);
         // The callee's own summary keeps its evidence; the loop cites the call.
-        proof.push(evidence(i));
+        proof.push(evidenceOf(i));
         for (const name of volatile) {
           roots.set(name, "unknown");
           changed.add(name);
@@ -589,11 +587,11 @@ export function discoverListLoops(
           if (
             !root ||
             root === "unknown" ||
-            (root === "part" && overlaps(dest.displacement, dest.width, stateOffset)) ||
-            (inclusive && root === "other" && overlaps(dest.displacement, dest.width, stateOffset)) ||
+            (root === "part" && overlapsWord(dest.displacement, dest.width, stateOffset)) ||
+            (inclusive && root === "other" && overlapsWord(dest.displacement, dest.width, stateOffset)) ||
             (globalSource && root === "other") ||
             ((root === "other" || (globalSource && root === "part")) &&
-              overlaps(dest.displacement, dest.width, nextField))
+              overlapsWord(dest.displacement, dest.width, nextField))
           ) {
             invalid = true;
             break;
@@ -614,14 +612,14 @@ export function discoverListLoops(
           invalid = true;
           break;
         }
-        changed.add(whole(dest.name));
+        changed.add(wholeRegister(dest.name));
         const reloadsOwner =
           memory(source) &&
           source.segment === "ss" &&
           source.base.join() === "bp" &&
           source.displacement === argumentOffset;
         roots.set(
-          whole(dest.name),
+          wholeRegister(dest.name),
           i.mnemonic === "mov"
             ? reloadsOwner
               ? "part"
@@ -689,7 +687,10 @@ export function discoverListLoops(
       assumptions: [...assumptions],
       evidence: [
         ...new Map(
-          [...proof, ...sequence.map(evidence), evidence(guard), evidence(branch)].map((item) => [item.address, item]),
+          [...proof, ...sequence.map(evidenceOf), evidenceOf(guard), evidenceOf(branch)].map((item) => [
+            item.address,
+            item,
+          ]),
         ).values(),
       ],
     });

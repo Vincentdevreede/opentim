@@ -14,6 +14,7 @@ import {
 import type { CreatedPart } from "./behaviour-created-parts.ts";
 import { nameOf } from "./describe-effects.ts";
 import { formula, type Names } from "./describe-touch.ts";
+import { listWords } from "./behaviour-terms.ts";
 
 const CREATED = /^(?:nullable allocation|fresh object) returned at (0x[0-9a-f]+)$/;
 
@@ -165,14 +166,14 @@ export function createdPartLines(
         ? `Creates ${article} ${what} (type ${created.type}${starts})`
         : `Creates a part of type ${created.type}${starts}${starts ? "," : ""}`;
       const moving = speed.length
-        ? `, moving at ${list(speed)}${limited ? ` (${speed.length > 1 ? "each " : ""}kept within the ${what}'s speed limit)` : ""}`
+        ? `, moving at ${listWords(speed)}${limited ? ` (${speed.length > 1 ? "each " : ""}kept within the ${what}'s speed limit)` : ""}`
         : "";
       const rest = [
-        ...(given.length ? [`sets ${list(given)}`] : []),
+        ...(given.length ? [`sets ${listWords(given)}`] : []),
         ...(links ? [`links it into a list of parts`] : []),
-        ...(other.length ? [`${given.length ? "changes" : "sets"} its ${list(other)}`] : []),
+        ...(other.length ? [`${given.length ? "changes" : "sets"} its ${listWords(other)}`] : []),
       ];
-      const description = `${first}${place.length ? ` at ${list(place)}` : ""}${moving}.${rest.length ? ` It also ${list(rest)}.` : ""}`;
+      const description = `${first}${place.length ? ` at ${listWords(place)}` : ""}${moving}.${rest.length ? ` It also ${listWords(rest)}.` : ""}`;
       lines.push({
         description,
         condition: outcome.condition,
@@ -183,5 +184,3 @@ export function createdPartLines(
   }
   return lines;
 }
-const list = (items: string[]) =>
-  items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;

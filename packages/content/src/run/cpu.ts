@@ -15,9 +15,9 @@ export const PF = 0x0004;
 export const AF = 0x0010;
 export const ZF = 0x0040;
 export const SF = 0x0080;
-export const TF = 0x0100;
+const TF = 0x0100;
 export const IF = 0x0200;
-export const DF = 0x0400;
+const DF = 0x0400;
 export const OF = 0x0800;
 
 export interface CpuHooks {
