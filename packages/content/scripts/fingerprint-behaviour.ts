@@ -7,7 +7,7 @@
  *   pnpm --filter @opentim/content fingerprint-behaviour --game evenmore --folder <game folder> [--loops]
  *
  * Compare two runs from the same commit's tree each time: a checkout that another session is editing gives a mixed
- * result. One build takes a few minutes (Even More, English floppy, about 7 with `--loops`).
+ * result. One build takes a few minutes with `--loops`.
  */
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";

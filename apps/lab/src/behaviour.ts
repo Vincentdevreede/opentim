@@ -1855,11 +1855,11 @@ export type BehaviourMessage =
  * loop by loop.
  */
 export const READ_STEPS = [
-  { name: "Reading the parts’ code", share: 13 },
+  { name: "Reading the parts’ code", share: 11 },
   { name: "Reading the goals", share: 0.2 },
-  { name: "Following the walks", share: 95 },
-  { name: "Reading what other parts do to each type", share: 25 },
-  { name: "Following the walks again", share: 99 },
+  { name: "Following the walks", share: 20 },
+  { name: "Reading what other parts do to each type", share: 17 },
+  { name: "Following the walks again", share: 21 },
 ] as const;
 
 /** Where a read in the background is: its step, and how many of the step's items are done; `finished` at its end. */

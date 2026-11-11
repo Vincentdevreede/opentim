@@ -1,24 +1,30 @@
 import { createRouter, createWebHistory } from "vue-router";
-import AudioPage from "./pages/AudioPage.vue";
-import FilesPage from "./pages/FilesPage.vue";
+import { isPageLoadError, pageLoadFailed } from "./page-load.ts";
 import ImportPage from "./pages/ImportPage.vue";
-import LevelsPage from "./pages/LevelsPage.vue";
-import MissingPage from "./pages/MissingPage.vue";
-import PartsPage from "./pages/PartsPage.vue";
-import SandboxPage from "./pages/SandboxPage.vue";
-import SpritesPage from "./pages/SpritesPage.vue";
 
+/**
+ * The import page comes with the app, because every visit starts there or on a page that needs it. The other pages
+ * load the first time they are opened, so the first load doesn't wait for code like the sandbox's PixiJS.
+ */
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", component: ImportPage },
-    { path: "/sprites", component: SpritesPage },
-    { path: "/parts", component: PartsPage },
-    { path: "/levels", component: LevelsPage },
-    { path: "/files", component: FilesPage },
-    { path: "/audio", component: AudioPage },
-    { path: "/sandbox", component: SandboxPage },
+    { path: "/sprites", component: () => import("./pages/SpritesPage.vue") },
+    { path: "/parts", component: () => import("./pages/PartsPage.vue") },
+    { path: "/levels", component: () => import("./pages/LevelsPage.vue") },
+    { path: "/files", component: () => import("./pages/FilesPage.vue") },
+    { path: "/audio", component: () => import("./pages/AudioPage.vue") },
+    { path: "/sandbox", component: () => import("./pages/SandboxPage.vue") },
     // Any other address, like a page from another branch, gets an empty state instead of an empty page.
-    { path: "/:missing(.*)*", component: MissingPage },
+    { path: "/:missing(.*)*", component: () => import("./pages/MissingPage.vue") },
   ],
+});
+
+// A page whose code didn't load stays where it was; the app says why and offers a reload. Opening a page clears it.
+router.onError((error, to) => {
+  if (isPageLoadError(error)) pageLoadFailed.value = to.fullPath;
+});
+router.afterEach(() => {
+  pageLoadFailed.value = undefined;
 });

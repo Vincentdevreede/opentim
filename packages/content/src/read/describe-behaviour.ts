@@ -4006,6 +4006,9 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
   }
   // The same effect of one routine on several paths is one line; when the paths' conditions differ, it keeps them all.
   const unique = new Map<string, DescribedEffect>();
+  // The texts of a list of conditions, so a repeated condition is found without comparing it with every one. Keyed by
+  // the list itself: a list made afresh for an effect that keeps no list yet starts its own texts.
+  const keptTexts = new WeakMap<Predicate[], Set<string>>();
   for (const effect of effects) {
     const id = JSON.stringify([effect.kind, effect.description, effect.field, effect.routine]);
     const prior = unique.get(id);
@@ -4016,9 +4019,15 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
     prior.evidence = evidence(prior.evidence, effect.evidence);
     prior.confidence = confidence(prior.confidence, effect.confidence);
     const conditions = prior.conditions ?? (prior.condition ? [prior.condition] : []);
+    let texts = keptTexts.get(conditions);
+    if (!texts) keptTexts.set(conditions, (texts = new Set(conditions.map((known) => JSON.stringify(known)))));
     const next = effect.conditions ?? (effect.condition ? [effect.condition] : []);
-    for (const condition of next)
-      if (!conditions.some((known) => JSON.stringify(known) === JSON.stringify(condition))) conditions.push(condition);
+    for (const condition of next) {
+      const text = JSON.stringify(condition);
+      if (texts.has(text)) continue;
+      texts.add(text);
+      conditions.push(condition);
+    }
     if (conditions.length > 1) {
       prior.conditions = conditions;
       delete prior.condition;

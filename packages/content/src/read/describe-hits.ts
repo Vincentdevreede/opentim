@@ -720,6 +720,19 @@ export function hitsFromOthers(
   const fieldName = (offset: number) =>
     report.layout.fields.find((f) => f.offset === offset)?.name ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
+  /**
+   * Whether a part's rules can't tell the limits of a range apart, once per part, field and range: many sources write
+   * the same field, and the report doesn't change during this pass.
+   */
+  const ignoresLimit = new Map<BehaviourReport["parts"][number], Map<string, boolean>>();
+  const rulesIgnore = (part: BehaviourReport["parts"][number], offset: number, range: { min: number; max: number }) => {
+    let known = ignoresLimit.get(part);
+    if (!known) ignoresLimit.set(part, (known = new Map()));
+    const key = `${offset}:${range.min}:${range.max}`;
+    let answer = known.get(key);
+    if (answer === undefined) known.set(key, (answer = rulesIgnoreLimit(part, offset, range, evaluate)));
+    return answer;
+  };
   const startingFlags = report.helpers
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
@@ -925,7 +938,7 @@ export function hitsFromOthers(
           if (value) limited = true;
           return value;
         }
-        if (!settled.range || !rulesIgnoreLimit(part, w.offset, settled.range, evaluate)) return undefined;
+        if (!settled.range || !rulesIgnore(part, w.offset, settled.range)) return undefined;
         const value = ownValue(keptWithin(settled.value, settled.range.min), c.member);
         if (value) ranged = settled.range;
         return value;
