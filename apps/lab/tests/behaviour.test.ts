@@ -152,6 +152,14 @@ describe("writer", () => {
       binary("&", field(0x12), binary("^", all, constant(0xffff))),
     );
     expect(expression(pick)).toBe("((state == 0) * 48) if state < 1, else stateDelta");
+    // Only a yes or no picks a whole value; any other number mixes the bits of both.
+    const many = binary("*", field(0x0c), constant(0xffff));
+    const mixed = binary(
+      "|",
+      binary("&", field(0x12), many),
+      binary("&", constant(0), binary("^", many, constant(0xffff))),
+    );
+    expect(expression(mixed)).not.toContain(" if ");
   });
 
   it("reads numbers in a condition by what they are: signed values, masks in hex and directions in degrees", () => {
@@ -204,13 +212,16 @@ describe("writer", () => {
     const rope = writer(named, new Map(), "rope");
     const asked =
       'pointer loaded from table 0x2fe1+0x66 indexed by {"kind":"binary","operator":"+","left":{"kind":"field","object":"argument","offset":10,"width":16},"right":{"kind":"field","object":"address of part","offset":0,"width":16},"width":16}';
-    expect(rope.predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("pull kind 2");
-    expect(rope.predicate(compare("!=", field(0x0c, "argument"), constant(1)))).toBe("pull kind isn't 1");
+    // A test of the whole word tests the side and question bits too, so it stays a plain compare.
+    expect(rope.predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("ropeKind == 2");
+    expect(rope.predicate(compare("!=", field(0x0c, "argument"), constant(1)))).toBe("ropeKind != 1");
     const kind = (mask: number) => binary("&", field(0x0c, "argument"), constant(mask));
     expect(rope.predicate(compare("==", kind(0x8006), constant(4)))).toBe("pull kind 4, not a question");
     expect(rope.predicate(compare("!=", kind(0x8006), constant(0x8004)))).toBe("not (pull kind 4, a question)");
     expect(rope.predicate(compare("!=", kind(6), constant(2)))).toBe("pull kind isn't 2");
     expect(rope.predicate(compare("!=", kind(0x8000), constant(0)))).toBe("a question");
+    // A value with bits the mask clears can't match, which the plain compare shows.
+    expect(rope.predicate(compare("==", kind(6), constant(0x8004)))).not.toContain("pull kind");
     expect(rope.predicate(compare("!=", field(0x0a, "argument"), constant(0)))).toBe("ropeSlot != 0");
     expect(rope.predicate(compare("==", field(0x04, "referenced-by(argument+0x6)"), constant(3)))).toBe(
       "otherEnd.type == 3",
@@ -293,6 +304,8 @@ describe("tidyWords", () => {
 
   it("reads masks, flag tests and field offsets in the analysis's sentences in words", () => {
     // A value kept to a word, and a position rounded down to a tile, also with brackets inside.
+    // A value with a number past a word keeps its mask: it is the low word only.
+    expect(tidyWords("x is ((65536 + positionX) & 0xffff)")).toBe("x is ((65536 + positionX) & 0xffff)");
     expect(tidyWords("velocityX + (((16 * (80 - |overlapY|)) & 0xffff) >> 1)")).toBe(
       "velocityX + ((16 * (80 - |overlapY|)) >> 1)",
     );
@@ -578,7 +591,7 @@ describe("summariseWalks", () => {
   });
 
   it("names what the rope code passes only in the walks the rope callback starts", () => {
-    expect(pulled).toMatchObject({ trigger: "rope", condition: ["pull kind 2"] });
+    expect(pulled).toMatchObject({ trigger: "rope", condition: ["ropeKind == 2"] });
     expect(flipped).toMatchObject({ trigger: "flip", condition: ["argument 12 == 2"] });
   });
 

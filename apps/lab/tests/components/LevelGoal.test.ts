@@ -62,3 +62,13 @@ it("says other flag tests by their names, and writes the goal routine in the sam
   expect(page).toContain("if ax ≠ part.olderX:");
   expect(page).not.toContain("0x");
 });
+
+it("calls a word the routine reads with an index its table, apart from its single words", async () => {
+  const g = goal([], [{ word: "word 0x506c", becomes: ["0"] }]);
+  (g as { lines: string[] }).lines = ["        word 0x5068[bx] = 1", "  if word 0x5068[bx] = 0:", "  word 0x506c += 1"];
+  const page = await text(g);
+  expect(page).toContain("its table[bx] = 1");
+  expect(page).toContain("if its table[bx] = 0:");
+  expect(page).toContain("its count += 1");
+  expect(page).not.toContain("0x");
+});

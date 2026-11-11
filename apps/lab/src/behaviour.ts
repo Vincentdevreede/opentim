@@ -537,7 +537,8 @@ function rewriteMasked(text: string, mask: string, rewrite: (group: string) => s
     const group = text.slice(open + 1, at);
     const out = rewrite(group);
     text = text.slice(0, open) + out + text.slice(at + tail.length);
-    at = open;
+    // On after the rewritten value, which may keep its mask.
+    at = open + out.length - 1;
   }
   return text;
 }
@@ -590,7 +591,10 @@ function unbracket(group: string): string {
 export function tidyWords<T extends string | undefined>(text: T): T {
   if (text === undefined) return text;
   let out: string = text;
-  out = unflipCompares(rewriteMasked(out, "0xffff", (group) => group));
+  // The mask of a word says nothing about a sum of words, which wraps the same way; one with a number past a word keeps it.
+  const pastAWord = (group: string) =>
+    [...group.matchAll(/\b(?:0x[0-9a-f]+|\d+)\b/g)].some(([n]) => Number(n) > 0xffff);
+  out = unflipCompares(rewriteMasked(out, "0xffff", (group) => (pastAWord(group) ? `(${group} & 0xffff)` : group)));
   out = rewriteMasked(out, "0xfff0", (group) => `(${unbracket(group)} rounded down to 16)`);
   return (
     out
@@ -881,7 +885,8 @@ export function writer(
         [one.right, one.left],
       ] as const) {
         const condition = all(mask);
-        if (!condition) continue;
+        // Only a yes or no picks one whole value: a compare, or a single low bit.
+        if (!condition || !isYesOrNo(condition)) continue;
         for (const [rest, notMask] of [
           [other.left, other.right],
           [other.right, other.left],
@@ -897,6 +902,12 @@ export function writer(
       }
     return undefined;
   };
+  /** Whether a value is 0 or 1 only: a compare, a single low bit, or the constant 0 or 1. */
+  const isYesOrNo = (c: Expression): boolean =>
+    (c.kind === "constant" && (c.value === 0 || c.value === 1)) ||
+    (c.kind === "binary" &&
+      (/^[su]?(?:==|!=|<=?|>=?)$/.test(c.operator) ||
+        (c.operator === "&" && c.right.kind === "constant" && c.right.value === 1)));
   /** A mask that keeps the low bits, 3, 7, 15 and so on up to 255, as what it is: the rest after dividing. */
   const remainderOf = (mask: number) => (mask >= 3 && mask <= 0xff && (mask & (mask + 1)) === 0 ? mask + 1 : 0);
   const expression = (e: Expression, nested = false, style: Numbers = "words"): string => {
@@ -1053,12 +1064,13 @@ export function writer(
     const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
     if (against.kind !== "constant") return undefined;
     const folded = tested.kind === "binary" ? foldMask(tested) : tested;
-    const [field, mask] =
-      folded.kind === "binary" && folded.operator === "&" && folded.right.kind === "constant"
-        ? [folded.left, folded.right.value & 0xffff]
-        : [folded, against.value & 0x8000 ? 0xffff : 0x7fff];
+    // A test of the whole word also tests the side bits, which the plain compare says best.
+    if (folded.kind !== "binary" || folded.operator !== "&" || folded.right.kind !== "constant") return undefined;
+    const [field, mask] = [folded.left, folded.right.value & 0xffff];
     if (field.kind !== "field" || field.object !== "argument" || field.offset !== 0x0c) return undefined;
-    const value = against.value & 0xffff & mask;
+    // A value with bits outside the mask can't be equal; the plain compare shows that.
+    if ((against.value & 0xffff & ~mask) !== 0) return undefined;
+    const value = against.value & 0xffff;
     const kind = value & 0x7fff;
     const asks = (yes: boolean) => (yes ? "a question" : "not a question");
     if (!(mask & 0x8000)) return `pull kind ${p.operator === "==" ? "" : "isn't "}${kind}`;

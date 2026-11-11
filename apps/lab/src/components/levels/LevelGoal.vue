@@ -46,14 +46,25 @@ const badge = computed(() => {
 
 /** Every type the goal looks at, for the words it keeps from step to step. */
 const goalTypes = computed(() => summary.value?.ways.flat().flatMap((c) => c.types?.map((t) => t.type) ?? []) ?? []);
-/** The words the goal keeps for itself, by their place among them: "its count", or "its word 1" and so on. */
+/**
+ * The words the goal keeps for itself, by their place among them: "its count", or "its word 1" and so on. A word the
+ * routine reads with an index, like `word 0x5068[bx]` with one word per mouse motor, is the start of a table: "its
+ * table". Tables come first, so a word is only a single word where no index follows it.
+ */
 const ownWords = computed(() => {
   const words = summary.value?.remembered.map((r) => r.word) ?? [];
+  const tables: string[] = [];
   // A word the routine keeps that the summary doesn't list, in the order the routine first uses it.
   const lines = props.goal.status === "done" ? props.goal.goal.lines : [];
   for (const line of lines)
-    for (const [word] of line.matchAll(/\bword 0x[0-9a-f]{4}\b/g)) if (!words.includes(word)) words.push(word);
-  return new Map(words.map((w, k) => [w, words.length === 1 ? "its count" : `its word ${k + 1}`]));
+    for (const [, word, indexed] of line.matchAll(/\b(word 0x[0-9a-f]{4})\b(\[)?/g)) {
+      const list = indexed ? tables : words;
+      if (!list.includes(word!)) list.push(word!);
+    }
+  return new Map([
+    ...tables.map((w, k): [string, string] => [`${w}[`, tables.length === 1 ? "its table[" : `its table ${k + 1}[`]),
+    ...words.map((w, k): [string, string] => [w, words.length === 1 ? "its count" : `its word ${k + 1}`]),
+  ]);
 });
 /**
  * A test or a value as the panel says it: a goal mark by the parts that set it, a field by the lab's name, and a word
