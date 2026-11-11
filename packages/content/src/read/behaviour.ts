@@ -660,7 +660,7 @@ function possible(predicate: Predicate, state?: number, stateOffset = 0x0c, scal
 function conjunction(terms: Predicate[]): Predicate {
   const flat = terms.flatMap((p) => (p.kind === "and" ? p.terms : p.kind === "true" ? [] : [p]));
   return flat.length
-    ? { kind: "and", terms: [...new Map(flat.map((p) => [JSON.stringify(p), p])).values()] }
+    ? { kind: "and", terms: [...new Map(flat.map((p) => [textOf(p), p])).values()] }
     : { kind: "true" };
 }
 function containsUnknown(expression: Expression): boolean {
