@@ -215,6 +215,19 @@ describe("writer", () => {
     expect(flags.predicate(compare("==", bit(0x08, 0x0200), constant(0)))).toBe("drawingFlags & 0x200 == 0");
     expect(flags.predicate(compare("==", bit(0x08, 0x30), constant(0)))).toBe("drawingFlags & 0x30 == 0");
   });
+
+  it("names the other part of a flag test even when its field has no name", () => {
+    const test = binary("&", field(0x08, "collider"), constant(0x10));
+    expect(predicate(compare("!=", test, constant(0)))).toBe("collider mirrored");
+  });
+
+  it("keeps the low word of a 32-bit value when it drops a mask of 0xffff", () => {
+    const product: Expression = { ...binary("*", field(0x0c), field(0x12)), width: 32 };
+    expect(expression(binary("&", field(0x0c), constant(0xffff)))).toBe("state");
+    expect(expression(binary("&", product, constant(0xffff)))).toMatch(/^the low word of \(state .+ stateDelta\)$/);
+    const high: Expression = { ...binary(">>>", product, constant(16)), width: 32 };
+    expect(expression(binary("&", high, constant(0xffff)))).toMatch(/^the high word of \(state .+ stateDelta\)$/);
+  });
 });
 
 describe("tidyWords", () => {
@@ -222,6 +235,8 @@ describe("tidyWords", () => {
     expect(tidyWords("its out-of-play flag 0x2000 is clear")).toBe("its out-of-play flag is clear");
     expect(tidyWords("its positionY is not its field 0x28")).toBe("its positionY is not its olderY");
     expect(tidyWords("its field 0x70 is 3")).toBe("its field 0x70 is 3");
+    expect(tidyWords("stateDelta after the query at 0x1d2d1")).toBe("stateDelta after the query");
+    expect(tidyWords("the answer of the call at 0x1d2d1")).toBe("the answer of the call");
   });
 });
 
