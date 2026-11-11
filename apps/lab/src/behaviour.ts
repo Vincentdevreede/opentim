@@ -601,7 +601,7 @@ export function tidyWords<T extends string | undefined>(text: T): T {
         const words = offset === undefined ? undefined : FLAG_BITS.get(`${offset}:${parseInt(mask, 16)}`);
         return words ? words[not ? 0 : 1] : all;
       })
-      .replace(/ (?:of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " of the $1")
+      .replace(/ (of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " $1 the $2")
       .replace(/ \(the allocation at 0x[0-9a-f]+\)/g, "")
       // An address in the program says nothing in a sentence; the instructions in the tip have it.
       .replace(/ at 0x[0-9a-f]{4,5}\b/g, "")
@@ -938,8 +938,18 @@ export function writer(
             e.left.right.value === 0x8000
           )
             return expression(e.left.left, nested, style);
-          if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xffff)
-            return expression(e.left, nested, style);
+          if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xffff) {
+            if (e.left.width <= 16) return expression(e.left, nested, style);
+            // The low or high word of a 32-bit value, like a product split in two.
+            const high =
+              e.left.kind === "binary" &&
+              e.left.operator === ">>>" &&
+              e.left.right.kind === "constant" &&
+              e.left.right.value === 16;
+            const whole = high && e.left.kind === "binary" ? e.left.left : e.left;
+            const text = `the ${high ? "high" : "low"} word of ${expression(whole, true, style)}`;
+            return nested ? `(${text})` : text;
+          }
           // Rounding down to a multiple of 16, the size of a tile, like the explosion's reach.
           if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xfff0)
             return `(${expression(e.left, false, style)} rounded down to 16)`;
@@ -1030,7 +1040,7 @@ export function writer(
     if (!words) return undefined;
     const set = ((p.operator === "!=") === (value === 0)) !== flipped;
     // The part the field belongs to, like "found" in "found.lists"; nothing for the part itself.
-    const whose = /^(.+)\.[^.]+$/.exec(place(flags.object, flags.offset))?.[1];
+    const whose = object(flags.object).name;
     return `${whose ? `${whose} ` : ""}${words[set ? 0 : 1]}`;
   };
   /**

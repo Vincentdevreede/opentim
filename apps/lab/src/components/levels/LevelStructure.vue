@@ -151,6 +151,8 @@ const FLAG_WORDS = [0x06, 0x08, 0x0a];
 
 /** A part's flags in words, by the names of their bits, with how many bits the program never uses are set. */
 function flagsShown(p: LevelPart): { value: string; note?: string } {
+  // The bits' meanings come from the TIM loader and record; other layouts keep their words in hex.
+  if (props.level.layout !== "tim") return { value: p.flags.map(word).join(" ") };
   const read = p.flags.map((f, k) => flagWords(FLAG_WORDS[k]!, f, props.record));
   const words = read.flatMap((r) => r.words);
   const unknown = read.reduce((n, r) => n + r.unknown.toString(2).replace(/0/g, "").length, 0);

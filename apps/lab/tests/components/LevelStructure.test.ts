@@ -84,3 +84,10 @@ it("says a part's flags in words, with how many unused bits are set and the stor
 it("leaves the tags out for Toons, whose loader isn't read", async () => {
   expect(visibleText(await html(level([part(0, 9)], "toons"), 0))).not.toContain("→");
 });
+
+it("keeps a Toons part's flags as the stored words, since the meanings are TIM's", async () => {
+  const flagged = { ...part(0, 9), flags: [0x1040, 0x0030, 0x0008] };
+  const text = visibleText(await html(level([flagged], "toons"), 0));
+  expect(text).toContain("flags 0x1040 0x0030 0x0008");
+  expect(text).not.toContain("mirrored");
+});
