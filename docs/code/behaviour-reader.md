@@ -195,7 +195,7 @@ with all builds. Taking an assumption out makes its findings unresolved again, w
   worktree of the old commit, so editing doesn't mix into it. The Lab's tests cover its own summaries.
 - Changed results: `extract-behaviour` before and after, then `compare-behaviour --baseline`. Reports are large;
   keep them out of the repo.
-- Time: a fingerprint with `--loops` takes about 7 minutes for Even More and 3 for TIM 1. The Lab's step shares
-  (`READ_STEPS` in `apps/lab/src/behaviour.ts`, seconds on Even More) show where it goes: the read 13, the goals 0.2,
-  the descriptions 95, the per-type loops 25 and the descriptions again 99. In the descriptions, `hitsFromOthers` takes
-  about as long as all the parts together.
+- Time: the Lab's step shares (`READ_STEPS` in `apps/lab/src/behaviour.ts`, seconds in Node on Even More, English
+  floppy) show where it goes: the read 11, the goals 0.2, the descriptions 20, the per-type loops 17 and the
+  descriptions again 21. In a description, the parts' walks take about half, `effectsFromOthers` a quarter and
+  `hitsFromOthers` an eighth. Profile with `node --cpu-prof` on a script that runs these steps.

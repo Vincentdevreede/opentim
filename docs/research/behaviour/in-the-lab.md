@@ -158,7 +158,7 @@ walks again. Each step tells the page how far it has come, and every place that 
 Interactions tabs, a level's goal) shows the same progress block: a bar over the whole read, the step and what it is at,
 and about how long is left. The status bar shows "Reading behaviour" and the bar on every page until the read ends, with the step, the share
 and the time left in its tip. The bar weighs the steps
-by how long they took on Even More, English floppy (13, 0.2, 95, 25 and 99 seconds in Node); the time left is the time
+by how long they took on Even More, English floppy (11, 0.2, 20, 17 and 21 seconds in Node); the time left is the time
 so far over the share done, so it settles as the read goes on, and the slow parts (the vacuum cleaner's walks take 14
 seconds) make it jump a little.
 

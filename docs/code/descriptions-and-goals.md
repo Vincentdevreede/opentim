@@ -12,8 +12,8 @@ Its passes, in order:
 
 1. `effectsFromOthers` (`describe-effects.ts`): what other parts do to a part without changing its frame, as
    "From other parts" lines (`OtherPartEffect`).
-2. `hitsFromOthers` (`describe-hits.ts`): what other parts do that can change the frame (`PartHit`). This pass takes
-   about as long as all parts together, and reports progress per source part.
+2. `hitsFromOthers` (`describe-hits.ts`): what other parts do that can change the frame (`PartHit`). It reports
+   progress per source part.
 3. `describePart` for each part:
    - the rest after a reset (`restOf`) and the fields after creation (`creationOf`);
    - stable states and effects (`effectsOf`: drawing, counters, related objects, helpers, outlines);
