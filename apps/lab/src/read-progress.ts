@@ -45,7 +45,7 @@ const ALL = READ_STEPS.reduce((n, s) => n + s.share, 0);
 /** What a step has done, in words: the part or the loop it is at. */
 export function detailOf(step: number, done: number, total: number): string {
   // The first step goes through the program's type records, which are a few more than the parts.
-  if (step === 0) return `type ${done} of ${total}`;
+  if (step === 0) return done ? `type ${done} of ${total}` : "starting";
   // Most programs have one loop to read per type, which says nothing as "loop 1 of 1".
   if (step === 3) return total > 1 ? `loop ${done} of ${total}` : "";
   if (step === 2 || step === 4) {

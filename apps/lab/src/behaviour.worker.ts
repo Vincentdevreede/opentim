@@ -39,6 +39,8 @@ self.onmessage = ({ data }: MessageEvent<BehaviourRequest>) => {
   let started = performance.now();
   let steps: ReturnType<typeof readBehaviourInSteps>;
   try {
+    // The start, so the status bar shows the read while the program is unpacked before the first step reports.
+    progress(0)(0, 1);
     steps = readBehaviourInSteps(data.program, data.parts, progress(0));
     const summary = summariseBehaviour(steps.report);
     post({ kind: "behaviour", result: { status: "done", summary, seconds: (performance.now() - started) / 1000 } });
