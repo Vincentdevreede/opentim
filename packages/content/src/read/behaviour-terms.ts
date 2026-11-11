@@ -50,7 +50,11 @@ export const evidenceOf = (i: Instruction): Evidence => ({ address: i.address, b
 export const routineEvidence = (code: RoutineCode): Evidence[] =>
   code.instructions.map(({ address, bytes, text }) => ({ address, bytes, text }));
 /** Evidence without repeats, one item per address. */
-export const uniqueEvidence = (list: Evidence[]) => [...new Map(list.map((e) => [e.address, e])).values()];
+export const uniqueEvidence = (list: Evidence[]) => {
+  const byAddress = new Map<number, Evidence>();
+  for (const e of list) byAddress.set(e.address, e);
+  return [...byAddress.values()];
+};
 /**
  * The instructions that store to memory outside the stack frame: the compact evidence a caller's findings carry. The
  * summary itself keeps the whole routine.
@@ -110,7 +114,10 @@ export const wordFields = (...offsets: number[]): { offset: number; width: numbe
 /** The little-endian word at `at`. */
 export const wordAt = (image: Uint8Array, at: number) => image[at]! | (image[at + 1]! << 8);
 /** A number as the unsigned value of `width` bits that holds it. */
-export const unsigned = (n: number, width: number) => ((n % 2 ** width) + 2 ** width) % 2 ** width;
+export const unsigned = (n: number, width: number) => {
+  const size = width === 16 ? 0x10000 : width === 8 ? 0x100 : 2 ** width;
+  return n > 0 && n < size ? n : ((n % size) + size) % size;
+};
 /** An unsigned value of `width` bits read as signed. */
 export const toSigned = (value: number, width: number) => (value >= 2 ** (width - 1) ? value - 2 ** width : value);
 

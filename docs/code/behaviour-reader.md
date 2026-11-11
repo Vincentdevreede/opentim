@@ -196,6 +196,7 @@ with all builds. Taking an assumption out makes its findings unresolved again, w
 - Changed results: `extract-behaviour` before and after, then `compare-behaviour --baseline`. Reports are large;
   keep them out of the repo.
 - Time: the Lab's step shares (`READ_STEPS` in `apps/lab/src/behaviour.ts`, seconds in Node on Even More, English
-  floppy) show where it goes: the read 11, the goals 0.2, the descriptions 20, the per-type loops 17 and the
-  descriptions again 21. In a description, the parts' walks take about half, `effectsFromOthers` a quarter and
-  `hitsFromOthers` an eighth. Profile with `node --cpu-prof` on a script that runs these steps.
+  floppy) show where it goes: the read 10, the goals 0.2, the descriptions 11, the per-type loops 12 and the
+  descriptions again 15. In a description, the parts' walks take about six tenths, `effectsFromOthers` three tenths
+  and `hitsFromOthers` a tenth. What is left is spread thin: no function takes more than a twentieth of the whole.
+  Profile with `node --cpu-prof` on a script that runs these steps.
