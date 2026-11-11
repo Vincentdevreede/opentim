@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { choose, type BehaviourReport, type Expression, type Predicate } from "../src/read/behaviour.ts";
+import {
+  allocationAnswer,
+  choose,
+  type BehaviourReport,
+  type Expression,
+  type Predicate,
+} from "../src/read/behaviour.ts";
 import {
   readsSourcePlace,
   keptWithin,
@@ -158,7 +164,7 @@ describe("settling a value for the found part's type", () => {
 describe("values of where the source is", () => {
   const allocation = {
     kind: "field",
-    object: "allocation answer of the call at 0x1a91c",
+    object: allocationAnswer("0x1a91c"),
     offset: 0,
     width: 16,
     unresolved: true,
