@@ -65,7 +65,7 @@ describe("writer", () => {
     expect(expression(field(0x0c, "referenced-by(referenced-by(part+0x54)+0x6)"))).toBe("belt.end2.state");
     expect(expression(field(0x09, "referenced-by(part+0x82)"))).toBe("outline[2].y");
     expect(expression(field(0x00, "referenced-by(part+0x66)"))).toBe("rope.part");
-    expect(expression(field(0x02, "referenced-by(part+0x66)"))).toBe("rope+0x02");
+    expect(expression(field(0x02, "referenced-by(part+0x66)"))).toBe("rope.end0");
     expect(expression(field(0x0c, "overlap candidate at 0x4a70"))).toBe("found.state");
     expect(expression(field(0x62))).toBe("socket1");
     expect(expression(field(0x00, "address of part"))).toBe("this");
@@ -115,8 +115,51 @@ describe("writer", () => {
     const plus = { kind: "binary", operator: "+", left: field(0x0c), right: constant(1), width: 16 } as const;
     expect(expression(plus)).toBe("state + 1");
     expect(expression({ kind: "binary", operator: "&", left: plus, right: constant(3), width: 16 })).toBe(
-      "(state + 1) & 3",
+      "(state + 1) mod 4",
     );
+    expect(expression(binary("&", field(0x12), constant(0x18)))).toBe("stateDelta & 0x18");
+  });
+
+  it("writes a flag word with bits set, cleared or switched by the names of the bits", () => {
+    const flags = writer([...fields, { offset: 0x08, name: "drawingFlags" }, { offset: 0x06, name: "lists" }]);
+    expect(flags.expression(binary("^", field(0x08), constant(0x10)))).toBe("drawingFlags with mirrored switched");
+    expect(flags.expression(binary("|", field(0x08), constant(0x2040)))).toBe(
+      "drawingFlags with ran this step and out of play set",
+    );
+    expect(flags.expression(binary("&", binary("|", field(0x06), constant(1)), constant(0xfff9)))).toBe(
+      "lists with in contact set, then hit a fixed part and hit a moving part cleared",
+    );
+    // A bit without a name keeps the formula.
+    expect(flags.expression(binary("|", field(0x08), constant(0x4000)))).toBe("drawingFlags | 0x4000");
+  });
+
+  it("writes a word compared as a signed number by flipping its top bit as the word compared as it is", () => {
+    const flipped = binary("^", field(0x12), constant(0x8000));
+    expect(expression(binary(">=", flipped, constant(-32766)))).toBe("stateDelta >= 2");
+    expect(expression(binary("<", flipped, constant(0x8005)))).toBe("stateDelta < 5");
+    // Also inside a condition, where the numbers around it read signed.
+    const sum = binary("+", constant(7168), binary("*", binary(">=", flipped, constant(-32766)), constant(-512)));
+    expect(predicate({ ...compare(">=", sum, constant(0)), signed: true } as Predicate)).toBe(
+      "7168 + ((stateDelta >= 2) * -512) >= 0",
+    );
+  });
+
+  it("writes the program's pick of one of two values as the value and when", () => {
+    const all = binary("*", binary("<", field(0x0c), constant(1)), constant(0xffff));
+    const pick = binary(
+      "|",
+      binary("&", binary("*", binary("==", field(0x0c), constant(0)), constant(48)), all),
+      binary("&", field(0x12), binary("^", all, constant(0xffff))),
+    );
+    expect(expression(pick)).toBe("((state == 0) * 48) if state < 1, else stateDelta");
+    // Only a yes or no picks a whole value; any other number mixes the bits of both.
+    const many = binary("*", field(0x0c), constant(0xffff));
+    const mixed = binary(
+      "|",
+      binary("&", field(0x12), many),
+      binary("&", constant(0), binary("^", many, constant(0xffff))),
+    );
+    expect(expression(mixed)).not.toContain(" if ");
   });
 
   it("reads numbers in a condition by what they are: signed values, masks in hex and directions in degrees", () => {
@@ -134,7 +177,7 @@ describe("writer", () => {
     // An unsigned test keeps the number it compares with as it is.
     expect(predicate(compare("<", field(0x12), constant(0xe000)))).toBe("stateDelta < 57344");
     // A mask of a mask is one mask, and the masked value reads in hex like it, or as a number under a small mask.
-    expect(predicate(compare("==", binary("&", field(0x12), constant(7)), constant(4)))).toBe("stateDelta & 0x7 == 4");
+    expect(predicate(compare("==", binary("&", field(0x12), constant(7)), constant(4)))).toBe("stateDelta mod 8 == 4");
     const kind = binary("&", binary("&", field(0x12), constant(0x8018)), constant(0x7fff));
     expect(predicate(compare("==", kind, constant(0x10)))).toBe("stateDelta & 0x18 == 0x10");
     expect(predicate(compare("==", binary("&", field(0x08), constant(16)), constant(0)))).toBe("not mirrored");
@@ -143,7 +186,7 @@ describe("writer", () => {
     );
     // Bits set before a mask that keeps none of them say nothing, and a mask that keeps only those is a number.
     const set = binary("|", field(0x08), constant(0x40));
-    expect(predicate(compare("==", binary("&", set, constant(0x400)), constant(0)))).toBe("part+0x08 & 0x400 == 0");
+    expect(predicate(compare("==", binary("&", set, constant(0x400)), constant(0)))).toBe("not known free this step");
     expect(predicate(compare("!=", binary("&", set, constant(0x40)), constant(0)))).toBe("0x40 != 0");
     // The direction a part was hit from is an angle, a full turn being 0x10000; a masked one stays in bits.
     const angles = writer([...fields, { offset: 0x88, name: "contactAngle" }]);
@@ -153,7 +196,13 @@ describe("writer", () => {
       "collider.contactAngle + 11.25° < 22.5°",
     );
     const side = binary("&", binary("+", angle, constant(0x4000)), constant(0x8000));
-    expect(angles.predicate(compare("==", side, constant(0)))).toBe("(collider.contactAngle + 0x4000) & 0x8000 == 0");
+    expect(angles.predicate(compare("==", side, constant(0)))).toBe("collider.contactAngle from 270° to 90°");
+    const back = binary("&", binary("-", angle, constant(0x4000)), constant(0x8000));
+    expect(angles.predicate(compare("!=", back, constant(0)))).toBe("collider.contactAngle from 270° to 90°");
+    expect(angles.predicate(compare("==", back, constant(0)))).toBe("collider.contactAngle from 90° to 270°");
+    expect(angles.predicate(compare("!=", binary("&", angle, constant(0x8000)), constant(0)))).toBe(
+      "collider.contactAngle from 180° to 360°",
+    );
     // Outside a condition a word reads as the signed number it is.
     expect(expression(constant(0xd000))).toBe("-12288");
   });
@@ -163,7 +212,16 @@ describe("writer", () => {
     const rope = writer(named, new Map(), "rope");
     const asked =
       'pointer loaded from table 0x2fe1+0x66 indexed by {"kind":"binary","operator":"+","left":{"kind":"field","object":"argument","offset":10,"width":16},"right":{"kind":"field","object":"address of part","offset":0,"width":16},"width":16}';
+    // A test of the whole word tests the side and question bits too, so it stays a plain compare.
     expect(rope.predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("ropeKind == 2");
+    expect(rope.predicate(compare("!=", field(0x0c, "argument"), constant(1)))).toBe("ropeKind != 1");
+    const kind = (mask: number) => binary("&", field(0x0c, "argument"), constant(mask));
+    expect(rope.predicate(compare("==", kind(0x8006), constant(4)))).toBe("pull kind 4, not a question");
+    expect(rope.predicate(compare("!=", kind(0x8006), constant(0x8004)))).toBe("not (pull kind 4, a question)");
+    expect(rope.predicate(compare("!=", kind(6), constant(2)))).toBe("pull kind isn't 2");
+    expect(rope.predicate(compare("!=", kind(0x8000), constant(0)))).toBe("a question");
+    // A value with bits the mask clears can't match, which the plain compare shows.
+    expect(rope.predicate(compare("==", kind(6), constant(0x8004)))).not.toContain("pull kind");
     expect(rope.predicate(compare("!=", field(0x0a, "argument"), constant(0)))).toBe("ropeSlot != 0");
     expect(rope.predicate(compare("==", field(0x04, "referenced-by(argument+0x6)"), constant(3)))).toBe(
       "otherEnd.type == 3",
@@ -171,7 +229,7 @@ describe("writer", () => {
     expect(rope.predicate(compare("<=", field(0x12, "argument"), field(0x12, "argument")))).toBe(
       "pullMomentum.high <= pullMomentum.high",
     );
-    expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope+0x0e == 0");
+    expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope.count == 0");
     // Other routines' arguments aren't the rope code's, so they keep the analysis's words.
     expect(writer(named).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument 12 == 2");
   });
@@ -212,7 +270,12 @@ describe("writer", () => {
     const flipped = binary("&", binary("^", field(0x08), constant(0x10)), constant(0x10));
     expect(flags.predicate(compare("==", flipped, constant(0)))).toBe("mirrored");
     // Bits without a name, and more than one bit, keep the analysis's form.
-    expect(flags.predicate(compare("==", bit(0x08, 0x0200), constant(0)))).toBe("drawingFlags & 0x200 == 0");
+    expect(flags.predicate(compare("==", bit(0x08, 0x0200), constant(0)))).toBe("not held this step");
+    expect(flags.predicate(compare("!=", bit(0x06, 0x8000, "collider"), constant(0)))).toBe(
+      "collider placed by the puzzle",
+    );
+    expect(flags.predicate(compare("==", bit(0x0a, 0x08), constant(0)))).toBe("snaps to the grid");
+    expect(flags.predicate(compare("==", bit(0x08, 0x4000), constant(0)))).toBe("drawingFlags & 0x4000 == 0");
     expect(flags.predicate(compare("==", bit(0x08, 0x30), constant(0)))).toBe("drawingFlags & 0x30 == 0");
   });
 
@@ -237,6 +300,47 @@ describe("tidyWords", () => {
     expect(tidyWords("its field 0x70 is 3")).toBe("its field 0x70 is 3");
     expect(tidyWords("stateDelta after the query at 0x1d2d1")).toBe("stateDelta after the query");
     expect(tidyWords("the answer of the call at 0x1d2d1")).toBe("the answer of the call");
+  });
+
+  it("reads masks, flag tests and field offsets in the analysis's sentences in words", () => {
+    // A value kept to a word, and a position rounded down to a tile, also with brackets inside.
+    // A value with a number past a word keeps its mask: it is the low word only.
+    expect(tidyWords("x is ((65536 + positionX) & 0xffff)")).toBe("x is ((65536 + positionX) & 0xffff)");
+    expect(tidyWords("velocityX + (((16 * (80 - |overlapY|)) & 0xffff) >> 1)")).toBe(
+      "velocityX + ((16 * (80 - |overlapY|)) >> 1)",
+    );
+    expect(tidyWords("((the explosion's centre X + 24) & 0xfff0) + 8")).toBe(
+      "(the explosion's centre X + 24 rounded down to 16) + 8",
+    );
+    expect(tidyWords("drawingFlags & 0x0200 is 0")).toBe("not held this step");
+    expect(tidyWords("drawingFlags & 0x4000 is 0")).toBe("drawingFlags & 0x4000 is 0");
+    // What a part sets on a part it makes, and where on its rope a rope end starts.
+    expect(
+      tidyWords("It also sets 0x5a to its 0x5a and 0x26 to its positionX, and changes its 0x06, 0x16, drawX and 0x70."),
+    ).toBe(
+      "It also sets link0 to its link0 and olderX to its positionX, and changes its lists, fineX, drawX and 0x70.",
+    );
+    expect(tidyWords("at positionX = 0x18 of the record of its rope at 0x66")).toBe(
+      "at positionX = the end1X of its rope",
+    );
+    expect(tidyWords("the copy the explosion makes (the allocation at 0x1a91c)")).toBe("the copy the explosion makes");
+    expect(tidyWords("picks the response at 0x3980 over the reflection at 0x3c1c")).toBe(
+      "picks the response over the reflection",
+    );
+    expect(tidyWords("Updates another part's counter at 0x9c.")).toBe("Updates another part's counter (its heat).");
+    expect(tidyWords("Adds 1 to field 0x0e of the record of its rope at 0x66.")).toBe(
+      "Adds 1 to the count of its rope.",
+    );
+    expect(tidyWords("Takes 1 from field 0x0e of the record of the rope it is asked about")).toBe(
+      "Takes 1 from the count of the rope it is asked about",
+    );
+    expect(tidyWords("Sets rope link 0x5c of the part tied to its rope link 0x5a")).toBe(
+      "Sets link1 of the part tied to its link0",
+    );
+    expect(tidyWords("another part's contact side byte at 0x87")).toBe("another part's contact side byte");
+    expect(tidyWords("(((table[0 + (found.type * 58)] ^ 0x8000) >= -32766) * -512)")).toBe(
+      "((table[0 + (found.type * 58)] >= 2) * -512)",
+    );
   });
 });
 
@@ -919,7 +1023,7 @@ describe("summariseDoings", () => {
     expect(doings.map((d) => [d.on, d.description])).toEqual([
       ["created", cannonball],
       ["itself", ran.replace(" 0x0040", "")],
-      ["others", relay],
+      ["others", relay.replace("field 0x14", "relayByte")],
     ]);
   });
 
@@ -977,7 +1081,12 @@ describe("goal marks", () => {
   it("says a goal's test of a mark by the parts that set it, and keeps a bit no part is seen to set", () => {
     expect(goalMarkWords("field 0xa has the bits 0x200", [31], setters)).toBe("marked by Cat or Alligator");
     expect(goalMarkWords("field 0xa hasn't the bits 0x100", [31], setters)).toBe("not marked by Vacuum");
-    expect(goalMarkWords("field 0xa has the bits 0x10", [31], setters)).toBe("field 0xa has the bits 0x10");
+    expect(goalMarkWords("field 0xa has the bits 0x10", [31], setters)).toBe("in a bucket");
+    expect(goalMarkWords("field 0xa has the bits 0x800", [31], setters)).toBe("field 0xa has the bits 0x800");
+    expect(goalMarkWords("part.drawingFlags hasn't the bits 0x2000", [31], setters)).toBe("part in play");
+    expect(goalMarkWords("listFlags has the bits 0x8000", [31], setters)).toBe("placed by the puzzle");
+    expect(goalMarkWords("part.0xa hasn't the bits 0x200", [31], setters)).toBe("part not marked by Cat or Alligator");
+    expect(goalMarkWords("drawingFlags has the bits 0x30", [31], setters)).toBe("drawingFlags has the bits 0x30");
     expect(goalMarkWords("field 0xa has the bits 0x80", [31], setters)).toBe("goal mark set");
   });
 });

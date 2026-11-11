@@ -276,6 +276,13 @@ const PART_FIELDS = new Map([
   [0x00, "nextInList"],
   [0x06, "lists"],
   [0x0a, "marks"],
+  // The byte the relay passes along a part's belt and ropes (`0x65c1`).
+  [0x14, "relayByte"],
+  // The fine position, in 1/512 pixels, as longs.
+  [0x16, "fineX"],
+  [0x18, "fineX.high"],
+  [0x1a, "fineY"],
+  [0x1c, "fineY.high"],
   [0x26, "olderX"],
   [0x28, "olderY"],
   [0x2e, "previousDrawX"],
@@ -303,11 +310,17 @@ const PART_FIELDS = new Map([
   [0x6b, "ropeSlot0Y"],
   [0x6c, "ropeSlot1X"],
   [0x6d, "ropeSlot1Y"],
+  // Where a flame lights a lightable part, from its corner: the candle's wick, the fuse of the dynamite, the cannon and
+  // the rocket. Their reset sets it, and the flame's search (0x448e) looks for it in the flame's box.
+  [0x72, "fuseX"],
+  [0x73, "fuseY"],
   [0x78, "found"],
   [0x7a, "overlapX"],
   [0x7c, "overlapY"],
   [0x7e, "socketNumber"],
   [0x96, "extra"],
+  // A counter some parts keep, which the check against the recordings calls the heat.
+  [0x9c, "heat"],
 ]);
 /** What a field of a part points to: another part, a belt record, the outline points, or a rope record. */
 const LINKS = new Map<number, Kind>([
@@ -350,6 +363,12 @@ export const NAMED_TERMS: { name: string; raw: string; meaning: string }[] = [
   { name: "otherEnd", raw: "[argument+0x06]", meaning: "the part at the other end of the rope" },
   { name: "ropeSlot", raw: "argument+0x0a", meaning: "which of its two rope links the rope is tied to" },
   { name: "ropeKind", raw: "argument+0x0c", meaning: "the kind of pull, with 0x8000 when it only asks" },
+  {
+    name: "pull kind",
+    raw: "ropeKind, argument+0x0c",
+    meaning:
+      "1, 2 or 4 as the rope code works it out (0x7996), with 8 or 16 for the side of the rope; a question has 0x8000 too, when the teeter-totter only asks",
+  },
   { name: "pullMomentum", raw: "argument+0x10", meaning: "the momentum of the part that started the pull" },
   {
     name: "askedRope",
@@ -392,23 +411,52 @@ const MASK_WORDS: Record<string, [string, string]> = {
 };
 
 /**
- * Single bits of a part's flag words whose meaning the program shows, as words for set and clear, by field and bit.
- * The list bits are the ones the list head routine picks the fixed, moving and third list by, and the third list is
- * the parts bin (`docs/levels.md`); 0x40 of the list flags is the level file's tiles bit, which the loader keeps
- * there. The others are the flags `PART_FLAGS` names in `describe-effects.ts`: contact, out of play, ran this step,
- * and the goal marks only goal routines test.
+ * Every bit of a part's three flag words the program uses, as words for set and clear, by field and bit: the list
+ * flags at 0x06, the drawing flags at 0x08 and the marks at 0x0a. What each one does, with the routines that show it in
+ * Even More (English floppy) and TIM 1 (French), is in `docs/behaviour.md` under "Flag bits". The bits not here are
+ * never tested or set on a part: 0x0080 and 0x0100 of the list flags, 0x4000 of the drawing flags, and 0x0800 up of
+ * the marks.
  */
-const FLAG_BITS = new Map<string, [string, string]>([
-  // The level file's mirror bits, which the loader keeps in the drawing flags, for when the layout isn't read.
-  ["8:16", ["mirrored", "not mirrored"]],
-  ["8:32", ["upside down", "not upside down"]],
+export const FLAG_BITS = new Map<string, [string, string]>([
+  // The list flags.
   ["6:1", ["in contact", "not in contact"]],
+  ["6:2", ["hit a fixed part", "didn't hit a fixed part"]],
+  ["6:4", ["hit a moving part", "didn't hit a moving part"]],
+  ["6:8", ["hit handled this step", "hit not handled this step"]],
+  ["6:16", ["made during the run", "not made during the run"]],
+  ["6:32", ["slides with more friction", "slides with normal friction"]],
   ["6:64", ["drawn as tiles", "not drawn as tiles"]],
+  ["6:512", ["can be turned upside down", "can't be turned upside down"]],
+  ["6:1024", ["can be mirrored", "can't be mirrored"]],
   ["6:2048", ["in the parts bin", "not in the parts bin"]],
   ["6:4096", ["on the moving list", "not on the moving list"]],
   ["6:8192", ["on the fixed list", "not on the fixed list"]],
+  ["6:16384", ["fixed kind", "not a fixed kind"]],
+  ["6:32768", ["placed by the puzzle", "not placed by the puzzle"]],
+  // The drawing flags; the level file's mirror bits are kept here, for when the layout isn't read.
+  ["8:1", ["takes a belt", "takes no belt"]],
+  ["8:2", ["has a belt on", "has no belt on"]],
+  ["8:4", ["takes a rope", "takes no rope"]],
+  ["8:8", ["takes a rope at either end", "takes a rope at one place"]],
+  ["8:16", ["mirrored", "not mirrored"]],
+  ["8:32", ["upside down", "not upside down"]],
   ["8:64", ["ran this step", "not run this step"]],
+  ["8:128", ["can be stretched sideways", "can't be stretched sideways"]],
+  ["8:256", ["can be stretched up and down", "can't be stretched up and down"]],
+  ["8:512", ["held this step", "not held this step"]],
+  ["8:1024", ["known free this step", "not known free this step"]],
+  ["8:2048", ["turns by itself", "doesn't turn by itself"]],
+  ["8:4096", ["drawn from pieces", "not drawn from pieces"]],
   ["8:8192", ["out of play", "in play"]],
+  ["8:32768", ["touches like a fixed part", "touches like a moving part"]],
+  // The marks.
+  ["10:1", ["has a plug", "has no plug"]],
+  ["10:2", ["has sockets", "has no sockets"]],
+  ["10:4", ["lightable", "not lightable"]],
+  ["10:8", ["placed freely", "snaps to the grid"]],
+  ["10:16", ["in a bucket", "not in a bucket"]],
+  ["10:32", ["in the drawing layers", "not in the drawing layers"]],
+  ["10:64", ["locked in the editor", "not locked in the editor"]],
   ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask): [string, [string, string]] => [
     `10:${mask}`,
     ["goal mark set", "goal mark clear"],
@@ -447,19 +495,148 @@ export function recordName(offset: number, fields: readonly WriterField[] = []):
 const NAMED_FLAG = /\b(contact flag|out-of-play flag|ran-this-step mark|goal mark) 0x[0-9a-f]{4}\b/g;
 
 /**
- * A sentence of the analysis as the lab shows it: a flag it names without its bit, and a field it calls by its offset,
- * like "field 0x28", by the name the lab gives that field.
+ * The fields of a rope record by offset: the parts at its two ends (the one in slot 0 holds the record), their rope
+ * slot numbers, and the two ends' points, as the rope code reads them (`0x7996`).
+ */
+const ROPE_FIELDS = new Map([
+  [0x02, "end0"],
+  [0x04, "end1"],
+  [0x0a, "end0Slot"],
+  [0x0b, "end1Slot"],
+  // A counter: rope callbacks add 1 to it for pull kind 1, and the teeter-totter adds or takes 1.
+  [0x0e, "count"],
+  [0x14, "end0X"],
+  [0x16, "end0Y"],
+  [0x18, "end1X"],
+  [0x1a, "end1Y"],
+]);
+
+/** The flag words a sentence names, by the name it gives them. */
+const FLAG_WORD_NAMES: Record<string, number> = { lists: 0x06, listFlags: 0x06, drawingFlags: 0x08, marks: 0x0a };
+
+/**
+ * The bracketed group that ends a value masked as `(group & mask)`, rewritten by `rewrite`, for every such mask in the
+ * text: `((16 * x) & 0xffff) >> 1` with the mask left out reads `(16 * x) >> 1`. The group can hold brackets of its own.
+ */
+function rewriteMasked(text: string, mask: string, rewrite: (group: string) => string): string {
+  const tail = ` & ${mask})`;
+  for (let at = text.indexOf(tail); at >= 0; at = text.indexOf(tail, at + 1)) {
+    let depth = 0;
+    let open = -1;
+    for (let k = at - 1; k >= 0; k--) {
+      if (text[k] === ")") depth++;
+      else if (text[k] === "(") {
+        if (depth === 0) {
+          open = k;
+          break;
+        }
+        depth--;
+      }
+    }
+    if (open < 0) continue;
+    const group = text.slice(open + 1, at);
+    const out = rewrite(group);
+    text = text.slice(0, open) + out + text.slice(at + tail.length);
+    // On after the rewritten value, which may keep its mask.
+    at = open + out.length - 1;
+  }
+  return text;
+}
+
+/**
+ * A word compared as a signed number by flipping its top bit, `(x ^ 0x8000) >= -32766`, as the word compared as it is,
+ * `x >= 2`, for every such compare in the text. The word can hold brackets of its own.
+ */
+function unflipCompares(text: string): string {
+  const flip = / \^ 0x8000\) (>=|>|<=|<|==|!=) (-?\d+)/g;
+  for (let m = flip.exec(text); m; m = flip.exec(text)) {
+    let depth = 0;
+    let open = -1;
+    for (let k = m.index - 1; k >= 0; k--) {
+      if (text[k] === ")") depth++;
+      else if (text[k] === "(") {
+        if (depth === 0) {
+          open = k;
+          break;
+        }
+        depth--;
+      }
+    }
+    if (open < 0) continue;
+    const value = (Number(m[2]) & 0xffff) ^ 0x8000;
+    const out = `${text.slice(open + 1, m.index)} ${m[1]} ${value}`;
+    text = text.slice(0, open) + out + text.slice(m.index + m[0].length);
+    flip.lastIndex = open + out.length;
+  }
+  return text;
+}
+
+/** A group without the brackets around all of it, `(a + b)` as `a + b`. */
+function unbracket(group: string): string {
+  if (!group.startsWith("(") || !group.endsWith(")")) return group;
+  let depth = 0;
+  for (let k = 0; k < group.length; k++) {
+    if (group[k] === "(") depth++;
+    else if (group[k] === ")") depth--;
+    if (depth === 0 && k < group.length - 1) return group;
+  }
+  return group.slice(1, -1);
+}
+
+/**
+ * A sentence of the analysis as the lab shows it: a flag it names without its bit, a test of one flag bit by its name,
+ * a value kept to a word without the mask, a position rounded down to a tile, and a field it calls by its offset, like
+ * "field 0x28" or "its 0x26", by the name the lab gives that field.
  */
 export function tidyWords<T extends string | undefined>(text: T): T {
   if (text === undefined) return text;
-  return text
-    .replace(NAMED_FLAG, "$1")
-    .replace(/\(([^()]*)\) & 0xfff0\b/g, "$1 rounded down to 16")
-    .replace(/ (of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " $1 the $2")
-    .replace(
-      /\bfield (0x[0-9a-f]{1,2})\b/g,
-      (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all,
-    ) as T;
+  let out: string = text;
+  // The mask of a word says nothing about a sum of words, which wraps the same way; one with a number past a word keeps it.
+  const pastAWord = (group: string) =>
+    [...group.matchAll(/\b(?:0x[0-9a-f]+|\d+)\b/g)].some(([n]) => Number(n) > 0xffff);
+  out = unflipCompares(rewriteMasked(out, "0xffff", (group) => (pastAWord(group) ? `(${group} & 0xffff)` : group)));
+  out = rewriteMasked(out, "0xfff0", (group) => `(${unbracket(group)} rounded down to 16)`);
+  return (
+    out
+      .replace(NAMED_FLAG, "$1")
+      .replace(/\(([^()]*)\) & 0xfff0\b/g, "$1 rounded down to 16")
+      .replace(/\b(\w+) & (0x[0-9a-f]+) is (not )?0\b/g, (all, name: string, mask: string, not?: string) => {
+        const offset = FLAG_WORD_NAMES[name];
+        const words = offset === undefined ? undefined : FLAG_BITS.get(`${offset}:${parseInt(mask, 16)}`);
+        return words ? words[not ? 0 : 1] : all;
+      })
+      .replace(/ (of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " $1 the $2")
+      .replace(/ \(the allocation at 0x[0-9a-f]+\)/g, "")
+      // An address in the program says nothing in a sentence; the instructions in the tip have it.
+      .replace(/ at 0x[0-9a-f]{4,5}\b/g, "")
+      .replace(/\bcounter at (0x[0-9a-f]{2})\b/g, (all, offset: string) => {
+        const name = PART_FIELDS.get(parseInt(offset, 16));
+        return name ? `counter (its ${name})` : all;
+      })
+      .replace(/\bMovement 0x8000\b/g, "Movement -32768")
+      .replace(
+        /\b(?:field )?(0x[0-9a-f]{2}) of the record of (its rope at 0x66|the rope it is asked about)/g,
+        (all, offset: string, rope: string) => {
+          const name = ROPE_FIELDS.get(parseInt(offset, 16));
+          return name ? `the ${name} of ${rope === "its rope at 0x66" ? "its rope" : rope}` : all;
+        },
+      )
+      .replace(/\bits rope link at 0x66 or 0x68\b/g, "its first or second rope link")
+      .replace(/\brope link (0x[0-9a-f]{2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
+      .replace(/\b(byte|flags) at 0x[0-9a-f]{2}\b/g, "$1")
+      .replace(/\bpart\.(0x[0-9a-f]{1,2})\b/g, (all, offset: string) => {
+        const name = PART_FIELDS.get(parseInt(offset, 16));
+        return name ? `part.${name}` : all;
+      })
+      .replace(/\bfield (0x[0-9a-f]{1,2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
+      .replace(
+        /\b(its|sets|changes|and|,) (0x[0-9a-f]{2})\b(?! of the record)/g,
+        (all, before: string, offset: string) => {
+          const name = PART_FIELDS.get(parseInt(offset, 16));
+          return name ? `${before} ${name}` : all;
+        },
+      ) as T
+  );
 }
 
 /**
@@ -481,19 +658,39 @@ export function goalMarkSetters(effects: Record<number, OtherEffect[]>): Map<str
   return out;
 }
 
+/** The flag words a goal's test names, by the name it gives them. */
+const GOAL_FLAG_WORDS: Record<string, number> = {
+  "field 0xa": 0x0a,
+  "0xa": 0x0a,
+  marks: 0x0a,
+  "0x6": 0x06,
+  listFlags: 0x06,
+  "0x8": 0x08,
+  drawingFlags: 0x08,
+};
+
 /**
- * A goal's test of the goal marks in words, like "field 0xa has the bits 0x100" as "marked by Vacuum", for parts of
- * the types given; a test of bits no part is seen to set stays as it is.
+ * A goal's test of one flag bit in words, for parts of the types given: a goal mark by the parts that set it, like
+ * "field 0xa has the bits 0x100" as "marked by Vacuum", and any other bit by its name, like "part.drawingFlags hasn't
+ * the bits 0x2000" as "part in play". A test of more than one bit, or of a bit without a name, stays as it is.
  */
 export function goalMarkWords(text: string, types: readonly number[], setters: ReadonlyMap<string, string[]>): string {
-  return text.replace(/\bfield 0xa (has|hasn't) the bits (0x[0-9a-f]+)\b/g, (all, has: string, bits: string) => {
-    const bit = parseInt(bits, 16);
-    const by = [...new Set(types.flatMap((t) => setters.get(`${t}:${bit}`) ?? []))];
-    if (by.length) return `${has === "has" ? "" : "not "}marked by ${by.join(" or ")}`;
-    // A goal mark no part is seen to set, or not yet: the walks that say who sets it come last.
-    const mark = FLAG_BITS.get(`10:${bit}`);
-    return mark ? mark[has === "has" ? 0 : 1] : all;
-  });
+  return text.replace(
+    /\b(field 0xa|(?:part\.)?(?:listFlags|drawingFlags|marks|0x6|0x8|0xa)) (has|hasn't) the bits (0x[0-9a-f]+)\b/g,
+    (all, place: string, has: string, bits: string) => {
+      const bit = parseInt(bits, 16);
+      const offset = GOAL_FLAG_WORDS[place.replace(/^part\./, "")];
+      if (offset === undefined || !bit || bit & (bit - 1)) return all;
+      const whose = place.startsWith("part.") ? "part " : "";
+      if (offset === 0x0a) {
+        const by = [...new Set(types.flatMap((t) => setters.get(`${t}:${bit}`) ?? []))];
+        if (by.length) return `${whose}${has === "has" ? "" : "not "}marked by ${by.join(" or ")}`;
+      }
+      // A goal mark no part is seen to set, or not yet: the walks that say who sets it come last.
+      const words = FLAG_BITS.get(`${offset}:${bit}`);
+      return words ? `${whose}${words[has === "has" ? 0 : 1]}` : all;
+    },
+  );
 }
 
 /** Writes expressions and conditions as text, with the names of the part's fields. */
@@ -585,6 +782,7 @@ export function writer(
     }
     if (kind === "belt" && (offset === 4 || offset === 6)) return `${name}.end${offset === 4 ? 1 : 2}`;
     if (kind === "rope" && offset === 0) return `${name}.part`;
+    if (kind === "rope" && ROPE_FIELDS.has(offset)) return `${name}.${ROPE_FIELDS.get(offset)}`;
     if (kind === "outline") return `${name}[${offset >> 2}].${["x", "y", "edge", "edge"][offset & 3]}`;
     if (name === "this" && offset === 0) return "this";
     return raw;
@@ -632,6 +830,86 @@ export function writer(
       (e.operator === "+" || e.operator === "-") &&
       isAngle(e.left) &&
       e.right.kind === "constant");
+  /**
+   * A flag word of a part with bits set, cleared or switched, like `drawingFlags ^ 0x10`, in words: "drawingFlags with
+   * mirrored switched". Undefined when it is something else or a bit has no name.
+   */
+  const flagChange = (e: Expression): string | undefined => {
+    const steps: string[] = [];
+    let at = e;
+    while (at.kind === "binary" && ["&", "|", "^"].includes(at.operator) && at.right.kind === "constant") {
+      const value = at.right.value & 0xffff;
+      const bits = at.operator === "&" ? ~value & 0xffff : value;
+      if (!bits) return undefined;
+      const names: string[] = [];
+      for (let bit = 1; bit <= 0x8000; bit <<= 1) if (bits & bit) names.push(`${bit}`);
+      steps.unshift(`${at.operator}:${names.join(",")}`);
+      at = at.left;
+    }
+    if (!steps.length || at.kind !== "field" || ![0x06, 0x08, 0x0a].includes(at.offset)) return undefined;
+    if (object(at.object).kind !== "part") return undefined;
+    const field = at;
+    const said: string[] = [];
+    for (const step of steps) {
+      const [operator, list] = step.split(":") as [string, string];
+      const names = list.split(",").map((bit) => bitWordsOf(fields, field.offset, Number(bit))?.[0]);
+      if (names.some((n) => n === undefined)) return undefined;
+      const verb = operator === "|" ? "set" : operator === "&" ? "cleared" : "switched";
+      said.push(`${names.join(" and ")} ${verb}`);
+    }
+    return `${place(field.object, field.offset)} with ${said.join(", then ")}`;
+  };
+  /**
+   * The program's way to pick one of two values without a jump, `(a & (c * -1)) | (b & ((c * -1) ^ 0xffff))`: a when c
+   * holds, else b. Undefined for anything else.
+   */
+  const pickOfTwo = (e: Extract<Expression, { kind: "binary" }>) => {
+    if (e.operator !== "|" || e.left.kind !== "binary" || e.right.kind !== "binary") return undefined;
+    if (e.left.operator !== "&" || e.right.operator !== "&") return undefined;
+    const same = (a: Expression, b: Expression) => JSON.stringify(a) === JSON.stringify(b);
+    /** `c * -1` (all bits when c holds), as c. */
+    const all = (m: Expression) =>
+      m.kind === "binary" &&
+      m.operator === "*" &&
+      m.right.kind === "constant" &&
+      [-1, 0xffff, 0xffffffff].includes(m.right.value)
+        ? m.left
+        : undefined;
+    const sides = [
+      [e.left, e.right],
+      [e.right, e.left],
+    ] as const;
+    for (const [one, other] of sides)
+      for (const [value, mask] of [
+        [one.left, one.right],
+        [one.right, one.left],
+      ] as const) {
+        const condition = all(mask);
+        // Only a yes or no picks one whole value: a compare, or a single low bit.
+        if (!condition || !isYesOrNo(condition)) continue;
+        for (const [rest, notMask] of [
+          [other.left, other.right],
+          [other.right, other.left],
+        ] as const)
+          if (
+            notMask.kind === "binary" &&
+            notMask.operator === "^" &&
+            notMask.right.kind === "constant" &&
+            (notMask.right.value & 0xffff) === 0xffff &&
+            same(notMask.left, mask)
+          )
+            return { condition, value, rest };
+      }
+    return undefined;
+  };
+  /** Whether a value is 0 or 1 only: a compare, a single low bit, or the constant 0 or 1. */
+  const isYesOrNo = (c: Expression): boolean =>
+    (c.kind === "constant" && (c.value === 0 || c.value === 1)) ||
+    (c.kind === "binary" &&
+      (/^[su]?(?:==|!=|<=?|>=?)$/.test(c.operator) ||
+        (c.operator === "&" && c.right.kind === "constant" && c.right.value === 1)));
+  /** A mask that keeps the low bits, 3, 7, 15 and so on up to 255, as what it is: the rest after dividing. */
+  const remainderOf = (mask: number) => (mask >= 3 && mask <= 0xff && (mask & (mask + 1)) === 0 ? mask + 1 : 0);
   const expression = (e: Expression, nested = false, style: Numbers = "words"): string => {
     // One of two values a test picks, written as the two values and the test.
     const choice = choiceOf(e);
@@ -645,6 +923,19 @@ export function writer(
       case "field":
         return place(e.object, e.offset);
       case "binary": {
+        // A word compared as a signed number by flipping its top bit, `(x ^ 0x8000) >= -32766`, is the word compared
+        // as it is: x >= 2.
+        if (
+          ["<", "<=", ">", ">=", "==", "!="].includes(e.operator) &&
+          e.right.kind === "constant" &&
+          e.left.kind === "binary" &&
+          e.left.operator === "^" &&
+          e.left.right.kind === "constant" &&
+          (e.left.right.value & 0xffff) === 0x8000
+        ) {
+          const text = `${expression(e.left.left, true)} ${e.operator} ${(e.right.value & 0xffff) ^ 0x8000}`;
+          return nested ? `(${text})` : text;
+        }
         if (style === "words") {
           // A word taken as signed, `(x ^ 0x8000) - 0x8000`, and a value kept to a word, `x & 0xffff`, read as the
           // value: the numbers are signed words already.
@@ -673,6 +964,18 @@ export function writer(
           // Rounding down to a multiple of 16, the size of a tile, like the explosion's reach.
           if (e.operator === "&" && e.right.kind === "constant" && e.right.value >>> 0 === 0xfff0)
             return `(${expression(e.left, false, style)} rounded down to 16)`;
+          const changed = flagChange(e);
+          if (changed) return nested ? `(${changed})` : changed;
+          const picked = pickOfTwo(e);
+          if (picked) {
+            const text = `${expression(picked.value, true, style)} if ${expression(picked.condition, false, style)}, else ${expression(picked.rest, true, style)}`;
+            return nested ? `(${text})` : text;
+          }
+          const divisor = e.operator === "&" && e.right.kind === "constant" ? remainderOf(e.right.value >>> 0) : 0;
+          if (divisor) {
+            const text = `${expression(e.left, true)} mod ${divisor}`;
+            return nested ? `(${text})` : text;
+          }
           const right =
             ["&", "|", "^"].includes(e.operator) && e.right.kind === "constant"
               ? e.right.value >>> 0 < 10
@@ -690,10 +993,22 @@ export function writer(
         const shift = ["<<", ">>", ">>>"].includes(masked.operator);
         const inner: Numbers = bitwise ? "bits" : style;
         const left = expression(masked.left, true, inner);
+        // Low bits of a number that isn't a flag word, like `state & 3`, as the rest after dividing: "state mod 4".
+        const flagWord = masked.left.kind === "field" && [0x06, 0x08, 0x0a].includes(masked.left.offset);
+        const divisor =
+          masked.operator === "&" && masked.right.kind === "constant" && !flagWord
+            ? remainderOf(masked.right.value >>> 0)
+            : 0;
+        if (divisor) {
+          const text = `${left} mod ${divisor}`;
+          return nested ? `(${text})` : text;
+        }
         let operator = masked.operator;
         let right =
           bitwise && masked.right.kind === "constant"
-            ? hex(masked.right.value >>> 0)
+            ? masked.right.value >>> 0 < 10
+              ? String(masked.right.value >>> 0)
+              : hex(masked.right.value >>> 0)
             : expression(masked.right, true, shift ? "unsigned" : inner);
         if ((operator === "+" || operator === "-") && /^-\d/.test(right)) {
           operator = operator === "+" ? "-" : "+";
@@ -739,6 +1054,59 @@ export function writer(
     const whose = object(flags.object).name;
     return `${whose ? `${whose} ` : ""}${words[set ? 0 : 1]}`;
   };
+  /**
+   * A test of the kind of pull a rope callback is asked about, in words: `ropeKind & 0x8006 == 4` as "pull kind 4, not
+   * a question". The rope code (0x7996) gives kind 1, 2 or 4, with 8 or 16 for the side of the rope, and the teeter-
+   * totter adds 0x8000 when it only asks (0x1d2a5).
+   */
+  const ropeTest = (p: Extract<Predicate, { kind: "compare" }>): string | undefined => {
+    if (routine !== "rope" || (p.operator !== "==" && p.operator !== "!=")) return undefined;
+    const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
+    if (against.kind !== "constant") return undefined;
+    const folded = tested.kind === "binary" ? foldMask(tested) : tested;
+    // A test of the whole word also tests the side bits, which the plain compare says best.
+    if (folded.kind !== "binary" || folded.operator !== "&" || folded.right.kind !== "constant") return undefined;
+    const [field, mask] = [folded.left, folded.right.value & 0xffff];
+    if (field.kind !== "field" || field.object !== "argument" || field.offset !== 0x0c) return undefined;
+    // A value with bits outside the mask can't be equal; the plain compare shows that.
+    if ((against.value & 0xffff & ~mask) !== 0) return undefined;
+    const value = against.value & 0xffff;
+    const kind = value & 0x7fff;
+    const asks = (yes: boolean) => (yes ? "a question" : "not a question");
+    if (!(mask & 0x8000)) return `pull kind ${p.operator === "==" ? "" : "isn't "}${kind}`;
+    if (!(mask & 0x7fff)) return asks(!!(value & 0x8000) === (p.operator === "=="));
+    const words = `pull kind ${kind}, ${asks(!!(value & 0x8000))}`;
+    return p.operator === "==" ? words : `not (${words})`;
+  };
+  /**
+   * A test of the top bit of a direction, `(contactAngle - 16384) & 0x8000 != 0`, as the half of the turn it is in:
+   * "contactAngle from 270° to 90°". The top bit is set from 180° on, so a turn added moves that half.
+   */
+  const halfTurn = (p: Extract<Predicate, { kind: "compare" }>): string | undefined => {
+    if (p.operator !== "==" && p.operator !== "!=") return undefined;
+    const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
+    if (against.kind !== "constant" || tested.kind !== "binary" || tested.operator !== "&") return undefined;
+    if (tested.right.kind !== "constant" || (tested.right.value & 0xffff) !== 0x8000) return undefined;
+    const value = against.value & 0xffff;
+    if (value !== 0 && value !== 0x8000) return undefined;
+    let angle = tested.left;
+    let turn = 0;
+    if (
+      angle.kind === "binary" &&
+      (angle.operator === "+" || angle.operator === "-") &&
+      angle.right.kind === "constant"
+    ) {
+      turn = angle.operator === "+" ? angle.right.value : -angle.right.value;
+      angle = angle.left;
+    }
+    if (!isAngle(angle) || angle.kind !== "field") return undefined;
+    const set = (p.operator === "!=") === (value === 0);
+    // The top bit of the angle plus the turn is set for angles from 0x8000 - turn up to 0x10000 - turn.
+    const degrees = (n: number) => Number(((((n % 0x10000) + 0x10000) % 0x10000) * 360) / 0x10000).toFixed(2);
+    const [from, to] = set ? [0x8000 - turn, 0x10000 - turn] : [-turn, 0x8000 - turn];
+    const end = Number(degrees(to)) || 360;
+    return `${place(angle.object, angle.offset)} from ${Number(degrees(from))}° to ${end}°`;
+  };
   const predicate = (p: Predicate): string => {
     switch (p.kind) {
       case "true":
@@ -746,6 +1114,10 @@ export function writer(
       case "compare": {
         const bit = bitTest(p);
         if (bit) return bit;
+        const half = halfTurn(p);
+        if (half) return half;
+        const rope = ropeTest(p);
+        if (rope) return rope;
         // A frame, a speed, a position or a control value as a signed number, a direction in degrees, and a value of
         // masked bits in hex like the mask.
         const masked = (e: Expression) => e.kind === "binary" && ["&", "|", "^"].includes(e.operator);
@@ -880,14 +1252,14 @@ function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummar
     peerField: part.gearRun.propagationRelation.expansion.peer.connectionField,
     drivers: [...drivers.values()],
     text: {
-      activation: gear.activation,
-      connections: gear.connections,
-      conflict: gear.conflict,
-      withoutConflict: gear.withoutConflict,
-      withConflict: gear.withConflict,
-      cycles: gear.cycles,
+      activation: tidyWords(gear.activation),
+      connections: tidyWords(gear.connections),
+      conflict: tidyWords(gear.conflict),
+      withoutConflict: tidyWords(gear.withoutConflict),
+      withConflict: tidyWords(gear.withConflict),
+      cycles: tidyWords(gear.cycles),
       scheduling: gear.scheduling.map((s) => tidyWords(s.description)),
-      limits: gear.limits,
+      limits: gear.limits.map((l) => tidyWords(l)),
     },
   };
 }
@@ -1255,13 +1627,17 @@ function settingOf(
   const added = /^(adds|subtracts) (.+) (?:to|from) (?:field 0x[0-9a-f]+|\w+)(, kept within its speed limit)?$/.exec(
     s.words,
   );
-  if (added) return { what: field, value: `${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}` };
+  if (added)
+    return {
+      what: field,
+      value: tidyWords(`${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}`),
+    };
   if (/^keeps (?:field 0x[0-9a-f]+|\w+) within its speed limit$/.test(s.words))
     return { what: field, value: "kept within its speed limit" };
   if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
   if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
   const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
-  return { what: field, value: to ? to[1]! : write.expression(s.value) };
+  return { what: field, value: to ? tidyWords(to[1]!) : write.expression(s.value) };
 }
 
 /** Both words of the fine position that one value sets, as one: "fine Y" rather than its low and high word. */

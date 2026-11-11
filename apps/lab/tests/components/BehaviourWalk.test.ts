@@ -93,10 +93,9 @@ it("reads a rope walk's condition by the names of what the rope code passes, wit
     createSSRApp({ render: () => h(BehaviourWalk, { row: group!.rows[0]!, frames: [0, 1, 2] }) }),
   );
   const line = visibleText(html);
-  // The server writes `&` as an entity, which the page shows as `&`.
-  expect(line).toContain("ropeKind &amp; 0x7 == 4 and askedRope+0x0e == 0 and velocityX != -12288");
+  expect(line).toContain("pull kind 4 and askedRope.count == 0 and velocityX != -12288");
   expect(line).not.toContain("argument");
   expect(line).not.toContain("table");
-  expect(html).toContain("ropeKind is argument+0x0c: the kind of pull, with 0x8000 when it only asks.");
+  expect(html).toContain("pull kind is ropeKind, argument+0x0c: 1, 2 or 4 as the rope code works it out (0x7996)");
   expect(html).toContain("askedRope is [table …+0x66[…]]");
 });

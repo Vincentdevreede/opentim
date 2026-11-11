@@ -42,3 +42,33 @@ it("says a goal mark by the parts that set it, and the goal's own word as its co
   expect(page).toContain("its count from the step before + 1");
   expect(page).not.toContain("0x");
 });
+
+it("says other flag tests by their names, and writes the goal routine in the same words", async () => {
+  const g = goal(["drawingFlags hasn't the bits 0x2000"], [{ word: "word 0x5068", becomes: ["0"] }]);
+  (g as { lines: string[] }).lines = [
+    "for each part on the moving list:",
+    "  if part.listFlags has the bits 0x8000:",
+    "    if part.0xa hasn't the bits 0x200:",
+    "      word 0x5068 += 1",
+    "  if ax ≠ part.0x26:",
+    "  if word 0x506c = 4:",
+  ];
+  const page = await text(g, { markSetters: new Map([["31:512", ["cat"]]]) });
+  expect(page).toContain("in play");
+  expect(page).toContain("if part placed by the puzzle:");
+  expect(page).toContain("if part not marked by cat:");
+  expect(page).toContain("its word 1 += 1");
+  expect(page).toContain("if its word 2 = 4:");
+  expect(page).toContain("if ax ≠ part.olderX:");
+  expect(page).not.toContain("0x");
+});
+
+it("calls a word the routine reads with an index its table, apart from its single words", async () => {
+  const g = goal([], [{ word: "word 0x506c", becomes: ["0"] }]);
+  (g as { lines: string[] }).lines = ["        word 0x5068[bx] = 1", "  if word 0x5068[bx] = 0:", "  word 0x506c += 1"];
+  const page = await text(g);
+  expect(page).toContain("its table[bx] = 1");
+  expect(page).toContain("if its table[bx] = 0:");
+  expect(page).toContain("its count += 1");
+  expect(page).not.toContain("0x");
+});
