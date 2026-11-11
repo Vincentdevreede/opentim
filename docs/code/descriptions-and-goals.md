@@ -74,7 +74,12 @@ The Lab rewrites these sentences further (words instead of hex): see [lab.md](la
 ### Caches
 
 `describe-behaviour.ts` keeps WeakMaps keyed by report objects (`textOf`, `choices`, `stepFindings`, `splitRulesOf`,
-…), so they live for one read. `countdownValues` is a plain module-level Map keyed by `type:offset`.
+…), so they live for one read. `countdownValues` is a plain module-level Map keyed by `type:offset`. `hitsFromOthers`
+remembers, within one pass, whether a part's rules can tell the limits of a range apart (`rulesIgnore`); that answer
+is worked out for every speed in the range, so it was most of the description's time before.
+
+A cache must not outlive one description: `readLoopsPerType` changes the report between the Lab's two descriptions.
+Expressions and tests are never changed once made, so caching by their text (`textOf`) is safe.
 
 ## Goals of the puzzles
 
