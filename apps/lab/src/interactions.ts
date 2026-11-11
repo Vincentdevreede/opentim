@@ -56,9 +56,12 @@ export function kindOf(set: OtherEffect["sets"][number]): InteractionKind {
   return "change";
 }
 
-/** The part type a "Creates …" sentence names, like "Creates a cannonball (type 43, …)". */
+/**
+ * The part type a "Creates …" sentence names, like "Creates a cannonball (type 43, …)", or "Creates a part of type 43"
+ * for a type without a name.
+ */
 const madeType = (d: Doing) => {
-  const m = /^Creates an? .+? \(type (\d+)/.exec(d.description);
+  const m = /^Creates (?:an? .+? \(type |a part of type )(\d+)/.exec(d.description);
   return m ? Number(m[1]) : undefined;
 };
 

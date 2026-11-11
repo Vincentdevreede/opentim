@@ -3,6 +3,8 @@ import { detailOf, timeLeft } from "../src/read-progress.ts";
 
 it("says what each step of the read is at", () => {
   expect(detailOf(0, 23, 66)).toBe("type 23 of 66");
+  // Before the first type, while the program is unpacked.
+  expect(detailOf(0, 0, 1)).toBe("starting");
   expect(detailOf(1, 1, 1)).toBe("");
   // The walks count one start, a pass over the 63 sources of hits, then the 63 parts.
   expect(detailOf(2, 1, 127)).toBe("starting");

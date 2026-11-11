@@ -36,3 +36,8 @@ it("joins the rows of one source on one target into a pair, with how it reaches 
   expect(pairs.find((p) => p.source === 24)).toMatchObject({ kinds: ["push"], how: "reach" });
   expect(pairs.find((p) => p.source === 18)).toMatchObject({ target: 43, kinds: ["make"], how: "reach" });
 });
+
+it("keeps a part made of a type without a name", () => {
+  const pairs = interactionPairs({}, { 18: [made("Creates a part of type 70, which starts on frame 0, at …")] });
+  expect(pairs.find((p) => p.source === 18)).toMatchObject({ target: 70, kinds: ["make"] });
+});
