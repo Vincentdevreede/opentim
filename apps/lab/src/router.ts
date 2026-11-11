@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { isPageLoadError, pageLoadFailed } from "./page-load.ts";
 import ImportPage from "./pages/ImportPage.vue";
 
 /**
@@ -18,4 +19,12 @@ export const router = createRouter({
     // Any other address, like a page from another branch, gets an empty state instead of an empty page.
     { path: "/:missing(.*)*", component: () => import("./pages/MissingPage.vue") },
   ],
+});
+
+// A page whose code didn't load stays where it was; the app says why and offers a reload. Opening a page clears it.
+router.onError((error, to) => {
+  if (isPageLoadError(error)) pageLoadFailed.value = to.fullPath;
+});
+router.afterEach(() => {
+  pageLoadFailed.value = undefined;
 });

@@ -26,6 +26,9 @@ import {
 import { crumb, dragging } from "./ui.ts";
 import LabDot from "./components/LabDot.vue";
 import LabEmpty from "./components/LabEmpty.vue";
+import LabAlert from "./components/LabAlert.vue";
+import LabButton from "./components/LabButton.vue";
+import { pageLoadFailed } from "./page-load.ts";
 
 interface NavItem {
   to: string;
@@ -80,6 +83,10 @@ const router = useRouter();
 const showKeys = ref(false);
 const hasFiles = computed(() => resources.value.length > 0);
 const route = useRoute();
+/** Loads the Lab again at a page, for when that page's code is from a newer version. */
+const reloadAt = (path: string) => location.assign(path);
+/** Opens the page again; when its code still doesn't load, the router's error handler keeps the message up. */
+const tryAgain = (path: string) => router.push(path).catch(() => undefined);
 /**
  * The menu item of the page that is open, which says whether the page needs files. It is looked up by the
  * matched route record, so `/sprites/` or `/Sprites` still finds the Sprites item.
@@ -212,7 +219,19 @@ const activeClass =
           :text="`Import the game’s RESOURCE files to ${page.forWhat}.`"
           import-link
         />
-        <RouterView v-else />
+        <template v-else>
+          <LabAlert v-if="pageLoadFailed" class="m-3" title="This page couldn’t load.">
+            <p>
+              A newer version of the Lab is online, and this tab still has the old one. Reload to open the page: files
+              the Lab keeps load again by themselves, and the behaviour is read again.
+            </p>
+            <div class="mt-1 flex items-center gap-2">
+              <LabButton variant="primary" @click="reloadAt(pageLoadFailed)">Reload</LabButton>
+              <LabButton variant="ghost" @click="tryAgain(pageLoadFailed)">Try again</LabButton>
+            </div>
+          </LabAlert>
+          <RouterView />
+        </template>
       </main>
     </div>
 
