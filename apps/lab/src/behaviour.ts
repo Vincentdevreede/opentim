@@ -413,7 +413,7 @@ const MASK_WORDS: Record<string, [string, string]> = {
 /**
  * Every bit of a part's three flag words the program uses, as words for set and clear, by field and bit: the list
  * flags at 0x06, the drawing flags at 0x08 and the marks at 0x0a. What each one does, with the routines that show it in
- * Even More (English floppy) and TIM 1 (French), is in `docs/research/behaviour.md` under "Flag bits". The bits not here are
+ * Even More (English floppy) and TIM 1 (French), is in `docs/research/behaviour/in-the-lab.md` under "Flag bits". The bits not here are
  * never tested or set on a part: 0x0080 and 0x0100 of the list flags, 0x4000 of the drawing flags, and 0x0800 up of
  * the marks.
  */

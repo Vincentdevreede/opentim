@@ -1,7 +1,7 @@
 # Docs
 
 Start with [the code map](code/overview.md) when you need to find your way in the code, and with
-[the behaviour research](research/behaviour.md) when you need to know what the game does.
+[the behaviour research](research/behaviour/README.md) when you need to know what the game does.
 
 ## code/: how the code is put together
 
@@ -17,8 +17,10 @@ Start with [the code map](code/overview.md) when you need to find your way in th
 
 ## research/: what we found out about the game
 
-- [behaviour.md](research/behaviour.md): everything the static behaviour analysis reads from TIM.EXE, part by part and
-  mechanism by mechanism, with the Lab's wording rules and the flag bits.
+- [behaviour/](research/behaviour/README.md): everything the static behaviour analysis reads from TIM.EXE, by topic:
+  reading the report, the Lab, walks, recordings, ropes, other parts, helpers, frames, gears and contact.
+- [file-formats.md](research/file-formats.md): the byte layout of the game's files: archives, the map, chunks,
+  palettes, sprites and screens, sounds, the sound drivers, language packages, level files and TIM.EXE.
 - [levels.md](research/levels.md): what the game does with a level: the goals of the puzzles and what the loader keeps.
 - [content.md](research/content.md): part lists, sprites and (future) packs.
 - [machine-recorder.md](research/machine-recorder.md): the level recorder that runs a shipped puzzle in the game's own

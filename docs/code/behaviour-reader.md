@@ -2,7 +2,7 @@
 
 `packages/content/src/read` reads what each part type does from TIM.EXE (TIM 1 and Even More) without running it.
 The result is a `BehaviourReport`. [descriptions-and-goals.md](descriptions-and-goals.md) covers what turns the report
-into words and walks; [the research](../research/behaviour.md) says what the reader found, part by part.
+into words and walks; [the research](../research/behaviour/README.md) says what the reader found, part by part.
 
 Nothing here runs x86: it decodes instructions, builds control-flow graphs and follows each path symbolically. Nothing
 hard-codes an address of one build; comments name example addresses "in Even More, English floppy".

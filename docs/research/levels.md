@@ -205,7 +205,7 @@ names another part it looks one record further, through each word of the record:
 - The links go to `0x5a` and `0x5e` (the first) and `0x5c` and `0x60` (the second), as the linked part's record: in
   270 of 310 and 152 of 176 Even More parts (TIM 1: 188 of 212 and 96 of 118). Every other one, in all 160 Even More
   puzzles, is a gear linked to a gear, whose words the loader leaves 0: a gear's reset finds its neighbours itself, by
-  their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/research/behaviour.md`), so the file's
+  their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/research/behaviour/gears.md`), so the file's
   gear links aren't used. The analysis knows these words as the rope links.
 - A rope's two tied parts are in the rope record the word `0x66` points at, at `+2` and `+4` (again at `+6` and
   `+8`; the rope part itself is at `+0`), in all 47 Even More and 31 TIM 1 ropes the check pairs. The parts a rope ties
@@ -267,7 +267,7 @@ by the names the behaviour read of the loaded `TIM.EXE` gives the record's words
 position), a field the loader keeps in a record of its own by that record (`→ belt record`), a word without a name as
 "kept", and a gear's links to gears and the pulley's rope as "not kept". The offsets are in the tips. A part's flags
 read as words by the names of their bits ("on the fixed list · placed by the puzzle · mirrored", see
-[flag bits](behaviour.md#flag-bits)), and how many bits the program never uses are set, with the stored words in the
+[flag bits](behaviour/in-the-lab.md#flag-bits)), and how many bits the program never uses are set, with the stored words in the
 tip. When the loaded `TIM.EXE` is one of the two recorded builds, the header's numbers say "kept",
 with their word of the data segment in the tip, and the scroll limits "kept?", since only the block's order puts them
 there. The places are in `src/read/level-loader.ts`, which this check found; Toons and TIM 2 levels have no tags,
@@ -276,7 +276,7 @@ since their loaders aren't read.
 A goal's test of a goal mark reads by the parts that set the mark on a part of that type, from what the walks say
 other parts do to it: "marked by cat or alligator" in Even More puzzle 94, "marked by mels-house" in puzzle 88. Until
 the walks are read it says "goal mark set". A test of
-any other flag bit reads by its name ([flag bits](behaviour.md#flag-bits)): "part in play" for the out-of-play bit,
+any other flag bit reads by its name ([flag bits](behaviour/in-the-lab.md#flag-bits)): "part in play" for the out-of-play bit,
 "placed by the puzzle" for the bit every part the level places has. The goal's own words read "its count" (or "its word
 1" and so on, also the ones only the routine uses), and a field the goal names by its offset gets the Lab's name, like
 `marks` for `0x0a` and `part.olderX` for `part.0x26`. The goal routine under the rows reads the same way; in Even More

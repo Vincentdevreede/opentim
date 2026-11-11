@@ -3,7 +3,7 @@
 The previous plan (merged in PR #19, since taken out of the docs) describes each part on its own: every walk ends, every
 recording matches. This plan is about what that leaves out: what parts do to each other where it depends on where they
 are, and a model of the whole machine that runs a level's parts together. Each step gets a short done note when it is
-done; the details go in `docs/research/behaviour.md`. Work happens on `feature/behaviour-together`.
+done; the details go in `docs/research/behaviour/`. Work happens on `feature/behaviour-together`.
 
 ## Questions for you
 
@@ -61,7 +61,7 @@ done; the details go in `docs/research/behaviour.md`. Work happens on `feature/b
    Answered (2026-11-08) by tests in the game, with no assumption needed: the snap flips a switch above the mouth,
    leaves a ball hanging there alone, and does nothing to an explosion. That is what the code gives, since the snap
    does something only to six named types of a fixed type (see "What the user saw of the alligator" in
-   `docs/research/behaviour.md`).
+   `docs/research/behaviour/`).
 
    The run also showed that the explosion was given touch lines it can't have, being on the fixed list. The user: an
    explosion only happens after another part's action, so a level never stores one. That is [decided assumption

@@ -44,7 +44,7 @@ The biggest file of the Lab. In order:
   `NAMED_TERMS` (the Lab's own names with their raw form and meaning, for tips), `ROPE_FIELDS` (the rope record).
 - **Flag bits**: `FLAG_BITS` names every used bit of the three flag words (list flags 0x06, drawing flags 0x08, marks
   0x0a) as set and clear words; `flagWords` and `recordName` use them. The table with what the game does with each
-  bit is in [the research](../research/behaviour.md#flag-bits).
+  bit is in [the research](../research/behaviour/in-the-lab.md#flag-bits).
 - **`tidyWords`**: rewrites the analysis's own sentences without hex (drops `& 0xffff` unless a number is past a word,
   "rounded down to 16", flag tests as names, no code addresses, fields by name, rope record fields).
 - **Goals**: `goalMarkSetters` (which parts set which goal mark) and `goalMarkWords` ("marked by cat").
@@ -88,7 +88,7 @@ scratch script.
 ## Conventions
 
 - Words instead of hex in what is shown. Raw values, offsets, addresses and instructions go in the tip (`title`,
-  `LabTip`, `LabInfo`). See [the Lab's wording rules](../research/behaviour.md#the-behaviour-tab).
+  `LabTip`, `LabInfo`). See [the Lab's wording rules](../research/behaviour/in-the-lab.md#the-behaviour-tab).
 - British spelling, typographic quotes, plain sentences.
 - Colours and sizes come from the theme tokens (`text-ink`, `bg-surface`, `text-meta`, confidence colours `decoded`,
   `partial`, `hypothesis`, `error`).
