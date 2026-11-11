@@ -43,6 +43,11 @@ import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
 
+/** The name of whether a helper's allocation found room at a call, like the wall split's copy: only the run knows. */
+export const allocationAnswer = (call: string) => `allocation answer of the call at ${call}`;
+/** The call's address in an allocation answer's name, or undefined for any other name. */
+export const allocationCall = (name: string) => /^allocation answer of the call at (0x[0-9a-f]+)$/.exec(name)?.[1];
+
 export type Confidence = "checked" | "inferred" | "unresolved";
 export interface Evidence {
   address: number;
@@ -748,7 +753,7 @@ export function openCalls(
     } else if (v.kind === "field") {
       if (!v.unresolved || STORED_OVERLAP.test(v.object)) return;
       // Whether a helper's allocation found room is a test a line says in words.
-      if (/^allocation answer of the call at 0x[0-9a-f]+$/.test(v.object)) return;
+      if (allocationCall(v.object)) return;
       if (at(v.object, / after unresolved write at (0x[0-9a-f]+)$/) === "contact-search") open.contactSearch = true;
       else if (
         at(v.object, /^answer of the query at (0x[0-9a-f]+)$/) === "connection-query" ||
@@ -1817,7 +1822,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (allocation)
         return tracked({
           kind: "field",
-          object: `allocation answer of the call at ${allocation[1]}`,
+          object: allocationAnswer(allocation[1]!),
           offset: expression.offset,
           width: expression.width,
           unresolved: true,
@@ -5064,7 +5069,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
  * room.
  */
 const RUN_VALUE =
-  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer|allocation answer of the call) at /;
+  /^(answer of the query|overlap[XY]? the query|member found by the loop|part after the query|local after list scan|local after find-first loop|part after list scan|nullable list selection|found list after the query|next in the found list of the query|value the (query|call)|value after the list scan|part after field effect|(next|previous) in the ordered list after the insertion|centre angle answer) at /;
 /** The run values an expression or predicate tests, or undefined when it holds any other unknown. */
 function runValuesIn(value: Expression | Predicate, found = new Set<string>()): Set<string> | undefined {
   switch (value.kind) {
@@ -5072,7 +5077,7 @@ function runValuesIn(value: Expression | Predicate, found = new Set<string>()): 
       return undefined;
     case "field":
       if (!value.unresolved) return found;
-      if (!RUN_VALUE.test(value.object)) return undefined;
+      if (!RUN_VALUE.test(value.object) && !allocationCall(value.object)) return undefined;
       found.add(value.object);
       return found;
     case "binary":

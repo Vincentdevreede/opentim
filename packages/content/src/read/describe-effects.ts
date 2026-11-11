@@ -17,7 +17,16 @@ import type {
   RoutineOutcome,
 } from "./behaviour.ts";
 import type { KnownField } from "./describe-behaviour.ts";
-import { binary, callKinds, choiceOf, choose, openCalls, speedLimitOf, TYPE_RECORD_WRITTEN } from "./behaviour.ts";
+import {
+  allocationCall,
+  binary,
+  callKinds,
+  choiceOf,
+  choose,
+  openCalls,
+  speedLimitOf,
+  TYPE_RECORD_WRITTEN,
+} from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
 import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
@@ -488,8 +497,6 @@ export function objects(
   return { objects: found, unknown };
 }
 
-/** Whether the game found room for an allocation a helper of the source's makes: only the run knows. */
-const ALLOCATION = /^allocation answer of the call at (0x[0-9a-f]+)$/;
 /** The name a line gives the source while it says a value of both parts, so `part` can be the part it changes. */
 const SOURCE = "the source";
 /**
@@ -502,7 +509,7 @@ export function readsSourcePlace(value: Expression | Predicate, member: string):
   const visit = (v: Expression | Predicate) => {
     if (v.kind === "unknown") other = true;
     else if (v.kind === "field") {
-      if (v.unresolved ? ALLOCATION.test(v.object) : v.object === "part") placed = true;
+      if (v.unresolved ? !!allocationCall(v.object) : v.object === "part") placed = true;
       else if (v.unresolved || v.object !== member) other = true;
     } else if (v.kind === "binary" || v.kind === "compare") {
       visit(v.left);
@@ -622,7 +629,7 @@ const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">
 export function sourceChoices(value: Expression, limit = 32): { tests: Predicate[]; value: Expression }[] | undefined {
   const split = (e: Expression): { tests: Predicate[]; value: Expression }[] => {
     const read = objects(e).objects;
-    const choice = read.has("part") || [...read].some((o) => ALLOCATION.test(o)) ? choiceOf(e) : undefined;
+    const choice = read.has("part") || [...read].some((o) => allocationCall(o)) ? choiceOf(e) : undefined;
     if (!choice) return [{ tests: [], value: e }];
     const opposite = { ...choice.test, operator: OPPOSITE[choice.test.operator]! };
     return [
@@ -1206,10 +1213,10 @@ export function effectsFromOthers(
   /** A value of the part's own fields in words, like "subtracts 1 from velocityX" or "halves velocityX, rounding down". */
   /** A test of both parts, or of whether the game had room for a copy, in words. */
   const relativeWords = (t: Extract<Predicate, { kind: "compare" }>, member: string, source: string) => {
-    const room = [t.left, t.right].find((e) => e.kind === "field" && ALLOCATION.test(e.object));
+    const room = [t.left, t.right].find((e) => e.kind === "field" && allocationCall(e.object));
     const zero = [t.left, t.right].some((e) => e.kind === "constant" && e.value === 0);
     if (room?.kind === "field" && zero && (t.operator === "==" || t.operator === "!="))
-      return `${t.operator === "!=" ? "the game finds room" : "the game finds no room"} for the copy the ${source} makes (the allocation at ${ALLOCATION.exec(room.object)![1]})`;
+      return `${t.operator === "!=" ? "the game finds room" : "the game finds no room"} for the copy the ${source} makes (the allocation at ${allocationCall(room.object)})`;
     return plainSigns(
       compareWords(
         { ...t, left: tidyArithmetic(t.left), right: tidyArithmetic(t.right) },
