@@ -21,8 +21,8 @@ import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
 import { MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
-import type { GoalCondition, SpriteOf } from "@opentim/content";
-import { readBehaviourInBackground, type GoalsResult } from "../behaviour.ts";
+import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
+import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
 import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
@@ -87,19 +87,40 @@ const current = computed(
 );
 const level = computed(() => current.value?.level);
 
+/** Where the loaded program's loader puts the header's numbers, for a build the loader was checked on. */
+const loadedHeader = computed(() => (program.value ? LOADED_HEADERS.get(program.value.sha256) : undefined));
+
 const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 const list = computed(() => loadedParts.value?.list);
 
 /** Every puzzle's goal, read from the program in the background after its behaviour, which names the goals. */
 const goals = shallowRef<GoalsResult | { status: "reading" }>();
+/** The parts that set each goal mark, by `type:bit`, once the walks say what parts do to each other. */
+const markSetters = shallowRef<ReadonlyMap<string, string[]>>(new Map());
+/** The part record's fields as the behaviour read names them, for the structure's tags. */
+const recordFields = shallowRef<readonly WriterField[]>();
+/** The least time one step of the run takes, from the timer ticks the run loop waits for. */
+const stepMilliseconds = ref<number>();
 watch(
   () => [program.value?.data, loadedParts.value?.program] as const,
   ([data, parts]) => {
     goals.value = undefined;
+    markSetters.value = new Map();
+    recordFields.value = undefined;
+    stepMilliseconds.value = undefined;
     if (!data || !parts) return;
     goals.value = { status: "reading" };
-    void readBehaviourInBackground(data, parts).goals.then((result) => {
+    const reading = readBehaviourInBackground(data, parts);
+    void reading.result.then((result) => {
+      if (program.value?.data !== data || result.status !== "done") return;
+      recordFields.value = result.summary.fields;
+      stepMilliseconds.value = result.summary.timing.minimumMilliseconds;
+    });
+    void reading.goals.then((result) => {
       if (program.value?.data === data) goals.value = result;
+    });
+    void reading.walks.then((result) => {
+      if (program.value?.data === data && result.status === "done") markSetters.value = goalMarkSetters(result.effects);
     });
   },
   { immediate: true },
@@ -339,7 +360,13 @@ onBeforeUnmount(() => {
             </LabFacts>
           </div>
           <div v-if="goal" class="relative min-w-0 flex-[3] border-r border-line">
-            <LevelGoal :goal="goal" :says="level?.goal" :area-numbers="areaNumbers" />
+            <LevelGoal
+              :goal="goal"
+              :says="level?.goal"
+              :area-numbers="areaNumbers"
+              :mark-setters="markSetters"
+              :step-milliseconds="stepMilliseconds"
+            />
           </div>
           <div class="relative min-w-0 flex-[2]">
             <div class="absolute inset-0 flex flex-col">
@@ -368,6 +395,8 @@ onBeforeUnmount(() => {
         :name="current.resource.name"
         :list="list"
         :selected="selectedPart"
+        :header="loadedHeader"
+        :record="recordFields"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

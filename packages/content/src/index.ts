@@ -136,6 +136,16 @@ export {
   type PartGroup,
   type RopeSlot,
 } from "./read/level.ts";
+export {
+  EVEN_MORE_FLOPPY_EXE,
+  GEAR_TYPE,
+  LOADED_FIELDS,
+  LOADED_HEADERS,
+  TIM_FRENCH_EXE,
+  type LoadedHeader,
+  type LoadedKey,
+  type LoadedPlace,
+} from "./read/level-loader.ts";
 
 export type { ContactRotation, RotationScalar } from "./read/behaviour-contact-rotation.ts";
 export type { ContactResponseFirst, FirstResponseFormula } from "./read/behaviour-contact-response-first.ts";

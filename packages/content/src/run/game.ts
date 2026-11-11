@@ -7,6 +7,7 @@
  * The routines and words it calls and reads are per build, found in the code (see `GAME_BUILDS`).
  */
 import { createHash } from "node:crypto";
+import { EVEN_MORE_FLOPPY_EXE, TIM_FRENCH_EXE } from "../read/level-loader.ts";
 import { findDataSegment } from "../read/type-table.ts";
 import { Dos } from "./dos.ts";
 import { readLzexeProgram } from "./program.ts";
@@ -82,8 +83,8 @@ const TIM_FRENCH: GameBuild = {
 
 /** The builds the recorder knows, by the SHA-256 of their `TIM.EXE`. */
 export const GAME_BUILDS = new Map<string, GameBuild>([
-  ["b11cf18e51a14dbcee9872ec2a524caec4e5f656c8612c3a4c7de16c79bd9fa9", EVEN_MORE_FLOPPY],
-  ["4a54cc37f477dde0f22d887e9930fbc384936cf089faa3343b27cac8aecd82d6", TIM_FRENCH],
+  [EVEN_MORE_FLOPPY_EXE, EVEN_MORE_FLOPPY],
+  [TIM_FRENCH_EXE, TIM_FRENCH],
 ]);
 
 /** How many bytes of each part record a step keeps: every field the analysis names lies below. */

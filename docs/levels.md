@@ -186,14 +186,14 @@ with `--by-type`). For each field it then lists the words of the record that hol
 | flags, third word             | `0x0a`, in 4,438 Even More parts (see below)                     |           4,448 |       2,211 |
 | first state value             | `0x90` savedState                                                |           4,448 |       2,211 |
 | size                          | `0x40`, `0x42` (the extents) and `0x44`, `0x46` (the frame size) |           4,448 |       2,211 |
-| second size                   | `0x50`, `0x52` baseWidth and baseHeight                          |           4,448 |       2,211 |
+| base size                     | `0x50`, `0x52` baseWidth and baseHeight                          |           4,448 |       2,211 |
 | position                      | `0x8c`, `0x8e` savedPositionX and savedPositionY                 |           4,448 |       2,211 |
 | extra                         | `0x96`                                                           |           4,448 |       2,211 |
 | belt place (two bytes), width | bytes `0x56`, `0x57` and the word `0x58`                         |           4,448 |       2,211 |
 | rope slots' places            | bytes `0x6a`, `0x6b` and `0x6c`, `0x6d`                          |           4,448 |       2,211 |
 | plugged parts                 | `0x62`, `0x64`, as the plugged part's record (0 for none)        |           4,448 |       2,211 |
 
-So the second size, which `level.ts` didn't know, is the part's base size, and the position, state and drawing flags
+So the second size, which `level.ts` didn't know, is the part's base size (`baseSize` now), and the position, state and drawing flags
 go to the saved words the run starts from. Pairing by type alone (`--by-type`, 833 pairs in Even More) finds the same
 places. The second plugged part shows only in Even More, where one shipped part has one; in TIM 1 it is always none.
 
@@ -259,3 +259,22 @@ So puzzle 70's goal needs at least 308 steps without a broken fishbowl, the way 
 on the other count. Where the game calls `0x0ecc:0x1ee2` isn't read yet.
 
     pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]
+
+### In the Lab
+
+The Lab's Structure panel of a level says under each field of a TIM 1 or Even More part where the loader keeps it,
+by the names the behaviour read of the loaded `TIM.EXE` gives the record's words (`→ savedPositionX/Y` for the
+position), a field the loader keeps in a record of its own by that record (`→ belt record`), a word without a name as
+"kept", and a gear's links to gears and the pulley's rope as "not kept". The offsets are in the tips. A part's flags
+read as the bits whose meaning is known ("on the fixed list · mirrored") and how many bits aren't known, with the
+stored words in the tip. When the loaded `TIM.EXE` is one of the two recorded builds, the header's numbers say "kept",
+with their word of the data segment in the tip, and the scroll limits "kept?", since only the block's order puts them
+there. The places are in `src/read/level-loader.ts`, which this check found; Toons and TIM 2 levels have no tags,
+since their loaders aren't read.
+
+A goal's test of a goal mark reads by the parts that set the mark on a part of that type, from what the walks say
+other parts do to it: "marked by cat or alligator" in Even More puzzle 94, "marked by mels-house" in puzzle 88. Until
+the walks are read it says "goal mark set". The goal's own words read "its count" (or "its word 1" and so on), and a
+field the goal names by its offset gets the Lab's name, like `marks` for `0x0a`. A test of a step count says the least time those
+steps take, from the timer ticks the run loop waits for each step: Even More puzzle 70 reads "the second step count ≥
+308 (10 s)".

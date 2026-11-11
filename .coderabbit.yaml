@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Review every pull request, also the stacked ones that go into another feature branch.
+reviews:
+  profile: chill
+  # Request changes for its comments and approve once they are resolved, as the organization settings did.
+  request_changes_workflow: true
+  auto_review:
+    enabled: true
+    base_branches:
+      - ".*"

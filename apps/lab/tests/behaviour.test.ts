@@ -15,6 +15,10 @@ import {
   summariseEffects,
   summariseRests,
   summariseWalks,
+  goalMarkSetters,
+  goalMarkWords,
+  tidyWords,
+  type OtherEffect,
   writer,
 } from "../src/behaviour.ts";
 
@@ -24,6 +28,13 @@ const fields = [
 ];
 const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
 const field = (offset: number, object = "part"): Expression => ({ kind: "field", object, offset, width: 16 });
+const binary = (operator: string, left: Expression, right: Expression): Expression => ({
+  kind: "binary",
+  operator,
+  left,
+  right,
+  width: 16,
+});
 const compare = (operator: string, left: Expression, right: Expression): Predicate => ({
   kind: "compare",
   operator,
@@ -60,38 +71,32 @@ describe("writer", () => {
     expect(expression(field(0x00, "address of part"))).toBe("this");
     expect(expression(field(0x0c, "member found by the loop at 0x1a01a"))).toBe("found.state");
     expect(expression(field(0x00, "member found by the loop at 0x1a01a link"))).toBe("found");
-    expect(expression(field(0x00, "answer of the query at 0x19fd3"))).toBe("answer at 0x19fd3");
+    expect(expression(field(0x00, "answer of the query at 0x19fd3"))).toBe("the query's answer");
   });
 
   it("names what a search or a call leaves on the parts it selects", () => {
     expect(expression(field(0x78, "found list after the query at 0x19ef6"))).toBe("found");
     expect(expression(field(0x0c, "referenced-by(found list after the query at 0x19ef6+0x78)"))).toBe("found.state");
     expect(expression(field(0x78, "next in the found list of the query at 0x19ef6"))).toBe("next found");
-    expect(expression(field(0x7a, "value the query at 0x19ef6 writes to a found part"))).toBe(
-      "overlapX from the call at 0x19ef6",
-    );
-    expect(expression(field(0x96, "value the call at 0x1a730 writes to a selected part"))).toBe(
-      "part+0x96 from the call at 0x1a730",
-    );
+    expect(expression(field(0x7a, "value the query at 0x19ef6 writes to a found part"))).toBe("overlapX from the call");
+    expect(expression(field(0x96, "value the call at 0x1a730 writes to a selected part"))).toBe("extra from the call");
     expect(expression(field(0x5a, "part after field effect at 0x1a730"))).toBe("link0");
     expect(expression(field(0x0c, "value after the list scan at 0x1d451 in member found by the loop at 0x1a01a"))).toBe(
-      "found.state after the scan at 0x1d451",
+      "found.state after the scan",
     );
   });
 
   it("names the other values a run finds itself, in place of the analysis's own words", () => {
-    expect(expression(field(0x12, "part after the query at 0x1d2d1"))).toBe("stateDelta after the query at 0x1d2d1");
-    expect(expression(field(0x12, "part after list scan at 0x1bff5"))).toBe("stateDelta after the scan at 0x1bff5");
-    expect(expression(field(-2, "local after list scan at 0x1c1f8"))).toBe("local -0x02 after the scan at 0x1c1f8");
-    expect(expression(field(-4, "local after find-first loop at 0x1c1f8"))).toBe(
-      "local -0x04 after the loop at 0x1c1f8",
-    );
+    expect(expression(field(0x12, "part after the query at 0x1d2d1"))).toBe("stateDelta after the query");
+    expect(expression(field(0x12, "part after list scan at 0x1bff5"))).toBe("stateDelta after the scan");
+    expect(expression(field(-2, "local after list scan at 0x1c1f8"))).toBe("local -2 after the scan");
+    expect(expression(field(-4, "local after find-first loop at 0x1c1f8"))).toBe("local -4 after the loop");
     expect(expression(field(0x12, "part at the walk's start"))).toBe("stateDelta at the walk's start");
-    expect(expression(field(0x00, "centre angle answer at 0x1a5c4"))).toBe("centre angle at 0x1a5c4");
-    expect(expression(field(0x00, "nullable allocation result at 0x192d3"))).toBe("new part from the call at 0x192d3");
-    expect(expression(field(0x00, "gear connection conflict at 0x1b1b0"))).toBe("gear jam at 0x1b1b0");
+    expect(expression(field(0x00, "centre angle answer at 0x1a5c4"))).toBe("the centre angle");
+    expect(expression(field(0x00, "nullable allocation result at 0x192d3"))).toBe("the new part");
+    expect(expression(field(0x00, "gear connection conflict at 0x1b1b0"))).toBe("the gear jam");
     expect(expression(field(0x00, "next in the ordered list after the insertion at 0x1a2b4"))).toBe(
-      "next in the list after the insertion at 0x1a2b4",
+      "next in the list after the insertion",
     );
     expect(expression(field(0x0c, "a part reached through a rope, belt or pulley at 0x65c1"))).toBe("reached.state");
     expect(expression(field(0x0c, "a candidate selected by the overlap query at 0x4a70"))).toBe("found.state");
@@ -104,9 +109,9 @@ describe("writer", () => {
     expect(gear.expression(field(0x5a, "referenced-by(part+0x78)"))).toBe("found.link0");
   });
 
-  it("writes small numbers in decimal and others in hex, with brackets around nested sums", () => {
+  it("writes numbers in decimal and masks in hex, with brackets around nested sums", () => {
     expect(expression(constant(9))).toBe("9");
-    expect(expression(constant(0x1000))).toBe("0x1000");
+    expect(expression(constant(0x1000))).toBe("4096");
     const plus = { kind: "binary", operator: "+", left: field(0x0c), right: constant(1), width: 16 } as const;
     expect(expression(plus)).toBe("state + 1");
     expect(expression({ kind: "binary", operator: "&", left: plus, right: constant(3), width: 16 })).toBe(
@@ -115,13 +120,6 @@ describe("writer", () => {
   });
 
   it("reads numbers in a condition by what they are: signed values, masks in hex and directions in degrees", () => {
-    const binary = (operator: string, left: Expression, right: Expression): Expression => ({
-      kind: "binary",
-      operator,
-      left,
-      right,
-      width: 16,
-    });
     // A speed or a frame is signed, also when a test only says equal or not, and a negative number added is taken off.
     expect(predicate(compare("!=", field(0x12), constant(0xd000)))).toBe("stateDelta != -12288");
     const signedTest: Predicate = {
@@ -139,7 +137,7 @@ describe("writer", () => {
     expect(predicate(compare("==", binary("&", field(0x12), constant(7)), constant(4)))).toBe("stateDelta & 0x7 == 4");
     const kind = binary("&", binary("&", field(0x12), constant(0x8018)), constant(0x7fff));
     expect(predicate(compare("==", kind, constant(0x10)))).toBe("stateDelta & 0x18 == 0x10");
-    expect(predicate(compare("==", binary("&", field(0x08), constant(16)), constant(0)))).toBe("part+0x08 & 0x10 == 0");
+    expect(predicate(compare("==", binary("&", field(0x08), constant(16)), constant(0)))).toBe("not mirrored");
     expect(predicate(compare("!=", binary("&", field(0x08), constant(0x18)), constant(8)))).toBe(
       "part+0x08 & 0x18 != 0x8",
     );
@@ -156,8 +154,8 @@ describe("writer", () => {
     );
     const side = binary("&", binary("+", angle, constant(0x4000)), constant(0x8000));
     expect(angles.predicate(compare("==", side, constant(0)))).toBe("(collider.contactAngle + 0x4000) & 0x8000 == 0");
-    // Outside a condition numbers read as before.
-    expect(expression(constant(0xd000))).toBe("0xd000");
+    // Outside a condition a word reads as the signed number it is.
+    expect(expression(constant(0xd000))).toBe("-12288");
   });
 
   it("names what the rope code passes a rope callback, and the record of the rope it is asked about", () => {
@@ -175,7 +173,7 @@ describe("writer", () => {
     );
     expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope+0x0e == 0");
     // Other routines' arguments aren't the rope code's, so they keep the analysis's words.
-    expect(writer(named).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument+0x0c == 2");
+    expect(writer(named).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument 12 == 2");
   });
 
   it("joins conditions and says when there is none", () => {
@@ -186,6 +184,59 @@ describe("writer", () => {
         terms: [compare("!=", field(0x12), constant(0)), compare("==", field(0x0c), constant(4))],
       }),
     ).toBe("stateDelta != 0 and state == 4");
+  });
+
+  it("says a test of one named flag bit in words, for the part itself and for another part", () => {
+    const flags = writer([
+      ...fields,
+      {
+        offset: 0x08,
+        name: "drawingFlags",
+        masks: [
+          { value: 0x10, name: "horizontalFlip" },
+          { value: 0x20, name: "verticalFlip" },
+        ],
+      },
+    ]);
+    const bit = (offset: number, mask: number, object = "part") => binary("&", field(offset, object), constant(mask));
+    expect(flags.predicate(compare("==", bit(0x08, 0x10), constant(0)))).toBe("not mirrored");
+    expect(flags.predicate(compare("!=", bit(0x08, 0x20), constant(0)))).toBe("upside down");
+    expect(flags.predicate(compare("==", bit(0x08, 0x20), constant(0x20)))).toBe("upside down");
+    expect(flags.predicate(compare("==", bit(0x08, 0x2000), constant(0)))).toBe("in play");
+    expect(flags.predicate(compare("!=", bit(0x06, 0x1000, "collider"), constant(0)))).toBe(
+      "collider on the moving list",
+    );
+    expect(flags.predicate(compare("==", bit(0x06, 0x40), constant(0)))).toBe("not drawn as tiles");
+    expect(flags.predicate(compare("!=", bit(0x0a, 0x100), constant(0)))).toBe("goal mark set");
+    // A bit flipped before the test tests the other way.
+    const flipped = binary("&", binary("^", field(0x08), constant(0x10)), constant(0x10));
+    expect(flags.predicate(compare("==", flipped, constant(0)))).toBe("mirrored");
+    // Bits without a name, and more than one bit, keep the analysis's form.
+    expect(flags.predicate(compare("==", bit(0x08, 0x0200), constant(0)))).toBe("drawingFlags & 0x200 == 0");
+    expect(flags.predicate(compare("==", bit(0x08, 0x30), constant(0)))).toBe("drawingFlags & 0x30 == 0");
+  });
+
+  it("names the other part of a flag test even when its field has no name", () => {
+    const test = binary("&", field(0x08, "collider"), constant(0x10));
+    expect(predicate(compare("!=", test, constant(0)))).toBe("collider mirrored");
+  });
+
+  it("keeps the low word of a 32-bit value when it drops a mask of 0xffff", () => {
+    const product: Expression = { ...binary("*", field(0x0c), field(0x12)), width: 32 };
+    expect(expression(binary("&", field(0x0c), constant(0xffff)))).toBe("state");
+    expect(expression(binary("&", product, constant(0xffff)))).toMatch(/^the low word of \(state .+ stateDelta\)$/);
+    const high: Expression = { ...binary(">>>", product, constant(16)), width: 32 };
+    expect(expression(binary("&", high, constant(0xffff)))).toMatch(/^the high word of \(state .+ stateDelta\)$/);
+  });
+});
+
+describe("tidyWords", () => {
+  it("leaves out the bit of a flag the analysis names, and names a field it calls by its offset", () => {
+    expect(tidyWords("its out-of-play flag 0x2000 is clear")).toBe("its out-of-play flag is clear");
+    expect(tidyWords("its positionY is not its field 0x28")).toBe("its positionY is not its olderY");
+    expect(tidyWords("its field 0x70 is 3")).toBe("its field 0x70 is 3");
+    expect(tidyWords("stateDelta after the query at 0x1d2d1")).toBe("stateDelta after the query");
+    expect(tidyWords("the answer of the call at 0x1d2d1")).toBe("the answer of the call");
   });
 });
 
@@ -437,7 +488,7 @@ describe("summariseWalks", () => {
 
   it("names what the rope code passes only in the walks the rope callback starts", () => {
     expect(pulled).toMatchObject({ trigger: "rope", condition: ["ropeKind == 2"] });
-    expect(flipped).toMatchObject({ trigger: "flip", condition: ["argument+0x0c == 2"] });
+    expect(flipped).toMatchObject({ trigger: "flip", condition: ["argument 12 == 2"] });
   });
 
   it("names a touch by the part it touches, keeping what it needs of the part for the tip", () => {
@@ -711,7 +762,7 @@ describe("summariseEffects", () => {
     ]);
     expect(vacuum!.sets.slice(0, 2)).toEqual([
       { what: "out-of-play flag", value: "set" },
-      { what: "goal mark 0x0100", value: "set" },
+      { what: "goal mark", value: "set", mark: 0x100 },
     ]);
   });
 
@@ -867,7 +918,7 @@ describe("summariseDoings", () => {
   it("keeps the parts it creates, what it does to other parts and its own flags with a proved meaning", () => {
     expect(doings.map((d) => [d.on, d.description])).toEqual([
       ["created", cannonball],
-      ["itself", ran],
+      ["itself", ran.replace(" 0x0040", "")],
       ["others", relay],
     ]);
   });
@@ -908,5 +959,25 @@ describe("summariseDoings with ways that say the same", () => {
     expect(line!.assumptions).toEqual(["The first way's assumption.", "The second way's assumption."]);
     expect(line!.evidence.map((e) => e.address)).toEqual([0x100, 0x200]);
     expect(first.assumptions).toEqual(["The first way's assumption."]);
+  });
+});
+
+describe("goal marks", () => {
+  const effect = (sourceType: number, source: string, mark: number) =>
+    ({ sourceType, source, sets: [{ what: "goal mark", value: "set", mark }] }) as unknown as OtherEffect;
+  const setters = goalMarkSetters({
+    31: [effect(40, "Cat", 0x200), effect(41, "Alligator", 0x200), effect(42, "Vacuum", 0x100)],
+  });
+
+  it("knows the parts that set each mark on a part", () => {
+    expect(setters.get("31:512")).toEqual(["Cat", "Alligator"]);
+    expect(setters.get("31:256")).toEqual(["Vacuum"]);
+  });
+
+  it("says a goal's test of a mark by the parts that set it, and keeps a bit no part is seen to set", () => {
+    expect(goalMarkWords("field 0xa has the bits 0x200", [31], setters)).toBe("marked by Cat or Alligator");
+    expect(goalMarkWords("field 0xa hasn't the bits 0x100", [31], setters)).toBe("not marked by Vacuum");
+    expect(goalMarkWords("field 0xa has the bits 0x10", [31], setters)).toBe("field 0xa has the bits 0x10");
+    expect(goalMarkWords("field 0xa has the bits 0x80", [31], setters)).toBe("goal mark set");
   });
 });
