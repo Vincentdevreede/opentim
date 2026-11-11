@@ -9,7 +9,9 @@ goals, and sounds.
 - `main.ts` mounts `App.vue` with the router and calls `restore()` to reload the last import.
 - `router.ts`: `/` import, `/sprites`, `/parts`, `/levels`, `/files`, `/audio`, `/sandbox`; anything else is the
   missing page. Only the import page comes with the app; each other page loads the first time it opens, so the first
-  load is small (about 113 KB gzipped) and doesn't carry the sandbox's PixiJS.
+  load is small (about 113 KB gzipped) and doesn't carry the sandbox's PixiJS. When a page's code doesn't load (after a
+  new version is put online, a tab that was already open asks for files that are gone), `page-load.ts` notes it and
+  `App.vue` says so above the page, with Reload and Try again.
 - `App.vue`: the menu (`FILES`, `RESOURCES`, `TOOLS`), keyboard help (`SHORTCUTS`), drop files anywhere or Ctrl+O, and
   the status bar (version, the behaviour read's progress, "Local only · nothing uploaded").
 - `library.ts`: the import. Its `phase` goes `empty`, `reading`, `staged`, `loaded` (or `error`). `importFiles` reads
