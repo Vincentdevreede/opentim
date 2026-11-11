@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ReadProgress from "./components/ReadProgress.vue";
+import { readProgress } from "./read-progress.ts";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import pkg from "../package.json";
@@ -246,6 +248,10 @@ const activeClass =
             >Game: <span class="text-ink">{{ editionName(edition) }}</span
             ><template v-if="editionLanguages(edition)"> · {{ editionLanguages(edition) }}</template></span
           >
+        </template>
+        <template v-if="readProgress">
+          <span aria-hidden="true" class="text-line-strong">│</span>
+          <ReadProgress compact />
         </template>
       </template>
       <template v-else>

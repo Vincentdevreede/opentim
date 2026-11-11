@@ -2,11 +2,14 @@
 import { compose, drawOrder, type Part, type Placement, type SpriteOf, type TypeRecord } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, useId, watch, watchEffect } from "vue";
-import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
+import { readingPerType, type BehaviourResult, type WalksResult } from "../../behaviour.ts";
 import { outlineShape, pictureFrame } from "../../behaviour-view.ts";
 import { download } from "../../export.ts";
 import { partName, sheetFile } from "../../parts.ts";
 import { crumb } from "../../ui.ts";
+import { interactionPairs } from "../../interactions.ts";
+import InteractionLists from "../InteractionLists.vue";
+import ReadProgress from "../ReadProgress.vue";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
 import LabCard from "../LabCard.vue";
@@ -75,7 +78,13 @@ const outline = ref(false);
 const spread = ref(0);
 const hidden = reactive(new Set<number>());
 const detailPalette = ref(AUTO);
-const side = ref<"frame" | "behaviour" | "record">("frame");
+const side = ref<"frame" | "behaviour" | "interactions" | "type">("frame");
+/** What this part does to other parts and they to it, from the walks, for the Interactions tab. */
+const interactions = computed(() =>
+  props.walks?.status === "done" ? interactionPairs(props.walks.effects, props.walks.doings) : [],
+);
+const nameOfType = (type: number) => props.partNames?.get(type) ?? `Type ${type}`;
+
 const stripId = useId();
 const sideId = useId();
 
@@ -247,7 +256,8 @@ const stripTabs = computed(() => [
 const sideTabs = computed(() => [
   { value: "frame" as const, label: strip.value === "frames" ? "Frame" : "Sprite" },
   { value: "behaviour" as const, label: "Behaviour" },
-  { value: "record" as const, label: "Record" },
+  { value: "interactions" as const, label: "Interactions" },
+  { value: "type" as const, label: "Type" },
 ]);
 </script>
 
@@ -475,7 +485,24 @@ const sideTabs = computed(() => [
           :names="partNames"
           @show-frame="showFrame"
         />
-        <RecordPanel v-else-if="side === 'record'" :record="record" />
+        <template v-else-if="side === 'interactions'">
+          <p v-if="noBehaviour" class="px-3 py-2 text-muted">{{ noBehaviour }}</p>
+          <p v-else-if="walks?.status === 'error'" class="px-3 py-2 text-muted">
+            The walks couldn’t be read: {{ walks.message }}
+          </p>
+          <ReadProgress v-else-if="walks?.status !== 'done'" />
+          <template v-else>
+            <ReadProgress v-if="readingPerType(walks)" />
+            <p v-else-if="walks.perTypeError" class="text-muted">
+              Couldn’t read what other parts do to each type, so some may be missing: {{ walks.perTypeError }}
+            </p>
+            <!-- The lists keep their own row spacing, and reach to the panel's edges like the other lists. -->
+            <div class="-mx-3">
+              <InteractionLists :type="part.type" :pairs="interactions" :name-of="nameOfType" />
+            </div>
+          </template>
+        </template>
+        <RecordPanel v-else-if="side === 'type'" :record="record" />
         <template v-else-if="frame">
           <LabSection title="Layers">
             <template v-if="layers.length > 1" #action>

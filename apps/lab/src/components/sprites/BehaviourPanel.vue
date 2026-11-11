@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import ReadProgress from "../ReadProgress.vue";
 import { computed, reactive } from "vue";
-import { readingPerType as stillReadingPerType, type BehaviourResult, type WalksResult } from "../../behaviour.ts";
+import type { BehaviourResult, WalksResult } from "../../behaviour.ts";
 import {
   outlineSides,
   routineGroups,
@@ -13,7 +14,6 @@ import { behaviourLayout } from "../../ui.ts";
 import LabAlert from "../LabAlert.vue";
 import LabChip from "../LabChip.vue";
 import LabDisclosure from "../LabDisclosure.vue";
-import LabIcon from "../LabIcon.vue";
 import LabInfo from "../LabInfo.vue";
 import LabListRow from "../LabListRow.vue";
 import LabSection from "../LabSection.vue";
@@ -21,7 +21,6 @@ import LabSegmented from "../LabSegmented.vue";
 import PanelTitle from "../PanelTitle.vue";
 import BehaviourChange from "./BehaviourChange.vue";
 import BehaviourDoing from "./BehaviourDoing.vue";
-import BehaviourEffect from "./BehaviourEffect.vue";
 import BehaviourRest from "./BehaviourRest.vue";
 import BehaviourRow from "./BehaviourRow.vue";
 import BehaviourWalkGroup from "./BehaviourWalkGroup.vue";
@@ -68,17 +67,10 @@ const walkList = computed(() => {
   const w = props.walks?.status === "done" ? props.walks.walks[props.type] : undefined;
   return w ? walkGroups(w) : [];
 });
-/** What other parts do to this one without changing its frame, which comes with the walks. */
-const effects = computed(() => (props.walks?.status === "done" ? (props.walks.effects[props.type] ?? []) : []));
-/** Whether the loops over found parts are still being read per type, which can add lines here. */
-const readingPerType = computed(() => stillReadingPerType(props.walks));
-/** Why the loops couldn’t be read per type, when that failed: the lines here may miss some. */
-const perTypeError = computed(() => (props.walks?.status === "done" ? props.walks.perTypeError : undefined));
 /** How the reset leaves its frame and where it comes to rest, which also comes with the walks. */
 const rest = computed(() => (props.walks?.status === "done" ? props.walks.rests[props.type] : undefined));
-/** What the part does: the parts it creates, then what it does to itself and to other parts. */
+/** What the part does to itself and to other parts' flags; the parts it makes are in the Interactions tab. */
 const doings = computed(() => (props.walks?.status === "done" ? (props.walks.doings[props.type] ?? []) : []));
-const created = computed(() => doings.value.filter((d) => d.on === "created"));
 const doneTo = computed(() =>
   (["itself", "others"] as const)
     .map((on) => ({
@@ -235,10 +227,7 @@ const more = computed(() => {
 <template>
   <div class="flex flex-col gap-3">
     <p v-if="unavailable" class="text-muted">{{ unavailable }}</p>
-    <p v-else-if="!result || result.status === 'reading'" class="flex items-center gap-2 text-muted">
-      <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
-      Reading the behaviour from the program. This takes a few seconds.
-    </p>
+    <ReadProgress v-else-if="!result || result.status === 'reading'" />
     <LabAlert v-else-if="result.status === 'error'" title="Couldn’t read the behaviour">
       <span class="font-mono text-meta break-words">{{ result.message }}</span>
     </LabAlert>
@@ -323,10 +312,7 @@ const more = computed(() => {
       </div>
 
       <div v-else-if="behaviourLayout === 'walk'" class="flex flex-col">
-        <p v-if="!props.walks || props.walks.status === 'reading'" class="flex items-center gap-2 text-muted">
-          <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
-          Following the frames from each trigger. This takes a few more seconds.
-        </p>
+        <ReadProgress v-if="!props.walks || props.walks.status === 'reading'" />
         <LabAlert v-else-if="props.walks.status === 'error'" title="Couldn’t follow the walks">
           <span class="font-mono text-meta break-words">{{ props.walks.message }}</span>
         </LabAlert>
@@ -401,25 +387,6 @@ const more = computed(() => {
 
       <LabSection v-if="rest" title="Rest">
         <BehaviourRest :rest="rest" :frames="frames" @show-frame="emit('showFrame', $event)" />
-      </LabSection>
-
-      <LabSection v-if="effects.length || readingPerType || perTypeError" title="From other parts">
-        <p v-if="readingPerType" class="flex items-center gap-2 pb-2 text-muted">
-          <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin" />
-          Reading what other parts do to each type. More may come.
-        </p>
-        <p v-else-if="perTypeError" class="pb-2 text-muted">
-          Couldn’t read what other parts do to each type, so some may be missing: {{ perTypeError }}
-        </p>
-        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
-          <BehaviourEffect v-for="(e, i) in effects" :key="i" :effect="e" :name="nameOf(e.sourceType)" />
-        </div>
-      </LabSection>
-
-      <LabSection v-if="created.length" title="Creates">
-        <div class="-mx-3 flex flex-col [&>*:first-child]:border-t-0">
-          <BehaviourDoing v-for="d in created" :key="d.description" :doing="d" />
-        </div>
       </LabSection>
 
       <LabSection v-if="gear" title="Gear">

@@ -52,7 +52,7 @@ the rest when it is opened.
   conditions of only the first 8). A frame a walk reaches with no test reads "always", with no condition as needed,
   like the teeter-totter's frame 0. A frame the program keeps as a word reads signed, so the wood incline's
   frame 65535 reads -1, here and in the walks.
-- **From other parts.** A bit with a proved meaning reads by its name, like "contact flag cleared",
+- **From other parts** (in the Interactions tab since 2026-11-10, opened under the part that does it). A bit with a proved meaning reads by its name, like "contact flag cleared",
   "out-of-play flag set" or "goal mark set", both words of the fine position read as one ("fine Y
   positionY × 512"), and a number added or a halving reads in words. Lines of one part that say the same are one
   row with how many ways give it, and each way's condition when the row is opened: the analysis keeps a line for
@@ -63,7 +63,7 @@ the rest when it is opened.
   left of the teeter-totter's centre X (positionX + frameWidth / 2)"), is a line under the row that wraps. A row whose
   source then runs the contact search on the part, like the teeter-totter's launch, has a "then contact search" chip,
   and its tip names the fields that search may change.
-- **Creates.** Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
+- **Creates** (in the Interactions tab too, under the part it makes). Each way a part makes another one, like the cannon's cannonball, is the analysis's sentence with
   where the new part starts and how fast it moves. The lab keeps its own name for part 43 elsewhere.
 - **To itself and others.** Closed at first: what the part does to other parts (the relay's byte, found lists,
   goal marks, contact flags) and its own flags with a proved meaning (out of play, ran this step), one line per
@@ -106,6 +106,27 @@ the rest when it is opened.
 - **Run values.** A value the run finds itself reads by what it is: "stateDelta after the query", "found",
   "reached" (a part through a rope, belt or pulley), "the centre angle", "the gear jam", "next in the list after
   the insertion", and a value a test picks as "3 if state == 2, else 5".
+
+## Reading in the background
+
+The lab reads the behaviour on a worker after the files load, in five steps: the parts' code (type by type), the
+goals, the walks (a pass over every part as the source of hits, then each part), the loops read per type, and the
+walks again. Each step tells the page how far it has come, and every place that waits for it (the Behaviour and
+Interactions tabs, a level's goal) shows the same progress block: a bar over the whole read, the step and what it is at,
+and about how long is left. The status bar shows "Reading behaviour" and the bar on every page until the read ends, with the step, the share
+and the time left in its tip. The bar weighs the steps
+by how long they took on Even More, English floppy (13, 0.2, 95, 25 and 99 seconds in Node); the time left is the time
+so far over the share done, so it settles as the read goes on, and the slow parts (the vacuum cleaner's walks take 14
+seconds) make it jump a little.
+
+## The Interactions tab
+
+A part on the Parts page has its tabs Frame, Behaviour, Interactions and Type (the part type's record in the type
+table). The Interactions tab is what the part does to other parts and what they do to it, one row per other part,
+from what the walks say other parts do to each part and the parts a part makes. A row says whether the part touches the other or reaches it (a fan's wind, a
+vacuum's pull), or both, and has a square for each thing it does: takes it out of play, sets a goal mark, pushes or
+moves it, makes it, marks a contact, changes another field. A row opens in place to each way, with the
+rows "From other parts" and "Creates" had in the Behaviour tab before. The loops read per type come last and add rows, like the vacuum cleaner's pull.
 
 ## Analysis limits
 
@@ -810,7 +831,8 @@ These effects of other parts are left out, so they are known gaps:
   part's type, like where the part is.
 
 Describing a build takes as long as before (about 6 seconds for Even More and 5.5 for TIM 1), and no walk changes.
-The lab shows the lines in the Behaviour tab, under "From other parts": one row each, with the other part's name, what
+The lab shows the lines in the Interactions tab, under the part that does it (before 2026-11-10 in the Behaviour
+tab, under "From other parts"): one row each, with the other part's name, what
 it sets and the value, and a chip for what either part must be.
 
 ### The fan, the bellows and the teapot push what they find

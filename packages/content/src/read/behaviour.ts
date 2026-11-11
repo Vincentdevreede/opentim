@@ -5305,11 +5305,18 @@ export function readBehaviour(program: Uint8Array, list: ProgramParts): Behaviou
   return report;
 }
 
-/** The report without the loops read per type, and the step that adds them to its routines. */
+/** Told as a long read goes on: how many of its items are done, of how many. */
+export type ReadProgress = (done: number, total: number) => void;
+
+/**
+ * The report without the loops read per type, and the step that adds them to its routines. Both take a progress
+ * callback, told after each part's routines and after each loop.
+ */
 export function readBehaviourInSteps(
   program: Uint8Array,
   list: ProgramParts,
-): { report: BehaviourReport; readLoopsPerType(): void } {
+  onProgress?: ReadProgress,
+): { report: BehaviourReport; readLoopsPerType(onProgress?: ReadProgress): void } {
   /** The loops over found parts to read once for each type, after the rest. */
   const loopsPerType: (() => void)[] = [];
   const image = unpackLzexe(program);
@@ -5662,7 +5669,11 @@ export function readBehaviourInSteps(
     );
   addRelayOwnerKeeps();
   addRopeDispatch();
-  for (const callbacks of references.values()) for (const callback of callbacks) summarise(callback.address);
+  // Most of the read is here, one part's routines after another.
+  for (const [done, callbacks] of [...references.values()].entries()) {
+    for (const callback of callbacks) summarise(callback.address);
+    onProgress?.(done + 1, references.size);
+  }
 
   /**
    * The fields the byte relay's owner keeps, by decided assumptions about the parts that call it. A routine that calls
@@ -6155,5 +6166,14 @@ export function readBehaviourInSteps(
     ],
   };
   // `only` limits the types read, to look at a few of them quickly.
-  return { report, readLoopsPerType: () => loopsPerType.splice(0).forEach((read) => read()) };
+  return {
+    report,
+    readLoopsPerType: (progress?: ReadProgress) => {
+      const reads = loopsPerType.splice(0);
+      reads.forEach((read, done) => {
+        read();
+        progress?.(done + 1, reads.length);
+      });
+    },
+  };
 }
