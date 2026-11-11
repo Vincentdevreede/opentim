@@ -1,5 +1,5 @@
 /**
- * The parts of a game and how their states are put together from sprite frames. See `docs/content.md` for the
+ * The parts of a game and how their states are put together from sprite frames. See `docs/research/content.md` for the
  * design: lists never name files, palettes or archives, only sheets, so a graphics pack can replace the images.
  */
 

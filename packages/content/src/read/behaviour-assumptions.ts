@@ -1,6 +1,6 @@
 /**
  * The assumptions decided during the behaviour research, where the code alone can't settle a question. Each is stated
- * on every finding that uses it, and explained in docs/behaviour-assumptions.md so it can be rechecked later.
+ * on every finding that uses it, and explained in docs/assumptions/behaviour-assumptions.md so it can be rechecked later.
  */
 import { INCLUSIVE_LIST_ASSUMPTION } from "./behaviour-list-loops.ts";
 import {

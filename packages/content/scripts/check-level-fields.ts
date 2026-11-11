@@ -1,5 +1,5 @@
 /**
- * Finds where the game's level loader puts each field of a level file (step L2 of docs/behaviour-plan-together.md):
+ * Finds where the game's level loader puts each field of a level file (step L2 of docs/plans/behaviour-plan-together.md):
  * loads every shipped puzzle of a build the level recorder knows with the game's own puzzle loader (`loadPuzzle` in
  * `src/run/game.ts`), reads the same level with `src/read/level.ts`, and pairs each part of the file with the part
  * record the loader made for it. A file part pairs with a record of its type on the list for its group (fixed parts

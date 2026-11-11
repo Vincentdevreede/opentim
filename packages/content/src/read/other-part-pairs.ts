@@ -1,6 +1,6 @@
 /**
  * Which part types can do something to which, as the code allows it, and where each pair is described (step C2 of
- * docs/behaviour-plan.md). Three ways reach another part:
+ * the finished behaviour plan). Three ways reach another part:
  *
  * - a touch: the contact dispatch calls the bounce callback of the touched part's type with the moving part that
  *   touched it (`collider`), so a bounce's writes to `collider` are what the touched part does to the toucher;

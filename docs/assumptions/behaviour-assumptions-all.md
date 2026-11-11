@@ -7,7 +7,7 @@ research are marked **decided** and explained in [the decided assumptions](behav
 Regenerate it after changing the analysis, with every build you have:
 
 ```sh
-pnpm --filter @opentim/content list-assumptions --out ../../docs/behaviour-assumptions-all.md --tim1 <game folder> --evenmore <game folder>
+pnpm --filter @opentim/content list-assumptions --out ../../docs/assumptions/behaviour-assumptions-all.md --tim1 <game folder> --evenmore <game folder>
 ```
 
 With `--check` instead of `--out`, the command fails when the analysis states an assumption this list doesn't

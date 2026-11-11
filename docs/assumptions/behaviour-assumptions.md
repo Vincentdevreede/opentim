@@ -21,7 +21,7 @@ those findings unresolved again, which is safe.
 
 Decided on 2026-11-04 and narrowed on 2026-11-05. In the code: `ROPE_ASSUMPTIONS` in
 `packages/content/src/read/behaviour-rope-dispatch.ts`. Explained in
-[the rope connection query](behaviour.md#the-rope-connection-query).
+[the rope connection query](../research/behaviour.md#the-rope-connection-query).
 
 **The question.** When a rope moves, the game asks the part at the other end of the rope what to do. That part can
 pass the question on along its own ropes. The analysis can't see which parts are tied together, so it can't tell
@@ -78,7 +78,7 @@ above 1 and no loop of ropes. A level file made outside the game could still bre
 ## 2. The scissors' rope cut and the part copy
 
 Decided on 2026-11-04. In the code: `ROPE_CUT_ASSUMPTIONS` in `packages/content/src/read/behaviour-rope-cut.ts`.
-Explained in [the scissors' rope cut](behaviour.md#the-scissors-rope-cut).
+Explained in [the scissors' rope cut](../research/behaviour.md#the-scissors-rope-cut).
 
 **The question.** When the scissors cut a rope, the game makes new rope pieces. The analysis can't see where in memory
 the game puts them, so it feared they might overwrite an existing part, like the scissors themselves, and then lost
@@ -120,7 +120,7 @@ for files made outside the game.
 ### The part copy
 
 Extended on 2026-11-05 to the part copy. In the code: `PART_COPY_ASSUMPTIONS` in
-`packages/content/src/read/behaviour-part-copy.ts`. Explained in [the explosion's wall split](behaviour.md#the-explosions-wall-split).
+`packages/content/src/read/behaviour-part-copy.ts`. Explained in [the explosion's wall split](../research/behaviour.md#the-explosions-wall-split).
 
 **The question.** When the explosion splits a brick or wood wall, the game copies the wall with the part copy at
 `0x66aa` (Even More, English floppy). The copy allocates the new part and, for a belt, a rope or a part with an
@@ -165,7 +165,7 @@ both recorded builds, and 8 more recorded animations match completely in each.
 
 Decided on 2026-11-04. In the code: `OUTLINE_SEARCH_ASSUMPTIONS` in
 `packages/content/src/read/behaviour-outline-search.ts` and `INCLUSIVE_LIST_ASSUMPTION` in
-`packages/content/src/read/behaviour-list-loops.ts`. Explained in [the outline search](behaviour.md#the-outline-search).
+`packages/content/src/read/behaviour-list-loops.ts`. Explained in [the outline search](../research/behaviour.md#the-outline-search).
 
 **The question.** The teeter-totter searches for the parts lying on it and then moves them. Unlike the other searches,
 this one doesn't skip the teeter-totter itself, so in theory it could find itself and move its own position.
@@ -201,7 +201,7 @@ teeter-totter's run.
 
 Decided on 2026-11-05, after checking the code. In the code: `MONKEY_BIKE_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[walks that split at every step](behaviour.md#walks-that-split-at-every-step).
+[walks that split at every step](../research/behaviour.md#walks-that-split-at-every-step).
 
 **The question.** While the monkey bike pedals, it shows frames 5 to 12 and counts down a counter. When the counter
 runs out, it goes back to frame 0 or 1. If it were on frames 5 to 12 with the counter already at 0 and a direction set,
@@ -255,7 +255,7 @@ saved on frame 0 with control value 0. No levels saved by players were available
 
 Decided on 2026-11-05, after checking the code. In the code: `CONVEYOR_BELT_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+[parts drawn by their own code](../research/behaviour.md#parts-drawn-by-their-own-code).
 
 **The question.** The conveyor belt is drawn by its own code, so its type has no list of frames to count, and the walks
 had no frames to start it on. Which frames can a level start it on?
@@ -301,7 +301,7 @@ two in L21 have width 40, off the 16 grid; see the recheck below).
 
 Decided on 2026-11-05, after checking the code. In the code: `GEAR_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+[parts drawn by their own code](../research/behaviour.md#parts-drawn-by-their-own-code).
 
 **The question.** The gear is drawn by its own code too, so the walks had no frames to start it on either.
 
@@ -334,7 +334,7 @@ only while its control value is -1, 0 or 1: this one rests on assumption 9.
 
 Decided on 2026-11-05, after checking the code. In the code: `MOUSE_MOTOR_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+[parts drawn by their own code](../research/behaviour.md#parts-drawn-by-their-own-code).
 
 **The question.** The mouse motor is drawn by its own code, so the walks had no frames to start it on.
 
@@ -360,7 +360,7 @@ trigger, whose effects on the motor aren't tracked yet.
 
 Decided on 2026-11-05, after checking the code. In the code: `ELECTRIC_MOTOR_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[parts drawn by their own code](behaviour.md#parts-drawn-by-their-own-code).
+[parts drawn by their own code](../research/behaviour.md#parts-drawn-by-their-own-code).
 
 **The question.** The electric motor is drawn by its own code too. From a frame above 2 its run would count down
 through frames it doesn't have, so the starting frame matters.
@@ -386,7 +386,7 @@ through frames it doesn't have, so the starting frame matters.
 
 Decided on 2026-11-05 with the user. In the code: `CONTROL_VALUE_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[decided control values and ends](behaviour.md#decided-control-values-and-ends).
+[decided control values and ends](../research/behaviour.md#decided-control-values-and-ends).
 
 **The question.** The jack-in-the-box, the gear and the teeter-totter turn their frame by their control value at
 `0x12`. Where a walk doesn't know that value, it branches on the numbers the writers give (-1, 0 and 1) and keeps one
@@ -433,7 +433,7 @@ of these three parts, and every shipped level saves 0 for all eight types involv
 
 Decided on 2026-11-05 with the user. In the code: `TEETER_TOTTER_END_ASSUMPTION` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[decided control values and ends](behaviour.md#decided-control-values-and-ends).
+[decided control values and ends](../research/behaviour.md#decided-control-values-and-ends).
 
 **The question.** The teeter-totter has three frames. Its run adds its control value to its frame (`0x1d2da`, Even
 More, English floppy) without checking the frame, and clears the value after the tilt (`0x1d458`). If it were on frame
@@ -471,7 +471,7 @@ teeter-totter, since the loader takes `+0x08` and the belt ends unchecked.
 
 Decided on 2026-11-05 with the user. In the code: `FIXED_LIST_ASSUMPTION` in
 `packages/content/src/read/describe-effects.ts`. Explained in
-[effects of other parts](behaviour.md#effects-of-other-parts).
+[effects of other parts](../research/behaviour.md#effects-of-other-parts).
 
 **The question.** The explosion pushes a part it hits only when that part's list flags at `0x06` have `0x1000`, which
 the game sets when it puts a dropped part on the moving list. (Parts that part code itself puts there, like rope ends,
@@ -502,7 +502,7 @@ flags.
 **What it gives.** Parts of a fixed type get no line for the explosion's push. Without it, every wall, ramp and motor
 would show the push with the condition "on the moving list". The parts it rules out state it in their description. The
 contact dispatch walks the moving parts list too, so these parts also get no line for what a part they touch does to
-them, see [effects of parts that touch](behaviour.md#effects-of-parts-that-touch).
+them, see [effects of parts that touch](../research/behaviour.md#effects-of-parts-that-touch).
 
 **How to recheck.**
 
@@ -517,7 +517,7 @@ nothing clears `0x4000`, and no shipped fixed part has `0x1000`.
 
 Decided on 2026-11-05 with the user. In the code: `SCREEN_DIRECTION_ASSUMPTION` in
 `packages/content/src/read/describe-effects.ts`. Explained in
-[effects of other parts](behaviour.md#effects-of-other-parts).
+[effects of other parts](../research/behaviour.md#effects-of-other-parts).
 
 **The question.** The jack-in-the-box sets a part's two velocities to fixed numbers: -4096 and -4096 for a cat when
 the box isn't flipped, and 4096 and -4096 when it is. Which way on the screen is that?
@@ -625,7 +625,7 @@ start on those.
 
 Decided on 2026-11-06 with the user. In the code: `MONKEY_BIKE_REACTION_ASSUMPTION` and `REACTION_FIELDS` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[the monkey bike's control value after its reaction](behaviour.md#the-monkey-bikes-control-value-after-its-reaction).
+[the monkey bike's control value after its reaction](../research/behaviour.md#the-monkey-bikes-control-value-after-its-reaction).
 
 **The question.** After a hit, the monkey bike plays its reaction: it shows frames 5 to 12 while its counter at `0x96`
 counts down. When the counter runs out on frames 5 to 8 it goes to frame 0, and its next run pedals again unless its
@@ -673,7 +673,7 @@ from 564 to 568 in Even More and from 476 to 480 in TIM 1. Walk endings don't ch
 
 Decided on 2026-11-06 with the user. In the code: `LIGHTABLE_ASSUMPTION` in
 `packages/content/src/read/describe-hits.ts`. Explained in
-[hits found by a search's flags](behaviour.md#hits-found-by-a-searchs-flags).
+[hits found by a search's flags](../research/behaviour.md#hits-found-by-a-searchs-flags).
 
 **The question.** The candle's first search and the rocket's keep only parts with `0x0004` in field `0x0a`, and their
 loops set the control value at `0x12` of each such part to 1 when it is 0: they light it. A level stores that word, so
@@ -716,7 +716,7 @@ get one, because their rules read the control value, state the assumption in the
 
 Decided on 2026-11-06 with the user. In the code: `BULLET_LIST_ASSUMPTION` in
 `packages/content/src/read/describe-effects.ts`. Explained in
-[hits found by a search's flags](behaviour.md#hits-found-by-a-searchs-flags).
+[hits found by a search's flags](../research/behaviour.md#hits-found-by-a-searchs-flags).
 
 **The question.** The jack-in-the-box's punch sets the velocity of every part it finds that has `0x1000` in its list
 flags at `0x06`, which the analysis calls being on the moving list. The bullet's own rules read its velocity, so the
@@ -757,7 +757,7 @@ for the bullet, and the bullet states the assumption in its description.
 Decided on 2026-11-06 with the user. In the code: `ROPE_HOLDER_ASSUMPTION` in
 `packages/content/src/read/behaviour-connection-relay.ts`, used by `addRelayOwnerKeeps` in
 `packages/content/src/read/behaviour.ts`. Explained in
-[the owner's rope fields after the relay](behaviour.md#the-owners-rope-fields-after-the-relay).
+[the owner's rope fields after the relay](../research/behaviour.md#the-owners-rope-fields-after-the-relay).
 
 **The question.** The byte relay (`0x65c1` in Even More, English floppy) updates the geometry of the owner's ropes, and
 the rope geometry update (`0x5bf3`) writes the rope ends `0x96` and `0x9c` of the part that holds the rope record. Can
@@ -800,7 +800,7 @@ them nowhere. Walks and recordings don't change.
 Decided on 2026-11-06 with the user. In the code: `FLIP_BELT_ASSUMPTION` in
 `packages/content/src/read/behaviour-connection-relay.ts`, used by `addRelayOwnerKeeps` in
 `packages/content/src/read/behaviour.ts`. Explained in
-[the owner's rope fields after the relay](behaviour.md#the-owners-rope-fields-after-the-relay).
+[the owner's rope fields after the relay](../research/behaviour.md#the-owners-rope-fields-after-the-relay).
 
 **The question.** The byte relay checks the owner's belt with the belt end check (`0x582a`) while `[0x4a6d]` is
 `0x1000`. That check can search the parts for the part under a belt end and turn round a rope tied to it, which writes
@@ -844,7 +844,7 @@ shipped level has a belt with a loose end.
 
 Decided on 2026-11-06 with the user. In the code: `WOOD_INCLINE_ASSUMPTION` and `LEVEL_FRAMES` in
 `packages/content/src/read/behaviour-saved-frames.ts`. Explained in
-[starting frames in the shipped levels](behaviour.md#starting-frames-in-the-shipped-levels).
+[starting frames in the shipped levels](../research/behaviour.md#starting-frames-in-the-shipped-levels).
 
 **The question.** The wood incline has no frame list, since the program draws it, so nothing limited the frame a level
 can start it on.
@@ -869,7 +869,7 @@ its width gives. Its run rests on each of the five, so it now has resting frames
 word the rules read) and 25 more walks in each build, a run and four callback walks from each resting frame, all of
 which end. The walks can't tie the frame to the width, so they start from all five. The saved frame check
 (`check-level-frames`) checks each incline's frame against its width. Since 2026-11-08 its reset is also run for
-frames 0 to 3, which gives its outline for each width (see [Outlines](behaviour.md#outlines)); frame -1 picks no table
+frames 0 to 3, which gives its outline for each width (see [Outlines](../research/behaviour.md#outlines)); frame -1 picks no table
 the program ships.
 
 **How to recheck.**
@@ -886,7 +886,7 @@ of width 0 on frame -1.
 Decided on 2026-11-08 with the user, for now: to be checked again later. In the code: `MOVING_SEARCH_ASSUMPTION` in
 `packages/content/src/read/describe-effects.ts`, used with `searchesOnlyMovingList` in
 `packages/content/src/read/describe-hits.ts`. Explained in
-[the lists a search walks](behaviour.md#the-lists-a-search-walks).
+[the lists a search walks](../research/behaviour.md#the-lists-a-search-walks).
 
 **The question.** The teeter-totter's search finds the parts whose outline crosses its plank, and its launch then sets
 their speed. It looks only in the list its mask picks, the moving list, but the analysis only knew a part's list
@@ -923,7 +923,7 @@ the moving list during a run were bullets (Even More 4 puzzles, TIM 1 4), pinbal
 the parts the code above links there. The fixed list was joined by explosions (type 41, not a fixed type, in 7 and 5
 puzzles) and, in puzzle 76 of each game, by a brick wall from the explosion's split of a wall. (The first run, before
 the recorder took over where the menu ends its round, ended Even More 106 and 115 and TIM 1 76 early, and so missed
-what TIM 1 76 does after step 131; see [the level recorder](machine-recorder.md#running-a-puzzle).)
+what TIM 1 76 does after step 131; see [the level recorder](../research/machine-recorder.md#running-a-puzzle).)
 
 Not proved: a level file made outside the game could store a part of a fixed type among its moving parts, the places
 that save and restore the list heads (`0xffe7`, `0x12203`, `0x16b68`) were not read further, and the run covers only
@@ -948,7 +948,7 @@ motors, which can't happen in the game. The parts it rules out state it in their
 Decided on 2026-11-08 with the user. In the code: `MADE_FIXED_ASSUMPTION` in
 `packages/content/src/read/describe-effects.ts`, used with `madeIntoFixedList` in
 `packages/content/src/read/describe-hits.ts`. Explained in
-[the lists a search walks](behaviour.md#the-lists-a-search-walks).
+[the lists a search walks](../research/behaviour.md#the-lists-a-search-walks).
 
 **The question.** An explosion is not of a fixed type, so the analysis gave it the touch lines of the parts it could
 touch, like the alligator's throw, and let the searches of the moving list find it. Can an explosion ever be on the
@@ -987,7 +987,7 @@ the fan's, can still find it.
 Decided on 2026-11-08 with the user. In the code: `AIR_PRESSURE_ASSUMPTION` and `AIR_PRESSURES` in
 `packages/content/src/read/describe-effects.ts`, used with `speedLimitRange` and `rulesIgnoreLimit` in
 `packages/content/src/read/describe-hits.ts` and `packages/content/src/read/other-part-pairs.ts`. Explained in
-[Mel Schlemming's speed limit](behaviour.md#mel-schlemmings-speed-limit).
+[Mel Schlemming's speed limit](../research/behaviour.md#mel-schlemmings-speed-limit).
 
 **The question.** The fan, the bellows and the teapot push Mel Schlemming and keep his speeds within his speed limit,
 which the game works out from the level's air pressure. His animation only looks at whether he moves up or down faster
@@ -1020,7 +1020,7 @@ pushes of Mel are described (Even More: 3 pairs).
 
 ## Recheck of the decided assumptions
 
-Rechecked on 2026-11-07 (step F2 of [the plan](behaviour-plan.md)) in all eleven builds and their 1,281 shipped level
+Rechecked on 2026-11-07 (step F2 of the finished behaviour plan) in all eleven builds and their 1,281 shipped level
 files, after the work of 2026-11-06. The eleven `TIM.EXE` files are the same files as at the earlier rechecks (dated
 2026-10-27), so the code facts found then still stand. What can have changed is the analysis, so each assumption was
 checked again where the analysis finds it in each build (by the kind of routine, not by address), and every level was

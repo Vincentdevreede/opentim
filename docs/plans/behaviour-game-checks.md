@@ -1,6 +1,6 @@
 # Things to try in the game
 
-Step E2 of [the plan](behaviour-plan.md). The analysis reads TIM.EXE without running it. For the parts below, no
+Step E2 of the finished behaviour plan. The analysis reads TIM.EXE without running it. For the parts below, no
 recording shows what they do, or what they do depends on another part, so the code alone leaves room. Each item says
 what to build, and what the analysis expects to see. If the game does something else, the analysis is wrong there, so
 the items that would show that most clearly come first.
@@ -139,7 +139,7 @@ for reading the code again; it isn't needed to play the item. Tick the box when 
 - [ ] **15. The pinball bumper always throws at one speed.** Drop a ball on a bumper from low, then from high up, and
       roll a heavy ball into it. Expect: every ball leaves at the same speed, straight away from the bumper's middle,
       faster than any explosion push. [Bumper bounce: speed 7168 from the centre angle, and it returns 0 so no other
-      bounce follows; see "Effects of parts that touch" in [behaviour.md](behaviour.md).]
+      bounce follows; see "Effects of parts that touch" in [behaviour.md](../research/behaviour.md).]
 
       Saw:
 
@@ -174,7 +174,7 @@ for reading the code again; it isn't needed to play the item. Tick the box when 
       ball, touch the nozzle of a vacuum cleaner that is on, and then of one that is off. Expect: when on, the balloon
       pops and the ball disappears (it no longer takes part in the machine); when off, both just bump it. [Vacuum bounce
       `0x1e5af`: control value not 0, and contact at edge 5 or angle `0x8000`; see "Touch effects of four more parts" in
-      [behaviour.md](behaviour.md).]
+      [behaviour.md](../research/behaviour.md).]
 
       Saw:
 
@@ -191,14 +191,14 @@ for reading the code again; it isn't needed to play the item. Tick the box when 
 - [ ] **21. A popped balloon leaves its rope on the part below.** Tie a balloon to a ball and pop it. Expect: the rope
       stays tied to the ball, now with a loose end where the balloon was, and the ball falls with the rope. [The balloon
       makes a rope end (`0x192d3`) at its end of the rope and gives it the balloon's rope links; see "Parts a part makes"
-      in [behaviour.md](behaviour.md).]
+      in [behaviour.md](../research/behaviour.md).]
 
       Saw:
 
 - [ ] **22. Scissors cut a rope into two pieces with loose ends.** Let scissors close on a rope between two parts.
       Expect: two ropes, each still tied to one of the parts, each with a loose end at the cut; the scissors themselves
       look the same as without a rope. [Rope cut: a new rope and two rope ends from the part factory, and no write to the
-      scissors' frame; see "The scissors' rope cut" in [behaviour.md](behaviour.md).]
+      scissors' frame; see "The scissors' rope cut" in [behaviour.md](../research/behaviour.md).]
 
       Saw:
 

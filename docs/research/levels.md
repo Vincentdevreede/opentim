@@ -1,7 +1,7 @@
 # The levels
 
 What the game does with a level beyond the bytes of its file, read from TIM.EXE: when a puzzle is solved (step L1 of
-`docs/behaviour-plan-together.md`) and, later, what the level loader does with each field (L2). The file itself is
+`docs/plans/behaviour-plan-together.md`) and, later, what the level loader does with each field (L2). The file itself is
 read by `packages/content/src/read/level.ts`.
 
 ## Puzzle goals
@@ -205,7 +205,7 @@ names another part it looks one record further, through each word of the record:
 - The links go to `0x5a` and `0x5e` (the first) and `0x5c` and `0x60` (the second), as the linked part's record: in
   270 of 310 and 152 of 176 Even More parts (TIM 1: 188 of 212 and 96 of 118). Every other one, in all 160 Even More
   puzzles, is a gear linked to a gear, whose words the loader leaves 0: a gear's reset finds its neighbours itself, by
-  their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/behaviour.md`), so the file's
+  their saved places 32 pixels apart (see "Building the direct gear connections" in `docs/research/behaviour.md`), so the file's
   gear links aren't used. The analysis knows these words as the rope links.
 - A rope's two tied parts are in the rope record the word `0x66` points at, at `+2` and `+4` (again at `+6` and
   `+8`; the rope part itself is at `+0`), in all 47 Even More and 31 TIM 1 ropes the check pairs. The parts a rope ties

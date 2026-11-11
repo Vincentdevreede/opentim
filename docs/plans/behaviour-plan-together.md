@@ -1,9 +1,9 @@
 # Part behaviour: parts working together
 
-The previous plan (`docs/behaviour-plan.md`, merged in PR #19) describes each part on its own: every walk ends, every
+The previous plan (merged in PR #19, since taken out of the docs) describes each part on its own: every walk ends, every
 recording matches. This plan is about what that leaves out: what parts do to each other where it depends on where they
 are, and a model of the whole machine that runs a level's parts together. Each step gets a short done note when it is
-done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-together`.
+done; the details go in `docs/research/behaviour.md`. Work happens on `feature/behaviour-together`.
 
 ## Questions for you
 
@@ -33,7 +33,7 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    part is never in it, a bullet can be. That is a new game assumption, so it needs your yes.
 
    Answered (2026-11-08): yes for now, to be checked again later. It is [decided assumption
-   22](behaviour-assumptions.md#22-searches-of-the-moving-list), and covers every search that walks only the moving
+   22](../assumptions/behaviour-assumptions.md#22-searches-of-the-moving-list), and covers every search that walks only the moving
    list, not just the teeter-totter's.
 
    Checked in the game's own run (2026-11-08): all 160 Even More and 87 TIM 1 puzzles, 500 steps each, never have a
@@ -61,11 +61,11 @@ done; the details go in `docs/behaviour.md`. Work happens on `feature/behaviour-
    Answered (2026-11-08) by tests in the game, with no assumption needed: the snap flips a switch above the mouth,
    leaves a ball hanging there alone, and does nothing to an explosion. That is what the code gives, since the snap
    does something only to six named types of a fixed type (see "What the user saw of the alligator" in
-   `docs/behaviour.md`).
+   `docs/research/behaviour.md`).
 
    The run also showed that the explosion was given touch lines it can't have, being on the fixed list. The user: an
    explosion only happens after another part's action, so a level never stores one. That is [decided assumption
-   23](behaviour-assumptions.md#23-explosions): an explosion is never on the moving list. Even More 9 and TIM 1 5 pairs
+   23](../assumptions/behaviour-assumptions.md#23-explosions): an explosion is never on the moving list. Even More 9 and TIM 1 5 pairs
    are ruled out.
 
 ## The starting point
@@ -265,11 +265,11 @@ game does with the fields whose meaning isn't known.
       it against the puzzles whose run the game's own goal check ends in the level recorder.
       Started (2026-11-08): every goal routine of all eleven builds is read into a program the machine can run, and
       `check-goals` finds each one doing what the game's routine does in the emulator, on made-up parts lists (see
-      [the levels](levels.md#puzzle-goals)). `list-goals` says each goal in words next to its level's goal text,
+      [the levels](../research/levels.md#puzzle-goals)). `list-goals` says each goal in words next to its level's goal text,
       and the builds of each game read the same goals (the Even More CD differs in the code of 4). The run loop's
       two step counts are named. The Lab's level view shows each goal as short conditions with its areas on the
       level, and the program folded away; 152 of 160 Even More goals and 83 of 87 TIM 1 goals fit the conditions
-      (see [goals as conditions](levels.md#goals-as-conditions)).
+      (see [goals as conditions](../research/levels.md#goals-as-conditions)).
 - [ ] **L2. What the loader does with each field.** The level loader (`0x1386b` in Even More, English floppy) is
       partly read: the saved state goes to `0x90`, the plugged parts to their fields, and the air pressure and the
       gravity to the routine that works out each type's acceleration and speed limit. Read where every other field
@@ -277,7 +277,7 @@ game does with the fields whose meaning isn't known.
       other than the rope, the word before the parts bin, and the flag bits besides tiling and flipping. A field the
       loader drops needs nothing more; one it keeps gets its name in `level.ts` and goes into B1.
       Started (2026-11-08): `check-level-fields` loads every shipped puzzle with the game's loader and finds where
-      each field of a placed part goes, in both recorded builds (see [the levels](levels.md#what-the-loader-keeps)):
+      each field of a placed part goes, in both recorded builds (see [the levels](../research/levels.md#what-the-loader-keeps)):
       the second size is the base size, the position, state and drawing flags go to the saved words, and `extra` to
       `0x96`, the belt's parts to the belt record at `0x54`, and the links to `0x5a` to `0x60`, apart from
       gear to gear links, which the loader leaves out; a rope's tied parts go to the rope record at `0x66`, and the
@@ -287,7 +287,7 @@ game does with the fields whose meaning isn't known.
       play screen as the game does (2026-11-09): every parts bin and every rope record loads in both games, and no
       shipped puzzle of the two recorded builds ends early on its own parts in 500 steps any more. `level.ts` calls
       the second size `baseSize` now, and the Lab's level structure tags each field with where the loader keeps it
-      (2026-11-10, see [in the Lab](levels.md#in-the-lab)).
+      (2026-11-10, see [in the Lab](../research/levels.md#in-the-lab)).
 - [ ] **L3. Checked in the game.** Load every shipped puzzle with the game's own puzzle loader in the level recorder
       and compare each part record, before the first step, with what L2 says the loader writes. All puzzles of both
       recorded builds.
@@ -318,7 +318,7 @@ game does with the fields whose meaning isn't known.
       the game's puzzle loader and runs the run button's run loop, saving every part record each step. Works for Even
       More, English floppy (puzzles 1, 2, 17, 45, 60 and 80 tried) and TIM 1 French (puzzles 1, 2, 17, 40, 60 and 80);
       runs don't depend on the timer apart from pointers and the redraw links.
-      See [the level recorder](machine-recorder.md). Next: the machine in B to compare with.
+      See [the level recorder](../research/machine-recorder.md). Next: the machine in B to compare with.
 - [ ] **C2. Machines without motion first.** Compare B3 with the recordings of the levels from question 3.
 - [ ] **C3. Then with motion.** Compare B4 and B5, level by level, and keep a list of where they part and why.
 

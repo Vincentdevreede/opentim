@@ -719,7 +719,7 @@ which is the part at the other end, and fields of that part's rope, belt and pul
 anything else or has unfinished effects, the query keeps its old open summary.
 
 One assumption makes this sound. It is stated on the summary and on every finding that uses it, and listed with how
-to recheck it in [the decided assumptions](behaviour-assumptions.md):
+to recheck it in [the decided assumptions](../assumptions/behaviour-assumptions.md):
 
 - A rope end's slot number is one of the part's two rope links, so indexing the links at `0x66` by it reaches a rope
   record.
@@ -740,18 +740,18 @@ teeter-totter can change only its control value `0x12` and its flags `0x08`.
 
 Until 2026-11-05 the reader assumed that ropes never form a loop and that a rope never ties a part to itself, and let
 the asking part keep every field. The user built a ring of teeter-totters in the game that locks them all, so those
-two assumptions were dropped (see [the decided assumptions](behaviour-assumptions.md#1-ropes)).
+two assumptions were dropped (see [the decided assumptions](../assumptions/behaviour-assumptions.md#1-ropes)).
 
 After the call, each asking field of the caller's own part holds one value it can't know: what the field holds right
 after that query, named `part after the query at` the call's address. Like a query's answer, it is a value of that
 run, and it never becomes an address. When the teeter-totter asks for real (`0x1d2d1`, Even More, English floppy), its
 run then adds that control value to its frame. The walk can't know the number, but it is still the teeter-totter's
-own control value, so [the decided control values](behaviour-assumptions.md#9-control-values) hold for it: -1, 0 or 1.
+own control value, so [the decided control values](../assumptions/behaviour-assumptions.md#9-control-values) hold for it: -1, 0 or 1.
 The walk follows each of them as its own branch of that same run, with the number put into the run's rules. The
 number belongs to that run only: the branch knows the control value it leaves, but the next run's query gives a new
 value, which is branched on again. Since the run adds the value to the frame it started the run on, the teeter-totter
 is on that frame with that value, so a number that would tip it past an end
-([the teeter-totter's ends](behaviour-assumptions.md#10-the-teeter-totters-ends)) isn't followed.
+([the teeter-totter's ends](../assumptions/behaviour-assumptions.md#10-the-teeter-totters-ends)) isn't followed.
 
 After such a run, the teeter-totter's flags at `0x08` are unknown too, so the next run splits on its flag `0x400`,
 the answer of its first query and the frame it came from: nine ways. One step may now split into nine ways instead of
@@ -774,7 +774,7 @@ On existing parts a cut can change only the rope and pulley links `0x5a`, `0x5c`
 the insertion rewrites on the new piece's neighbours, and what the rope geometry update names. On the cut rope's own
 record it changes the far end `0x04`, the slot byte `0x0b` and the two end points. It never changes a part's state, so
 the scissors keep their frame. This needs four stated assumptions, listed with how to recheck them in
-[the decided assumptions](behaviour-assumptions.md):
+[the decided assumptions](../assumptions/behaviour-assumptions.md):
 
 - A new rope piece the part factory makes gets fresh memory: it never overlaps an existing part, a rope record or
   other storage, and releasing a piece that was never linked changes nothing else.
@@ -797,7 +797,7 @@ The reader checks the part copy's complete instruction graph (three compiler for
 allocates the copy and its belt, rope and outline records from the allocator the part factory uses, only reads the
 source part, and on a failed allocation calls the release, whose graph is checked too. Its summary returns a fresh part
 or zero and changes no existing part. That rests on two decided assumptions, listed with how to recheck them in
-[the decided assumptions](behaviour-assumptions.md):
+[the decided assumptions](../assumptions/behaviour-assumptions.md):
 
 - A part copy gets fresh memory, and so do the belt, rope and outline records it makes for the copy: none of it
   overlaps an existing part, a rope, belt or pulley record or other storage.
@@ -874,7 +874,7 @@ Four things make the line possible:
   the record keeps its words from the program while a level runs.
 - **The starting flags.** The part factory's summary now lists the words a new part gets from the factory's
   type-indexed table (`startingWords`), such as the list flags at `0x06`. Together with
-  [the decided assumption on the fixed list](behaviour-assumptions.md#11-parts-on-the-fixed-list), a part of a type
+  [the decided assumption on the fixed list](../assumptions/behaviour-assumptions.md#11-parts-on-the-fixed-list), a part of a type
   with `0x4000` there gets no push line.
 
 A line is made from a proved per-member outcome of another part's routine when, for this part's type:
@@ -896,7 +896,7 @@ also finds the jack-in-the-box's punch, which sets both velocities from the same
 -4096, or 4096 and -4096 when the box is mirrored. A line that sets both velocities to numbers says where that moves
 the part on the screen, with the numbers after it: "sets its velocity up and to the left (velocityX -4096, velocityY
 -4096)". That a negative velocity moves a part left or up is what the user saw in the game, recorded as
-[the decided assumption on screen directions](behaviour-assumptions.md#12-screen-directions): the code shows that a
+[the decided assumption on screen directions](../assumptions/behaviour-assumptions.md#12-screen-directions): the code shows that a
 velocity has the sign of its position's change, but not how a position maps to the screen. The lab's row shows the direction,
 like "Jack-in-the-box up and to the left", and keeps the numbers in its tip.
 
@@ -1163,7 +1163,7 @@ masks each call passes. The calls pass:
 | `0x2000` | the fixed list             | the alligator                                                                                                                                        |
 
 The moving list is the one the contact dispatch walks. By the [decided assumption on searches of the moving
-list](behaviour-assumptions.md#22-searches-of-the-moving-list), a search that walks only it never finds a part of a
+list](../assumptions/behaviour-assumptions.md#22-searches-of-the-moving-list), a search that walks only it never finds a part of a
 fixed type, so such a part gets no line or walk from it, states the assumption instead, and the pair check counts the
 pair as ruled out. Unlike the list flag `0x1000`, the list holds the bullet: the gun links it in itself. The alligator's search of
 the fixed list needs no assumption: its code does something only to six named types, all of a fixed type, so the
@@ -1171,14 +1171,14 @@ other parts it could find get nothing from it either way. A part of a type that 
 routines that make an explosion (type 41), `0x190f:0x32a9`, which the dynamite plunger's triggers reach, and
 `0x16ca:0x3792`, link it into the fixed list with the insert routine `0x629d` and set `0x0010` in its `0x06`. The
 game's own runs show the same (see the check in the [decided
-assumption](behaviour-assumptions.md#22-searches-of-the-moving-list)): explosions join the fixed list in 7 shipped
+assumption](../assumptions/behaviour-assumptions.md#22-searches-of-the-moving-list)): explosions join the fixed list in 7 shipped
 puzzles of Even More and 4 of TIM 1.
 
 The analysis reads which types part code links into each list itself (`typesLinkedInto`): a call of the list
 insertion that pushes a list head as a constant and, as the part, a register loaded from the part factory's result
 just after a call that pushes the type as a constant. Both games give the explosion for the fixed list (and the two
 wall split copies, whose type it doesn't read) and the rope ends, pinballs and bullets for the moving list. By the
-[decided assumption on explosions](behaviour-assumptions.md#23-explosions), a type that part code links only into the
+[decided assumption on explosions](../assumptions/behaviour-assumptions.md#23-explosions), a type that part code links only into the
 fixed list and that isn't fixed, the explosion, is never on the moving list: it gets no touch lines and no search of
 the moving list finds it. Pairs, on Even More (English floppy) and TIM 1 (French):
 
@@ -1248,7 +1248,7 @@ Every other type's limit is `0x2600` minus the value the routine works out from 
 (`air`): the only three stores to the local the routine takes from the base, `mov`, `sar` and `shl`, around a `cmp`
 with 70 and a `jge`. The control panel keeps the air pressure from 0 to 128 (`0x12566` to `0x1257a`; TIM 1, French,
 `0x118a6` to `0x118ba`) and a new level starts at 67, and the shipped levels of all eleven builds use 0 to 68. By
-[decided assumption 24](behaviour-assumptions.md#24-the-air-pressure) a level's air pressure is one the panel can set,
+[decided assumption 24](../assumptions/behaviour-assumptions.md#24-the-air-pressure) a level's air pressure is one the panel can set,
 so such a type's limit lies between 7680 (air pressure 128) and 9728 (air pressure 0) (`speedLimitRange`).
 
 Two limits of that range only leave a speed different when it lies between them, from 7680 to 9728 or from -9728 to
@@ -1588,7 +1588,7 @@ happen in a game; the walk keeps the test.
 
 ### Lightable parts
 
-[Assumption 17](behaviour-assumptions.md#17-parts-the-candle-can-light) settles the first point of the section above:
+[Assumption 17](../assumptions/behaviour-assumptions.md#17-parts-the-candle-can-light) settles the first point of the section above:
 only the cannon, the dynamite, the rocket and the candle are marked as lightable (`0x0004` in field `0x0a`), and they
 always are. `hitsFromOthers` takes that flag as known for every part: set for these four, clear for the rest. Their
 "Hit by a candle or a rocket" walks no longer keep the flag test as a condition; a walk still needs the type's
@@ -1601,7 +1601,7 @@ before, 564 and 476 complete, none different.
 
 ### The bullet and the jack-in-the-box
 
-[Assumption 18](behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box) settles the second point: a bullet
+[Assumption 18](../assumptions/behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box) settles the second point: a bullet
 never has `0x1000` at `0x06`, so the jack-in-the-box never punches it. It works like the assumption on the fixed list
 (`offMovingList` in `describe-effects.ts` gives either one), but only for the bullet. The bullet's two punch walks are
 gone, and the bullet states the assumption in its description instead. The effect lines take it too, though the
@@ -1659,7 +1659,7 @@ A bounce path gives a line for a part type when:
 
 The contact dispatch walks the moving parts list (head `0x4d7d` in Even More, English floppy, the list the routine at
 `0x6469` puts a dropped part on at `0x649a`; TIM 1 French `0x52f9`, at `0x57ee`). So a part of a fixed type never
-touches, by [the decided assumption on the fixed list](behaviour-assumptions.md#11-parts-on-the-fixed-list), and states
+touches, by [the decided assumption on the fixed list](../assumptions/behaviour-assumptions.md#11-parts-on-the-fixed-list), and states
 it instead of the lines. The assumption on the bullet doesn't apply here: the gun links each bullet into this list
 itself. In Even More the game also calls Mel Schlemming's bounce on Mel himself, with what he touched as `part`, so
 Mel's own bounce gives Mel no line.
@@ -1705,7 +1705,7 @@ What the user sees in the game (asked on 2026-11-06) fits two of these lines:
 - A running conveyor belt pushes a ball under it against the belt's direction, as its bounce does on the underside.
 
 What the user saw of the alligator in the game on 2026-11-08 (Even More), to settle question 5 of [the
-plan](behaviour-plan-together.md):
+plan](../plans/behaviour-plan-together.md):
 
 - The snap is the mouth opening upwards. An electric switch flips only when it is above the mouth.
 - A ball that lands on the mouth makes the alligator snap straight away and is thrown up. The cat does the same. The
@@ -1761,7 +1761,7 @@ To get there, `hitsFromOthers` reads a bounce path like the lines do:
   answer, and those that compare the two parts (where the part landed on the trampoline) are the source's tests: the
   walk doesn't keep them, and states so.
 - A touch needs no named type: any part on the moving list can touch, so its type tests decide. A part of a fixed type
-  never touches, by [the decided assumption on the fixed list](behaviour-assumptions.md#11-parts-on-the-fixed-list).
+  never touches, by [the decided assumption on the fixed list](../assumptions/behaviour-assumptions.md#11-parts-on-the-fixed-list).
 - A bounce that returns anything but 0 lets the dispatch go on to a contact response. Every field a response's relation
   stores on the moving part (its velocity and fine position, and for the two-part exchange its list flags) is unknown
   after the touch. A hit whose fields the rules read would all be unknown gets no walk. For Mel this leaves frame 9
@@ -1800,9 +1800,9 @@ Each allowed pair is then:
 - **partly described**: some of its paths are said and others not; the check names the fields no line or walk says,
   and why;
 - **ruled out**: every path needs something a decided assumption excludes: a part of a fixed type is never on the
-  moving list, so it never touches and never meets a test for that list ([11](behaviour-assumptions.md#11-parts-on-the-fixed-list)),
-  a bullet never has that flag either ([18](behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box)), and
-  only the cannon, dynamite, rocket and candle can be lit ([17](behaviour-assumptions.md#17-parts-the-candle-can-light));
+  moving list, so it never touches and never meets a test for that list ([11](../assumptions/behaviour-assumptions.md#11-parts-on-the-fixed-list)),
+  a bullet never has that flag either ([18](../assumptions/behaviour-assumptions.md#18-the-bullet-and-the-jack-in-the-box)), and
+  only the cannon, dynamite, rocket and candle can be lit ([17](../assumptions/behaviour-assumptions.md#17-parts-the-candle-can-light));
 - **missing**: with the reason the description can't say it yet.
 
 The search also writes the found list's link at `0x78`, and the explosion's, fan's, bellows', cat's, mouse's, mouse
@@ -2055,7 +2055,7 @@ skip the owner, so the list may hold the teeter-totter itself.
 A loop over such a list is still proved, with two extra rules. The body may never write a listed part's state, and
 every other field it writes on a listed part counts as a possible write to the owner too. The teeter-totter keeps its
 frame, and forgets the positions it writes on the parts lying on it. Its assumptions are listed in
-[the decided assumptions](behaviour-assumptions.md). In each recorded build this removes 24
+[the decided assumptions](../assumptions/behaviour-assumptions.md). In each recorded build this removes 24
 unresolved transitions and 9 more walks end.
 
 ### Find-first loops
@@ -2259,8 +2259,8 @@ structure in all eleven builds):
   `0x821c`, `0x1cb2c`) and one inside the scissors' cut until `0x1cdee` puts the old mode back (`0x1cd47`).
 
 The user decided both on 2026-11-06:
-[decided assumption 19](behaviour-assumptions.md#19-parts-that-hold-a-rope-record), only a rope piece or a pulley ever
-holds a rope record, and [decided assumption 20](behaviour-assumptions.md#20-flipping-a-part-with-a-loose-belt-end), in
+[decided assumption 19](../assumptions/behaviour-assumptions.md#19-parts-that-hold-a-rope-record), only a rope piece or a pulley ever
+holds a rope record, and [decided assumption 20](../assumptions/behaviour-assumptions.md#20-flipping-a-part-with-a-loose-belt-end), in
 the editor a part is never flipped while one end of its belt is still loose. The reader (`addRelayOwnerKeeps`) now
 records, for each routine that calls the relay, which of the owner's fields it keeps:
 
@@ -2368,7 +2368,7 @@ All four only follow cases the code allows. They choose no value and add no assu
 Every walk of the cat now ends in each of its branches, in both recorded builds. The monkey bike's walks then still
 stopped where a walk started it on frames 5 to 12 with its counter at 0 and a direction set: its own code counts on
 past frame 12 to a frame 13 that has no picture. The code shows a level never starts it like that, so this is now a
-decided assumption ([the monkey bike's starting frame](behaviour-assumptions.md#4-the-monkey-bikes-starting-frame)):
+decided assumption ([the monkey bike's starting frame](../assumptions/behaviour-assumptions.md#4-the-monkey-bikes-starting-frame)):
 such starting frames, input cases and branches are left out, and every walk of the monkey bike ends in each of its
 branches too.
 
@@ -2391,8 +2391,8 @@ The code shows which frames they have. The belt's frame is a block of 7 frames p
 between 32 and 96 in steps of 16, its resize sets the shown and the saved frame to the first frame of that width's
 block, and its run only moves within the block. The gear's run adds its control value to its frame and wraps it within
 0 to 3. Two decided assumptions now give these starting frames
-([the conveyor belt's](behaviour-assumptions.md#5-the-conveyor-belts-starting-frame) and
-[the gear's](behaviour-assumptions.md#6-the-gears-starting-frame)): the belt starts on frame 0, 7, 14, 21 or 28, the
+([the conveyor belt's](../assumptions/behaviour-assumptions.md#5-the-conveyor-belts-starting-frame) and
+[the gear's](../assumptions/behaviour-assumptions.md#6-the-gears-starting-frame)): the belt starts on frame 0, 7, 14, 21 or 28, the
 gear on any of its four frames. Every shipped level of all eleven builds fits them.
 
 The belt then stops when the part at the other end of its belt link is a gear whose train is blocked, and a gear stops
@@ -2407,8 +2407,8 @@ analysis found its writers set. Over all parts, walks that end in every branch w
 
 The mouse motor and the electric motor are drawn by their own code as well. The mouse motor's run only flips between
 frames 0 and 1, and the electric motor's counts down within 0 to 2. Two more decided assumptions start them there
-([the mouse motor's](behaviour-assumptions.md#7-the-mouse-motors-starting-frame) and
-[the electric motor's](behaviour-assumptions.md#8-the-electric-motors-starting-frame)). Together with the generator
+([the mouse motor's](../assumptions/behaviour-assumptions.md#7-the-mouse-motors-starting-frame) and
+[the electric motor's](../assumptions/behaviour-assumptions.md#8-the-electric-motors-starting-frame)). Together with the generator
 change below, walks that end in every branch reach 409 in Even More and 362 in TIM 1, and walks that stop 69 and 52.
 
 ### Frames a partly known state allows
@@ -2540,8 +2540,8 @@ is left out, like the cases a decided assumption rules out.
 ### Decided control values and ends
 
 Two more decided assumptions close the last walks of the jack-in-the-box, the gear and the teeter-totter
-([control values](behaviour-assumptions.md#9-control-values) and
-[the teeter-totter's ends](behaviour-assumptions.md#10-the-teeter-totters-ends)). Where a walk needs one of their
+([control values](../assumptions/behaviour-assumptions.md#9-control-values) and
+[the teeter-totter's ends](../assumptions/behaviour-assumptions.md#10-the-teeter-totters-ends)). Where a walk needs one of their
 control values, it now branches on -1, 0 and 1 and has no branch for any other number. A teeter-totter on frame 0 with
 control value -1, or on frame 2 with 1, is ruled out wherever a walk would start, branch or begin an input case there;
 the branches on known numbers check it too, and they also leave out a number the walk's own tests rule out.
@@ -3003,7 +3003,7 @@ comparison takes a recording's starting fields as the part's fields only on the 
 starting values of fields the walk follows from its start (the countdowns). So at run 21 the test of the control value
 stayed open.
 
-A decided assumption ([the monkey bike's reaction](behaviour-assumptions.md#16-the-monkey-bikes-reaction)) settles
+A decided assumption ([the monkey bike's reaction](../assumptions/behaviour-assumptions.md#16-the-monkey-bikes-reaction)) settles
 it: while the bike plays its reaction, nothing pulls its rope or bounces it, so its control value keeps the value it
 had when the reaction started. A walk that starts in the reaction (a first walk, or a starting frame a level saves, on
 frames 5 to 12) now keeps the control value as its starting value, like a countdown that never moves. It keeps it
@@ -3075,13 +3075,13 @@ The statements:
 5. **A belt from the bike can drive another part, like a jack-in-the-box.** Agrees. The jack's flags have no `0x0800`,
    so the bike's copy reaches it. Its run (`0x1b888`) adds its control value to its frame on frames 0 to 7 (turned round
    when the jack is flipped) and wraps at 8 and -1. The bike writes only -1, 0 or 1, the numbers
-   [decided assumption 9](behaviour-assumptions.md#9-control-values) allows. Each full turn counts `0x96` up, and at 6
+   [decided assumption 9](../assumptions/behaviour-assumptions.md#9-control-values) allows. Each full turn counts `0x96` up, and at 6
    the jack pops (frame 8, sound 3), so a pedalling bike should pop a jack on its belt after 6 turns (48 runs), with a
    pause while the bike shows its stars.
 
 The bike's recordings seeded on frames 5 to 12 (32 per build) used to stay open: they start there with the counter and
 the control value at 0, a state the game never gives
-([decided assumption 4](behaviour-assumptions.md#4-the-monkey-bikes-starting-frame)), and the run's input case that
+([decided assumption 4](../assumptions/behaviour-assumptions.md#4-the-monkey-bikes-starting-frame)), and the run's input case that
 keeps the frame there also tests the belt link at `0x54`, which a clip doesn't save. The recorder answers it: `setup` in
 `research/v24/verify_animations.py` clears the part's 0x300 bytes and then sets only the type, flags, position, size,
 pointers and the clip's seed, never `0x54`, and the bike's run never writes `0x54` (the comparison counts every write
@@ -3220,7 +3220,7 @@ outline point count (`0x1e`) makes room for. This finds 28 more parts in Even Mo
 the table for the frame and flip shown.
 
 The wood incline has no frame list, since the program draws it, so its reset is run for the frames [decided assumption
-21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame) gives it, the ones its width picks. Its reset
+21](../assumptions/behaviour-assumptions.md#21-the-wood-inclines-starting-frame) gives it, the ones its width picks. Its reset
 (`0x1b7d1` in Even More, English floppy) picks a table from the list at `0x2f06` by its frame, or from the list at
 `0x2f2e` when it is flipped left to right, and copies 4 corners. On frames 0 to 3 (widths 16 to 64) the outline is a
 slab 16 pixels thick as wide as the incline, from its top left down to its bottom right: (0, 0), (w − 1, 15),
@@ -3279,7 +3279,7 @@ gets its resting frames from its rules as before.
 In Even More this gives frame 0 as the resting frame of 16 parts with one frame: the bowling ball, basketball, rope,
 birdcage, bucket, eye hook, baseball, jack-o-lantern, heart, Christmas tree, cannonball, tennis ball, cheese, thumb tack,
 pool ball and shamrock (11 of them in TIM 1). Their reset keeps the frame the level saved, and with
-[the decided assumption on parts with one frame](behaviour-assumptions.md#13-parts-with-one-frame) that is frame 0, so
+[the decided assumption on parts with one frame](../assumptions/behaviour-assumptions.md#13-parts-with-one-frame) that is frame 0, so
 their reset is now known too. The walls, floors, pulley, belt, rope end, super ball and curved pipe wall
 share the empty run too, but the program draws them its own way, so they have no frame list to count and stay without
 one.
@@ -3319,8 +3319,8 @@ starts on 4.
 ### Starting frames from decided assumptions
 
 Three decided assumptions give more parts their starting frames
-([13](behaviour-assumptions.md#13-parts-with-one-frame), [14](behaviour-assumptions.md#14-parts-the-game-draws-itself)
-and [15](behaviour-assumptions.md#15-the-generators-starting-frame)). When the reset keeps the frame the level saved,
+([13](../assumptions/behaviour-assumptions.md#13-parts-with-one-frame), [14](../assumptions/behaviour-assumptions.md#14-parts-the-game-draws-itself)
+and [15](../assumptions/behaviour-assumptions.md#15-the-generators-starting-frame)). When the reset keeps the frame the level saved,
 the reset now lists the frames it can start on (`rest.frames`): the part's own frames, or the ones the assumption gives
 a part the game draws itself (the pulley and the curved pipe wall on 0 to 3). When that is one frame, the reset is
 known: the one-frame parts, the walls, the grass floor and the super ball start on frame 0, and a part whose run keeps
@@ -3368,8 +3368,8 @@ No recording shows 28 part types of Even More and 22 of TIM 1 (walls, balls, rop
 solar panel, magnifying glass, rope end, the holiday parts and others), so the shipped levels are the only check of
 where they start. `checkLevelFrames` (`level-frame-check.ts`) compares every saved frame with the frames the
 description allows: those a decided assumption gives (`LEVEL_FRAMES`), or else the part's own frames
-([assumption 13](behaviour-assumptions.md#13-parts-with-one-frame)). It also checks the decided control values
-([assumption 9](behaviour-assumptions.md#9-control-values)) and notes a start frame that isn't one of the part's
+([assumption 13](../assumptions/behaviour-assumptions.md#13-parts-with-one-frame)). It also checks the decided control values
+([assumption 9](../assumptions/behaviour-assumptions.md#9-control-values)) and notes a start frame that isn't one of the part's
 resting frames. `pnpm --filter @opentim/content check-level-frames` runs it over game folders and fails on a frame or
 control value the description doesn't allow.
 
@@ -3390,7 +3390,7 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
   frame -1. The editor keeps the width between 16 and 64 (the type record's limits), so these were made another way,
   and their reset reads its outline from the word before its table. The user decided on 2026-11-06 that an incline
   starts on the frame its width gives
-  ([decided assumption 21](behaviour-assumptions.md#21-the-wood-inclines-starting-frame)): `LEVEL_FRAMES` lists frames
+  ([decided assumption 21](../assumptions/behaviour-assumptions.md#21-the-wood-inclines-starting-frame)): `LEVEL_FRAMES` lists frames
   -1 to 3 with the rule, the incline's rest says so, and the check now also compares each incline's frame with the one
   its width gives (`fromWidth`). The walks can't tie the frame to the width, so they start from the five frames.
 - The decided starting frames still hold everywhere: the conveyor belt on 0, 7, 14, 21 or 28, each the frame its
@@ -3400,7 +3400,7 @@ Over all eleven builds (1,281 level files, every one read, board and bin parts a
   there.
 
 What the code leaves open for these parts, and for effects of other parts no recording covers, is now a list of things
-to try in the game: [behaviour-game-checks.md](behaviour-game-checks.md).
+to try in the game: [behaviour-game-checks.md](../plans/behaviour-game-checks.md).
 
 ### Walk notes that name the frame and the test
 
@@ -3434,7 +3434,7 @@ recordings compare the same.
 One gear note read "At frame 65535, the next state depends on...". A gear never reaches that frame. Its run adds the
 control value at `0x12` to its frame and wraps -1 to 3 and 4 to 0, and the advancement of connected gears does the
 same (see [connected gear traversals](#connected-gear-traversals)); the reset keeps the saved frame, which a level
-gives as 0 to 3 ([the decided assumption](behaviour-assumptions.md#6-the-gears-starting-frame)), and creation sets 0. So a run always starts on 0 to 3. The run's rules still test for -1 and 4, because the code tests the frame after
+gives as 0 to 3 ([the decided assumption](../assumptions/behaviour-assumptions.md#6-the-gears-starting-frame)), and creation sets 0. So a run always starts on 0 to 3. The run's rules still test for -1 and 4, because the code tests the frame after
 it adds the control value. The input cases turned the test "the frame is -1" into a case that starts on frame -1,
 and that case gave the note.
 

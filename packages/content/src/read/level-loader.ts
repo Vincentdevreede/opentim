@@ -1,6 +1,6 @@
 /**
  * Where the game's puzzle loader puts the fields of a level file, as `scripts/check-level-fields.ts` found by loading
- * every shipped puzzle of the two recorded builds in the emulator (see "What the loader keeps" in `docs/levels.md`).
+ * every shipped puzzle of the two recorded builds in the emulator (see "What the loader keeps" in `docs/research/levels.md`).
  * TIM 1 and Even More only: Toons and TIM 2 have their own loaders, which aren't read.
  */
 

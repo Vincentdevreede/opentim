@@ -1,7 +1,7 @@
 # The level recorder
 
 The level recorder runs a shipped puzzle in the game's own code and saves every part's record after each step. It is
-what the machine of part B is checked against (step C1 of [the plan](behaviour-plan-together.md)). Nothing from other
+what the machine of part B is checked against (step C1 of [the plan](../plans/behaviour-plan-together.md)). Nothing from other
 projects runs: the processor runs the instructions of `TIM.EXE` as the analysis decodes them, and the code around it
 only answers what the game asks DOS, the BIOS and the hardware for.
 
@@ -97,7 +97,7 @@ game, 2026-11-09).
 ## Checking the lists
 
 `check-moving-list` runs every shipped puzzle of a build for 500 steps and checks the lists at every step against
-[decided assumption 22](behaviour-assumptions.md#22-searches-of-the-moving-list): no part of a fixed type on the moving
+[decided assumption 22](../assumptions/behaviour-assumptions.md#22-searches-of-the-moving-list): no part of a fixed type on the moving
 list. It also lists the types that join a list during a run and parts whose list flags at `0x06` disagree with their
 list. All puzzles of a build take about two minutes for TIM 1 and four for Even More.
 

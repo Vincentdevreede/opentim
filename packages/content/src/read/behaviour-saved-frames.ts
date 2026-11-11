@@ -1,5 +1,5 @@
 /**
- * States a part is never in, decided after reading the code (docs/behaviour-assumptions.md). A level stores a part's
+ * States a part is never in, decided after reading the code (docs/assumptions/behaviour-assumptions.md). A level stores a part's
  * saved frame, at `0x90`, not the frame it shows while the machine runs, and the reset sets the monkey bike's counter
  * at `0x96` to 0. In play the monkey bike reaches frames 5 to 12 only from its bounce, which starts that counter in
  * the same step, and its run leaves them when the counter runs out. So it is on those frames with the counter at 0
