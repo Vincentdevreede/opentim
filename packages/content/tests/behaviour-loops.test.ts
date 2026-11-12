@@ -317,3 +317,24 @@ describe("counted loop effects after the loop", () => {
     expect(result.transitions[0]!.confidence).not.toBe("inferred");
   });
 });
+
+describe("counted loop indexed stores", () => {
+  // xor di,di; the body is inc di; mov bx,di; shl bx,1; mov word [bx+si+4],7 while di < 4.
+  const image = loopRoutine(
+    [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6, 0x33, 0xff],
+    [0x47, 0x8b, 0xdf, 0xd1, 0xe3, 0xc7, 0x40, 0x04, 7, 0],
+    [0x83, 0xff, 4],
+    [0x5f, 0x5e, 0x5d, 0xcb],
+  );
+  const code = readRoutineCode(image, entry, 0);
+
+  it("lists the fields an index read after the increment reaches", () => {
+    const loops = discoverCountedLoops(code, new Map(), 0x40);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]!.possibleFields.map((f) => f.offset)).toEqual([6, 8, 10, 12]);
+  });
+
+  it("rejects the loop when the last of those fields is the state", () => {
+    expect(discoverCountedLoops(code, new Map(), 12)).toHaveLength(0);
+  });
+});
