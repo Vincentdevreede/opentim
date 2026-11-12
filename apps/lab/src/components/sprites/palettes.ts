@@ -2,7 +2,7 @@
 
 import { computed } from "vue";
 import { resources } from "../../library.ts";
-import { autoPalette, paletteColors, type PaletteChoice } from "../../sprites.ts";
+import { autoPalette, paletteColors, scriptPalettes, type PaletteChoice } from "../../sprites.ts";
 
 /** The setting for the palette chosen automatically from the image's name. */
 export const AUTO = "auto";
@@ -18,7 +18,9 @@ export function usePalettes() {
 
   /** The palette for an image: the chosen one, or else the automatic one. */
   const choose = (image: string, setting: string): PaletteChoice | undefined =>
-    names.value.includes(setting) ? { name: setting, reason: "chosen" } : autoPalette(image, names.value);
+    names.value.includes(setting)
+      ? { name: setting, reason: "chosen" }
+      : autoPalette(image, names.value, scriptPalettes(resources.value));
 
   /** The options of a palette select whose first option follows another setting. */
   const options = (first: string) => [

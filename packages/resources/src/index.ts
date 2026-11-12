@@ -37,3 +37,4 @@ export {
   type SoundEntry,
   type SoundTrack,
 } from "./sound.ts";
+export { TTM_LOADS, readTtmFiles, ttmPalettes, type TtmFile, type TtmLoad } from "./ttm.ts";

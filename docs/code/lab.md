@@ -69,7 +69,9 @@ The biggest file of the Lab. In order:
 - **Import** (`components/import/`): start, staged, failed, and the overview of a loaded game.
 - **Files**: file list with search (text, bytes, numbers), bookmarks, and a hex view where each byte says what it is
   (`fields.ts`, `inspect.ts`, `structure.ts`, `markers.ts`).
-- **Sprites**: images and screens with palettes and frames (`components/sprites/ImageDetail.vue`).
+- **Sprites**: images and screens with palettes and frames (`components/sprites/ImageDetail.vue`). The automatic
+  palette (`autoPalette` in `sprites.ts`) is the one a TTM script loads with the image (Toons), else the one with the
+  image's name, else the game's main palette.
 - **Parts**: part cards; `PartDetail.vue` has a stage with frames and sprites, and side tabs Frame or Sprite,
   Behaviour (`BehaviourPanel`, three layouts), Interactions (`InteractionLists`) and Type (`RecordPanel`, the 58-byte
   type record).

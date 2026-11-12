@@ -1,7 +1,15 @@
 /** Decoding the sprite sheets, screens and palettes of the loaded files, for the Sprites page. */
 
 import { readLevel } from "@opentim/content";
-import { FormatError, decodeImage, readPalette, type Frame, type Image } from "@opentim/resources";
+import {
+  FormatError,
+  decodeImage,
+  readPalette,
+  readTtmFiles,
+  ttmPalettes,
+  type Frame,
+  type Image,
+} from "@opentim/resources";
 import type { Resource } from "./importer.ts";
 import { SUPPORT, type Confidence } from "./kinds.ts";
 
@@ -101,6 +109,7 @@ export function imagePalette(image: Resource, all: readonly Resource[]): Uint8Ar
   const name = autoPalette(
     image.name,
     palettes.map((p) => p.name),
+    scriptPalettes(all),
   )?.name;
   const palette = palettes.find((p) => p.name === name);
   return palette && paletteColors(palette);
@@ -112,11 +121,41 @@ export interface PaletteChoice {
   reason: string;
 }
 
+const scripts = new WeakMap<readonly Resource[], ReadonlyMap<string, string>>();
+
 /**
- * Guesses the palette of an image from the names: the palette with the same name, like `TITLE.PAL` for `TITLE.SCR`,
- * or else the game's main palette. Undefined when there are no palettes.
+ * The palette each image named in the loaded TTM scripts is shown with, by name, like `GAME.PAL` for Toons'
+ * `TITLE.SCR`, which `TITLE.TTM` shows after loading it. A script that can't be read is left out.
  */
-export function autoPalette(image: string, available: readonly string[]): PaletteChoice | undefined {
+export function scriptPalettes(all: readonly Resource[]): ReadonlyMap<string, string> {
+  let found = scripts.get(all);
+  if (!found) {
+    const files = all
+      .filter((r) => r.name.endsWith(".TTM"))
+      .flatMap((r) => {
+        try {
+          return [readTtmFiles(r.data)];
+        } catch {
+          return [];
+        }
+      });
+    found = ttmPalettes(files);
+    scripts.set(all, found);
+  }
+  return found;
+}
+
+/**
+ * Guesses the palette of an image: the one a TTM script shows it with, else the palette with the same name, like
+ * `DYNAMIX.PAL` for `DYNAMIX.SCR`, or else the game's main palette. Undefined when there are no palettes.
+ */
+export function autoPalette(
+  image: string,
+  available: readonly string[],
+  scripted: ReadonlyMap<string, string> = new Map(),
+): PaletteChoice | undefined {
+  const script = scripted.get(image.toUpperCase());
+  if (script && available.includes(script)) return { name: script, reason: "loaded with it by a TTM script" };
   const own = image.replace(/\.[^.]*$/, ".PAL");
   if (available.includes(own)) return { name: own, reason: "same name as the image" };
   const main = MAIN_PALETTES.find((p) => available.includes(p));

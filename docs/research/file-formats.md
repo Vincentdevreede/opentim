@@ -61,6 +61,19 @@ has one frame, sized by a `DIM:` chunk (u16 width, u16 height).
 
 In a sheet, colour 0 is transparent; a screen covers everything.
 
+## TTM scripts (.TTM)
+
+`readTtmFiles` (`ttm.ts`). Toons plays its title, the Dynamix logo, the credits and the finale from TTM scripts, which
+`TOONS.EXE` names (`TITLE.TTM`, `DYNAMIX.TTM`, `CREDITS.TTM`, `FINALE.TTM`). A script is chunks: `VER:` (the version,
+`4.14`), `PAG:` and `TT3:`, which holds the commands packed like a `BIN:` chunk. A command is a u16 whose low 4 bits
+are the number of u16 arguments after it, or 15 for one NUL-terminated name, padded to an even length. Three commands
+load files: `F01F` a screen, `F02F` a sprite sheet and `F05F` a palette. What the other commands do isn't read.
+
+The Lab shows an image the scripts load with the palette its script loads (`ttmPalettes`): the last one loaded before
+it, or the first one after it, since `TITLE.TTM` loads `TITLE.SCR` before `game.PAL`. So Toons' title screen shows with
+`GAME.PAL`, not with `TITLE.PAL`, which nothing in `TOONS.EXE` or the scripts names; `DYNAMXTP.BMP` shows with
+`DYNAMIX.PAL`. Every other Toons image gets `GAME.PAL`, the palette `TOONS.EXE` loads for play.
+
 ## Sound banks (.SX)
 
 `readSoundBank` and `decodeSound` (`sound.ts`). A `SND:` container with an `INF:` chunk, a `DAT:` chunk per sound and
