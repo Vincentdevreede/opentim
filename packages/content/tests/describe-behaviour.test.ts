@@ -377,6 +377,22 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(names.some((name) => name.includes("reflected"))).toBe(false);
   });
 
+  it("does not say a part sets a flag when it gives another part its own drawing flags with one bit more", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    data.layout.fields[2] = { name: "drawingFlags", offset: 8, ...proof };
+    const copied: Expression = { kind: "binary", operator: "|", left: field(8), right: constant(0x2000), width: 16 };
+    const ownCopy: Expression = { ...copied, left: { kind: "field", object: "collider", offset: 8, width: 16 } };
+    const words = (value: Expression) => {
+      data.parts[0]!.visibleEffects = [{ ...write(8, value), object: "collider" }];
+      return describeBehaviour(data)
+        .parts[0]!.effects.filter((item) => item.field === 8)
+        .map((item) => item.description)
+        .join(" ");
+    };
+    expect(words(copied)).not.toMatch(/^Sets /);
+    expect(words(ownCopy)).toMatch(/^Sets /);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),

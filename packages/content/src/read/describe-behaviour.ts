@@ -3588,17 +3588,9 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       if (rest) words.push(`Turns flag 0x${rest.toString(16)} of ${subject} drawing flags round.`);
       return words.join(" ");
     }
-    // An or sets bits and an and with a mask clears them, whatever the others were: say which.
-    const bitsOf = (expression: Expression): { set: number; clear: number } | undefined => {
-      if (expression.kind === "field" && expression.offset === write.offset) return { set: 0, clear: 0 };
-      if (expression.kind !== "binary" || expression.right.kind !== "constant") return undefined;
-      const inner = bitsOf(expression.left);
-      const mask = expression.right.value & 0xffff;
-      if (!inner) return undefined;
-      if (expression.operator === "|") return { set: inner.set | mask, clear: inner.clear & ~mask };
-      if (expression.operator === "&") return { set: inner.set & mask, clear: inner.clear | (~mask & 0xffff) };
-      return undefined;
-    };
+    // An or sets bits and an and with a mask clears them, whatever the others were: say which. Only of the same
+    // object's flags: another part's flags with a bit more replace every flag.
+    const bitsOf = (expression: Expression) => changedBits(expression, write);
     // The gear propagation a gear's run calls marks the gears it reaches with its visited bit, and changes no other.
     const propagation = (report.helpers ?? []).find(
       (helper) => (helper as { partGraph?: { propagation?: { fields: { flags: number } } } }).partGraph?.propagation,
