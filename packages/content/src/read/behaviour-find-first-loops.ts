@@ -9,7 +9,7 @@ import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Evidence } from "./behaviour.ts";
 import type { Instruction, Operand } from "./x86.ts";
-import { evidenceOf } from "./behaviour-terms.ts";
+import { evidenceOf, implicitRegisterWrites } from "./behaviour-terms.ts";
 
 export interface FindFirstLoop {
   /** The null test of the member pointer at the loop head. */
@@ -139,6 +139,7 @@ export function discoverFindFirstLoops(
           i !== advance &&
           !clears(i),
       ) ||
+      instructions.some((i) => implicitRegisterWrites(i).includes(node)) ||
       instructions.some(
         (i) =>
           i.mnemonic === "xchg" ||
@@ -190,7 +191,10 @@ export function discoverFindFirstLoops(
         }
         globals ||= !!callee.footprint.unknownGlobalEffects?.length || callee.writes.some((w) => w.root === "global");
         passCalls.push({ register: argument.name, callee });
-      } else if (writes(i)) {
+        continue;
+      }
+      for (const name of implicitRegisterWrites(i)) registers.add(name);
+      if (writes(i)) {
         const dest = i.operands[0];
         if (dest?.kind === "register") registers.add(WHOLE[dest.name] ?? dest.name);
         else if (dest?.kind === "memory") {
