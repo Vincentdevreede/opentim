@@ -232,6 +232,16 @@ describe("hits in words", () => {
     expect(outlineSides(outline([]))).toBeUndefined();
   });
 
+  it("gives no sides when the reset leaves a point out", () => {
+    const gap = outline([
+      [0, 0],
+      [8, 0],
+      [8, 8],
+    ]);
+    gap.reset = gap.reset.filter((w) => !w.target.startsWith("outline[0]"));
+    expect(outlineSides(gap)).toBeUndefined();
+  });
+
   it("says which way the hit surface faces and which edge was hit", () => {
     expect(readTerm("(collider.contactAngle + 0x4000) & 0x8000 == 0")).toBe("hit from above");
     expect(readTerm("(collider.contactAngle + 0x4000) & 0x8000 != 0")).toBe("hit from below");
@@ -273,6 +283,11 @@ describe("writeRows", () => {
       ["outline", ["(0,0)", "(frameWidth,0)"]],
       ["state", ["0"]],
     ]);
+  });
+
+  it("lists the writes one by one when a point is left out", () => {
+    const rows = writeRows([write("outline[1].x", "8"), write("outline[1].y", "0")]);
+    expect(rows.map((r) => r.values)).toEqual([["outline[1].x = 8", "outline[1].y = 0"]]);
   });
 
   it("writes an equality with a 16-bit word as its signed value", () => {
@@ -325,6 +340,16 @@ describe("outlineShape", () => {
       { x: 31, y: 15 },
       { x: 0, y: 15 },
     ]);
+  });
+
+  it("gives nothing when the reset leaves a point out", () => {
+    const gap = part([
+      ["0", "0"],
+      ["8", "0"],
+      ["8", "8"],
+    ]);
+    gap.reset = gap.reset.filter((w) => !w.target.startsWith("outline[1]"));
+    expect(outlineShape(gap, { width: 32, height: 16 })).toBeUndefined();
   });
 
   it("gives nothing when a point depends on more than the frame's size", () => {
