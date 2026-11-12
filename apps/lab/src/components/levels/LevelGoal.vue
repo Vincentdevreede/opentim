@@ -94,7 +94,8 @@ const seconds = (ms: number) => {
 const typeNumbers = (c: GoalCondition) => c.types?.map((t) => t.type) ?? goalTypes.value;
 
 /** A condition's parts in words: the types, or any part. */
-const typesOf = (c: GoalCondition) => (c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part");
+const typesOf = (c: GoalCondition) =>
+  (c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part") + (c.part === undefined ? "" : ` #${c.part}`);
 const countOf = (c: GoalCondition) => {
   const op = { "==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥" }[c.count!.op];
   return `${op} ${c.count!.value}`;

@@ -27,6 +27,7 @@ interface PartSpec {
   state?: number;
   flags1?: number;
   flags2?: number;
+  flags3?: number;
   belt?: { at?: [number, number]; width?: number; parts?: [number, number] };
   ropes?: { at?: [number, number]; parts?: [number, number] }[];
   links?: [number, number];
@@ -34,7 +35,7 @@ interface PartSpec {
 
 /** A part of version 0x102. */
 function part(p: PartSpec): Item[] {
-  const { x = 0, y = 0, width = 16, height = 16, state = 0, flags1 = 0xe000, flags2 = 0 } = p;
+  const { x = 0, y = 0, width = 16, height = 16, state = 0, flags1 = 0xe000, flags2 = 0, flags3 = 0 } = p;
   const belt = p.belt ?? {};
   const rope = (i: number): Item[] => {
     const r = p.ropes?.[i];
@@ -45,7 +46,7 @@ function part(p: PartSpec): Item[] {
     p.type,
     flags1,
     flags2,
-    0,
+    flags3,
     state,
     0,
     width,
@@ -185,8 +186,10 @@ describe("layoutScene", () => {
       bytes(0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, parts.length, 0, 0, ...parts.flatMap(part));
     const data = tim2(
       // Bit 0x40 of the first word means something else in TIM 2, so this ball isn't tiled.
-      { type: 0, flags1: 0x1040, state: 1 },
-      { type: 1, width: 48, flags1: 0x6000, flags2: 0x180 },
+      { type: 0, flags1: 0x1040, flags3: 0x40, state: 1 },
+      { type: 1, width: 48, flags1: 0x6000, flags2: 0x180, flags3: 0x40 },
+      // Without bit 0x40 of the third word the part starts in the bin.
+      { type: 0 },
     );
     const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
     const list: PartList = {
@@ -195,6 +198,7 @@ describe("layoutScene", () => {
     };
     const scene = layoutScene(level, list, spriteOf);
     expect(scene.area).toEqual({ width: 576, height: 384 });
+    expect(scene.bin.map((p) => p.index)).toEqual([2]);
     expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
       ["frame", "frame 0 for state 1"],
       ["tiles", "tiles of PART1 from sprite 0"],

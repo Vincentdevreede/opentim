@@ -143,6 +143,16 @@ export interface Scene {
   knot: Composition;
 }
 
+/** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
+const TIM2_FIXED = 0x40;
+/**
+ * The list a part is on when the puzzle starts. TIM 1 keeps its parts bin as a third list in the file. TIM 2 keeps
+ * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
+ * third flag word into the parts bin, so those are the bin.
+ */
+export const groupOf = (level: Level, part: LevelPart): LevelPart["group"] =>
+  level.layout === "tim2" && !((part.flags[2] ?? 0) & TIM2_FIXED) ? "bin" : part.group;
+
 /** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
 const TILED = 0x40;
 /**
@@ -334,7 +344,7 @@ const numbers = (parts: { part: LevelPart }[]) => parts.map((p) => `#${p.part.in
 
 /** Lays out a level for drawing, and lists what the drawing leaves out or guesses. */
 export function layoutScene(level: Level, list: PartList | undefined, spriteOf: SpriteOf): Scene {
-  const board = level.parts.filter((p) => p.group !== "bin");
+  const board = level.parts.filter((p) => groupOf(level, p) !== "bin");
   const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
@@ -370,7 +380,7 @@ export function layoutScene(level: Level, list: PartList | undefined, spriteOf: 
     area: PLAY_AREAS[level.layout],
     parts,
     lines,
-    bin: level.parts.filter((p) => p.group === "bin"),
+    bin: level.parts.filter((p) => groupOf(level, p) === "bin"),
     notes,
     knot,
   };

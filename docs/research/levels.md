@@ -329,10 +329,17 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
 
 The Levels page shows these conditions, with the area of an inside test drawn on the level.
 
-Not known yet: what bits `0x40` and `0x100` of the third flag word mean (0x40 is on most fixed parts, and the editor
-clears it from a part taken from the bin; 0x100 is on parts like the balls of the first puzzle that stand in a row
-below the play area, so it may mark the parts bin), and the two bytes after the version (the second goes from 1 to 15
-and may pick the background).
+**The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
+(the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving
+parts. A part with bit `0x40` of the third flag word stays on the board: it is a fixed part of the puzzle. Every other
+part gets its state back to its start and is dropped into the parts bin, by the same code the editor uses when a part
+is dropped on the bin; that code clears bit `0x40` and bit `0x8000` of the first word. So the bin of a TIM 2 puzzle is
+its parts without bit `0x40`, and the positions the file keeps for them are where the designer left them. In one game
+mode (the mode word is 9, not identified yet) a part with neither `0x40` nor `0x100` stays on the board instead, so
+bit `0x100` marks the parts that go to the bin even then. The Levels page puts the parts without `0x40` in the bin.
+
+The two bytes after the version: a new level starts with 0 and 3 (TIM2.EXE sets them so when it clears a level). The
+second goes from 1 to 15 in the shipped levels and may pick the background; not read further.
 
 The Lab draws TIM 2 walls as tiles when both bits `0x80` and `0x100` of the second flag word are set, as they are for
 every wall and tile type; that rule is read from the files and the sheets, not yet from TIM2.EXE. Its play area,
