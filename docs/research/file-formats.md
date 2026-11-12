@@ -79,6 +79,15 @@ A track is a MIDI channel (its first byte has the channel in its low 4 bits), or
 byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, followed by unsigned 8-bit mono PCM.
 
 `.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header; the Lab plays them at 11,025 Hz, a guess.
+TIM2.EXE names them `SX_` and four digits, like the number an animation's sound command gives, and hands the file, its
+size and a buffer to the digital sound driver; the rate isn't in that call, so it would be in the driver, which isn't
+read yet.
+
+**TIM 2's music** is in `TIM2.SX`, the same format as TIM 1's bank: 38 sounds, the same in the floppy, the CD and the
+demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number of its song (the levels use 1000 to
+1021 and 1023). The other 14 are part sounds numbered like their part, such as 5 for the conveyor belt. `MUSIC.RES`
+lists the songs by number with the name the game shows, like `1002 New Age`; `MUSIC2.RES` is a shorter list of the
+same kind, and `SOUND.RES` names some of the `.RAW` sounds, like `3001 Yeee Haaa!!`.
 
 ## The sound drivers (SX.OVL)
 
@@ -86,6 +95,11 @@ byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, fo
 three-letter files are the drivers (`ADL` AdLib, `M32` MT-32, `GMD` General MIDI and more); the numbered ones are SCI
 patch resources (a 2-byte header `89 00`), like `003` with the AdLib instruments. `packages/sound` plays music with
 them.
+
+TIM 2's `ADL` driver is the same file as TIM 1's, byte for byte, so `packages/sound` plays TIM 2's songs as the game
+does, with TIM 2's own instruments from its patch `003`. Even More's `ADL` is 50 bytes longer: when a note starts, it
+first looks for a free voice that last played the channel's instrument, and only then takes the free voice used
+longest ago, as TIM 1 and TIM 2 do.
 
 ## Language packages (FRENCH.RES, GERMAN.RES)
 
