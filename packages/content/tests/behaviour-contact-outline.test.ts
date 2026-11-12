@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { outlineFormulae, type ContactOutline, type OutlineContext } from "../src/read/behaviour-contact-outline.ts";
+import {
+  commitSetTwoWhen,
+  outlineFormulae,
+  type ContactOutline,
+  type OutlineContext,
+} from "../src/read/behaviour-contact-outline.ts";
+import { candidateOutlinePatterns, subjectOutlinePatterns } from "../src/read/behaviour-contact-outline-patterns.ts";
 import { analyseRoutine, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
@@ -530,5 +536,17 @@ describe("typed contact membership caller", () => {
     const result = membershipCaller(17, 0x400);
     expect(result.writes.find((w) => w.object === "part" && w.offset === 12)?.confidence).toBe("unresolved");
     expect(result.engineCalls?.[0]?.purpose).toBe("Checks membership");
+  });
+});
+
+describe("outline commit flags", () => {
+  const typeTest = (pattern: string) => JSON.stringify(commitSetTwoWhen(pattern)).includes('"value":63');
+
+  it("states the candidate type 63 test only for the forms of the code that have it", () => {
+    for (const pattern of [...candidateOutlinePatterns, ...subjectOutlinePatterns])
+      expect(typeTest(pattern)).toBe(pattern.includes("cmp 16:ds[bx+4],#63"));
+    expect(typeTest(candidateOutlinePatterns[0]!)).toBe(true);
+    expect(typeTest(candidateOutlinePatterns[2]!)).toBe(false);
+    expect(typeTest(subjectOutlinePatterns[2]!)).toBe(false);
   });
 });

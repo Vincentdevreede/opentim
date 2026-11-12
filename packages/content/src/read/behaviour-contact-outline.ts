@@ -277,6 +277,17 @@ export function outlineFormulae(reverse: boolean, context: OutlineContext): Outl
   };
 }
 
+/** When a committed contact sets 2 rather than 4. Some forms of the code test the candidate's type first, others don't. */
+export function commitSetTwoWhen(pattern: string): Predicate {
+  const flags = either(
+    compare("!=", binary("&", binary("|", field("subject", 8), field("candidate", 8)), constant(32768)), constant(0)),
+    compare("!=", binary("&", field("candidate", 6), constant(16384)), constant(0)),
+  );
+  return pattern.includes("cmp 16:ds[bx+4],#63")
+    ? all(compare("!=", field("candidate", 4), constant(63)), flags)
+    : flags;
+}
+
 const validWord = (n: number | undefined): n is number => n !== undefined && n >= 0 && n <= 65534;
 /** Complete graph, dependencies and context identities are checked before any semantic relation is exposed. */
 export function addContactOutlineSummaries(
@@ -288,11 +299,15 @@ export function addContactOutlineSummaries(
     const prior = summaries.get(code.address);
     if (!prior?.contactSearch || !prior.globalObjectWrites?.length) continue;
     let bound: Map<string, number> | undefined,
-      reverse = false;
+      reverse = false,
+      matched = "";
     for (const [mode, patterns] of [candidateOutlinePatterns, subjectOutlinePatterns].entries()) {
       for (const pattern of patterns) {
         bound = matchHeapRoutine(code, pattern, new Map());
-        if (bound) break;
+        if (bound) {
+          matched = pattern;
+          break;
+        }
       }
       if (bound) {
         reverse = mode === 1;
@@ -402,8 +417,6 @@ export function addContactOutlineSummaries(
       width: 16,
     });
     const tableOffset = (offset: number) => (reverse ? binary("-", constant(0), table(offset)) : table(offset));
-    const candidateFlags = field("candidate", 8),
-      subjectFlags = field("subject", 8);
     const translated = { start: point("translated boundary start"), end: point("translated boundary end") };
     const centre = binary("-", global(context.subjectCenterX), field("outer edge start", 0));
     const mapSideInput = (expression: Expression): Expression => {
@@ -586,13 +599,7 @@ export function addContactOutlineSummaries(
         flagsField: 6,
         flagsAndMask: 65529,
         clearedMask: 6,
-        setTwoWhen: all(
-          compare("!=", field("candidate", 4), constant(63)),
-          either(
-            compare("!=", binary("&", binary("|", subjectFlags, candidateFlags), constant(32768)), constant(0)),
-            compare("!=", binary("&", field("candidate", 6), constant(16384)), constant(0)),
-          ),
-        ),
+        setTwoWhen: commitSetTwoWhen(matched),
         otherwiseSetMask: 4,
         contactPartField: 132,
         contactAngleField: 136,
