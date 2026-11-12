@@ -34,11 +34,14 @@ const pictures = computed(
   () =>
     new Map(
       props.scene.parts.flatMap((d) =>
-        d.composition?.placed.length
+        d.composition?.placed.length || d.composition?.shapes?.length
           ? [
               [
                 d.part.index,
-                compositionCanvas(d.composition, props.paletteOf(d.composition.placed[0]!.placement.sheet)),
+                compositionCanvas(
+                  d.composition,
+                  props.paletteOf(d.composition.placed[0]?.placement.sheet ?? `PART${d.part.type}`),
+                ),
               ],
             ]
           : [],

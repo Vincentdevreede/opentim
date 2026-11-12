@@ -357,8 +357,11 @@ the part's state. Two others draw from the part's size:
   off at the part's box, widened across to whole groups of 8 pixels.
 
 Without TIM2.EXE the Lab goes by the type's flag bits the levels keep: bit `0x2000` of the third word for walls (every
-wall type but the large pipes, 97, has it) and bits `0x1080` without `0x0400` for tile patterns. The colour block
-(127) has a routine of its own that the Lab doesn't follow; it is drawn as a box.
+wall type but the large pipes, 97, has it) and bits `0x1080` without `0x0400` for tile patterns.
+
+- **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
+  in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
+  has all of bits `0x1480` in its type's third flag word, which is how the Lab knows it without TIM2.EXE.
 
 The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
 and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a

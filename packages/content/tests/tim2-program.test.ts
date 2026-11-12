@@ -24,15 +24,22 @@ function program(types: number, draw: (type: number) => number): Uint8Array {
 }
 
 describe("TIM2.EXE's type table", () => {
-  it("finds the records and tells walls and tile patterns by the routine they share with types 1 and 122", () => {
+  it("finds the records and tells walls, tile patterns and colour blocks by the routine they share with types 1, 122 and 127", () => {
     const draw = (type: number) =>
-      type === 1 || type === 46 ? 0x14242ce0 : type >= 121 && type <= 124 ? 0x21f7b87b : 0x14242e7d;
+      type === 1 || type === 46
+        ? 0x14242ce0
+        : type >= 121 && type <= 124
+          ? 0x21f7b87b
+          : type === 127
+            ? 0x21f7b1ab
+            : 0x14242e7d;
     const types = readTim2Types(program(130, draw));
     expect(types.records).toHaveLength(130);
     expect(types.table).toBe(0x10);
     const drawing = tim2Drawing(types);
     expect([...drawing].filter(([, how]) => how === "wall").map(([t]) => t)).toEqual([1, 46]);
     expect([...drawing].filter(([, how]) => how === "pattern").map(([t]) => t)).toEqual([121, 122, 123, 124]);
+    expect(drawing.get(127)).toBe("block");
     expect(drawing.get(0)).toBe("frame");
   });
 

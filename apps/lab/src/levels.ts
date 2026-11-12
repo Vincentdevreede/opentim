@@ -91,9 +91,10 @@ export function readLevels(resources: readonly Resource[], layout: LevelLayout):
  *   types without a table of offsets per state to this, and for those TIM.EXE adds no offset.
  * - `tiles`: 16 × 16 tiles, for parts with bit 0x40 in the first flag word, like walls.
  * - `line`: a rope or a belt, drawn as lines between the parts it ties.
+ * - `block`: TIM 2's colour block, a box filled with one colour.
  * - `outline`: nothing to draw it with, so only its box is shown.
  */
-export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "outline";
+export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "block" | "outline";
 
 export interface DrawnPart {
   part: LevelPart;
@@ -163,13 +164,23 @@ export const groupOf = (level: Level, part: LevelPart): LevelPart["group"] =>
 const TILED = 0x40;
 /**
  * How TIM 2 draws a part without TIM2.EXE's type table. The levels keep the flag bits of the part's type: every type
- * TIM2.EXE draws with its wall routine has bit 0x2000 of the third word except the large pipes, and every type it
- * draws with its tile pattern routine has bits 0x1080 and not 0x0400.
+ * TIM2.EXE draws with its wall routine has bit 0x2000 of the third word except the large pipes, every type it
+ * draws with its tile pattern routine has bits 0x1080 and not 0x0400, and only the colour block has all of 0x1480.
  */
 function tim2DrawingFromFlags(part: LevelPart): Tim2Drawing {
   const third = part.flags[2] ?? 0;
   if (third & 0x2000) return "wall";
+  if ((third & 0x1480) === 0x1480) return "block";
   return (third & 0x1480) === 0x1080 ? "pattern" : "frame";
+}
+
+/**
+ * TIM2.EXE's colour block routine: a box the part's size, filled and outlined in the palette colour of the low byte
+ * of the part's extra word, colour 5 when that is 0.
+ */
+function blockShape(part: LevelPart): Shape {
+  const colour = part.extra & 0xff || 5;
+  return { kind: "box", x: 0, y: 0, width: part.size.width, height: part.size.height, colour, fill: colour, after: 0 };
 }
 /** Bits of the second flag word that mirror a part, left to right and upside down. */
 const MIRROR_X = 0x10;
@@ -348,7 +359,12 @@ function drawPart(
   const sheet = listPart.sheets[0];
   if (layout === "tim2") {
     const how = drawing?.get(part.type) ?? tim2DrawingFromFlags(part);
-    const by = drawing ? "TIM2.EXE’s" : "the flags’";
+    const by = drawing?.has(part.type) ? "TIM2.EXE’s" : "the flags’";
+    if (how === "block") {
+      const shape = blockShape(part);
+      const composition = compose([], spriteOf, { shapes: [shape] });
+      return { ...base, how: "block", detail: `a box in colour ${shape.colour}, by ${by} block rule`, composition };
+    }
     if (how === "wall") {
       const pieces = wallPieces(part, listPart, spriteOf);
       const composition = pieces && compose(pieces, spriteOf);

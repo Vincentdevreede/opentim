@@ -121,6 +121,7 @@ const LIST: PartList = {
     { id: "pulley", type: 7, sheets: [], frames: [] },
     { id: "belt", type: 8, sheets: [], frames: [] },
     { id: "rope", type: 10, sheets: [], frames: [] },
+    { id: "color-block", type: 127, sheets: [], frames: [] },
   ],
 };
 
@@ -189,6 +190,8 @@ describe("layoutScene", () => {
       { type: 0, flags1: 0x1040, flags3: 0x40, state: 1 },
       { type: 1, width: 64, flags3: 0x40 },
       { type: 47, x: 4, y: 0, width: 40, height: 16, flags3: 0x40 },
+      // The colour block: TIM2.EXE's flags for it are 0x1480 in the third word.
+      { type: 127, width: 20, height: 10, flags3: 0x14c0 },
       // Without bit 0x40 of the third word the part starts in the bin.
       { type: 0 },
     );
@@ -220,11 +223,15 @@ describe("layoutScene", () => {
     ]);
     const scene = layoutScene(level, list, spriteOf, drawing);
     expect(scene.area).toEqual({ width: 640, height: 400 });
-    expect(scene.bin.map((p) => p.index)).toEqual([3]);
+    expect(scene.bin.map((p) => p.index)).toEqual([4]);
     expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
       ["frame", "frame 0 for state 1"],
       ["tiles", "pieces of a wall, by TIM2.EXE’s wall rule"],
       ["tiles", "a pattern of tiles, by TIM2.EXE’s pattern rule"],
+      ["block", "a box in colour 5, by the flags’ block rule"],
+    ]);
+    expect(scene.parts[3]!.composition!.shapes).toEqual([
+      { kind: "box", x: 0, y: 0, width: 20, height: 10, colour: 5, fill: 5, after: 0 },
     ]);
     // The first and last state of the run at the ends, the ones between in turn.
     expect(scene.parts[1]!.composition!.placed.map((p) => [p.placement.sprite, p.placement.x])).toEqual([

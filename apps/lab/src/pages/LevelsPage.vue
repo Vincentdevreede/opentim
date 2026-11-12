@@ -254,6 +254,7 @@ const stats = computed(() => {
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },
+    ...(count(["block"]) ? [{ label: "Colour blocks", value: String(count(["block"])) }] : []),
     { label: "Drawn as a box", value: String(count(["outline"])) },
     { label: "Ropes and belts", value: String(s.lines.length) },
     { label: "In the parts bin", value: `${s.bin.length}, not drawn` },

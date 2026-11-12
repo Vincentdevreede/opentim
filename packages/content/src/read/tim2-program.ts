@@ -48,24 +48,30 @@ export function readTim2Types(exe: Uint8Array): Tim2Types {
   throw new Error("No type table in the data segment");
 }
 
-/** How TIM2.EXE draws a type: as a wall of pieces, as a pattern of tiles, or by its frame. */
-export type Tim2Drawing = "wall" | "pattern" | "frame";
+/**
+ * How TIM2.EXE draws a type: as a wall of pieces, as a pattern of tiles, as a box filled with one colour (the colour
+ * block), or by its frame.
+ */
+export type Tim2Drawing = "wall" | "pattern" | "block" | "frame";
 
 /** The far pointer of a type's draw routine, as one number. */
 const drawRoutine = (record: Uint8Array | undefined) =>
   record ? new DataView(record.buffer, record.byteOffset).getUint32(DRAW, true) : undefined;
 
 /**
- * The types TIM2.EXE draws as walls or patterns. The brick wall (1) is drawn by the wall routine and the tile (122) by
- * the pattern routine; every type whose record points at the same routine is drawn the same way.
+ * The types TIM2.EXE draws as walls, patterns or colour blocks. The brick wall (1) is drawn by the wall routine, the
+ * tile (122) by the pattern routine and the colour block (127) by the block routine; every type whose record points at
+ * the same routine is drawn the same way.
  */
 export function tim2Drawing(types: Tim2Types): Map<number, Tim2Drawing> {
   const wall = drawRoutine(types.records[1]);
   const pattern = drawRoutine(types.records[122]);
+  const block = drawRoutine(types.records[127]);
   return new Map(
     types.records.map((record, type) => {
       const routine = drawRoutine(record);
-      return [type, routine === wall ? "wall" : routine === pattern ? "pattern" : "frame"];
+      const how = routine === wall ? "wall" : routine === pattern ? "pattern" : routine === block ? "block" : "frame";
+      return [type, how];
     }),
   );
 }
