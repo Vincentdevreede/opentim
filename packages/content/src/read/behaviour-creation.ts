@@ -285,14 +285,15 @@ export function discoverCreationDefaults(
               for (const e of factory.noConstructor.evidence) proof.set(e.address, e);
             } else if (summary?.footprint.preservesArgumentMemory) safe = true;
             else if (summary?.footprint.partMemoryComplete)
+              // Only a write through the first argument, which is the part, can be placed on the part.
               safe = summary.writes.every(
                 (w) =>
                   w.root === "global" ||
-                  (ownerPassed && w.root === "argument" && w.path.length === 1 && allowedBuffers.has(w.path[0]!)) ||
                   (ownerPassed &&
                     w.root === "argument" &&
-                    w.path.length === 0 &&
-                    !overlapsWord(w.offset, w.width, f.offset)),
+                    (w.argumentOffset ?? summary.argumentOffset) === summary.argumentOffset &&
+                    ((w.path.length === 1 && allowedBuffers.has(w.path[0]!)) ||
+                      (w.path.length === 0 && !overlapsWord(w.offset, w.width, f.offset)))),
               );
             else if (ownerPassed && f.name === "state" && summary?.footprint.preservesPartState) safe = true;
             else if (call?.target && ownerPassed) {

@@ -211,6 +211,34 @@ describe("creation defaults", () => {
     ]);
   });
 
+  it("does not place a helper's write through another argument on the part", () => {
+    // lea ax, [si+0x30]; push ax; push si; call far 0000:0600; pop cx; pop cx
+    const f = fixture([...prefix, 0x8d, 0x44, 0x30, 0x50, 0x56, 0x9a, 0, 6, 0, 0, 0x59, 0x59, ...suffix]);
+    // mov bx, [bp+8]; mov word [bx], 5
+    f.image.set([0x55, 0x8b, 0xec, 0x8b, 0x5e, 0x08, 0xc7, 0x07, 0x05, 0x00, 0x5d, 0xcb], 0x600);
+    f.helpers.push(
+      helper(0x600, {
+        kind: "argument-buffer-update",
+        footprint: { ...preserved, preservesArgumentMemory: false, preservesPartState: false },
+        writes: [
+          {
+            ...finding,
+            argumentOffset: 8,
+            root: "argument",
+            path: [],
+            offset: 0,
+            width: 16,
+            value: { kind: "unknown", reason: "Store through the second argument.", width: 16 },
+            condition: { kind: "true" },
+          },
+        ],
+      }),
+    );
+    const [created] = discoverCreationDefaults(f.image, f.helpers, f.layout, 0);
+    expect(created?.fields.map((field) => field.name)).not.toContain("state");
+    expect(created?.uncertainties.some((u) => u.includes("may replace state"))).toBe(true);
+  });
+
   it("proves narrow related-buffer helpers separately from owner stores", () => {
     const f = fixture([...prefix, 0xc7, 0x44, 0x30, 28, 0, 0x56, 0x9a, 0, 6, 0, 0, 0x59, ...suffix]);
     f.image.set([...prefix, 0x8b, 0x7c, 0x62, 0xc6, 0x05, 4, 0x83, 0xc7, 4, 0xc6, 0x45, 1, 8, ...suffix], 0x600);
