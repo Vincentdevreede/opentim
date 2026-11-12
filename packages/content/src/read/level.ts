@@ -159,8 +159,13 @@ export interface Level {
   length: number;
   /** What only TIM 2 levels have. */
   tim2?: {
-    /** Two bytes after the version, from version 0x113. Their meaning isn't known. */
-    bytes?: [number, number];
+    /**
+     * From version 0x113: a byte TIM2.EXE keeps and writes back when it saves the level, and uses for nothing else. 0 in
+     * every shipped level.
+     */
+    spareByte?: number;
+    /** From version 0x113: the palette colour TIM2.EXE fills the play area with, behind the parts. A new level has 3. */
+    background?: number;
     /** The notes with a text, from version 0x110. The file has eight places for them. */
     notes: LevelNote[];
     /** Two words where TIM 1 keeps the scroll limits. TIM2.EXE reads them and sets them to 0. */
@@ -393,7 +398,7 @@ function readTim2(data: Uint8Array): Level {
   const magic = field("magic", () => r.u16());
   const version = field("version", () => r.u16());
   const bytes: [number, number] | undefined =
-    version >= 0x113 ? [field("bytes.0", () => r.u8()), field("bytes.1", () => r.u8())] : undefined;
+    version >= 0x113 ? [field("spareByte", () => r.u8()), field("background", () => r.u8())] : undefined;
   const title = field("title", () => r.text());
   const goal = field("goal", () => r.text());
   const notes: LevelNote[] = [];
@@ -423,7 +428,7 @@ function readTim2(data: Uint8Array): Level {
     length: 0,
     tim2: { notes, ignored: [field("ignored.0", () => r.i16()), field("ignored.1", () => r.i16())], spare: 0 },
   };
-  if (bytes) level.tim2!.bytes = bytes;
+  if (bytes) [level.tim2!.spareByte, level.tim2!.background] = bytes;
   level.music = field("music", () => r.i16());
   const staticCount = field("static", () => r.u16());
   const movingCount = field("moving", () => r.u16());

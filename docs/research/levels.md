@@ -347,8 +347,13 @@ the only load in mode 9 is command 10012, which reloads the current level after 
 designer's solution puts them, and `0x100` marks the bin parts the solution doesn't use. The Levels page puts the parts
 without `0x40` in the bin, and its Solution box shows the level as the solution does.
 
-The two bytes after the version: a new level starts with 0 and 3 (TIM2.EXE sets them so when it clears a level). The
-second goes from 1 to 15 in the shipped levels and may pick the background; not read further.
+**The two bytes after the version** (from version `0x113`). A new level starts with 0 and 3 (TIM2.EXE sets them so
+when it clears a level). The loader keeps them in two bytes of the data segment (`[0x66a8]` and `[0x66a7]` in the
+floppy build). The first is only written back when the game saves a level; nothing else reads it, and it is 0 in every
+shipped level. The second is the level's background: the routine that draws the play area fills it with that palette
+colour (a box from 0, 0, 560 wide) before the parts, and the editor's dialog with the air and gravity also sets it. It
+is 3 in 172 of the 206 levels and goes from 1 to 15 in the others. Before version `0x113` the loader leaves both as they
+were. The Levels page fills the play area with it when the background is set to Game.
 
 ### Drawing TIM 2 levels
 
@@ -404,8 +409,6 @@ levels keep their parts between 0 and 568 across and above 377.
 
 What isn't worked out yet, and what the Lab does meanwhile:
 
-- **The two bytes after the version.** A new level gets 0 and 3; the second goes from 1 to 15 and may pick the
-  background. Not read further.
 - **The notes' third word** (from version `0x112`): 0 to 3 in the shipped levels; what it changes isn't read.
 - **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
   with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.

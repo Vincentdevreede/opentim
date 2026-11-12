@@ -14,6 +14,8 @@ const props = defineProps<{
   paletteOf: (sheet: string) => Uint8Array | undefined;
   /** The palette whose colours ropes and belts are drawn in. */
   linePalette?: Uint8Array;
+  /** A colour of that palette to fill the play area with, as TIM2.EXE does with a level's background colour. */
+  areaColour?: number;
   zoom: number;
   bounds: boolean;
   selected?: number;
@@ -106,6 +108,11 @@ watchEffect(() => {
   context.fillRect(-MARGIN, area.value.height, width.value, MARGIN);
   context.fillRect(-MARGIN, 0, MARGIN, area.value.height);
   context.fillRect(area.value.width, 0, MARGIN, area.value.height);
+  const fill = props.areaColour === undefined ? undefined : paletteColor(props.linePalette, props.areaColour);
+  if (fill) {
+    context.fillStyle = fill;
+    context.fillRect(0, 0, area.value.width, area.value.height);
+  }
   context.strokeStyle = colors.line;
   context.lineWidth = px;
   context.strokeRect(0, 0, area.value.width, area.value.height);
