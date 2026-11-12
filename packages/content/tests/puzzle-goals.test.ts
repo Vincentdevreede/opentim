@@ -186,6 +186,19 @@ describe("readGoalRoutines and runGoal", () => {
     expect(routines.get(0)).toMatchObject({ at: 18, reason: expect.stringContaining("flags") });
   });
 
+  it("doesn't read a called routine that lacks the usual start", () => {
+    // The goal: push bp; mov bp, sp; push cs; call 0x20; pop bp; retf. At 0x20: mov ax, 5; mov [0x102], ax; retf.
+    const routines = readGoalRoutines(
+      image(0x40, [
+        [0, "558bec0ee819005dcb"],
+        [0x20, "b80500a30201cb"],
+      ]),
+      0,
+      0,
+    );
+    expect(routines.get(0x20)).toMatchObject({ address: 0x20, at: 0x20, reason: expect.stringContaining("push bp") });
+  });
+
   it("names a routine it can't read and why", () => {
     // push bp; mov bp, sp; call far [bx]; pop bp; retf
     const routines = readGoalRoutines(image(0x20, [[0, "558becff1f5dcb"]]), 0, 0);
