@@ -231,7 +231,15 @@ table and draws a frame by running them in order. Positions are from the frame's
 The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
 palette; it draws a line as a straight run of pixels from end to end, not by the game's own line routine.
 
-**Still open.** What a sequence's number stands for (the program asks for a sequence by it); what command 6 does
+**Sequences.** A sequence's number is a name for a run of steps that only the code of its part (or screen) knows:
+nothing in the file says more. TIM2.EXE keeps the sequences as a table that ends with number 0, so no sequence is 0.
+One routine (file offset `0x3aa80` in the floppy build) gives the step a sequence starts at, looked up by its number,
+or the number of steps for -1; another (`0x3aa18`) gives the number of the sequence that starts at a step. Of the 143
+calls to the first, 91 pass a fixed number (16 of them -1, the others like 3 or 4), the rest one the code works out; the same number means
+something else in each animation (the cannon has 1, 23, 24 and 19, the brick wall 2 and 1). So a number says which
+of its own runs a part's code asks for, and only reading that code says what the run is.
+
+**Still open.** What command 6 does
 (it calls the sound code with its word, and no file uses it); and the `.PAR` files' words besides the type and the
 largest size (`PROPI`, a byte 1, the type, then properties that look like TIM 1's physics and size limits, and an
 outline). The Lab draws a line as a straight run of pixels, not by the game's own line routine.
