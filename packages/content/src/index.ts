@@ -168,6 +168,7 @@ export type {
   PairCentreAngle,
 } from "./read/behaviour-contact-response-pair.ts";
 export { readProgramGoals, type ProgramGoals, type PuzzleGoal } from "./read/program-goals.ts";
+export { TIM2_SCREEN, summariseTim2Goal, type Tim2Goal } from "./read/tim2-goal.ts";
 export {
   conditionText,
   summariseGoal,

@@ -23,9 +23,11 @@ export interface GoalCondition {
    * `every`: each part of the types on the lists passes the tests (`where`, when given, picks the parts it holds for).
    * `none`: no part of the types on the lists passes `where`. `some`: at least one passes the tests. `first`/`last`:
    * the first part a search finds, or the last one a walk keeps. `count`: how many parts pass `where`, against a number.
-   * `word`: a test of a word of the game's memory, like the step count.
+   * `word`: a test of a word of the game's memory, like the step count. `part`: one part of the level, by `part`.
    */
-  kind: "every" | "none" | "some" | "first" | "last" | "count" | "word";
+  kind: "every" | "none" | "some" | "first" | "last" | "count" | "word" | "part";
+  /** For `part`: the part's index in the level. */
+  part?: number;
   /** The lists the parts are on, like "the moving list". */
   lists?: string;
   /** The part types, by number and name; none means parts of any type. */
@@ -1142,6 +1144,8 @@ export function conditionText(c: GoalCondition): string {
       return `the count of ${types}${on}${where} ${OPS[c.count!.op]} ${c.count!.value}`;
     case "word":
       return tests;
+    case "part":
+      return `${types} #${c.part}${tests ? `: ${tests}` : ""}`;
   }
 }
 

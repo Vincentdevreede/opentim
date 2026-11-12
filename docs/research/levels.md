@@ -306,9 +306,28 @@ What the loader does with the fields, from TIM2.EXE:
   kept; it is 0 in every shipped level, so TIM 2 levels have no bin list in the file.
 - **The programmable ball** (87) stores six words more from version `0x111`. The lasers and the laser mixer have a
   read routine of their own in their type, but it reads nothing from the file.
-- **After the parts**, from version `0x107`: a word, eight entries and a word. An entry starts with a part of the level
-  (`0xFFFF` for none), like the eight ball in "Knock the eight ball off the screen", so they likely hold the goal; the
-  other seven words aren't worked out yet. In TIM 1 the goal is a routine in TIM.EXE instead.
+- **After the parts**, from version `0x107`: the goal, as a word, eight entries and a word. In TIM 1 the goal is a
+  routine per puzzle in TIM.EXE instead; TIM 2 has one routine that tests the entries (see below).
+
+### TIM 2 goals
+
+The loader keeps the goal in the data segment: the first word, eight entries of 18 bytes (a part pointer and seven
+words) and the last word. One routine of TIM2.EXE tests them for every puzzle (in its first overlay; in the floppy
+build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) says it as conditions. What it does:
+
+- When the first word is 0 the goal is never met. It is 1 in every shipped level.
+- The goal isn't met while one of its parts is in the parts bin.
+- Every entry with a part must hold. Its words are a low and a high state, a count and an area: x, y, width, height.
+- For a moving part whose area width isn't 0, the entry tests the part's middle, its position plus half its base
+  size: strictly inside the area, or, when the width is -1, off the screen, outside 0 to 640 across or 0 to 400 down.
+  For a static part, or a width of 0, it tests the part's state, from the low to the high one.
+- With a count of 0 the entry is about its own part. With a count of N, the routine walks the list its part is on
+  again and needs N parts of the part's type that pass.
+- The last word holds the goal back: the routine counts its own checks and says the goal isn't met before that many.
+  The count is set back to 0 by a routine that nothing calls directly (it is reached through a pointer), and whether
+  the routine runs once per step isn't read yet. Four levels use it, like 108 checks for the message computers.
+
+The Levels page shows these conditions, with the area of an inside test drawn on the level.
 
 Not known yet: what bits `0x40` and `0x100` of the third flag word mean (0x40 is on most fixed parts, and the editor
 clears it from a part taken from the bin; 0x100 is on parts like the balls of the first puzzle that stand in a row

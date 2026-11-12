@@ -16,7 +16,7 @@ import ReadProgress from "../ReadProgress.vue";
  */
 const props = defineProps<{
   /** The goal as read, or why there is none to show. */
-  goal: { status: "done"; goal: PuzzleGoal } | { status: "reading" } | { status: "none"; why: string };
+  goal: { status: "done"; goal: PuzzleGoal; from?: "level" } | { status: "reading" } | { status: "none"; why: string };
   /** The goal text the level shows the player. */
   says?: string;
   /** The number each condition's area has on the drawing, by way and condition. */
@@ -28,6 +28,8 @@ const props = defineProps<{
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
+/** TIM 2 keeps its goal in the level file, as entries one routine of TIM2.EXE tests. */
+const fromLevel = computed(() => props.goal.status === "done" && props.goal.from === "level");
 const badge = computed(() => {
   const s = summary.value;
   if (!s) return undefined;
@@ -40,7 +42,9 @@ const badge = computed(() => {
   return {
     status: "decoded" as const,
     label: "read",
-    title: "Read from the goal routine, which the emulator check runs too",
+    title: fromLevel.value
+      ? "Read from the level file's goal entries, as TIM2.EXE's goal routine tests them"
+      : "Read from the goal routine, which the emulator check runs too",
   };
 });
 
@@ -155,7 +159,10 @@ const countOf = (c: GoalCondition) => {
           </span>
         </LabListRow>
         <div v-if="goal.status === 'done'" class="p-2">
-          <LabDisclosure :title="`Goal routine, ${goal.goal.lines.length} lines`" :open="!!summary.problem">
+          <LabDisclosure
+            :title="fromLevel ? 'Goal entries as stored' : `Goal routine, ${goal.goal.lines.length} lines`"
+            :open="!!summary.problem"
+          >
             <pre class="overflow-x-auto px-3 py-2 font-mono text-meta leading-5 text-soft">{{
               goal.goal.lines.map((line) => say(line)).join("\n")
             }}</pre>

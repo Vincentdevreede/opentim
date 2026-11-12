@@ -112,6 +112,8 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
   `check-level-fields`; TIM 1 and Even More only.
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).
+- `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
+  `part` for an entry about one part.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
   lists.
 

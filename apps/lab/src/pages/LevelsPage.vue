@@ -21,9 +21,9 @@ import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
 import { LAYOUT_NAMES, MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
-import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
+import { LOADED_HEADERS, summariseTim2Goal, type GoalCondition, type SpriteOf } from "@opentim/content";
 import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
-import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
+import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
 import LabNoMatch from "../components/LabNoMatch.vue";
@@ -136,8 +136,13 @@ const puzzle = computed(() => {
 /** The goal of the level shown, or why there is none. */
 const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefined>(() => {
   if (current.value?.kind !== "level") return undefined;
-  if (level.value?.layout === "tim2")
-    return { status: "none", why: "TIM 2 keeps the goal in the level file; the lab doesn’t say it in words yet." };
+  if (level.value?.layout === "tim2") {
+    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p).name]));
+    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`);
+    return read
+      ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
+      : { status: "none", why: "This level has no goal entries." };
+  }
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
   if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
