@@ -587,9 +587,21 @@ export function evaluateBehaviourCondition(
   return predicateOf(condition, bindingsOf(fields));
 }
 
-/** A rule with numbers for its values after a query: the rule it was made from, and those numbers as text. */
+/**
+ * A copy of a rule (with numbers for its values after a query, or with its countdowns rewritten): the rule or return
+ * path it was first made from, and the numbers as text. A return path of a split rule is a rule of its own here, since
+ * it carries its own evidence.
+ */
 const originalRule = new WeakMap<object, WithUpdates>();
 const runValueKey = new WeakMap<object, string>();
+/** A number for each rule and return path a walk can step under, so a step's finding is kept per rule object. */
+const ruleNumbers = new WeakMap<object, number>();
+let nextRuleNumber = 0;
+function ruleNumber(rule: object): number {
+  let number = ruleNumbers.get(rule);
+  if (number === undefined) ruleNumbers.set(rule, (number = nextRuleNumber++));
+  return number;
+}
 /** By part: its rules with numbers for their values after a query, made once per set of numbers. */
 const runRuleSets = new WeakMap<PartBehaviour, Map<string, WithUpdates[]>>();
 /** The rules with these numbers for their values after a query. */
@@ -613,7 +625,7 @@ function rulesWithRunValues(part: PartBehaviour, rules: WithUpdates[], values: R
         condition: withRunValues(rule.condition, values),
         ...(updates ? { updates } : {}),
       };
-      originalRule.set(copy, rule);
+      originalRule.set(copy, originalRule.get(rule) ?? rule);
       runValueKey.set(copy, text);
       return copy;
     });
@@ -621,8 +633,8 @@ function rulesWithRunValues(part: PartBehaviour, rules: WithUpdates[], values: R
   }
   return list;
 }
-/** The finding of each set of rules a part's walks take a step under, by the rules' places in its transitions. */
-const stepFindings = new WeakMap<PartBehaviour, { index: Map<unknown, number>; steps: Map<string, Finding> }>();
+/** The finding of each set of rules a part's walks take a step under, by the rules' numbers. */
+const stepFindings = new WeakMap<PartBehaviour, Map<string, Finding>>();
 /** The fields each part's walks track, worked out once per part; callers get their own copy to add to. */
 const definitionsOf = new WeakMap<PartBehaviour, { object: string; offset: number; width: number }[]>();
 function fieldDefinitions(
@@ -1623,7 +1635,6 @@ export function splitRules(
         updates,
         evidence: evidence(rule.evidence, outcome.evidence),
       };
-      originalRule.set(path, rule);
       return path;
     });
   });
@@ -2554,13 +2565,12 @@ export function walkBehaviourRules(
   /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
   const stepFinding = (candidates: WithUpdates[]): Finding => {
     let cache = stepFindings.get(part);
-    if (!cache)
-      stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
+    if (!cache) stepFindings.set(part, (cache = new Map()));
     const id =
-      candidates.map((rule) => cache.index.get(originalRule.get(rule) ?? rule)).join() +
+      candidates.map((rule) => ruleNumber(originalRule.get(rule) ?? rule)).join() +
       candidates.map((rule) => runValueKey.get(rule) ?? "").join();
-    let step = cache.steps.get(id);
-    if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
+    let step = cache.get(id);
+    if (!step) cache.set(id, (step = finding(candidates.map(pathFinding))));
     return step;
   };
 

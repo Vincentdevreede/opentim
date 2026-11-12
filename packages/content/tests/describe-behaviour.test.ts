@@ -2141,6 +2141,38 @@ describe("countdowns", () => {
     expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
   });
 
+  it("gives a step under one path of a split rule that path's own evidence", () => {
+    const data = complete(
+      report([
+        rule(field(12), test(0x12, "!=", 0), [
+          write(0x96, minus(0x96, 1)),
+          write(0x12, { kind: "unknown", reason: "Field 0x12 differs on complementary paths", width: 16 }),
+        ]),
+        rule(field(12), test(0x12, "==", 0)),
+      ]),
+      [
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "!=", 0)),
+          fields: [write(0x96, minus(0x96, 1))],
+          evidence: [{ address: 0xaaa, bytes: [], text: "counts on" }],
+        },
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "==", 0)),
+          fields: [write(0x96, minus(0x96, 1)), write(0x12, constant(0))],
+          evidence: [{ address: 0xbbb, bytes: [], text: "clears the control value" }],
+        },
+        { ...anyPath, condition: test(0x12, "==", 0) },
+      ],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
+    expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+    const addresses = walk.evidence.map((item) => item.address);
+    expect(addresses).toContain(0xaaa);
+    expect(addresses).toContain(0xbbb);
+  });
+
   it("takes a rule apart into its paths when the countdown picks one of two values for the control value", () => {
     // The same run, with the control value kept as one of its two values: 0 when the counter runs out, else unchanged.
     const runsOut = compare(minus(0x96, 1), "==", 0) as Extract<Predicate, { kind: "compare" }>;
