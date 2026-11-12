@@ -9,7 +9,6 @@ import {
   firstSoundOf,
   itemName,
   matches,
-  rawRateKnown,
   rawSample,
   wavFile,
 } from "../src/audio.ts";
@@ -144,13 +143,5 @@ describe("markersOf a sound bank", () => {
 
   it("explains that RAW files have no chunks", () => {
     expect(markersOf(resource("SX_3001.RAW", Uint8Array.of(128))).note).toMatch(/no header/);
-  });
-});
-
-describe("rawRateKnown", () => {
-  it("knows the rate TIM 2 plays its samples at, and leaves other games to a guess", () => {
-    expect(rawRateKnown("tim2")).toBe(true);
-    expect(rawRateKnown(undefined)).toBe(false);
-    expect(rawRateKnown("tim1")).toBe(false);
   });
 });

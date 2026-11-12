@@ -33,14 +33,11 @@ export type DecodedSound =
   | { status: "error"; message: string; offset?: number };
 
 /**
- * The rate the `.RAW` files of TIM 2 and Toons are played at by default. They have no header. TIM2.EXE plays every one
- * at 11,025 Hz: it sets that rate with its sound driver's rate call before it plays a sample, and the word it passes
- * holds 11,025 and nothing else. For Toons the rate is still a guess, the rate of most samples in the sound banks.
+ * The rate the `.RAW` files of TIM 2 and Toons are played at by default. They have no header. TIM2.EXE and TOONS.EXE
+ * play every one at 11,025 Hz: each sets that rate with its sound driver's rate call before it plays a sample, and the
+ * word it passes holds 11,025 and nothing else.
  */
 export const RAW_RATE = 11025;
-
-/** Whether the loaded game's program is known to play its `.RAW` files at `RAW_RATE`: TIM 2's is. */
-export const rawRateKnown = (listId: string | undefined) => listId === "tim2";
 export const RATES = [8000, 11025, 22050];
 
 /**

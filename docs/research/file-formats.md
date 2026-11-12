@@ -82,8 +82,13 @@ byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, fo
 TIM2.EXE names a file `SX_` and four digits, like the number an animation's sound command gives, and before it plays
 one it calls its digital sound driver's rate function (function 6) with a word that holds 11,025 and that nothing else
 writes. The digital drivers are the `aud` files in `SX.OVL` (`ASB` for the Sound Blaster, `APS`, `APA`); the Sound
-Blaster one turns the rate into the card's time constant, 256 − 1,000,000 ÷ rate, and also starts at 11,025 Hz. For
-Toons the rate is still a guess; the Lab plays its files at the same rate.
+Blaster one turns the rate into the card's time constant, 256 − 1,000,000 ÷ rate, and also starts at 11,025 Hz.
+Toons plays them at 11,025 Hz too: TOONS.EXE (not packed; its data segment at file offset `0x4c9f0`) also names its
+samples `SX_0000.RAW` with the number filled in, and its play routine (file offset `0x14775`) calls the digital
+driver's function 6 with the word at `[0x3a5a]` before it plays one. That word starts at 11,025 in the file, and the
+only code that writes it (`0x1494c`) sets it to 11,025 again. Toons' own `ASB` driver in its `SX.OVL` is shorter than
+TIM 2's, but its function 6 keeps the rate in the same way and turns it into the same time constant (and, on a card
+that takes the rate itself, sends it as it is). The Lab plays the `.RAW` files of both games at 11,025 Hz.
 
 **TIM 2's music** is in `TIM2.SX`, the same format as TIM 1's bank: 38 sounds, the same in the floppy, the CD and the
 demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number of its song (the levels use 1000 to
