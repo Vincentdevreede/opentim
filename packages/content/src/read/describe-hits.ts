@@ -720,6 +720,13 @@ export function hitsFromOthers(
   const fieldName = (offset: number) =>
     report.layout.fields.find((f) => f.offset === offset)?.name ?? `field 0x${offset.toString(16).padStart(2, "0")}`;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
+  /** The kinds of the calls of each routine, worked out once: every source's cases ask for their routine's. */
+  const kindsAt = new Map<number, ReturnType<typeof callKinds>>();
+  const callKindsOf = (routine: number) => {
+    let kinds = kindsAt.get(routine);
+    if (!kinds) kindsAt.set(routine, (kinds = callKinds(report, routine)));
+    return kinds;
+  };
   /**
    * Whether a part's rules can't tell the limits of a range apart, once per part, field and range: many sources write
    * the same field, and the report doesn't change during this pass.
@@ -757,7 +764,7 @@ export function hitsFromOthers(
     for (const callback of source.routines) {
       if (callback.sharedDefault) continue;
       const iterations = routines.get(callback.address)?.iterationOutcomes ?? [];
-      const kindAt = callKinds(report, callback.address);
+      const kindAt = callKindsOf(callback.address);
       // A value that picks by the source's tests, like where the jack-in-the-box is from the bellows, is its cases.
       for (const outcome of [...iterations.flatMap((o) => splitBySource(o, o.object)), ...touches(callback)]) {
         const member = outcome.object;
@@ -916,7 +923,7 @@ export function hitsFromOthers(
         responds && [...Array(w.width / 8).keys()].some((byte) => afterResponse!.has(w.offset + byte));
       // A field the contact search the source runs on the part leaves, like where the teeter-totter's launch puts it:
       // only the run knows, like a field a response may change.
-      const kindAt = callKinds(report, c.routine);
+      const kindAt = callKindsOf(c.routine);
       const searched = (w: FieldWrite) => {
         const left = openCalls([w.value], kindAt);
         return left.contactSearch && !left.other && !left.connectionQuery;

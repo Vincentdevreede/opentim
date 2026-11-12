@@ -611,9 +611,15 @@ export const withOwnOverlapsIn = (p: Predicate, member: string): Predicate =>
 export function withOwnOverlaps(e: Expression, member: string): Expression {
   if (e.kind === "field" && e.unresolved && OVERLAP.exec(e.object)?.[2] === member)
     return { kind: "field", object: member, offset: e.offset, width: e.width };
-  if (e.kind === "binary")
-    return { ...e, left: withOwnOverlaps(e.left, member), right: withOwnOverlaps(e.right, member) };
-  if (e.kind === "table") return { ...e, index: withOwnOverlaps(e.index, member) };
+  if (e.kind === "binary") {
+    const left = withOwnOverlaps(e.left, member),
+      right = withOwnOverlaps(e.right, member);
+    return left === e.left && right === e.right ? e : { ...e, left, right };
+  }
+  if (e.kind === "table") {
+    const index = withOwnOverlaps(e.index, member);
+    return index === e.index ? e : { ...e, index };
+  }
   return e;
 }
 const OPPOSITE: Record<string, string> = { "==": "!=", "!=": "==", "<": ">=", ">=": "<", ">": "<=", "<=": ">" };
