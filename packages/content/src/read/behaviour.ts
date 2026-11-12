@@ -1362,16 +1362,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       // LES/LDS explicitly associates the segment register with the same far pointer.
       const paired = seg.kind === "pointer" && seg.object === pointer.value.object;
       if (!validSegment && !paired) return undefined;
+      const offset =
+        pointer.value.displacement +
+        operand.displacement +
+        addressBases
+          .filter((v) => v !== pointer)
+          .reduce((n, v) => n + (v.value.kind === "constant" ? v.value.value : 0), 0);
       return {
         object: pointer.value.object,
-        offset: unsigned(
-          pointer.value.displacement +
-            operand.displacement +
-            addressBases
-              .filter((v) => v !== pointer)
-              .reduce((n, v) => n + (v.value.kind === "constant" ? v.value.value : 0), 0),
-          16,
-        ),
+        // Frame cells are kept at signed offsets from BP, so a pointer to a local reaches the cell BP reaches.
+        offset: pointer.value.object === "stack" ? signed(offset, 16) : unsigned(offset, 16),
         width: operand.width,
         uncertain: pointer.value.object !== "part",
         evidence: base.flatMap((v) => v.evidence),
