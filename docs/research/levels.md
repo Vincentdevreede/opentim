@@ -338,9 +338,14 @@ The Levels page shows these conditions, with the area of an inside test drawn on
 parts. A part with bit `0x40` of the third flag word stays on the board: it is a fixed part of the puzzle. Every other
 part gets its state back to its start and is dropped into the parts bin, by the same code the editor uses when a part
 is dropped on the bin; that code clears bit `0x40` and bit `0x8000` of the first word. So the bin of a TIM 2 puzzle is
-its parts without bit `0x40`, and the positions the file keeps for them are where the designer left them. In one game
-mode (the mode word is 9, not identified yet) a part with neither `0x40` nor `0x100` stays on the board instead, so
-bit `0x100` marks the parts that go to the bin even then. The Levels page puts the parts without `0x40` in the bin.
+its parts without bit `0x40`, and the positions the file keeps for them are where the designer left them.
+
+**The solution and bit `0x100`.** The level loader takes a mode, which it keeps in the game's mode word. In mode 9 a
+part with neither `0x40` nor `0x100` stays on the board instead of going to the bin. Mode 9 is the puzzle's solution:
+the only load in mode 9 is command 10012, which reloads the current level after a question, and `HELP.RES` says of
+10012 "Click here to see my very own solution to this puzzle." So the bin parts without `0x100` are where the
+designer's solution puts them, and `0x100` marks the bin parts the solution doesn't use. The Levels page puts the parts
+without `0x40` in the bin, and its Solution box shows the level as the solution does.
 
 The two bytes after the version: a new level starts with 0 and 3 (TIM2.EXE sets them so when it clears a level). The
 second goes from 1 to 15 in the shipped levels and may pick the background; not read further.

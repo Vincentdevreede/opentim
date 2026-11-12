@@ -152,13 +152,19 @@ export interface Scene {
 
 /** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
 const TIM2_FIXED = 0x40;
+/** Bit 0x100 of TIM 2's third flag word: the part stays in the bin when the game shows the puzzle's solution. */
+const TIM2_NOT_IN_SOLUTION = 0x100;
 /**
  * The list a part is on when the puzzle starts. TIM 1 keeps its parts bin as a third list in the file. TIM 2 keeps
  * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
- * third flag word into the parts bin, so those are the bin.
+ * third flag word into the parts bin, so those are the bin. When the player asks for the designer's solution, it loads
+ * the level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
  */
-export const groupOf = (level: Level, part: LevelPart): LevelPart["group"] =>
-  level.layout === "tim2" && !((part.flags[2] ?? 0) & TIM2_FIXED) ? "bin" : part.group;
+export const groupOf = (level: Level, part: LevelPart, solution = false): LevelPart["group"] => {
+  const third = part.flags[2] ?? 0;
+  if (level.layout !== "tim2" || third & TIM2_FIXED) return part.group;
+  return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
+};
 
 /** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
 const TILED = 0x40;
@@ -496,8 +502,9 @@ export function layoutScene(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
+  { solution = false }: { solution?: boolean } = {},
 ): Scene {
-  const board = level.parts.filter((p) => groupOf(level, p) !== "bin");
+  const board = level.parts.filter((p) => groupOf(level, p, solution) !== "bin");
   const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
@@ -533,7 +540,7 @@ export function layoutScene(
     area: PLAY_AREAS[level.layout],
     parts,
     lines,
-    bin: level.parts.filter((p) => groupOf(level, p) === "bin"),
+    bin: level.parts.filter((p) => groupOf(level, p, solution) === "bin"),
     notes,
     knot,
   };

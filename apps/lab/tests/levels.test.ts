@@ -245,6 +245,21 @@ describe("layoutScene", () => {
     expect(scene.parts[2]!.clip).toEqual({ x: 0, y: 0, width: 48, height: 16 });
   });
 
+  it("leaves TIM 2's solution parts on the board when the solution is shown", () => {
+    const data = bytes(
+      ...[0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, 3, 0, 0],
+      ...part({ type: 0, flags3: 0x40 }),
+      ...part({ type: 0, flags3: 0x100 }),
+      ...part({ type: 0 }),
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const board = (solution: boolean) =>
+      layoutScene(level, LIST, spriteOf, undefined, { solution }).parts.map((p) => p.part.index);
+    expect(board(false)).toEqual([0]);
+    // Bit 0x100 keeps a part in the bin even then.
+    expect(board(true)).toEqual([0, 2]);
+  });
+
   it("turns a mirrored TIM 2 wall over its long side, as TIM2.EXE's wall routine does", () => {
     const data = bytes(
       0xacef,

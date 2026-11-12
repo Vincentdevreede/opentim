@@ -59,7 +59,7 @@ const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
 
 /** TIM 2 stores no bin: the puzzle start puts the parts without bit 0x40 of the third flag word there. */
 const TIM2_HINTS: Partial<Record<PartGroup, string>> = {
-  bin: "Parts without bit 0x40 of the third flag word. The file keeps them on the board; TIM2.EXE drops them into the bin when the puzzle starts.",
+  bin: "Parts without bit 0x40 of the third flag word. The file keeps them where the designer left them; TIM2.EXE drops them into the bin when the puzzle starts.",
 };
 
 /** The bits of TIM 2's flag words that are known, by word: the game keeps only these from the file. */
@@ -71,7 +71,7 @@ const TIM2_FLAGS: [number, string][][] = [
   ],
   [
     [0x40, "fixed on the board"],
-    [0x100, "to the bin in mode 9"],
+    [0x100, "not in the solution"],
   ],
 ];
 

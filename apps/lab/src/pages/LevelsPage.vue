@@ -65,6 +65,8 @@ const zoom = computed(() => {
   return fit > 0 ? fit : 1;
 });
 const showBounds = ref(true);
+/** For TIM 2: the puzzle as the game shows its designer's solution, with the solution's parts out of the bin. */
+const showSolution = ref(false);
 const showGoal = ref(true);
 const selectedPart = ref<number>();
 
@@ -240,7 +242,9 @@ const tim2Drawing = computed(() => {
   }
 });
 const scene = computed(() =>
-  level.value ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value) : undefined,
+  level.value
+    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value, { solution: showSolution.value })
+    : undefined,
 );
 
 const stats = computed(() => {
@@ -354,6 +358,7 @@ onBeforeUnmount(() => {
           <LabBadge v-bind="status" />
           <div class="flex-1"></div>
           <LabCheckbox v-model="showBounds">Part boxes</LabCheckbox>
+          <LabCheckbox v-if="level?.layout === 'tim2'" v-model="showSolution">Solution</LabCheckbox>
           <LabCheckbox v-if="goal?.status === 'done'" v-model="showGoal">Goal</LabCheckbox>
           <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
           <LabSegmented v-model="zoomSetting" label="Zoom" :options="ZOOMS" />
