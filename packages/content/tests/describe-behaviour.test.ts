@@ -316,6 +316,25 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(words.some((text) => text.includes("65535"))).toBe(false);
   });
 
+  it("does not call a mask or a shift of the frame by 1 the decremented state", () => {
+    const names = (operator: string) => {
+      const left: Expression = { kind: "binary", operator, left: field(12), right: constant(1), width: 16 };
+      const data = report([
+        rule(constant(1), { kind: "compare", left, operator: "==", right: constant(0), signed: false }),
+        rule(field(12), { kind: "compare", left, operator: "!=", right: constant(0), signed: false }),
+      ]);
+      return describeBehaviour(data)
+        .parts[0]!.animations.filter((item) => item.trigger.kind === "input-case")
+        .map((item) => item.trigger.name);
+    };
+    for (const operator of ["&", ">>"]) {
+      const found = names(operator);
+      expect(found.length).toBeGreaterThan(0);
+      expect(found.some((name) => name.includes("decremented"))).toBe(false);
+    }
+    expect(names("-").some((name) => name.includes("decremented state"))).toBe(true);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),

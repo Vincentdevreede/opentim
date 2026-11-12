@@ -3735,11 +3735,14 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
     if (expression.kind === "binary") {
       const name = nameOf(expression.left);
       const leftField = expression.left.kind === "field" ? expression.left : undefined;
-      if (name === "state" && expression.right.kind === "constant" && expression.right.value === 1)
+      // Only a step of one up or down has a name; any other calculation (a mask, a shift) is said as recorded.
+      const step = expression.operator === "+" || expression.operator === "-";
+      if (step && name === "state" && expression.right.kind === "constant" && expression.right.value === 1)
         return expression.operator === "+" ? "the incremented state" : "the decremented state";
-      if (name === "state" && nameOf(expression.right) === "stateDelta")
+      if (expression.operator === "+" && name === "state" && nameOf(expression.right) === "stateDelta")
         return "the state after applying the control value";
       if (
+        step &&
         (name === "contextCounter" ||
           (leftField && part.counters.some((counter) => counter.offset === leftField.offset))) &&
         expression.right.kind === "constant" &&
