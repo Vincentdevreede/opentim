@@ -74,6 +74,19 @@ describe("routine control flow", () => {
     expect(result.instructions.filter((instruction) => instruction.mnemonic === "mov")).toHaveLength(2);
   });
 
+  it("does not trust a range check that another way into the shift goes around", () => {
+    // mov bx, [bp+6]; or bx, bx; js shift; cmp bx, 1; ja default; shift: shl bx, 1; jmp cs:[bx+0x13]; default: retf
+    // prettier-ignore
+    const skipped = routine(0x8b, 0x5e, 6, 0x0b, 0xdb, 0x78, 5, 0x83, 0xfb, 1, 0x77, 0x0b, 0xd1, 0xe3, 0x2e, 0xff, 0xa7, 0x13, 0, 0x17, 0, 0x17, 0, 0xcb);
+    expect(skipped.status).toBe("partial");
+    expect(skipped.edges.filter((edge) => edge.kind === "jump-table")).toEqual([]);
+    // mov bx, [bp+6]; cmp bx, 1; ja default; shift: shl bx, 1; jmp cs:[bx+0x0f]; case 0: jmp shift; case 1: retf
+    // prettier-ignore
+    const looped = routine(0x8b, 0x5e, 6, 0x83, 0xfb, 1, 0x77, 0x0e, 0xd1, 0xe3, 0x2e, 0xff, 0xa7, 0x0f, 0, 0x13, 0, 0x15, 0, 0xeb, 0xf3, 0xcb, 0xcb);
+    expect(looped.status).toBe("partial");
+    expect(looped.uncertainties.some((u) => u.includes("can be bypassed"))).toBe(true);
+  });
+
   it("follows a bounded sparse search table and preserves its actual keys", () => {
     const image = new Uint8Array(0x70).fill(0x66);
     image.set([
