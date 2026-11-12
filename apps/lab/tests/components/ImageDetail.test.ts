@@ -57,3 +57,13 @@ it("drops the colour highlight when the Colours tab is left", async () => {
   await nextTick();
   expect(state.highlight).toBeUndefined();
 });
+
+it("drops the pixel readout when the picture under the pointer changes", async () => {
+  const state = mountDetail();
+  for (const change of [() => (state.flip = true), () => (state.zoom = 4)]) {
+    state.hover = { x: 1, y: 2, index: 3 };
+    change();
+    await nextTick();
+    expect(state.hover).toBeUndefined();
+  }
+});
