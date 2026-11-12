@@ -72,6 +72,8 @@ watch(
     playing.value = false;
   },
 );
+// The colour grid only clears its highlight when the pointer leaves it, which doesn't happen when the tab is left.
+watch(tab, () => (highlight.value = undefined));
 
 const choice = computed(() =>
   detailPalette.value === AUTO
