@@ -2813,12 +2813,13 @@ export function walkBehaviourRules(
         continue;
       }
       if (widening) return widening;
-      // When a decided assumption gives every number the field takes, there is no other value to stop at.
+      // When a decided assumption gives every number the field takes, there is no other value to stop at. A decided
+      // assumption that rules a number out, or gives the numbers, joined the walk's proof in `valueBranches`.
       const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
       return byValue
         ? {
             ...stopped,
-            ...(decided ? { assumptions: finding([proof]).assumptions } : {}),
+            assumptions: finding([proof]).assumptions,
             stop: {
               ...stopped.stop!,
               branches: decided ? byValue : [...byValue, otherValue(fields[0]!, producers, stopped)],

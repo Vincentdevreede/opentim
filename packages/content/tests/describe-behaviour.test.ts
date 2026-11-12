@@ -820,6 +820,19 @@ describe("descriptions from extracted behaviour rules", () => {
       ]);
       expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
     });
+
+    it("names the assumption that rules out a number its writers give the field the next frame depends on", () => {
+      const plus: Expression = { kind: "binary", operator: "+", left: field(12), right: field(0x96), width: 16 };
+      const data = bike([rule(plus, { kind: "true" })]);
+      data.routines[2]!.outcomes = [
+        { ...proof, condition: { kind: "true" }, fields: [write(0x96, constant(0))] },
+        { ...proof, condition: test(0x40, "!=", 0), fields: [write(0x96, constant(1))] },
+      ] as never;
+      const walk = walkBehaviourRules(data, 39, [known(12, 5)]);
+      expect(walk.stop?.branches?.length).toBeGreaterThan(0);
+      expect(walk.stop?.branches?.[0]?.walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+      expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
   });
 
   describe("the monkey bike's control value during its reaction", () => {
