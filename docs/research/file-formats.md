@@ -78,10 +78,12 @@ the language packages). Unpacked, a sound is a Sierra SCI sound patch:
 A track is a MIDI channel (its first byte has the channel in its low 4 bits), or a digitized sample when its first
 byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, followed by unsigned 8-bit mono PCM.
 
-`.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header; the Lab plays them at 11,025 Hz, a guess.
-TIM2.EXE names them `SX_` and four digits, like the number an animation's sound command gives, and hands the file, its
-size and a buffer to the digital sound driver; the rate isn't in that call, so it would be in the driver, which isn't
-read yet.
+`.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header. TIM 2 plays them at 11,025 Hz:
+TIM2.EXE names a file `SX_` and four digits, like the number an animation's sound command gives, and before it plays
+one it calls its digital sound driver's rate function (function 6) with a word that holds 11,025 and that nothing else
+writes. The digital drivers are the `aud` files in `SX.OVL` (`ASB` for the Sound Blaster, `APS`, `APA`); the Sound
+Blaster one turns the rate into the card's time constant, 256 − 1,000,000 ÷ rate, and also starts at 11,025 Hz. For
+Toons the rate is still a guess; the Lab plays its files at the same rate.
 
 **TIM 2's music** is in `TIM2.SX`, the same format as TIM 1's bank: 38 sounds, the same in the floppy, the CD and the
 demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number of its song (the levels use 1000 to
