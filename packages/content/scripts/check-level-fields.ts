@@ -10,10 +10,9 @@
  * isn't 0, so a field that is always 0 doesn't look found. A field that names another part by its index in the file
  * is compared with the place of that part's record, and -1 with 0.
  *
- *   pnpm --filter @opentim/content check-level-fields --game <game folder> [--jobs <n>] [--puzzles 1-20]
+ *   pnpm --filter @opentim/content check-level-fields --game <game folder> [--jobs 1] [--puzzles 1-20]
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
@@ -207,7 +206,8 @@ if (!isMainThread) {
     if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
     return n;
   };
-  const jobs = values.jobs ? count("jobs", values.jobs) : Math.max(1, availableParallelism() - 1);
+  // One emulator at a time unless told: a run with four at once took a machine down.
+  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
   const files = readResources(folder);
   let puzzles = [...files.keys()]
     .map((name) => /^L(\d+)\.LEV$/i.exec(name)?.[1])

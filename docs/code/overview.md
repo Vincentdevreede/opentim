@@ -68,8 +68,9 @@ Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side b
 | `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                      |
 
 The emulator scripts (`record-level`, `check-level-fields`, `check-moving-list`, `check-goals`) only know the two
-recorded builds (`GAME_BUILDS` in `src/run/game.ts`). Run `check-level-fields` with
-`--jobs 1`, one build at a time and in the background: a run with `--jobs 4` once took the machine down.
+recorded builds (`GAME_BUILDS` in `src/run/game.ts`). `check-level-fields` and `check-moving-list` run one emulator
+at a time unless `--jobs` says more. Run `check-level-fields` one build at a time and in the background: a run with
+`--jobs 4` once took the machine down.
 
 ## Deploy
 
