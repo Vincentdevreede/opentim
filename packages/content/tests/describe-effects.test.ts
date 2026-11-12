@@ -811,3 +811,67 @@ describe("lines and walks made from several callbacks or paths", () => {
     expect(hits[0]!.confidence).toBe("inferred");
   });
 });
+
+describe("the tests a line from another part says", () => {
+  it("puts no 'it is' in front of a test that names what it tests", () => {
+    const vy = f(MEMBER, 0x38);
+    const sign: Expression = { kind: "binary", operator: ">>", left: vy, right: c(15), width: 16 };
+    const size: Expression = {
+      kind: "binary",
+      operator: "-",
+      left: { kind: "binary", operator: "^", left: vy, right: sign, width: 16 },
+      right: sign,
+      width: 16,
+    };
+    const checked = { confidence: "checked" as const, assumptions: [], evidence: [] };
+    const data = {
+      layout: {
+        fields: [
+          { offset: 4, name: "type" },
+          { offset: 12, name: "state" },
+          { offset: 0x38, name: "velocityY" },
+        ],
+      },
+      parts: [
+        {
+          id: "fan",
+          type: 10,
+          routines: [{ slot: 1, address: 0x100, shared: false, sharedDefault: false }],
+          transitions: [],
+        },
+        { id: "balloon", type: 4, routines: [], transitions: [] },
+      ],
+      helpers: [{ kind: "part-factory", factory: { startingWords: [{ field: 6, values: Array(42).fill(0x800) }] } }],
+      routines: [
+        {
+          address: 0x100,
+          iterationOutcomes: [
+            {
+              ...checked,
+              effectsComplete: true,
+              object: MEMBER,
+              header: 0,
+              returnValue: c(0),
+              condition: { kind: "and", terms: [compare(f(MEMBER, 4), "==", c(4)), compare(size, ">", c(100), true)] },
+              fields: [
+                {
+                  ...checked,
+                  object: MEMBER,
+                  offset: 0x40,
+                  width: 16,
+                  value: c(7),
+                  condition: { kind: "true" },
+                  routine: 0x100,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      relatedObjectEffects: [],
+    } as unknown as BehaviourReport;
+    const lines = effectsFromOthers(data, evaluateBehaviourCondition).get(4)!.effects;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.description).toContain("Only when |its velocityY| is above 100.");
+  });
+});

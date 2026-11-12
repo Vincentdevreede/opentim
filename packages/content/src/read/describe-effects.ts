@@ -1799,7 +1799,9 @@ export function effectsFromOthers(
       if (c.onlyType !== undefined && c.onlyType !== part.type) continue;
       const used = { table: false };
       const conditionTerms: Predicate[] = [],
-        words: string[] = [];
+        words: string[] = [],
+        // The list flag's words, like "on the moving list": the only ones a sentence says with "it is" in front.
+        onListWords = new Set<string>();
       let possible = true,
         decided = true,
         byList = false,
@@ -1849,6 +1851,7 @@ export function effectsFromOthers(
         conditionTerms.push(own);
         // A flag the search needs clear says its name, like "its out-of-play flag 0x2000 is clear".
         const cleared = clearNames.get(term);
+        if (flag) onListWords.add(flag);
         words.push(
           flag ??
             (cleared
@@ -1896,7 +1899,7 @@ export function effectsFromOthers(
       const searchedSaid = c.searched.length
         ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
         : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*(its|the game) /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (onListWords.has(w) ? `it is ${w}` : w)).join(" and ")}.` : ""}${searchedSaid}`;
       // Outcomes join only when their source and its tests match too, so a line never drops another outcome's source
       // or source test.
       const key = JSON.stringify([c.sourceType, c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
