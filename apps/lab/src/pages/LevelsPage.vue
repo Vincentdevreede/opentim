@@ -21,7 +21,14 @@ import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
 import { LAYOUT_NAMES, MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
-import { LOADED_HEADERS, summariseTim2Goal, type GoalCondition, type SpriteOf } from "@opentim/content";
+import {
+  LOADED_HEADERS,
+  readTim2Types,
+  summariseTim2Goal,
+  tim2Drawing as drawingOf,
+  type GoalCondition,
+  type SpriteOf,
+} from "@opentim/content";
 import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
 import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
@@ -219,7 +226,18 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 const { colorsOf, choose } = usePalettes();
 const paletteOf = (sheet: string) => colorsOf(choose(sheetFile(sheet), AUTO)?.name);
 
-const scene = computed(() => (level.value ? layoutScene(level.value, list.value, spriteOf.value) : undefined));
+/** How TIM2.EXE draws each type, when it is loaded: walls and tile patterns have routines of their own. */
+const tim2Drawing = computed(() => {
+  if (program.value?.name !== "TIM2.EXE") return undefined;
+  try {
+    return drawingOf(readTim2Types(program.value.data));
+  } catch {
+    return undefined;
+  }
+});
+const scene = computed(() =>
+  level.value ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value) : undefined,
+);
 
 const stats = computed(() => {
   const s = scene.value;

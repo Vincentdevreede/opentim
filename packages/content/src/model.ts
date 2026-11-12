@@ -37,6 +37,11 @@ export interface Part {
    * a level saves a state, and the state picks the frame.
    */
   states?: number[];
+  /**
+   * TIM 2's animations in the game's order: each sequence starts at a state and runs until the next one starts. The
+   * program asks for a sequence by its number.
+   */
+  sequences?: { sequence: number; state: number }[];
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }

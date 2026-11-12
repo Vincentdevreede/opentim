@@ -181,28 +181,61 @@ describe("layoutScene", () => {
     expect(partAt(scene, { x: 500, y: 300 })).toBeUndefined();
   });
 
-  it("draws TIM 2 walls as tiles by their second flag word, and other parts by the frame of their state", () => {
+  it("draws TIM 2 walls and tile patterns as TIM2.EXE's routines do, and other parts by the frame of their state", () => {
     const tim2 = (...parts: PartSpec[]) =>
       bytes(0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, parts.length, 0, 0, ...parts.flatMap(part));
     const data = tim2(
       // Bit 0x40 of the first word means something else in TIM 2, so this ball isn't tiled.
       { type: 0, flags1: 0x1040, flags3: 0x40, state: 1 },
-      { type: 1, width: 48, flags1: 0x6000, flags2: 0x180, flags3: 0x40 },
+      { type: 1, width: 64, flags3: 0x40 },
+      { type: 47, x: 4, y: 0, width: 40, height: 16, flags3: 0x40 },
       // Without bit 0x40 of the third word the part starts in the bin.
       { type: 0 },
     );
     const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const tile = (id: number, sprite = id) => ({ id, sprites: [{ sheet: "PART1", sprite, x: 0, y: 0, layer: 0 }] });
     const list: PartList = {
       ...LIST,
-      parts: LIST.parts.map((p) => (p.type === 0 ? { ...p, states: [0, 0], frames: [...p.frames] } : p)),
+      parts: LIST.parts.map((p) =>
+        p.type === 0
+          ? { ...p, states: [0, 0] }
+          : p.type === 1
+            ? {
+                ...p,
+                // A run of four across from state 0, then one of four down from state 4.
+                frames: Array.from({ length: 8 }, (_, i) => tile(i)),
+                sequences: [
+                  { sequence: 2, state: 4 },
+                  { sequence: 1, state: 8 },
+                ],
+              }
+            : p.type === 47
+              ? { ...p, frames: [{ id: 0, sprites: [{ sheet: "PART1", sprite: 0, x: 0, y: 0, layer: 0 }] }] }
+              : p,
+      ),
     };
-    const scene = layoutScene(level, list, spriteOf);
-    expect(scene.area).toEqual({ width: 576, height: 384 });
-    expect(scene.bin.map((p) => p.index)).toEqual([2]);
+    const drawing = new Map([
+      [1, "wall" as const],
+      [47, "pattern" as const],
+    ]);
+    const scene = layoutScene(level, list, spriteOf, drawing);
+    expect(scene.area).toEqual({ width: 640, height: 400 });
+    expect(scene.bin.map((p) => p.index)).toEqual([3]);
     expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
       ["frame", "frame 0 for state 1"],
-      ["tiles", "tiles of PART1 from sprite 0"],
+      ["tiles", "pieces of a wall, by TIM2.EXE’s wall rule"],
+      ["tiles", "a pattern of tiles, by TIM2.EXE’s pattern rule"],
     ]);
+    // The first and last state of the run at the ends, the ones between in turn.
+    expect(scene.parts[1]!.composition!.placed.map((p) => [p.placement.sprite, p.placement.x])).toEqual([
+      [0, 0],
+      [1, 16],
+      [2, 32],
+      [3, 48],
+    ]);
+    // A grid from 0, 0 of the screen, cut off at the box widened to groups of 8 across.
+    expect(scene.parts[2]!.composition!.placed.map((p) => p.x)).toEqual([-4, 12, 28]);
+    expect(scene.parts[2]!.clip).toEqual({ x: 0, y: 0, width: 48, height: 16 });
   });
 
   it("tiles a standing wall from state + 4 to state + 7", () => {

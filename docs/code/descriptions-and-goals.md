@@ -114,6 +114,8 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
   (`check-level-frames`).
 - `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
   `part` for an entry about one part.
+- `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
+  draws as walls or tile patterns.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
   lists.
 

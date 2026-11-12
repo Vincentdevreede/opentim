@@ -147,6 +147,8 @@ export function readTim2Parts(
       frames: animation ? animationFrames(animation) : [],
     };
     if (animation?.steps.length) part.states = animation.steps;
+    if (animation?.sequences.length)
+      part.sequences = animation.sequences.map(({ sequence, step }) => ({ sequence, state: step }));
     return part;
   });
   return { id: "tim2", game: GAMES.tim2.game, parts };

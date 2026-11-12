@@ -341,6 +341,26 @@ bit `0x100` marks the parts that go to the bin even then. The Levels page puts t
 The two bytes after the version: a new level starts with 0 and 3 (TIM2.EXE sets them so when it clears a level). The
 second goes from 1 to 15 in the shipped levels and may pick the background; not read further.
 
-The Lab draws TIM 2 walls as tiles when both bits `0x80` and `0x100` of the second flag word are set, as they are for
-every wall and tile type; that rule is read from the files and the sheets, not yet from TIM2.EXE. Its play area,
-576 × 384, is measured from the levels like TIM 1's: the floors end most often at 376, 16 pixels lower than in TIM 1.
+### Drawing TIM 2 levels
+
+TIM2.EXE's type table has a far pointer per type to the routine that draws a part (record offset `0x18`;
+`readTim2Types` in `src/read/tim2-program.ts` finds the table). Most types share one routine that draws the frame of
+the part's state. Two others draw from the part's size:
+
+- **Walls**: the brick wall (1) and every type with the same routine: 1, 46, 48, 56, 60, 82 to 85, 97, 118 and 125
+  in all three builds. For a part as wide as tall or wider, the routine takes the states from 0 up to where the
+  animation's next sequence starts; for a taller one, the first sequence that starts after state 0, up to the next.
+  It draws pieces as wide (or tall) as the first of those frames: the first state at one end, the last at the other,
+  and the ones between in turn. The Lab follows it, without the mirroring the routine also does.
+- **Tile patterns**: the tile (122) and the types sharing its routine: 121 to 124, 203, 205, 271 and 280. The
+  routine repeats the frame of state 0 on a grid of that frame's size, starting at 0, 0 of the screen, and cuts it
+  off at the part's box, widened across to whole groups of 8 pixels.
+
+Without TIM2.EXE the Lab goes by the type's flag bits the levels keep: bit `0x2000` of the third word for walls (every
+wall type but the large pipes, 97, has it) and bits `0x1080` without `0x0400` for tile patterns. The colour block
+(127) has a routine of its own that the Lab doesn't follow; it is drawn as a box.
+
+The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
+and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
+puzzle is set up, the control panel covers x 0 to 48 and the parts bin x 560 to 640, both 377 high; that is why most
+levels keep their parts between 0 and 568 across and above 377.

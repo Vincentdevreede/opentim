@@ -54,7 +54,14 @@ const token = (name: string) => getComputedStyle(document.documentElement).getPr
 
 function drawPicture(context: CanvasRenderingContext2D, d: DrawnPart, picture: HTMLCanvasElement) {
   const b = d.composition!.bounds;
+  context.save();
+  if (d.clip) {
+    context.beginPath();
+    context.rect(d.clip.x, d.clip.y, d.clip.width, d.clip.height);
+    context.clip();
+  }
   context.drawImage(picture, d.part.position.x + b.x, d.part.position.y + b.y);
+  context.restore();
 }
 
 /** A colour of the game's palette as CSS, or undefined without a palette. */

@@ -15,7 +15,8 @@
         { "id": 5, "sprites": [{ "sheet": "PART0", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 6, "sprites": [{ "sheet": "PART0", "sprite": 6, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 7, "sprites": [{ "sheet": "PART0", "sprite": 7, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "brick-wall",
@@ -42,6 +43,10 @@
         { "id": 17, "sprites": [{ "sheet": "PART1", "sprite": 11, "x": 0, "y": -7, "layer": 0 }] },
         { "id": 18, "sprites": [{ "sheet": "PART1", "sprite": 11, "x": 0, "y": -7, "layer": 0 }] },
         { "id": 19, "sprites": [{ "sheet": "PART1", "sprite": 11, "x": 0, "y": -7, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 4 },
+        { "sequence": 1, "state": 8 }
       ]
     },
     {
@@ -53,7 +58,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART2", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART2", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART2", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "tipsy-trailer",
@@ -81,7 +87,8 @@
             { "sheet": "PART3", "sprite": 0, "x": 32, "y": 20, "layer": 0 }
           ]
         }
-      ]
+      ],
+      "sequences": [{ "sequence": 6, "state": 0 }]
     },
     {
       "id": "balloon",
@@ -111,6 +118,16 @@
         { "id": 20, "sprites": [{ "sheet": "PART4D", "sprite": 1, "x": -2, "y": 0, "layer": 0 }] },
         { "id": 21, "sprites": [{ "sheet": "PART4D", "sprite": 2, "x": -9, "y": -5, "layer": 0 }] },
         { "id": 22, "sprites": [{ "sheet": "PART4D", "sprite": 3, "x": -13, "y": -7, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 7, "state": 1 },
+        { "sequence": 2, "state": 6 },
+        { "sequence": 6, "state": 7 },
+        { "sequence": 4, "state": 13 },
+        { "sequence": 8, "state": 14 },
+        { "sequence": 5, "state": 18 },
+        { "sequence": 9, "state": 19 }
       ]
     },
     {
@@ -143,6 +160,18 @@
         { "id": 22, "sprites": [{ "sheet": "PART5", "sprite": 17, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 23, "sprites": [{ "sheet": "PART5", "sprite": 18, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 24, "sprites": [{ "sheet": "PART5", "sprite": 19, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 11, "state": 1 },
+        { "sequence": 4, "state": 5 },
+        { "sequence": 12, "state": 6 },
+        { "sequence": 6, "state": 10 },
+        { "sequence": 13, "state": 11 },
+        { "sequence": 8, "state": 15 },
+        { "sequence": 14, "state": 16 },
+        { "sequence": 10, "state": 20 },
+        { "sequence": 15, "state": 21 }
       ]
     },
     {
@@ -305,6 +334,10 @@
       "states": [
         0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 9, 10, 11, 12, 13, 14, 15,
         16
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 6, "state": 31 }
       ]
     },
     {
@@ -316,9 +349,13 @@
         { "id": 1, "sprites": [{ "sheet": "PART7", "sprite": 1, "x": 0, "y": 3, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART7", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART7", "sprite": 3, "x": 0, "y": 3, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 4, "state": 0 },
+        { "sequence": 3, "state": 1 }
       ]
     },
-    { "id": "belt", "type": 8, "sheets": [], "frames": [] },
+    { "id": "belt", "type": 8, "sheets": [], "frames": [], "sequences": [{ "sequence": 1, "state": 0 }] },
     {
       "id": "basketball",
       "type": 9,
@@ -341,13 +378,18 @@
         { "id": 14, "sprites": [{ "sheet": "PART9", "sprite": 14, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 15, "sprites": [{ "sheet": "PART9", "sprite": 15, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 16, "sprites": [{ "sheet": "PART9", "sprite": 9, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 4, "state": 1 }
       ]
     },
     {
       "id": "rope",
       "type": 10,
       "sheets": ["PART10"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART10", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART10", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "laundry-basket",
@@ -362,6 +404,10 @@
           ]
         },
         { "id": 1, "sprites": [{ "sheet": "PART11", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 6, "state": 0 },
+        { "sequence": 5, "state": 1 }
       ]
     },
     {
@@ -1502,6 +1548,20 @@
         147, 148, 148, 149, 149, 150, 150, 151, 151, 152, 152, 153, 153, 154, 154, 155, 155, 156, 156, 157, 157, 158,
         158, 159, 159, 160, 160, 161, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176,
         177, 178, 179, 180, 181
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 8, "state": 1 },
+        { "sequence": 7, "state": 75 },
+        { "sequence": 6, "state": 97 },
+        { "sequence": 4, "state": 149 },
+        { "sequence": 5, "state": 160 },
+        { "sequence": 9, "state": 170 },
+        { "sequence": 11, "state": 171 },
+        { "sequence": 12, "state": 245 },
+        { "sequence": 13, "state": 262 },
+        { "sequence": 14, "state": 314 },
+        { "sequence": 10, "state": 324 }
       ]
     },
     {
@@ -1803,6 +1863,12 @@
             { "sheet": "PART13", "sprite": 2, "x": 0, "y": 11, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 4, "state": 1 },
+        { "sequence": 5, "state": 12 },
+        { "sequence": 13, "state": 29 }
       ]
     },
     {
@@ -1815,6 +1881,10 @@
         { "id": 2, "sprites": [{ "sheet": "PART14", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART14", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 4, "sprites": [{ "sheet": "PART14", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 4, "state": 1 }
       ]
     },
     {
@@ -3146,6 +3216,11 @@
         77, 77, 77, 78, 78, 78, 79, 79, 79, 80, 80, 80, 81, 81, 81, 82, 82, 82, 83, 83, 83, 84, 84, 84, 85, 86, 87, 88,
         89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 106, 106, 106, 106, 107, 108,
         109, 110, 111, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 113, 114, 115, 116
+      ],
+      "sequences": [
+        { "sequence": 15, "state": 0 },
+        { "sequence": 9, "state": 255 },
+        { "sequence": 14, "state": 299 }
       ]
     },
     {
@@ -3156,6 +3231,11 @@
         { "id": 0, "sprites": [{ "sheet": "PART16", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 1, "sprites": [{ "sheet": "PART16", "sprite": 1, "x": 1, "y": 4, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART16", "sprite": 2, "x": -1, "y": 13, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 4, "state": 1 },
+        { "sequence": 5, "state": 2 }
       ]
     },
     {
@@ -3165,6 +3245,10 @@
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART17", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 1, "sprites": [{ "sheet": "PART17", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 4, "state": 1 }
       ]
     },
     {
@@ -4405,6 +4489,45 @@
         86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 103, 103, 103, 103, 104, 104, 105,
         105, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
         125, 125, 125, 125, 126, 126, 127, 127, 127, 128, 129, 130, 131, 132, 133, 134, 135
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 23, "state": 1 },
+        { "sequence": 24, "state": 12 },
+        { "sequence": 19, "state": 22 },
+        { "sequence": 29, "state": 27 },
+        { "sequence": 3, "state": 29 },
+        { "sequence": 4, "state": 30 },
+        { "sequence": 25, "state": 31 },
+        { "sequence": 26, "state": 42 },
+        { "sequence": 20, "state": 52 },
+        { "sequence": 30, "state": 57 },
+        { "sequence": 6, "state": 59 },
+        { "sequence": 7, "state": 60 },
+        { "sequence": 27, "state": 61 },
+        { "sequence": 28, "state": 72 },
+        { "sequence": 22, "state": 82 },
+        { "sequence": 31, "state": 86 },
+        { "sequence": 15, "state": 87 },
+        { "sequence": 9, "state": 90 },
+        { "sequence": 34, "state": 91 },
+        { "sequence": 35, "state": 92 },
+        { "sequence": 36, "state": 102 },
+        { "sequence": 38, "state": 112 },
+        { "sequence": 39, "state": 117 },
+        { "sequence": 40, "state": 119 },
+        { "sequence": 41, "state": 120 },
+        { "sequence": 42, "state": 121 },
+        { "sequence": 43, "state": 131 },
+        { "sequence": 45, "state": 141 },
+        { "sequence": 44, "state": 146 },
+        { "sequence": 46, "state": 148 },
+        { "sequence": 47, "state": 149 },
+        { "sequence": 48, "state": 150 },
+        { "sequence": 49, "state": 160 },
+        { "sequence": 50, "state": 170 },
+        { "sequence": 51, "state": 175 },
+        { "sequence": 52, "state": 177 }
       ]
     },
     {
@@ -4549,7 +4672,12 @@
         },
         { "id": 17, "sprites": [{ "sheet": "PART19", "sprite": 0, "x": 13, "y": 0, "layer": 0 }] }
       ],
-      "states": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 17, 17, 17, 17, 17]
+      "states": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 17, 17, 17, 17, 17],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 17 }
+      ]
     },
     {
       "id": "phazer-pulse",
@@ -4563,7 +4691,8 @@
         { "id": 4, "sprites": [{ "sheet": "PART20", "sprite": 4, "x": -5, "y": -10, "layer": 0 }] },
         { "id": 5, "sprites": [{ "sheet": "PART20", "sprite": 5, "x": -6, "y": -5, "layer": 0 }] },
         { "id": 6, "sprites": [{ "sheet": "PART20", "sprite": 6, "x": -6, "y": -4, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "electric-switch",
@@ -4634,6 +4763,16 @@
             { "sheet": "PART21", "sprite": 3, "x": 15, "y": 18, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 6, "state": 0 },
+        { "sequence": 7, "state": 1 },
+        { "sequence": 8, "state": 2 },
+        { "sequence": 9, "state": 3 },
+        { "sequence": 10, "state": 4 },
+        { "sequence": 11, "state": 5 },
+        { "sequence": 12, "state": 6 },
+        { "sequence": 13, "state": 7 }
       ]
     },
     {
@@ -4763,6 +4902,10 @@
             { "sheet": "PART22", "sprite": 3, "x": 0, "y": 0, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 4, "state": 1 }
       ]
     },
     {
@@ -4792,6 +4935,10 @@
             { "sheet": "TWINKLE", "sprite": 2, "x": 20, "y": -7, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -5420,6 +5567,10 @@
             { "sheet": "PART24", "sprite": 14, "x": 0, "y": 0, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -5451,6 +5602,11 @@
             { "sheet": "PART25", "sprite": 3, "x": 45, "y": -8, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 4, "state": 1 },
+        { "sequence": 2, "state": 2 }
       ]
     },
     {
@@ -5778,6 +5934,16 @@
             { "sheet": "PART120", "sprite": 1, "x": 6, "y": 18, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 9, "state": 0 },
+        { "sequence": 10, "state": 1 },
+        { "sequence": 11, "state": 2 },
+        { "sequence": 12, "state": 3 },
+        { "sequence": 2, "state": 4 },
+        { "sequence": 3, "state": 12 },
+        { "sequence": 4, "state": 20 },
+        { "sequence": 5, "state": 28 }
       ]
     },
     {
@@ -5874,6 +6040,12 @@
             { "sheet": "PART27", "sprite": 0, "x": 0, "y": 8, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 6, "state": 1 },
+        { "sequence": 5, "state": 8 },
+        { "sequence": 4, "state": 9 }
       ]
     },
     {
@@ -5889,7 +6061,8 @@
         { "id": 5, "sprites": [{ "sheet": "PART28", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 6, "sprites": [{ "sheet": "PART28", "sprite": 6, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 7, "sprites": [{ "sheet": "PART28", "sprite": 7, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "lava-lamp",
@@ -5985,13 +6158,19 @@
           ]
         }
       ],
-      "states": [0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7]
+      "states": [0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 },
+        { "sequence": 3, "state": 7 }
+      ]
     },
     {
       "id": "magnifying-glass",
       "type": 30,
       "sheets": ["PART30"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART30", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART30", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "mandrill-motor",
@@ -6926,6 +7105,15 @@
         25, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
         52, 53, 54, 55, 56, 57, 57, 58, 58, 59, 59, 60, 60, 61, 61, 62, 62, 63, 63, 64, 64, 64, 65, 65, 65, 66, 66, 66,
         67, 67, 67
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 128 },
+        { "sequence": 9, "state": 137 },
+        { "sequence": 5, "state": 159 },
+        { "sequence": 7, "state": 173 },
+        { "sequence": 8, "state": 179 }
       ]
     },
     {
@@ -6957,7 +7145,11 @@
           ]
         }
       ],
-      "states": [0, 1, 1, 2, 3, 3]
+      "states": [0, 1, 1, 2, 3, 3],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
+      ]
     },
     {
       "id": "cupid",
@@ -7004,6 +7196,10 @@
             { "sheet": "PART33", "sprite": 0, "x": 0, "y": 2, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -7028,6 +7224,10 @@
       "states": [
         0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 5, 6, 7, 7,
         7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 9, 9, 10, 11, 12
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -7049,6 +7249,11 @@
         { "id": 11, "sprites": [{ "sheet": "PART35", "sprite": 9, "x": -32, "y": 0, "layer": 0 }] },
         { "id": 12, "sprites": [{ "sheet": "PART35", "sprite": 10, "x": -30, "y": -1, "layer": 0 }] },
         { "id": 13, "sprites": [{ "sheet": "PART35", "sprite": 10, "x": -30, "y": -1, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 13 }
       ]
     },
     {
@@ -7861,6 +8066,23 @@
         48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
         76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102,
         103, 104, 105, 106
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 10, "state": 1 },
+        { "sequence": 17, "state": 4 },
+        { "sequence": 9, "state": 31 },
+        { "sequence": 8, "state": 35 },
+        { "sequence": 12, "state": 41 },
+        { "sequence": 16, "state": 42 },
+        { "sequence": 18, "state": 45 },
+        { "sequence": 14, "state": 66 },
+        { "sequence": 15, "state": 72 },
+        { "sequence": 25, "state": 78 },
+        { "sequence": 20, "state": 79 },
+        { "sequence": 21, "state": 83 },
+        { "sequence": 23, "state": 104 },
+        { "sequence": 24, "state": 111 }
       ]
     },
     {
@@ -7923,6 +8145,14 @@
             { "sheet": "TWINKLE", "sprite": 2, "x": 55, "y": 9, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 7, "state": 0 },
+        { "sequence": 8, "state": 1 },
+        { "sequence": 11, "state": 4 },
+        { "sequence": 3, "state": 5 },
+        { "sequence": 4, "state": 6 },
+        { "sequence": 9, "state": 7 }
       ]
     },
     {
@@ -7976,6 +8206,10 @@
             { "sheet": "PART38", "sprite": 2, "x": 54, "y": 4, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 2, "state": 4 }
       ]
     },
     {
@@ -8046,6 +8280,11 @@
             { "sheet": "PART39", "sprite": 0, "x": 0, "y": 0, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 5, "state": 2 },
+        { "sequence": 4, "state": 8 }
       ]
     },
     {
@@ -8130,6 +8369,10 @@
             { "sheet": "PART40", "sprite": 9, "x": 1, "y": 4, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -8152,7 +8395,8 @@
             { "sheet": "PART41", "sprite": 2, "x": 2, "y": -1, "layer": 0 }
           ]
         }
-      ]
+      ],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "newton-mouse",
@@ -8218,6 +8462,17 @@
         0, 1, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 40, 40, 40, 40, 41, 41, 41, 41,
         41, 41, 41, 41, 41, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 9, "state": 1 },
+        { "sequence": 7, "state": 23 },
+        { "sequence": 8, "state": 27 },
+        { "sequence": 10, "state": 30 },
+        { "sequence": 11, "state": 50 },
+        { "sequence": 14, "state": 51 },
+        { "sequence": 12, "state": 73 },
+        { "sequence": 13, "state": 77 }
       ]
     },
     {
@@ -8247,6 +8502,10 @@
             { "sheet": "TWINKLE", "sprite": 2, "x": 16, "y": -5, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -8262,7 +8521,8 @@
         { "id": 5, "sprites": [{ "sheet": "PART44", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 6, "sprites": [{ "sheet": "PART44", "sprite": 6, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 7, "sprites": [{ "sheet": "PART44", "sprite": 7, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "aladdins-lamp",
@@ -8326,6 +8586,11 @@
             { "sheet": "FLAMES", "sprite": 4, "x": 43, "y": -18, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 2, "state": 4 }
       ]
     },
     {
@@ -8353,6 +8618,10 @@
         { "id": 17, "sprites": [{ "sheet": "PART46", "sprite": 15, "x": 0, "y": -9, "layer": 0 }] },
         { "id": 18, "sprites": [{ "sheet": "PART46", "sprite": 16, "x": -5, "y": -9, "layer": 0 }] },
         { "id": 19, "sprites": [{ "sheet": "PART46", "sprite": 17, "x": -9, "y": -9, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 4 },
+        { "sequence": 1, "state": 8 }
       ]
     },
     {
@@ -8364,7 +8633,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART47", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART47", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART47", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "wood-wall",
@@ -8409,6 +8679,11 @@
         { "id": 35, "sprites": [{ "sheet": "PART48", "sprite": 35, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 36, "sprites": [{ "sheet": "PART48", "sprite": 36, "x": 0, "y": -1, "layer": 0 }] },
         { "id": 37, "sprites": [{ "sheet": "PART48", "sprite": 37, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 13 },
+        { "sequence": 4, "state": 26 }
       ]
     },
     { "id": "rope-end", "type": 49, "sheets": [], "frames": [] },
@@ -8759,6 +9034,11 @@
             { "sheet": "PART50", "sprite": 14, "x": 30, "y": 14, "layer": 0, "flip": "v" }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 4, "state": 1 },
+        { "sequence": 3, "state": 10 }
       ]
     },
     {
@@ -9243,13 +9523,18 @@
             { "sheet": "PART51", "sprite": 9, "x": 8, "y": 6, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 9, "state": 0 },
+        { "sequence": 10, "state": 1 }
       ]
     },
     {
       "id": "cheese",
       "type": 52,
       "sheets": ["PART52"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART52", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART52", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "thumb-tack",
@@ -9345,6 +9630,16 @@
             { "sheet": "TWINKLE", "sprite": 2, "x": 20, "y": 3, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 6, "state": 0 },
+        { "sequence": 7, "state": 1 },
+        { "sequence": 8, "state": 4 },
+        { "sequence": 9, "state": 5 },
+        { "sequence": 11, "state": 8 },
+        { "sequence": 10, "state": 9 },
+        { "sequence": 13, "state": 12 },
+        { "sequence": 12, "state": 13 }
       ]
     },
     {
@@ -9740,6 +10035,22 @@
         82, 82, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 83, 84, 84, 84, 85, 86, 87, 88, 88, 88, 89, 90, 90, 90,
         91, 91, 91, 92, 92, 92, 93, 93, 93, 94, 94, 94, 95, 96, 96, 96, 97, 97, 97, 98, 98, 98, 99, 99, 99, 100, 100,
         100, 101, 101, 101, 102, 102, 102
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 18, "state": 1 },
+        { "sequence": 19, "state": 24 },
+        { "sequence": 20, "state": 47 },
+        { "sequence": 21, "state": 70 },
+        { "sequence": 23, "state": 95 },
+        { "sequence": 25, "state": 134 },
+        { "sequence": 3, "state": 135 },
+        { "sequence": 15, "state": 151 },
+        { "sequence": 16, "state": 152 },
+        { "sequence": 8, "state": 160 },
+        { "sequence": 9, "state": 168 },
+        { "sequence": 11, "state": 198 },
+        { "sequence": 51, "state": 235 }
       ]
     },
     {
@@ -9816,6 +10127,10 @@
             { "sheet": "PART22", "sprite": 8, "x": 0, "y": 3, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 5, "state": 1 }
       ]
     },
     {
@@ -9841,6 +10156,11 @@
         { "id": 15, "sprites": [{ "sheet": "PART56", "sprite": 11, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 16, "sprites": [{ "sheet": "PART56", "sprite": 15, "x": -5, "y": -5, "layer": 0 }] },
         { "id": 17, "sprites": [{ "sheet": "PART56", "sprite": 16, "x": 3, "y": -10, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 3 },
+        { "sequence": 3, "state": 6 }
       ]
     },
     {
@@ -9852,7 +10172,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART57", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART57", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART57", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "mels-house",
@@ -10715,6 +11036,16 @@
         30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57,
         58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 75, 75, 76, 76, 76, 77, 77, 77, 78, 79,
         79, 79, 80, 80, 80, 81, 81, 81, 82, 82, 82, 83, 83, 83, 84, 84, 84, 85
+      ],
+      "sequences": [
+        { "sequence": 5, "state": 0 },
+        { "sequence": 6, "state": 1 },
+        { "sequence": 9, "state": 70 },
+        { "sequence": 8, "state": 108 },
+        { "sequence": 4, "state": 111 },
+        { "sequence": 15, "state": 112 },
+        { "sequence": 13, "state": 122 },
+        { "sequence": 14, "state": 131 }
       ]
     },
     {
@@ -10725,6 +11056,11 @@
         { "id": 0, "sprites": [{ "sheet": "PART59", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 1, "sprites": [{ "sheet": "PART59", "sprite": 1, "x": 1, "y": -2, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART59", "sprite": 2, "x": -1, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 2 }
       ]
     },
     {
@@ -10762,6 +11098,11 @@
         { "id": 27, "sprites": [{ "sheet": "PART60", "sprite": 27, "x": 0, "y": -20, "layer": 0 }] },
         { "id": 28, "sprites": [{ "sheet": "PART60", "sprite": 28, "x": -3, "y": -26, "layer": 0 }] },
         { "id": 29, "sprites": [{ "sheet": "PART60", "sprite": 29, "x": -8, "y": -20, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 8 },
+        { "sequence": 3, "state": 18 }
       ]
     },
     {
@@ -11150,6 +11491,19 @@
         0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 12, 13, 14, 15, 16, 16, 16, 16, 16, 16, 16,
         16, 16, 16, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 28, 28, 29, 29,
         30, 30, 31, 31, 32, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 7, "state": 1 },
+        { "sequence": 8, "state": 11 },
+        { "sequence": 4, "state": 21 },
+        { "sequence": 12, "state": 24 },
+        { "sequence": 5, "state": 26 },
+        { "sequence": 6, "state": 65 },
+        { "sequence": 9, "state": 67 },
+        { "sequence": 10, "state": 77 },
+        { "sequence": 11, "state": 82 },
+        { "sequence": 13, "state": 84 }
       ]
     },
     {
@@ -11307,6 +11661,11 @@
             { "sheet": "PART62", "sprite": 17, "x": -32, "y": -25, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 18 }
       ]
     },
     {
@@ -11330,6 +11689,24 @@
         { "id": 13, "sprites": [{ "sheet": "PART63", "sprite": 14, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 14, "sprites": [{ "sheet": "PART63", "sprite": 15, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 15, "sprites": [{ "sheet": "PART63", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 2 },
+        { "sequence": 5, "state": 3 },
+        { "sequence": 6, "state": 4 },
+        { "sequence": 7, "state": 5 },
+        { "sequence": 8, "state": 6 },
+        { "sequence": 9, "state": 7 },
+        { "sequence": 10, "state": 8 },
+        { "sequence": 11, "state": 9 },
+        { "sequence": 12, "state": 10 },
+        { "sequence": 13, "state": 11 },
+        { "sequence": 14, "state": 12 },
+        { "sequence": 15, "state": 13 },
+        { "sequence": 16, "state": 14 },
+        { "sequence": 17, "state": 15 }
       ]
     },
     {
@@ -11341,7 +11718,11 @@
         { "id": 1, "sprites": [{ "sheet": "PART64", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART64", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }
       ],
-      "states": [0, 1, 2, 2, 2]
+      "states": [0, 1, 2, 2, 2],
+      "sequences": [
+        { "sequence": 4, "state": 0 },
+        { "sequence": 3, "state": 1 }
+      ]
     },
     {
       "id": "leprechaun",
@@ -11475,7 +11856,12 @@
           ]
         }
       ],
-      "states": [0, 1, 2, 3, 4, 5, 6, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14, 15, 16, 17]
+      "states": [0, 1, 2, 3, 4, 5, 6, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14, 15, 16, 17],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 },
+        { "sequence": 3, "state": 8 }
+      ]
     },
     {
       "id": "mouse-hole",
@@ -11525,6 +11911,11 @@
             { "sheet": "PART66", "sprite": 3, "x": 4, "y": 4, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 2, "state": 6 }
       ]
     },
     {
@@ -11741,6 +12132,11 @@
       "states": [
         0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 14, 15, 16, 16, 17, 17, 18,
         18, 19, 19
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 2, "state": 25 }
       ]
     },
     {
@@ -11756,7 +12152,8 @@
         { "id": 5, "sprites": [{ "sheet": "PART68", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 6, "sprites": [{ "sheet": "PART68", "sprite": 6, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 7, "sprites": [{ "sheet": "PART68", "sprite": 7, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "anti-gravity-pad",
@@ -11768,6 +12165,10 @@
         { "id": 2, "sprites": [{ "sheet": "PART69", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART69", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 4, "sprites": [{ "sheet": "PART69", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -12456,6 +12857,23 @@
         20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
         48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
         76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 8, "state": 1 },
+        { "sequence": 4, "state": 28 },
+        { "sequence": 3, "state": 32 },
+        { "sequence": 12, "state": 38 },
+        { "sequence": 13, "state": 39 },
+        { "sequence": 14, "state": 40 },
+        { "sequence": 15, "state": 56 },
+        { "sequence": 16, "state": 64 },
+        { "sequence": 17, "state": 70 },
+        { "sequence": 18, "state": 71 },
+        { "sequence": 19, "state": 72 },
+        { "sequence": 20, "state": 88 },
+        { "sequence": 21, "state": 96 },
+        { "sequence": 22, "state": 102 }
       ]
     },
     {
@@ -12496,6 +12914,17 @@
         { "id": 6, "sprites": [{ "sheet": "PART71", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 7, "sprites": [{ "sheet": "PART71", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 8, "sprites": [{ "sheet": "PART71", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 2 },
+        { "sequence": 5, "state": 3 },
+        { "sequence": 6, "state": 4 },
+        { "sequence": 7, "state": 5 },
+        { "sequence": 8, "state": 6 },
+        { "sequence": 9, "state": 7 },
+        { "sequence": 10, "state": 8 }
       ]
     },
     {
@@ -12515,7 +12944,8 @@
         { "id": 9, "sprites": [{ "sheet": "PART75", "sprite": 5, "x": 8, "y": 3, "layer": 0 }] },
         { "id": 10, "sprites": [{ "sheet": "PART75", "sprite": 6, "x": -1, "y": 3, "layer": 0, "flip": "h" }] },
         { "id": 11, "sprites": [{ "sheet": "PART75", "sprite": 5, "x": 7, "y": 3, "layer": 0, "flip": "h" }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 1 }]
     },
     {
       "id": "trap-door",
@@ -12593,6 +13023,11 @@
             { "sheet": "PART73", "sprite": 6, "x": 6, "y": 5, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 8 }
       ]
     },
     {
@@ -12609,7 +13044,11 @@
         { "id": 6, "sprites": [{ "sheet": "PART74", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 7, "sprites": [{ "sheet": "BLANK", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }
       ],
-      "states": [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7]
+      "states": [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 13 }
+      ]
     },
     {
       "id": "match-on-a-spring",
@@ -12770,13 +13209,20 @@
       "states": [
         0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
         17, 17
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 4, "state": 2 },
+        { "sequence": 3, "state": 10 },
+        { "sequence": 2, "state": 27 }
       ]
     },
     {
       "id": "steel-cable",
       "type": 76,
       "sheets": ["PART76"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART76", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART76", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "tin-snips",
@@ -12793,6 +13239,12 @@
         { "id": 1, "sprites": [{ "sheet": "PART77", "sprite": 2, "x": 45, "y": 9, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART77", "sprite": 1, "x": 1, "y": 6, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART77", "sprite": 1, "x": 1, "y": 6, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 4, "state": 0 },
+        { "sequence": 5, "state": 1 },
+        { "sequence": 6, "state": 2 },
+        { "sequence": 3, "state": 3 }
       ]
     },
     {
@@ -13100,6 +13552,12 @@
             { "sheet": "FLAMES", "sprite": 4, "x": 19, "y": -3, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 },
+        { "sequence": 5, "state": 12 },
+        { "sequence": 7, "state": 27 }
       ]
     },
     {
@@ -13197,6 +13655,13 @@
             { "sheet": "PART79", "sprite": 2, "x": 11, "y": 52, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 5, "state": 1 },
+        { "sequence": 4, "state": 6 },
+        { "sequence": 2, "state": 8 },
+        { "sequence": 3, "state": 10 }
       ]
     },
     {
@@ -13869,6 +14334,23 @@
         78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 103,
         103, 103, 104, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122,
         123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134
+      ],
+      "sequences": [
+        { "sequence": 9, "state": 0 },
+        { "sequence": 19, "state": 1 },
+        { "sequence": 10, "state": 22 },
+        { "sequence": 11, "state": 25 },
+        { "sequence": 6, "state": 31 },
+        { "sequence": 12, "state": 48 },
+        { "sequence": 20, "state": 49 },
+        { "sequence": 14, "state": 70 },
+        { "sequence": 15, "state": 73 },
+        { "sequence": 7, "state": 79 },
+        { "sequence": 16, "state": 95 },
+        { "sequence": 21, "state": 96 },
+        { "sequence": 17, "state": 117 },
+        { "sequence": 18, "state": 120 },
+        { "sequence": 8, "state": 126 }
       ]
     },
     {
@@ -14275,6 +14757,17 @@
             { "sheet": "PART81", "sprite": 20, "x": 11, "y": 0, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 8, "state": 1 },
+        { "sequence": 2, "state": 5 },
+        { "sequence": 6, "state": 16 },
+        { "sequence": 9, "state": 17 },
+        { "sequence": 3, "state": 21 },
+        { "sequence": 7, "state": 32 },
+        { "sequence": 10, "state": 33 },
+        { "sequence": 4, "state": 37 }
       ]
     },
     {
@@ -14312,6 +14805,11 @@
         { "id": 27, "sprites": [{ "sheet": "PART82", "sprite": 27, "x": 0, "y": -14, "layer": 0 }] },
         { "id": 28, "sprites": [{ "sheet": "PART82", "sprite": 28, "x": -2, "y": -6, "layer": 0 }] },
         { "id": 29, "sprites": [{ "sheet": "PART82", "sprite": 29, "x": -16, "y": -16, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 12 },
+        { "sequence": 3, "state": 18 }
       ]
     },
     {
@@ -14339,6 +14837,11 @@
         { "id": 17, "sprites": [{ "sheet": "PART83", "sprite": 16, "x": 0, "y": -1, "layer": 0 }] },
         { "id": 18, "sprites": [{ "sheet": "PART83", "sprite": 17, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 19, "sprites": [{ "sheet": "PART83", "sprite": 18, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 4, "state": 0 },
+        { "sequence": 1, "state": 4 },
+        { "sequence": 3, "state": 8 }
       ]
     },
     {
@@ -14371,6 +14874,11 @@
         { "id": 22, "sprites": [{ "sheet": "PART84", "sprite": 22, "x": 0, "y": -7, "layer": 0 }] },
         { "id": 23, "sprites": [{ "sheet": "PART84", "sprite": 23, "x": 0, "y": -19, "layer": 0 }] },
         { "id": 24, "sprites": [{ "sheet": "PART84", "sprite": 24, "x": -13, "y": -8, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 4 },
+        { "sequence": 2, "state": 13 }
       ]
     },
     {
@@ -14413,6 +14921,11 @@
         { "id": 32, "sprites": [{ "sheet": "PART85", "sprite": 32, "x": 0, "y": -9, "layer": 0 }] },
         { "id": 33, "sprites": [{ "sheet": "PART85", "sprite": 33, "x": -5, "y": -12, "layer": 0 }] },
         { "id": 34, "sprites": [{ "sheet": "PART85", "sprite": 34, "x": -2, "y": -14, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 13 },
+        { "sequence": 3, "state": 23 }
       ]
     },
     {
@@ -14425,6 +14938,10 @@
         { "id": 2, "sprites": [{ "sheet": "PART86", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART86", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 4, "sprites": [{ "sheet": "PART86", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -14453,6 +14970,15 @@
         { "id": 18, "sprites": [{ "sheet": "PART87", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 19, "sprites": [{ "sheet": "PART87", "sprite": 6, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 20, "sprites": [{ "sheet": "PART87", "sprite": 7, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 7, "state": 2 },
+        { "sequence": 8, "state": 3 },
+        { "sequence": 9, "state": 4 },
+        { "sequence": 5, "state": 5 },
+        { "sequence": 4, "state": 13 }
       ]
     },
     {
@@ -14540,6 +15066,12 @@
             { "sheet": "PART88", "sprite": 5, "x": 11, "y": 0, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 20, "state": 0 },
+        { "sequence": 16, "state": 1 },
+        { "sequence": 21, "state": 5 },
+        { "sequence": 22, "state": 6 }
       ]
     },
     {
@@ -14637,6 +15169,10 @@
             { "sheet": "PART89", "sprite": 8, "x": 32, "y": 19, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -14725,6 +15261,10 @@
             { "sheet": "PART90", "sprite": 1, "x": 7, "y": 21, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -14876,6 +15416,16 @@
       "states": [
         0, 1, 2, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13,
         13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17, 17, 18, 18, 18, 19, 19, 19
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 6, "state": 1 },
+        { "sequence": 7, "state": 2 },
+        { "sequence": 8, "state": 3 },
+        { "sequence": 9, "state": 4 },
+        { "sequence": 4, "state": 16 },
+        { "sequence": 3, "state": 28 },
+        { "sequence": 2, "state": 40 }
       ]
     },
     {
@@ -15024,6 +15574,16 @@
       "states": [
         0, 1, 2, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13,
         13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17, 17, 18, 18, 18, 19, 19, 19
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 6, "state": 1 },
+        { "sequence": 7, "state": 2 },
+        { "sequence": 8, "state": 3 },
+        { "sequence": 9, "state": 4 },
+        { "sequence": 4, "state": 16 },
+        { "sequence": 3, "state": 28 },
+        { "sequence": 2, "state": 40 }
       ]
     },
     {
@@ -15175,6 +15735,16 @@
       "states": [
         0, 1, 2, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13,
         13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17, 17, 18, 18, 18, 19, 19, 19
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 5, "state": 1 },
+        { "sequence": 6, "state": 2 },
+        { "sequence": 7, "state": 3 },
+        { "sequence": 9, "state": 4 },
+        { "sequence": 4, "state": 16 },
+        { "sequence": 3, "state": 28 },
+        { "sequence": 2, "state": 40 }
       ]
     },
     {
@@ -15186,7 +15756,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART94", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART94", "sprite": 1, "x": -1, "y": 0, "layer": 0, "flip": "h" }] },
         { "id": 3, "sprites": [{ "sheet": "PART94", "sprite": 0, "x": -1, "y": 0, "layer": 0, "flip": "h" }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "laser-mixer",
@@ -16099,6 +16670,40 @@
         96, 96, 97, 97, 97, 98, 98, 98, 99, 99, 99, 100, 100, 100, 101, 101, 101, 102, 102, 102, 103, 103, 103, 104,
         104, 104, 105, 105, 105, 106, 106, 106, 107, 107, 107, 108, 108, 108, 109, 109, 109, 110, 110, 110, 111, 111,
         111, 112, 112, 112, 113, 113, 113, 114, 114, 114
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 },
+        { "sequence": 3, "state": 13 },
+        { "sequence": 4, "state": 25 },
+        { "sequence": 5, "state": 37 },
+        { "sequence": 6, "state": 49 },
+        { "sequence": 7, "state": 61 },
+        { "sequence": 8, "state": 73 },
+        { "sequence": 16, "state": 85 },
+        { "sequence": 17, "state": 88 },
+        { "sequence": 19, "state": 100 },
+        { "sequence": 20, "state": 109 },
+        { "sequence": 21, "state": 121 },
+        { "sequence": 22, "state": 133 },
+        { "sequence": 23, "state": 145 },
+        { "sequence": 24, "state": 157 },
+        { "sequence": 25, "state": 169 },
+        { "sequence": 26, "state": 172 },
+        { "sequence": 27, "state": 184 },
+        { "sequence": 28, "state": 196 },
+        { "sequence": 29, "state": 208 },
+        { "sequence": 30, "state": 220 },
+        { "sequence": 31, "state": 232 },
+        { "sequence": 32, "state": 244 },
+        { "sequence": 33, "state": 256 },
+        { "sequence": 9, "state": 259 },
+        { "sequence": 10, "state": 271 },
+        { "sequence": 11, "state": 283 },
+        { "sequence": 12, "state": 295 },
+        { "sequence": 13, "state": 307 },
+        { "sequence": 14, "state": 319 },
+        { "sequence": 15, "state": 331 }
       ]
     },
     {
@@ -16267,6 +16872,18 @@
             { "sheet": "PART96", "sprite": 7, "x": 15, "y": 18, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 2 },
+        { "sequence": 5, "state": 3 },
+        { "sequence": 6, "state": 4 },
+        { "sequence": 7, "state": 5 },
+        { "sequence": 8, "state": 6 },
+        { "sequence": 10, "state": 7 },
+        { "sequence": 11, "state": 14 },
+        { "sequence": 12, "state": 21 }
       ]
     },
     {
@@ -16280,13 +16897,18 @@
         { "id": 3, "sprites": [{ "sheet": "PART97", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 4, "sprites": [{ "sheet": "PART97", "sprite": 4, "x": 2, "y": 0, "layer": 0 }] },
         { "id": 5, "sprites": [{ "sheet": "PART97", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 3 }
       ]
     },
     {
       "id": "t-connector",
       "type": 98,
       "sheets": ["PART98"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART98", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART98", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "grass-incline",
@@ -16297,7 +16919,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART99", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART99", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART99", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "log-incline",
@@ -16308,7 +16931,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART100", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART100", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART100", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "granite-incline",
@@ -16319,7 +16943,8 @@
         { "id": 1, "sprites": [{ "sheet": "PART101", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART101", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART101", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "brick-incline",
@@ -16330,31 +16955,36 @@
         { "id": 1, "sprites": [{ "sheet": "PART102", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART102", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART102", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "archway",
       "type": 103,
       "sheets": ["PART103"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART103", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART103", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "wooden-barrier",
       "type": 104,
       "sheets": ["PART104"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART104", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART104", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "scaffold-barrier",
       "type": 105,
       "sheets": ["PART105"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART105", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART105", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "lattice-archway",
       "type": 106,
       "sheets": ["PART106"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART106", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART106", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 3, "state": 0 }]
     },
     {
       "id": "electric-mixer",
@@ -16366,6 +16996,10 @@
         { "id": 2, "sprites": [{ "sheet": "PART107", "sprite": 2, "x": 2, "y": -2, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART107", "sprite": 3, "x": -1, "y": 0, "layer": 0 }] },
         { "id": 4, "sprites": [{ "sheet": "PART107", "sprite": 4, "x": -4, "y": -2, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 1, "state": 1 }
       ]
     },
     {
@@ -16595,6 +17229,16 @@
         24, 24, 25, 25, 26, 26, 27, 27, 28, 29, 29, 30, 30, 31, 31, 31, 31, 31, 31, 31, 31, 32, 32, 32, 33, 33, 33, 34,
         34, 34, 35, 35, 35, 36, 37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 40, 40, 40, 40, 40, 40,
         40, 40, 40, 40, 41
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 9, "state": 1 },
+        { "sequence": 8, "state": 8 },
+        { "sequence": 7, "state": 18 },
+        { "sequence": 6, "state": 30 },
+        { "sequence": 5, "state": 51 },
+        { "sequence": 4, "state": 80 },
+        { "sequence": 10, "state": 90 }
       ]
     },
     {
@@ -16723,6 +17367,15 @@
             { "sheet": "FLAMES", "sprite": 5, "x": 27, "y": 15, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 5 },
+        { "sequence": 4, "state": 8 },
+        { "sequence": 2, "state": 11 },
+        { "sequence": 7, "state": 16 },
+        { "sequence": 5, "state": 17 },
+        { "sequence": 6, "state": 22 }
       ]
     },
     {
@@ -16759,7 +17412,8 @@
       "id": "little-cloud",
       "type": 115,
       "sheets": ["PART115"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART115", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART115", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "pinball-flipper",
@@ -16768,6 +17422,10 @@
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART116", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 1, "sprites": [{ "sheet": "PART116", "sprite": 1, "x": -13, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 }
       ]
     },
     {
@@ -16831,6 +17489,32 @@
         { "id": 53, "sprites": [{ "sheet": "PART117", "sprite": 13, "x": 35, "y": 11, "layer": 0 }] },
         { "id": 54, "sprites": [{ "sheet": "PART117", "sprite": 14, "x": 35, "y": 8, "layer": 0 }] },
         { "id": 55, "sprites": [{ "sheet": "PART117", "sprite": 10, "x": 35, "y": 10, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 3, "state": 0 },
+        { "sequence": 4, "state": 1 },
+        { "sequence": 9, "state": 6 },
+        { "sequence": 12, "state": 7 },
+        { "sequence": 13, "state": 8 },
+        { "sequence": 14, "state": 13 },
+        { "sequence": 15, "state": 14 },
+        { "sequence": 17, "state": 15 },
+        { "sequence": 18, "state": 20 },
+        { "sequence": 19, "state": 21 },
+        { "sequence": 20, "state": 22 },
+        { "sequence": 21, "state": 27 },
+        { "sequence": 22, "state": 28 },
+        { "sequence": 23, "state": 29 },
+        { "sequence": 24, "state": 34 },
+        { "sequence": 25, "state": 35 },
+        { "sequence": 26, "state": 36 },
+        { "sequence": 27, "state": 41 },
+        { "sequence": 28, "state": 42 },
+        { "sequence": 29, "state": 43 },
+        { "sequence": 30, "state": 48 },
+        { "sequence": 31, "state": 49 },
+        { "sequence": 32, "state": 50 },
+        { "sequence": 33, "state": 55 }
       ]
     },
     {
@@ -16861,6 +17545,11 @@
         { "id": 20, "sprites": [{ "sheet": "PART118", "sprite": 20, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 21, "sprites": [{ "sheet": "PART118", "sprite": 21, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 22, "sprites": [{ "sheet": "PART118", "sprite": 22, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 11 },
+        { "sequence": 3, "state": 22 }
       ]
     },
     {
@@ -16884,6 +17573,24 @@
         { "id": 13, "sprites": [{ "sheet": "PART119", "sprite": 5, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 14, "sprites": [{ "sheet": "PART119", "sprite": 6, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 15, "sprites": [{ "sheet": "PART119", "sprite": 7, "x": 0, "y": 0, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 2 },
+        { "sequence": 5, "state": 3 },
+        { "sequence": 6, "state": 4 },
+        { "sequence": 7, "state": 5 },
+        { "sequence": 8, "state": 6 },
+        { "sequence": 9, "state": 7 },
+        { "sequence": 11, "state": 8 },
+        { "sequence": 12, "state": 9 },
+        { "sequence": 13, "state": 10 },
+        { "sequence": 14, "state": 11 },
+        { "sequence": 15, "state": 12 },
+        { "sequence": 16, "state": 13 },
+        { "sequence": 17, "state": 14 },
+        { "sequence": 18, "state": 15 }
       ]
     },
     {
@@ -16914,31 +17621,41 @@
             { "sheet": "PART120", "sprite": 1, "x": 6, "y": 18, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 },
+        { "sequence": 3, "state": 2 },
+        { "sequence": 4, "state": 3 }
       ]
     },
     {
       "id": "vine-tile",
       "type": 121,
       "sheets": ["PART121"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART121", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART121", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "gear-tile",
       "type": 122,
       "sheets": ["PART122"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART122", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART122", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "metal-tile",
       "type": 123,
       "sheets": ["PART123"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART123", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART123", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "diamond-tile",
       "type": 124,
       "sheets": ["PART124"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART124", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART124", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "yellow-brick-wall",
@@ -16965,6 +17682,10 @@
         { "id": 17, "sprites": [{ "sheet": "PART125", "sprite": 11, "x": 0, "y": -7, "layer": 0 }] },
         { "id": 18, "sprites": [{ "sheet": "PART125", "sprite": 11, "x": 0, "y": -7, "layer": 0 }] },
         { "id": 19, "sprites": [{ "sheet": "PART125", "sprite": 11, "x": 0, "y": -7, "layer": 0 }] }
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 4 },
+        { "sequence": 1, "state": 8 }
       ]
     },
     {
@@ -16976,56 +17697,65 @@
         { "id": 1, "sprites": [{ "sheet": "PART126", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 2, "sprites": [{ "sheet": "PART126", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
         { "id": 3, "sprites": [{ "sheet": "PART126", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
-      ]
+      ],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     { "id": "color-block", "type": 127, "sheets": [], "frames": [] },
     {
       "id": "purple-mountain",
       "type": 128,
       "sheets": ["PART128"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART128", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART128", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "desert-mesa",
       "type": 129,
       "sheets": ["PART129"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART129", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART129", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 6, "state": 0 }]
     },
     {
       "id": "glass-building",
       "type": 130,
       "sheets": ["PART130"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART130", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART130", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "apartment-building",
       "type": 131,
       "sheets": ["PART131"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART131", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART131", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "office-building",
       "type": 132,
       "sheets": ["PART132"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART132", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART132", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "car",
       "type": 133,
       "sheets": ["PART133"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART133", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART133", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "lamp-post",
       "type": 134,
       "sheets": ["PART134"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART134", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART134", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "fire-hydrant",
       "type": 135,
       "sheets": ["PART135"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART135", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART135", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 1, "state": 0 }]
     },
     {
       "id": "message-computer",
@@ -17090,7 +17820,12 @@
           ]
         }
       ],
-      "states": [0, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8]
+      "states": [0, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
+      "sequences": [
+        { "sequence": 4, "state": 0 },
+        { "sequence": 5, "state": 1 },
+        { "sequence": 6, "state": 2 }
+      ]
     },
     {
       "id": "egg-timer",
@@ -17459,6 +18194,34 @@
             { "sheet": "PART137", "sprite": 5, "x": 17, "y": 19, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 22, "state": 0 },
+        { "sequence": 37, "state": 1 },
+        { "sequence": 21, "state": 2 },
+        { "sequence": 23, "state": 3 },
+        { "sequence": 38, "state": 4 },
+        { "sequence": 24, "state": 5 },
+        { "sequence": 26, "state": 6 },
+        { "sequence": 39, "state": 7 },
+        { "sequence": 25, "state": 8 },
+        { "sequence": 28, "state": 9 },
+        { "sequence": 40, "state": 10 },
+        { "sequence": 27, "state": 11 },
+        { "sequence": 30, "state": 12 },
+        { "sequence": 41, "state": 13 },
+        { "sequence": 29, "state": 14 },
+        { "sequence": 36, "state": 15 },
+        { "sequence": 42, "state": 16 },
+        { "sequence": 31, "state": 17 },
+        { "sequence": 33, "state": 18 },
+        { "sequence": 43, "state": 19 },
+        { "sequence": 32, "state": 20 },
+        { "sequence": 34, "state": 21 },
+        { "sequence": 44, "state": 22 },
+        { "sequence": 35, "state": 23 },
+        { "sequence": 19, "state": 24 },
+        { "sequence": 20, "state": 32 }
       ]
     },
     {
@@ -17502,6 +18265,10 @@
             { "sheet": "FLAMES", "sprite": 9, "x": 9, "y": -7, "layer": 0 }
           ]
         }
+      ],
+      "sequences": [
+        { "sequence": 1, "state": 0 },
+        { "sequence": 2, "state": 1 }
       ]
     },
     {
@@ -17530,55 +18297,64 @@
             { "sheet": "PART139", "sprite": 0, "x": 38, "y": 22, "layer": 0 }
           ]
         }
-      ]
+      ],
+      "sequences": [{ "sequence": 5, "state": 0 }]
     },
     {
       "id": "small-cactus",
       "type": 140,
       "sheets": ["PART140"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART140", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART140", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "small-maple-tree",
       "type": 141,
       "sheets": ["PART141"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART141", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART141", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "small-pine-tree",
       "type": 142,
       "sheets": ["PART142"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART142", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART142", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "small-cloud",
       "type": 143,
       "sheets": ["PART143"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART143", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART143", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "small-mountain",
       "type": 144,
       "sheets": ["PART144"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART144", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART144", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "medium-mountain",
       "type": 145,
       "sheets": ["PART145"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART145", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART145", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "small-mesa",
       "type": 146,
       "sheets": ["PART146"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART146", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART146", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 3, "state": 0 }]
     },
     {
       "id": "medium-mesa",
       "type": 147,
       "sheets": ["PART147"],
-      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART147", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
+      "frames": [{ "id": 0, "sprites": [{ "sheet": "PART147", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }],
+      "sequences": [{ "sequence": 2, "state": 0 }]
     },
     {
       "id": "laser-detector",
@@ -17615,6 +18391,12 @@
       "states": [
         0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
         4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6
+      ],
+      "sequences": [
+        { "sequence": 2, "state": 0 },
+        { "sequence": 3, "state": 1 },
+        { "sequence": 4, "state": 20 },
+        { "sequence": 5, "state": 39 }
       ]
     }
   ]
