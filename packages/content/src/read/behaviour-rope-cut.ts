@@ -4,7 +4,10 @@
  * its summary says which fields of existing parts and rope records a cut can change, so the scissors keep their state.
  */
 import type { RoutineCode } from "./behaviour-code.ts";
+import { inert } from "./behaviour-connection-relay.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
+import { discoverConstructorCleanup } from "./behaviour-owned-constructors.ts";
+import { PART_SIZE, RELEASED_FIELDS } from "./behaviour-part-copy.ts";
 import { ropeCutPatterns } from "./behaviour-rope-cut-patterns.ts";
 import { matchFirst, outsideStores, routineEvidence, wordFields } from "./behaviour-terms.ts";
 
@@ -49,9 +52,23 @@ export function addRopeCutSummary(
     const shift = of("shift", "wide-integer-shift");
     const position = of("position", "frame-position");
     const geometry = of("ropeGeometry", "rope-geometry");
+    if (!segments || !factory?.factory || !insert || !shift || !position || !geometry?.connected) continue;
+    // The wrapper is given the part that holds the rope record, so it may write no part or record at all.
     const wrapper = summaries.get(bound.get("wrapper")!);
-    if (!segments || !factory || !insert || !shift || !position || !geometry?.connected || !wrapper) continue;
-    if (!wrapper.footprint.partMemoryComplete || !wrapper.footprint.preservesPartState || wrapper.connected) continue;
+    if (!inert(wrapper, true)) continue;
+    // The position helper is given a new rope piece and may write only that piece.
+    if (!position.footprint.complete || !position.footprint.preservesPartState) continue;
+    if (!position.writes.every((write) => write.root === "argument" && write.path.length === 0)) continue;
+    // The rope end pieces (type 49) are made by a constructor that is proved, or by none.
+    const { noConstructorTypes, alwaysSuccessfulConstructors = [], ownedConstructors = [] } = factory.factory;
+    const ends = [...alwaysSuccessfulConstructors, ...ownedConstructors].find((ctor) => ctor.type === 49);
+    if (!noConstructorTypes.includes(49) && !ends) continue;
+    // No check proves the rope's own constructor (type 10) yet, so that its new record at 0x66 is fresh rests on the
+    // first assumption.
+    // The release frees a new piece's outline, belt and rope records, each only when set, and then the piece.
+    const releaseCode = codes.get(bound.get("release")!);
+    const cleanup = releaseCode && discoverConstructorCleanup(releaseCode, PART_SIZE);
+    if (!cleanup || cleanup.releaseFields.some((field, n) => field !== RELEASED_FIELDS[n])) continue;
     // The insertion links a new piece between two existing neighbours, whose list links it rewrites.
     const neighbours = insert.writes.filter((write) => write.path.length > 0);
     const partFields = union(PART_LINKS, neighbours, geometry.connected.partFields);
@@ -60,8 +77,13 @@ export function addRopeCutSummary(
       geometry.connected.recordFields,
       geometry.writes.filter((write) => write.root === "argument"),
     );
-    const callees = [segments, factory, insert, shift, position, geometry, wrapper];
-    const evidence = [...routineEvidence(code), ...callees.flatMap((callee) => callee.evidence)];
+    const callees = [segments, factory, insert, shift, position, geometry, wrapper!];
+    const evidence = [
+      ...routineEvidence(code),
+      ...callees.flatMap((callee) => callee.evidence),
+      ...(ends?.evidence ?? []),
+      ...cleanup.evidence,
+    ];
     const assumptions = [...new Set([...ROPE_CUT_ASSUMPTIONS, ...geometry.assumptions, ...insert.assumptions])];
     const note = "The cut saves and restores a global word, and the list insertion can change a global list head.";
     const unknownWrites: EngineWrite[] = [...partFields, ...recordFields].map((field) => ({

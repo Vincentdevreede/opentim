@@ -16,9 +16,9 @@ export const PART_COPY_ASSUMPTIONS = [
   "Releasing a copy that was never linked, after one of its allocations failed, frees only the copy and the records it made for it, and changes nothing else.",
 ];
 /** The size of a part, the block the copy allocates for itself. */
-const PART_SIZE = 0xa2;
+export const PART_SIZE = 0xa2;
 /** The fields of the copy its release frees: the outline buffer, the belt record and the rope record. */
-const RELEASED_FIELDS = [0x82, 0x54, 0x66];
+export const RELEASED_FIELDS = [0x82, 0x54, 0x66];
 
 /** Adds the part copy's summary where its graph matches and its allocator and release are the ones the proof needs. */
 export function addPartCopySummary(

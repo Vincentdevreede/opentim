@@ -59,7 +59,7 @@ const CHAINS =
   "A pulley chain and the parts list each end: a finite chain without cycles. The fields written are the same on every pass, so the count of passes does not change the footprint.";
 
 /** A callee that changes no part and no record: only stack, and globals when `globals` allows. */
-function inert(summary: EngineSummary | undefined, globals: boolean): boolean {
+export function inert(summary: EngineSummary | undefined, globals: boolean): boolean {
   return (
     !!summary &&
     summary.footprint.partMemoryComplete === true &&
