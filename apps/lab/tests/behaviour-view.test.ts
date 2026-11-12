@@ -258,6 +258,10 @@ describe("hits in words", () => {
       "collider.contactEdge != 0",
     ]);
   });
+
+  it("keeps not equal to a number when the other side of equal isn't a number", () => {
+    expect(tidyTerms(["link0 == found", "link0 != 0"])).toEqual(["link0 == found", "link0 != 0"]);
+  });
 });
 
 describe("writeRows", () => {

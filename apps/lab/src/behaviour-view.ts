@@ -56,7 +56,10 @@ export function tidyTerms(terms: readonly string[]): string[] {
       return (
         !has(`${left} < ${value}`) &&
         !has(`${left} > ${value}`) &&
-        !list.some((other) => other.startsWith(`${left} == `) && other !== `${left} == ${value}`)
+        !list.some((other) => {
+          const equal = COMPARE.exec(other);
+          return !!equal && equal[1] === left && equal[2] === "==" && equal[3] !== value;
+        })
       );
     if (op === "<=") return !has(`${left} < ${value}`);
     if (op === ">=") return !has(`${left} > ${value}`);
