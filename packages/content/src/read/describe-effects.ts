@@ -835,8 +835,9 @@ export function settleForType(
   // A type whose limit is the same number in every level, like the bullet's 12288.
   const fixed = table?.speedLimits?.fixed.find((f) => f.type === type)?.limit;
   if (fixed !== undefined) return { value: kept.speed, kept: true, limit: fixed };
-  // Any other type's limit is one the level's air pressure gives, by the decided assumption within a range.
-  const range = speedLimitRange(table);
+  // A type whose every way stores the base minus the air pressure's value has a limit the level's air pressure gives,
+  // by the decided assumption within a range. Any other type's limit isn't known.
+  const range = table?.speedLimits?.based.includes(type) ? speedLimitRange(table) : undefined;
   return range ? { value: kept.speed, kept: true, range } : { value: kept.speed, kept: true };
 }
 /** A speed limit that is a number in every level, as the words give it after "its speed limit". */

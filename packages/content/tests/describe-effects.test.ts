@@ -465,7 +465,7 @@ describe("effects of parts that touch", () => {
     // A type whose speed limit is the same number in every level, like the bullet, gets the number.
     const bullet = {
       ...trampoline,
-      typeTable: { ...trampoline.typeTable, speedLimits: { fixed: [{ type: 12, limit: 12288 }] } },
+      typeTable: { ...trampoline.typeTable, speedLimits: { fixed: [{ type: 12, limit: 12288 }], based: [] } },
     } as unknown as BehaviourReport;
     const [fixed] = effectsFromOthers(bullet, evaluateBehaviourCondition).get(12)!.effects;
     expect(fixed!.description).toBe(
