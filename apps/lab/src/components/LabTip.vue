@@ -31,9 +31,12 @@ function stay() {
   closing = undefined;
 }
 
+/** The pointer left: the tip closes after a moment, unless the keyboard's focus is on the trigger and keeps it open. */
 function leave() {
   stay();
-  closing = setTimeout(hide, 150);
+  closing = setTimeout(() => {
+    if (!trigger.value?.matches(":focus-visible")) hide();
+  }, 150);
 }
 
 /** Losing focus closes the tip, unless the pointer is on it, as when its text is being selected. */
