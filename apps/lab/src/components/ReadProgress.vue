@@ -3,10 +3,12 @@ import { computed } from "vue";
 import { program } from "../library.ts";
 import { readProgress } from "../read-progress.ts";
 import LabIcon from "./LabIcon.vue";
+import LabTip from "./LabTip.vue";
 
 /**
  * How far the read of the program's behaviour has come, the same on every tab that waits for it: a bar, the step and
- * what it is at, and about how long is left. `compact` is the status bar's words and bar, with the rest in its tip.
+ * what it is at, and about how long is left. `compact` is the status bar's words and bar, with the rest in the Lab's own
+ * tip, which the pointer and the keyboard both open.
  * Before the read's first word it shows the start.
  */
 defineProps<{ compact?: boolean }>();
@@ -28,20 +30,22 @@ const tip = computed(() =>
 
 <template>
   <!-- In the status bar only the words and the bar; the step, the share and the time left are in the tip. -->
-  <span v-if="compact" class="flex cursor-default items-center gap-1.5 text-ink" :title="tip">
-    <LabIcon name="spinner" :size="12" class="animate-spin text-accent" />
-    Reading behaviour
-    <span
-      class="h-1.5 w-20 overflow-hidden rounded-full bg-well"
-      role="progressbar"
-      :aria-valuenow="percent"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-label="Reading the behaviour"
-    >
-      <span class="block h-full bg-accent transition-[width] duration-500" :style="{ width: `${percent}%` }"></span>
+  <LabTip v-if="compact" :text="tip">
+    <span class="flex cursor-default items-center gap-1.5 text-ink">
+      <LabIcon name="spinner" :size="12" class="animate-spin text-accent" />
+      Reading behaviour
+      <span
+        class="h-1.5 w-20 overflow-hidden rounded-full bg-well"
+        role="progressbar"
+        :aria-valuenow="percent"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-label="Reading the behaviour"
+      >
+        <span class="block h-full bg-accent transition-[width] duration-500" :style="{ width: `${percent}%` }"></span>
+      </span>
     </span>
-  </span>
+  </LabTip>
   <div v-else role="status" class="flex flex-col gap-1.5">
     <p class="flex items-center gap-2 text-ink">
       <LabIcon name="spinner" :size="14" :stroke="2.25" class="animate-spin text-accent" />

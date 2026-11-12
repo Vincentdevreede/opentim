@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { isPageLoadError, pageLoadFailed } from "./page-load.ts";
+import { trackPageLoads } from "./page-load.ts";
 import ImportPage from "./pages/ImportPage.vue";
 
 /**
@@ -22,9 +22,4 @@ export const router = createRouter({
 });
 
 // A page whose code didn't load stays where it was; the app says why and offers a reload. Opening a page clears it.
-router.onError((error, to) => {
-  if (isPageLoadError(error)) pageLoadFailed.value = to.fullPath;
-});
-router.afterEach(() => {
-  pageLoadFailed.value = undefined;
-});
+trackPageLoads(router);

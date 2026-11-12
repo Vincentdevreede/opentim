@@ -28,7 +28,7 @@ import LabDot from "./components/LabDot.vue";
 import LabEmpty from "./components/LabEmpty.vue";
 import LabAlert from "./components/LabAlert.vue";
 import LabButton from "./components/LabButton.vue";
-import { pageLoadFailed } from "./page-load.ts";
+import { isOpenPage, pageLoadFailed } from "./page-load.ts";
 
 interface NavItem {
   to: string;
@@ -83,8 +83,11 @@ const router = useRouter();
 const showKeys = ref(false);
 const hasFiles = computed(() => resources.value.length > 0);
 const route = useRoute();
-/** Loads the Lab again at a page, for when that page's code is from a newer version. */
-const reloadAt = (path: string) => location.assign(path);
+/**
+ * Loads the Lab again at a page, for when that page's code is from a newer version. When the address is already the
+ * page's own, as when the tab was opened on it, only a reload fetches the code again.
+ */
+const reloadAt = (path: string) => (isOpenPage(path, location) ? location.reload() : location.assign(path));
 /** Opens the page again; when its code still doesn't load, the router's error handler keeps the message up. */
 const tryAgain = (path: string) => router.push(path).catch(() => undefined);
 /**

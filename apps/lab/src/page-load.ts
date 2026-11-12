@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import type { RouteLocationNormalized, Router } from "vue-router";
 
 /**
  * The page whose code didn't load, by its address. Pages load the first time they open; after a new version of the
@@ -13,3 +14,31 @@ export const isPageLoadError = (error: unknown) =>
   /dynamically imported module|Importing a module script failed|Unable to preload CSS|Loading (CSS )?chunk/i.test(
     error.message,
   );
+
+/**
+ * Keeps `pageLoadFailed` up to date: a page whose code didn't load stays where it was and the app says why. Only the
+ * page being opened counts: a slow page whose code fails after another page was clicked still reaches the router's
+ * error handler, and would otherwise put up a stale message. Opening a page clears it; clicking the page that is
+ * already open, or a click that another click cut short, doesn't.
+ */
+export function trackPageLoads(router: Router) {
+  let opening: RouteLocationNormalized | undefined;
+  router.beforeEach((to) => {
+    opening = to;
+  });
+  router.onError((error, to) => {
+    if (isPageLoadError(error) && to === opening) pageLoadFailed.value = to.fullPath;
+  });
+  router.afterEach((_to, _from, failure) => {
+    if (!failure) pageLoadFailed.value = undefined;
+  });
+}
+
+/**
+ * Whether going to an address means loading the page that is already open. Only a reload fetches the new code then:
+ * going to the same address with a `#` part just scrolls.
+ */
+export const isOpenPage = (path: string, here: { pathname: string; search: string }) => {
+  const to = new URL(path, "http://lab");
+  return to.pathname === here.pathname && to.search === here.search;
+};

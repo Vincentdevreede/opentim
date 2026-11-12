@@ -90,8 +90,8 @@ scratch script.
 
 ## Conventions
 
-- Words instead of hex in what is shown. Raw values, offsets, addresses and instructions go in the tip (`title`,
-  `LabTip`, `LabInfo`). See [the Lab's wording rules](../research/behaviour/in-the-lab.md#the-behaviour-tab).
+- Words instead of hex in what is shown. Raw values, offsets, addresses and instructions go in the tip. Prefer the
+  Lab's own `LabTip` (or `LabInfo`) to a `title`: it opens from the keyboard too and screen readers read it. See [the Lab's wording rules](../research/behaviour/in-the-lab.md#the-behaviour-tab).
 - British spelling, typographic quotes, plain sentences.
 - Colours and sizes come from the theme tokens (`text-ink`, `bg-surface`, `text-meta`, confidence colours `decoded`,
   `partial`, `hypothesis`, `error`).
@@ -103,4 +103,5 @@ flag bits table of the research. A rope record field goes in `ROPE_FIELDS`. Each
 **To add a tab** to a part: add it to `sideTabs` in `PartDetail.vue` and add its panel branch; `LabTabs` with
 `tabPanel()` from `components/tabs.ts` does the keys and ARIA.
 
-**To add a page**: a route in `router.ts`, an item in the menu of `App.vue`, an icon in `icons.ts`.
+**To add a page**: a route in `router.ts` that loads it the first time it opens (`component: () =>
+import("./pages/…")`), an item in the menu of `App.vue`, an icon in `icons.ts`.
