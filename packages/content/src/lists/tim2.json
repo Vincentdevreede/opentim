@@ -1902,7 +1902,8 @@
             { "sheet": "PART15", "sprite": 55, "x": 33, "y": 23, "layer": 0 },
             { "sheet": "PART15", "sprite": 60, "x": 49, "y": 0, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 18, "x2": 4, "y2": 33, "colour": 8, "after": 4 }]
         },
         {
           "id": 1,
@@ -1916,7 +1917,8 @@
             { "sheet": "PART15", "sprite": 62, "x": 43, "y": -1, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 53, "y": -4, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 18, "x2": 4, "y2": 33, "colour": 8, "after": 5 }]
         },
         {
           "id": 2,
@@ -1929,7 +1931,8 @@
             { "sheet": "PART15", "sprite": 63, "x": 45, "y": -3, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 52, "y": -5, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 18, "x2": 4, "y2": 33, "colour": 8, "after": 5 }]
         },
         {
           "id": 3,
@@ -1942,7 +1945,8 @@
             { "sheet": "PART15", "sprite": 64, "x": 50, "y": -1, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 45, "y": -5, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 18, "x2": 4, "y2": 33, "colour": 8, "after": 5 }]
         },
         {
           "id": 4,
@@ -2468,7 +2472,8 @@
             { "sheet": "PART15", "sprite": 64, "x": 50, "y": 0, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 43, "y": -5, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 24, "x2": 60, "y2": 28, "colour": 15, "after": 5 }]
         },
         {
           "id": 44,
@@ -2482,7 +2487,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 42, "y": -7, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 64, "y": -4, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 24, "x2": 60, "y2": 28, "colour": 15, "after": 3 }]
         },
         {
           "id": 45,
@@ -2496,7 +2502,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 63, "y": -6, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 54, "y": -7, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 24, "x2": 60, "y2": 28, "colour": 15, "after": 3 }]
         },
         {
           "id": 46,
@@ -2509,7 +2516,8 @@
             { "sheet": "PART15", "sprite": 62, "x": 49, "y": 7, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 51, "y": -9, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 4 }]
         },
         {
           "id": 47,
@@ -2520,7 +2528,8 @@
             { "sheet": "PART15", "sprite": 55, "x": 33, "y": 23, "layer": 0 },
             { "sheet": "PART15", "sprite": 63, "x": 46, "y": 0, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 3 }]
         },
         {
           "id": 48,
@@ -2532,7 +2541,8 @@
             { "sheet": "PART15", "sprite": 64, "x": 50, "y": -1, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 42, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 3 }]
         },
         {
           "id": 49,
@@ -2545,7 +2555,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 40, "y": -8, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 62, "y": -5, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 3 }]
         },
         {
           "id": 50,
@@ -2558,7 +2569,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 61, "y": -7, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 52, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 4 }]
         },
         {
           "id": 51,
@@ -2570,7 +2582,8 @@
             { "sheet": "PART15", "sprite": 62, "x": 52, "y": 9, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 51, "y": -9, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 4 }]
         },
         {
           "id": 52,
@@ -2581,7 +2594,8 @@
             { "sheet": "PART15", "sprite": 35, "x": 30, "y": 16, "layer": 0 },
             { "sheet": "PART15", "sprite": 63, "x": 46, "y": 0, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 4 }]
         },
         {
           "id": 53,
@@ -2593,7 +2607,8 @@
             { "sheet": "PART15", "sprite": 64, "x": 50, "y": -1, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 42, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 60, "y1": 18, "x2": 60, "y2": 34, "colour": 15, "after": 4 }]
         },
         {
           "id": 54,
@@ -2873,7 +2888,8 @@
             { "sheet": "PART15", "sprite": 62, "x": 48, "y": 9, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 54, "y": -7, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 4 }]
         },
         {
           "id": 77,
@@ -2884,7 +2900,8 @@
             { "sheet": "PART15", "sprite": 40, "x": 3, "y": 16, "layer": 0 },
             { "sheet": "PART15", "sprite": 63, "x": 46, "y": 0, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 4 }]
         },
         {
           "id": 78,
@@ -2896,7 +2913,8 @@
             { "sheet": "PART15", "sprite": 64, "x": 50, "y": -1, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 41, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 4 }]
         },
         {
           "id": 79,
@@ -2909,7 +2927,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 40, "y": -8, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 62, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 3 }]
         },
         {
           "id": 80,
@@ -2922,7 +2941,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 61, "y": -8, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 50, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 3 }]
         },
         {
           "id": 81,
@@ -2934,7 +2954,8 @@
             { "sheet": "PART15", "sprite": 62, "x": 53, "y": 11, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 48, "y": -7, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 3 }]
         },
         {
           "id": 82,
@@ -2946,7 +2967,8 @@
             { "sheet": "PART15", "sprite": 59, "x": 34, "y": 24, "layer": 0 },
             { "sheet": "PART15", "sprite": 63, "x": 47, "y": 0, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 4 }]
         },
         {
           "id": 83,
@@ -2959,7 +2981,8 @@
             { "sheet": "PART15", "sprite": 64, "x": 50, "y": -1, "layer": 0 },
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 43, "y": -6, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 4 }]
         },
         {
           "id": 84,
@@ -2973,7 +2996,8 @@
             { "sheet": "PART15", "sprite": 67, "x": 0, "y": 3, "layer": 0 },
             { "sheet": "PART15", "sprite": 66, "x": 42, "y": -8, "layer": 0 },
             { "sheet": "PART15", "sprite": 65, "x": 62, "y": -5, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "line", "x1": 4, "y1": 20, "x2": 4, "y2": 31, "colour": 8, "after": 5 }]
         },
         {
           "id": 85,
@@ -8122,7 +8146,18 @@
           ]
         },
         { "id": 4, "sprites": [{ "sheet": "PART37", "sprite": 1, "x": 29, "y": 11, "layer": 0 }] },
-        { "id": 5, "sprites": [{ "sheet": "PART37", "sprite": 2, "x": -5, "y": 13, "layer": 0 }] },
+        {
+          "id": 5,
+          "sprites": [{ "sheet": "PART37", "sprite": 2, "x": -5, "y": 13, "layer": 0 }],
+          "shapes": [
+            { "kind": "line", "x1": 24, "y1": 3, "x2": 31, "y2": 10, "colour": 15, "after": 1 },
+            { "kind": "line", "x1": 39, "y1": -2, "x2": 39, "y2": 9, "colour": 15, "after": 1 },
+            { "kind": "line", "x1": 54, "y1": 2, "x2": 47, "y2": 11, "colour": 15, "after": 1 },
+            { "kind": "line", "x1": 50, "y1": 24, "x2": 59, "y2": 30, "colour": 15, "after": 1 },
+            { "kind": "line", "x1": 41, "y1": 25, "x2": 41, "y2": 33, "colour": 15, "after": 1 },
+            { "kind": "line", "x1": 34, "y1": 25, "x2": 29, "y2": 31, "colour": 15, "after": 1 }
+          ]
+        },
         { "id": 6, "sprites": [{ "sheet": "PART37", "sprite": 2, "x": -5, "y": 13, "layer": 0 }] },
         {
           "id": 7,
@@ -11512,13 +11547,26 @@
       "sheets": ["PART62"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART62", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
-        { "id": 1, "sprites": [{ "sheet": "PART62", "sprite": 0, "x": 0, "y": -1, "layer": 0 }] },
+        {
+          "id": 1,
+          "sprites": [{ "sheet": "PART62", "sprite": 0, "x": 0, "y": -1, "layer": 0 }],
+          "shapes": [
+            { "kind": "line", "x1": 15, "y1": 1, "x2": 16, "y2": 1, "colour": 5, "after": 1 },
+            { "kind": "line", "x1": 17, "y1": 0, "x2": 13, "y2": 0, "colour": 5, "after": 1 }
+          ]
+        },
         { "id": 2, "sprites": [{ "sheet": "PART62", "sprite": 0, "x": -1, "y": 0, "layer": 0 }] },
         {
           "id": 3,
           "sprites": [
             { "sheet": "PART62", "sprite": 0, "x": 1, "y": 0, "layer": 0 },
             { "sheet": "PART62", "sprite": 1, "x": -3, "y": 13, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 18, "y1": 1, "x2": 15, "y2": 1, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 18, "y1": 2, "x2": 15, "y2": 2, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 17, "y1": 3, "x2": 17, "y2": 4, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 16, "y1": 3, "x2": 16, "y2": 4, "colour": 5, "after": 2 }
           ]
         },
         {
@@ -11533,6 +11581,11 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 0, "x": 0, "y": 0, "layer": 0 },
             { "sheet": "PART62", "sprite": 2, "x": 4, "y": 22, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 14, "y1": 2, "x2": 16, "y2": 4, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 16, "y1": 2, "x2": 15, "y2": 4, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 17, "y1": 0, "x2": 14, "y2": 0, "colour": 5, "after": 2 }
           ]
         },
         {
@@ -11547,6 +11600,11 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 5, "x": -5, "y": -2, "layer": 0 },
             { "sheet": "PART62", "sprite": 8, "x": 9, "y": -1, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 10, "y1": 0, "x2": 6, "y2": 0, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 9, "y1": -1, "x2": 7, "y2": -1, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 9, "y1": 1, "x2": 6, "y2": 1, "colour": 5, "after": 2 }
           ]
         },
         {
@@ -11568,7 +11626,8 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 10, "x": 0, "y": -1, "layer": 0 },
             { "sheet": "PART62", "sprite": 14, "x": 19, "y": 22, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "box", "x": 18, "y": 0, "width": 4, "height": 3, "colour": 5, "after": 2, "fill": 5 }]
         },
         {
           "id": 11,
@@ -11582,7 +11641,8 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 5, "x": 0, "y": -2, "layer": 0 },
             { "sheet": "PART62", "sprite": 8, "x": 14, "y": -1, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "box", "x": 12, "y": 0, "width": 4, "height": 3, "colour": 5, "after": 2, "fill": 5 }]
         },
         {
           "id": 13,
@@ -11603,6 +11663,10 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 5, "x": -4, "y": -3, "layer": 0 },
             { "sheet": "PART62", "sprite": 9, "x": 17, "y": 18, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 12, "y1": -2, "x2": 8, "y2": 1, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 11, "y1": -2, "x2": 7, "y2": 0, "colour": 5, "after": 2 }
           ]
         },
         {
@@ -11617,6 +11681,11 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 10, "x": -2, "y": -2, "layer": 0 },
             { "sheet": "PART62", "sprite": 11, "x": -6, "y": 9, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 17, "y1": 0, "x2": 17, "y2": 4, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 18, "y1": -1, "x2": 18, "y2": 3, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 19, "y1": 0, "x2": 19, "y2": 2, "colour": 5, "after": 2 }
           ]
         },
         {
@@ -11624,7 +11693,8 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 0, "x": 0, "y": 0, "layer": 0 },
             { "sheet": "PART62", "sprite": 15, "x": -33, "y": -28, "layer": 0 }
-          ]
+          ],
+          "shapes": [{ "kind": "box", "x": 14, "y": 1, "width": 3, "height": 4, "colour": 5, "after": 2, "fill": 5 }]
         },
         {
           "id": 19,
@@ -11638,6 +11708,11 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 0, "x": -1, "y": 0, "layer": 0 },
             { "sheet": "PART62", "sprite": 17, "x": -32, "y": -25, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 15, "y1": 2, "x2": 15, "y2": 4, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 16, "y1": 1, "x2": 16, "y2": 2, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 14, "y1": 3, "x2": 14, "y2": 5, "colour": 5, "after": 2 }
           ]
         },
         {
@@ -11652,6 +11727,11 @@
           "sprites": [
             { "sheet": "PART62", "sprite": 0, "x": 0, "y": 0, "layer": 0 },
             { "sheet": "PART62", "sprite": 16, "x": -35, "y": -31, "layer": 0 }
+          ],
+          "shapes": [
+            { "kind": "line", "x1": 13, "y1": 1, "x2": 13, "y2": 3, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 14, "y1": 2, "x2": 14, "y2": 4, "colour": 5, "after": 2 },
+            { "kind": "line", "x1": 15, "y1": 2, "x2": 15, "y2": 4, "colour": 5, "after": 2 }
           ]
         },
         {

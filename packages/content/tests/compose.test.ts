@@ -1,6 +1,6 @@
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
-import { compose, coverSprites, drawOrder, partSequences } from "../src/compose.ts";
+import { compose, composeFrame, coverSprites, drawOrder, partSequences } from "../src/compose.ts";
 import type { Part, Placement } from "../src/model.ts";
 
 const bitmap = (width: number, height: number): Bitmap => ({
@@ -80,5 +80,18 @@ describe("partSequences", () => {
       { sequence: 4, states: [4, 5], frames: [3, 3] },
     ]);
     expect(partSequences({ ...part, sequences: undefined })).toEqual([]);
+  });
+});
+
+describe("composeFrame", () => {
+  it("counts a frame's boxes and lines in its bounds", () => {
+    const frame = {
+      id: 0,
+      sprites: [],
+      shapes: [{ kind: "line" as const, x1: 4, y1: 18, x2: 4, y2: 33, colour: 8, after: 0 }],
+    };
+    const composition = composeFrame(frame, () => undefined);
+    expect(composition.bounds).toEqual({ x: 4, y: 18, width: 1, height: 16 });
+    expect(composition.shapes).toEqual(frame.shapes);
   });
 });

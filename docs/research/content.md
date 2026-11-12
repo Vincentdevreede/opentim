@@ -116,8 +116,9 @@ loads, `TIM.EXE` included, and compares them with the committed list.
 - **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers from there and doesn't need the
   program. The names go into `names.json`, a list of names by id that every game shares: a TIM 1 part shows the name
   of the same object in TIM 2, and a part TIM 2 doesn't have shows its id. Each part's `.ANM` animation names its sheets and holds its frames: frame N is frame N of the
-  animation, its sprites in the order the game draws them, all on layer 0. Boxes, lines and sounds in a frame are left
-  out (the fish tank, the hedge trimmers and the coffee pot draw lines). The script checks the frames across the
+  animation, its sprites in the order the game draws them, all on layer 0, and its boxes and lines as `shapes` (the
+  fish tank, the hedge trimmers and the coffee pot draw some), each with how many sprites come before it. Sounds in a
+  frame are left out. The script checks the frames across the
   builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists
   (about 790 KB). A part also keeps the animation's steps as `states` (the frame each state shows; a level saves a
   state) and its sequences as `sequences` (each starts at a state and runs until the next starts); `partSequences`

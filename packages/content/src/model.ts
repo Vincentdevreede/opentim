@@ -51,7 +51,19 @@ export interface Frame {
   /** The frame's number in the original game. */
   id: number;
   sprites: Placement[];
+  /** Boxes and lines the frame draws too, like the fishing line of TIM 2's fish tank. */
+  shapes?: Shape[];
 }
+
+/**
+ * A box or a line in a frame, in units relative to the part's origin, with colours as indexes of the game's palette.
+ * `after` is how many of the frame's sprites the game draws before it.
+ */
+export type Shape =
+  /** A box: its outline in `colour`, filled with `fill` when it has one. */
+  | { kind: "box"; x: number; y: number; width: number; height: number; colour: number; fill?: number; after: number }
+  /** A line between two points, both drawn. */
+  | { kind: "line"; x1: number; y1: number; x2: number; y2: number; colour: number; after: number };
 
 /** A sprite put in a frame. */
 export interface Placement {

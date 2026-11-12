@@ -4,7 +4,7 @@
  */
 
 import { findChunk, readChunks } from "@opentim/resources";
-import type { Frame, Placement } from "../model.ts";
+import type { Frame, Placement, Shape } from "../model.ts";
 
 /**
  * The English names in `INFO.RES`, by part number. Each line is the number with a dot, a tab, the name, a tab and
@@ -149,20 +149,48 @@ export function readAnimation(anm: Uint8Array): Animation {
 
 const FLIPS: Record<number, Placement["flip"]> = { 1: "v", 2: "h", 3: "hv" };
 
+/** Bit 15 of a box's second colour word: TIM2.EXE fills the box with the low byte of that word. */
+const FILLED = 0x8000;
+
 /**
  * The frames of an animation as the part lists keep them: the sprites of each frame, placed relative to the
- * animation's origin, in the order the game draws them, all on layer 0. Boxes, lines and sounds are left out.
+ * animation's origin, in the order the game draws them, all on layer 0, and its boxes and lines. Sounds are left out.
+ * TIM2.EXE draws a box filled when bit 15 of its second colour word is set, and its outline in the first colour unless
+ * it is filled with that same colour; a line in its colour. The colours are the low bytes of the words.
  */
 export function animationFrames(animation: Animation): Frame[] {
-  return animation.frames.map((frame, id) => ({
-    id,
-    sprites: frame.commands.flatMap((c): Placement[] => {
-      if (c.kind !== "sprite") return [];
-      const sheet = animation.sheets.get(c.sheet);
-      if (!sheet) throw new Error(`Frame ${id} draws from sheet ${c.sheet}, which the TAG: chunk doesn't name`);
-      const flip = FLIPS[c.flags & 3];
-      const placement: Placement = { sheet, sprite: c.sprite, x: frame.x + c.x, y: frame.y + c.y, layer: 0 };
-      return [flip ? { ...placement, flip } : placement];
-    }),
-  }));
+  return animation.frames.map((frame, id) => {
+    const sprites: Placement[] = [];
+    const shapes: Shape[] = [];
+    for (const c of frame.commands) {
+      if (c.kind === "sprite") {
+        const sheet = animation.sheets.get(c.sheet);
+        if (!sheet) throw new Error(`Frame ${id} draws from sheet ${c.sheet}, which the TAG: chunk doesn't name`);
+        const flip = FLIPS[c.flags & 3];
+        const placement: Placement = { sheet, sprite: c.sprite, x: frame.x + c.x, y: frame.y + c.y, layer: 0 };
+        sprites.push(flip ? { ...placement, flip } : placement);
+      } else if (c.kind === "box") {
+        const box: Shape = {
+          kind: "box",
+          x: frame.x + c.x,
+          y: frame.y + c.y,
+          width: c.width,
+          height: c.height,
+          colour: c.colour & 0xff,
+          after: sprites.length,
+        };
+        shapes.push(c.other & FILLED ? { ...box, fill: c.other & 0xff } : box);
+      } else if (c.kind === "line")
+        shapes.push({
+          kind: "line",
+          x1: frame.x + c.x1,
+          y1: frame.y + c.y1,
+          x2: frame.x + c.x2,
+          y2: frame.y + c.y2,
+          colour: c.colour & 0xff,
+          after: sprites.length,
+        });
+    }
+    return shapes.length ? { id, sprites, shapes } : { id, sprites };
+  });
 }

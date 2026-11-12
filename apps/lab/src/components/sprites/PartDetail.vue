@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   compose,
+  composeFrame,
   drawOrder,
   partSequences,
   type Part,
@@ -167,7 +168,11 @@ const placements = computed<Placement[]>(() => {
 });
 const layers = computed(() => (frame.value ? drawOrder(placements.value) : []));
 const composition = computed(() =>
-  compose(placements.value, spriteOf, frame.value ? { hidden, spread: spread.value } : {}),
+  compose(
+    placements.value,
+    spriteOf,
+    frame.value ? { hidden, spread: spread.value, shapes: hidden.size ? [] : (frame.value.shapes ?? []) } : {},
+  ),
 );
 const label = computed(() =>
   frame.value
@@ -229,7 +234,7 @@ const originAt = computed(() => {
   };
 });
 
-const thumbnails = computed(() => props.part.frames.map((f) => compose(f.sprites, spriteOf)));
+const thumbnails = computed(() => props.part.frames.map((f) => composeFrame(f, spriteOf)));
 
 function save() {
   if (!composition.value.placed.length) return;

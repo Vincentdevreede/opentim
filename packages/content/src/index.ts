@@ -4,9 +4,10 @@ import tim1 from "./lists/tim1.json" with { type: "json" };
 import tim2 from "./lists/tim2.json" with { type: "json" };
 import type { PartList } from "./model.ts";
 
-export type { Frame, Part, PartList, Placement } from "./model.ts";
+export type { Frame, Part, PartList, Placement, Shape } from "./model.ts";
 export {
   compose,
+  composeFrame,
   coverSprites,
   drawOrder,
   partSequences,

@@ -1,5 +1,5 @@
 import { frameToRgba, type Frame } from "@opentim/resources";
-import type { Composition } from "@opentim/content";
+import type { Composition, Shape } from "@opentim/content";
 
 /** Without a palette, the indexes are shown as grey levels. */
 export const greys = Uint8Array.from({ length: 768 }, (_, i) => Math.floor(i / 3));
@@ -30,7 +30,12 @@ export function compositionCanvas(composition: Composition, palette: Uint8Array 
   canvas.height = Math.max(1, bounds.height);
   const context = canvas.getContext("2d");
   if (!context) return canvas;
-  for (const { placement, image, x, y } of placed) {
+  const shapes = composition.shapes ?? [];
+  const drawShapes = (after: number) => {
+    for (const s of shapes) if (s.after === after) drawShape(context, s, bounds, palette);
+  };
+  drawShapes(0);
+  for (const [k, { placement, image, x, y }] of placed.entries()) {
     const flip = placement.flip ?? "";
     context.save();
     context.translate(
@@ -40,6 +45,39 @@ export function compositionCanvas(composition: Composition, palette: Uint8Array 
     context.scale(flip.includes("h") ? -1 : 1, flip.includes("v") ? -1 : 1);
     context.drawImage(frameCanvas(image, palette), 0, 0);
     context.restore();
+    drawShapes(k + 1);
   }
+  for (const s of shapes) if (s.after > placed.length) drawShape(context, s, bounds, palette);
   return canvas;
+}
+
+/** A palette index as CSS. */
+const css = (palette: Uint8Array, index: number) =>
+  `rgb(${palette[index * 3] ?? 0} ${palette[index * 3 + 1] ?? 0} ${palette[index * 3 + 2] ?? 0})`;
+
+/** Draws a box or a line of a frame in whole pixels, the line from end to end as a run of pixels. */
+function drawShape(context: CanvasRenderingContext2D, s: Shape, at: { x: number; y: number }, palette: Uint8Array) {
+  const dot = (x: number, y: number) => context.fillRect(x - at.x, y - at.y, 1, 1);
+  const line = (x1: number, y1: number, x2: number, y2: number) => {
+    const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
+    for (let i = 0; i <= steps; i++)
+      dot(Math.round(x1 + ((x2 - x1) * i) / (steps || 1)), Math.round(y1 + ((y2 - y1) * i) / (steps || 1)));
+  };
+  if (s.kind === "line") {
+    context.fillStyle = css(palette, s.colour);
+    line(s.x1, s.y1, s.x2, s.y2);
+    return;
+  }
+  if (s.fill !== undefined) {
+    context.fillStyle = css(palette, s.fill);
+    context.fillRect(s.x - at.x, s.y - at.y, s.width, s.height);
+    if (s.fill === s.colour) return;
+  }
+  context.fillStyle = css(palette, s.colour);
+  const right = s.x + s.width - 1;
+  const bottom = s.y + s.height - 1;
+  line(s.x, s.y, right, s.y);
+  line(s.x, bottom, right, bottom);
+  line(s.x, s.y, s.x, bottom);
+  line(right, s.y, right, bottom);
 }

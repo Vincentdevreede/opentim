@@ -13,6 +13,7 @@ import {
   type Part,
   type PartList,
   type Placement,
+  type Shape,
   compose,
   type Bounds,
   type Composition,
@@ -298,6 +299,23 @@ function patternPieces(part: LevelPart, listPart: Part, spriteOf: SpriteOf): { p
   return { pieces, clip };
 }
 
+/** Mirrors boxes and lines inside the part's size, as `mirror` does with sprites. */
+function mirrorShapes(shapes: readonly Shape[], part: LevelPart, x: boolean, y: boolean): Shape[] {
+  const w = part.size.width;
+  const h = part.size.height;
+  return shapes.map((s) =>
+    s.kind === "box"
+      ? { ...s, x: x ? w - s.x - s.width : s.x, y: y ? h - s.y - s.height : s.y }
+      : {
+          ...s,
+          x1: x ? w - 1 - s.x1 : s.x1,
+          x2: x ? w - 1 - s.x2 : s.x2,
+          y1: y ? h - 1 - s.y1 : s.y1,
+          y2: y ? h - 1 - s.y2 : s.y2,
+        },
+  );
+}
+
 function drawPart(
   part: LevelPart,
   layout: LevelLayout,
@@ -351,7 +369,8 @@ function drawPart(
   const shown = listPart.states?.[state] ?? state;
   const frame = frameOf(listPart, state);
   if (frame) {
-    const composition = compose(mirror(frame.sprites, part, spriteOf, mirrored.x, mirrored.y), spriteOf);
+    const shapes = mirrorShapes(frame.shapes ?? [], part, mirrored.x, mirrored.y);
+    const composition = compose(mirror(frame.sprites, part, spriteOf, mirrored.x, mirrored.y), spriteOf, { shapes });
     const detail = shown === state ? `frame ${state}` : `frame ${shown} for state ${state}`;
     if (composition.placed.length) return { ...base, how: "frame", detail, composition };
   }

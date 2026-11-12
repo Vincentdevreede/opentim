@@ -216,15 +216,18 @@ The `ANM:` chunk, as TIM2.EXE's loader reads it:
 A frame is commands, each a u16 number followed by its words, and ends with a 0. TIM2.EXE keeps the length of each in a
 table and draws a frame by running them in order. Positions are from the frame's top left corner.
 
-| Command | Words | What                                                                                                                              |
-| ------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 0       | 1     | The end of the frame.                                                                                                             |
-| 1       | 1     | Nothing. The shipped files end their commands with one.                                                                           |
-| 2       | 6     | A sprite: sheet number, sprite, x, y, flags. Flag 2 mirrors it left to right, flag 1 top to bottom.                               |
-| 3       | 7     | A box: x, y, width, height, then two words the game keeps as two colour bytes and a high bit. Screens use it, and the coffee pot. |
-| 4       | 6     | A line: x1, y1, x2, y2, colour.                                                                                                   |
-| 5       | 2     | Plays a sound, like 3019 for `SX_3019.RAW`.                                                                                       |
-| 6       | 2     | Calls the sound code like command 5 does, with its word. No shipped file uses it.                                                 |
+| Command | Words | What                                                                                                                                                                                                                                               |
+| ------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0       | 1     | The end of the frame.                                                                                                                                                                                                                              |
+| 1       | 1     | Nothing. The shipped files end their commands with one.                                                                                                                                                                                            |
+| 2       | 6     | A sprite: sheet number, sprite, x, y, flags. Flag 2 mirrors it left to right, flag 1 top to bottom.                                                                                                                                                |
+| 3       | 7     | A box: x, y, width, height, an outline colour and a fill word. When bit 15 of the fill word is set, the game fills the box with the fill word's low byte, and draws the outline unless it has the same colour. Screens use it, and the coffee pot. |
+| 4       | 6     | A line: x1, y1, x2, y2 and its colour, a palette index in the low byte.                                                                                                                                                                            |
+| 5       | 2     | Plays a sound, like 3019 for `SX_3019.RAW`.                                                                                                                                                                                                        |
+| 6       | 2     | Calls the sound code like command 5 does, with its word. No shipped file uses it.                                                                                                                                                                  |
+
+The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
+palette; it draws a line as a straight run of pixels from end to end, not by the game's own line routine.
 
 To mirror a whole frame, the game flips each sprite's flags and measures its position from the other side of the
 animation's width or height. All 433 animations of the floppy, CD and demo read to their last byte this way.
