@@ -43,4 +43,17 @@ describe("effects of a called routine", () => {
     const update = routine.transitions[0]!.updates?.find((u) => u.object === "part" && u.offset === 0x20);
     expect(update?.value).toEqual({ kind: "constant", value: 2, width: 16 });
   });
+
+  it("keeps two reads through addresses an unresolved call left apart", () => {
+    // Each call leaves BX unknown. A path where the first word read through it is nonzero and the second is zero
+    // reaches the state 3.
+    const bytes = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6];
+    bytes.push(...call(bytes.length, 0x80), 0x8b, 0x07, 0x0b, 0xc0, 0x74, 14);
+    bytes.push(...call(bytes.length, 0x80), 0x8b, 0x07, 0x0b, 0xc0, 0x75, 5, 0xc7, 0x44, 0x0c, 3, 0, 0x5e, 0x5d, 0xcb);
+    const image = new Uint8Array(0x100);
+    image.set(bytes);
+    image.set([0xc3], 0x80);
+    const routine = analyseRoutine(image, { address: 0, segment: 0, offset: 0 }, { stateCount: 4 });
+    expect(routine.transitions.some((t) => t.to.kind === "constant" && t.to.value === 3)).toBe(true);
+  });
 });

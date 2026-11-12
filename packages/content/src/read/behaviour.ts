@@ -1537,6 +1537,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           ]);
         }
       }
+      // Every read through an unknown address would have the same text, and could pass for one value of the run.
+      if (index.kind === "unknown")
+        return tracked(
+          unknown(`Read through an unknown address: ${index.reason}`, operand.width),
+          base.flatMap((v) => v.evidence),
+        );
       return tracked(
         { kind: "table", segment: seg.value, offset: operand.displacement, index, width: operand.width },
         base.flatMap((v) => v.evidence),
