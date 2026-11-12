@@ -231,6 +231,11 @@ table and draws a frame by running them in order. Positions are from the frame's
 The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
 palette; it draws a line as a straight run of pixels from end to end, not by the game's own line routine.
 
+**Still open.** What a sequence's number stands for (the program asks for a sequence by it); what command 6 does
+(it calls the sound code with its word, and no file uses it); and the `.PAR` files' words besides the type and the
+largest size (`PROPI`, a byte 1, the type, then properties that look like TIM 1's physics and size limits, and an
+outline). The Lab draws a line as a straight run of pixels, not by the game's own line routine.
+
 **Speed.** TIM2.EXE sets the PC's timer to 65,535 ÷ 13 = 5,041 counts, 236.7 ticks a second, and has the timer count
 a step timer down every 4 ticks, 59.2 times a second. Its run loop waits until the step timer is 0 and sets it to 2
 before each step of the machine, so a step takes at least 33.8 ms: at most 29.6 steps a second. The steps of an

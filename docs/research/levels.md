@@ -385,3 +385,17 @@ The play area is the screen, 640 × 400: the goal routine counts a part off the 
 and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
 puzzle is set up, the control panel covers x 0 to 48 and the parts bin x 560 to 640, both 377 high; that is why most
 levels keep their parts between 0 and 568 across and above 377.
+
+### TIM 2: still open
+
+What isn't worked out yet, and what the Lab does meanwhile:
+
+- **Mirroring other parts.** TIM2.EXE's usual draw routine mirrors a part by two words of its record (offsets `0x44`
+  and `0x46`, not read yet) less its first frame's box, and then mirrors the frame in the animation's size. The Lab
+  mirrors such parts inside their size, as for TIM 1, which may put them a few pixels off. Walls follow the program.
+- **The two bytes after the version.** A new level gets 0 and 3; the second goes from 1 to 15 and may pick the
+  background. Not read further.
+- **The notes' third word** (from version `0x112`): 0 to 3 in the shipped levels; what it changes isn't read.
+- **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
+  with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
+- **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
