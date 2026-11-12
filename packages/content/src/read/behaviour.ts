@@ -4034,13 +4034,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         const third = read(i.operands[2], s);
         write(dest, tracked(binary("*", bv, asExpression(third.value)), [...e, ...third.evidence]), s, i);
       } else {
-        const ax = registerRead(
-          dest?.kind === "memory" || dest?.kind === "register" ? (dest.width === 8 ? "al" : "ax") : "ax",
-          s,
-        );
+        const bytes = (dest?.kind === "memory" || dest?.kind === "register") && dest.width === 8;
+        const ax = registerRead(bytes ? "al" : "ax", s);
+        // A signed product of bytes fills AX, so both bytes are widened with their sign first, as CBW does.
+        const widen = (value: Expression) =>
+          bytes && i.mnemonic === "imul" ? binary(">>", binary("<<", value, constant(8), 16), constant(8), 16) : value;
         write(
           { kind: "register", name: "ax", width: 16 },
-          tracked(binary("*", asExpression(ax.value), av, 16), [...ax.evidence, ...e]),
+          tracked(binary("*", widen(asExpression(ax.value)), widen(av), 16), [...ax.evidence, ...e]),
           s,
           i,
         );
