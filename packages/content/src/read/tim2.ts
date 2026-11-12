@@ -199,6 +199,7 @@ export function animationFrames(animation: Animation): Frame[] {
           after: sprites.length,
         });
     }
-    return shapes.length ? { id, sprites, shapes } : { id, sprites };
+    const box = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    return shapes.length ? { id, sprites, shapes, box } : { id, sprites, box };
   });
 }

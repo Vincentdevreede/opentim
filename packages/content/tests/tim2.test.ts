@@ -95,12 +95,14 @@ describe("TIM 2", () => {
         id: 0,
         sprites: [{ sheet: "PART7X", sprite: 4, x: 13, y: 18, layer: 0 }],
         shapes: [{ kind: "line", x1: 11, y1: 22, x2: 11, y2: 29, colour: 15, after: 1 }],
+        box: { x: 10, y: 20, width: 30, height: 15 },
       },
       {
         id: 1,
         sprites: [{ sheet: "PART7X", sprite: 5, x: -5, y: 0, layer: 0, flip: "h" }],
         // Bit 15 of the second colour word fills the box with that word's low byte.
         shapes: [{ kind: "box", x: -5, y: 0, width: 10, height: 5, colour: 11, fill: 11, after: 1 }],
+        box: { x: -5, y: 0, width: 20, height: 20 },
       },
     ]);
   });

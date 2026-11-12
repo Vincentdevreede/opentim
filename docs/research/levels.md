@@ -377,6 +377,20 @@ levels keep: bit `0x2000` of the third word for walls (every wall type but the l
 without `0x0400` for tile patterns. Neither is a rule of the program, so the Lab says which one it used; the demo
 ships few `.PAR` files, so there only TIM2.EXE gets every wall right.
 
+- **Mirroring the other parts.** The usual routine mirrors a part with bit `0x10` of the second flag word left to
+  right and with `0x20` upside down, but not in the part's size. It moves the part by two words of its record
+  (offsets `0x44` and `0x46`) less the right (or bottom) edge of the frame of state 0, and then mirrors the frame in
+  the animation's size. TIM2.EXE's size routine (file offset `0x21477` in the floppy build; it runs whenever a part's
+  state is set, also when a level is set up) fills those two words by the type, from lists in its code that are the
+  same in all three builds: the part's own size for the walls, tiles and the other parts drawn from their size (1, 2,
+  5, 46, 48, 56, 60, 82 to 85, 97, 99 to 102, 118, 121 to 127, 203, 205, 271 and 280), 0 for the belt, the rope and
+  type 76, and the size of the frame the state shows for 4, 7, 57, 58, 71 and 88. Every other type gets that frame's
+  size too when bit `0x1000` of its third flag word is set, and the size in its `.PAR` file when it isn't. The same
+  routine makes that the part's size, unless the type record has a size of its own. The `.PAR` size is often a few
+  pixels narrower than the animation, so a part of such a type mirrored left to right lands that much further left:
+  up to 7 pixels in the shipped levels, like 6 for the cat (12); the mouse motor's is 1 wider, so it moves right. Lines mirror as the width less x, without taking 1 off.
+  The Lab follows all of it (`tim2MirrorSide`); without the `.PAR` file (the demo has few) it mirrors such a part in
+  its own size.
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
   has all of bits `0x1480` in its type's third flag word, which is how the Lab knows it without TIM2.EXE.
@@ -390,9 +404,6 @@ levels keep their parts between 0 and 568 across and above 377.
 
 What isn't worked out yet, and what the Lab does meanwhile:
 
-- **Mirroring other parts.** TIM2.EXE's usual draw routine mirrors a part by two words of its record (offsets `0x44`
-  and `0x46`, not read yet) less its first frame's box, and then mirrors the frame in the animation's size. The Lab
-  mirrors such parts inside their size, as for TIM 1, which may put them a few pixels off. Walls follow the program.
 - **The two bytes after the version.** A new level gets 0 and 3; the second goes from 1 to 15 and may pick the
   background. Not read further.
 - **The notes' third word** (from version `0x112`): 0 to 3 in the shipped levels; what it changes isn't read.

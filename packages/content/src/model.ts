@@ -44,6 +44,11 @@ export interface Part {
   sequences?: { sequence: number; state: number }[];
   /** The size TIM 2 mirrors a whole frame in: the game measures a mirrored sprite's place from its far side. */
   mirrorBox?: { width: number; height: number };
+  /**
+   * The size in TIM 2's `.PAR` file of the part. TIM2.EXE mirrors most parts in it, and gives it to a part whose type
+   * has no size of its own.
+   */
+  parSize?: { width: number; height: number };
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }
@@ -55,6 +60,8 @@ export interface Frame {
   sprites: Placement[];
   /** Boxes and lines the frame draws too, like the fishing line of TIM 2's fish tank. */
   shapes?: Shape[];
+  /** The frame's box in a TIM 2 animation, relative to the part's origin. TIM2.EXE mirrors parts by it. */
+  box?: { x: number; y: number; width: number; height: number };
 }
 
 /**

@@ -302,6 +302,41 @@ describe("layoutScene", () => {
     expect(standing!.composition!.placed.map((p) => [p.placement.x, p.placement.flip])).toEqual([[8, "h"]]);
   });
 
+  it("mirrors other TIM 2 parts in the size TIM2.EXE's size routine gives them, with their lines", () => {
+    const data = bytes(
+      ...[0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, 2, 0, 0],
+      ...part({ type: 0, width: 45, height: 32, flags2: 0x10, flags3: 0x40 }),
+      ...part({ type: 0, width: 45, height: 32, flags2: 0x10, flags3: 0x1040 }),
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const list: PartList = {
+      ...LIST,
+      parts: LIST.parts.map((p) =>
+        p.type === 0
+          ? {
+              ...p,
+              frames: [
+                {
+                  id: 0,
+                  sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 0, layer: 0 }],
+                  shapes: [{ kind: "line" as const, x1: 0, y1: 0, x2: 4, y2: 0, colour: 1, after: 1 }],
+                  box: { x: 0, y: 0, width: 45, height: 32 },
+                },
+              ],
+              mirrorBox: { width: 45, height: 32 },
+              parSize: { width: 39, height: 32 },
+            }
+          : p,
+      ),
+    };
+    const [par, frame] = layoutScene(level, list, spriteOf).parts;
+    // The .PAR size, 39 less the first frame's right edge, 45, plus the animation's width, 45: 39 - 2 - 32.
+    expect(par!.composition!.placed.map((p) => [p.placement.x, p.placement.flip])).toEqual([[5, "h"]]);
+    expect(par!.composition!.shapes!.map((s) => s.kind === "line" && [s.x1, s.x2])).toEqual([[39, 35]]);
+    // Bit 0x1000 of the third flag word: the frame's own size, 45.
+    expect(frame!.composition!.placed.map((p) => p.placement.x)).toEqual([11]);
+  });
+
   it("tiles a standing wall from state + 4 to state + 7", () => {
     const data = puzzle("T", [{ type: 1, x: 8, y: 8, width: 16, height: 64, flags1: 0xe040 }]);
     const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;
