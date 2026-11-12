@@ -305,6 +305,8 @@ if (!isMainThread) {
     `${build.name}: ${results.length - failed.length} puzzles loaded, ${paired} of ${parts} placed parts paired`,
   );
   for (const r of failed) console.error(`Puzzle ${r.puzzle}: ${r.error}`);
+  const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
+  if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
   const hex = (n: number) => `0x${n.toString(16)}`;
   for (const [key, tally] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
     const nearest = [...tally.agree]
@@ -351,5 +353,5 @@ if (!isMainThread) {
         }`
       }`,
     );
-  if (failed.length) process.exitCode = 1;
+  if (failed.length || missing.length) process.exitCode = 1;
 }
