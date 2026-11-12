@@ -35,8 +35,8 @@ if (isMainThread) {
       evenmore: { type: "string", multiple: true },
     },
   });
-  if ((!values.out && !values.check) || (!values.tim1?.length && !values.evenmore?.length))
-    throw new Error("Give --out or --check <document> and at least one --tim1 or --evenmore <game folder>");
+  if (!values.out === !values.check || (!values.tim1?.length && !values.evenmore?.length))
+    throw new Error("Give either --out or --check <document> and at least one --tim1 or --evenmore <game folder>");
 
   const table: AssumptionTable = new Map();
   const builds = { tim1: 0, evenmore: 0 };
