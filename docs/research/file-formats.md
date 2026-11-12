@@ -104,6 +104,12 @@ demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number 
 lists the songs by number with the name the game shows, like `1002 New Age`; `MUSIC2.RES` is a shorter list of the
 same kind, and `SOUND.RES` names some of the `.RAW` sounds, like `3001 Yeee Haaa!!`.
 
+**Toons' music** is in `TOONS.SX`, the same format: 151 sounds. Sounds 1001 (`toonsthm`), 1002 (`toonsind`) and 1100
+to 1128 are the songs, and a level's music word is the number of its song, as in TIM 2: the levels use 1001, 1002 and
+1100 to 1127, and three levels have 0. The others are short MIDI sounds (1 to 37), two at 2003 and 2011, and the sounds
+from 3001 up, which share their numbers with the `.RAW` files (`SX_3001.RAW` is `fling`). Toons has no list of song
+names like TIM 2's `MUSIC.RES`; the bank's own names are short file names like `TS_BEACH`.
+
 ## The sound drivers (SX.OVL)
 
 `readSoundDrivers` (`sound.ts`): an `SSM:` container with a chunk per file, each packed like a `BIN:` chunk. The
@@ -111,8 +117,8 @@ three-letter files are the drivers (`ADL` AdLib, `M32` MT-32, `GMD` General MIDI
 patch resources (a 2-byte header `89 00`), like `003` with the AdLib instruments. `packages/sound` plays music with
 them.
 
-TIM 2's `ADL` driver is the same file as TIM 1's, byte for byte, so `packages/sound` plays TIM 2's songs as the game
-does, with TIM 2's own instruments from its patch `003`. Even More's `ADL` is 50 bytes longer: when a note starts, it
+TIM 2's and Toons' `ADL` drivers are the same file as TIM 1's, byte for byte, so `packages/sound` plays TIM 2's and Toons' songs as the
+games do, each with its own instruments from its patch `003`. Toons' Sound Blaster Pro driver (`SBP`) is TIM 1's too. Even More's `ADL` is 50 bytes longer: when a note starts, it
 first looks for a free voice that last played the channel's instrument, and only then takes the free voice used
 longest ago, as TIM 1 and TIM 2 do.
 
