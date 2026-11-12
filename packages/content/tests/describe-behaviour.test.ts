@@ -335,6 +335,23 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(names("-").some((name) => name.includes("decremented state"))).toBe(true);
   });
 
+  it("keeps the assumptions of every path when the same effect is found on several", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    data.layout.fields.push({ name: "positionX", offset: 0x1e, ...proof });
+    data.parts[0]!.visibleEffects = [
+      { ...write(0x1e, constant(5)), confidence: "checked", assumptions: [], condition: test(0x40, "==", 0) },
+      {
+        ...write(0x1e, constant(9)),
+        assumptions: ["The second path's own assumption."],
+        condition: test(0x40, "!=", 0),
+      },
+    ];
+    const effect = describeBehaviour(data).parts[0]!.effects.find((item) => item.field === 0x1e)!;
+    expect(effect.conditions).toHaveLength(2);
+    expect(effect.confidence).toBe("inferred");
+    expect(effect.assumptions).toContain("The second path's own assumption.");
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),

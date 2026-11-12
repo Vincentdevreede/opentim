@@ -4039,6 +4039,7 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
     }
     prior.evidence = evidence(prior.evidence, effect.evidence);
     prior.confidence = confidence(prior.confidence, effect.confidence);
+    prior.assumptions = [...new Set([...prior.assumptions, ...effect.assumptions])];
     const conditions = prior.conditions ?? (prior.condition ? [prior.condition] : []);
     let texts = keptTexts.get(conditions);
     if (!texts) keptTexts.set(conditions, (texts = new Set(conditions.map((known) => JSON.stringify(known)))));
