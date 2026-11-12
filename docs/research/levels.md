@@ -418,4 +418,7 @@ levels keep their parts between 0 and 568 across and above 377.
 
 What isn't worked out yet, and what the Lab does meanwhile:
 
-- **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
+- **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls, and a mirrored part
+  whose type takes its mirror size from the `.PAR` file is mirrored in its own size.
+- **Cut off pictures.** The usual draw routine draws types 36, 45 and 70 with bit `0x10` of the third flag word cut off
+  at a row the part's record keeps (offset `0xae`). What sets that row isn't read, and the Lab draws them whole.

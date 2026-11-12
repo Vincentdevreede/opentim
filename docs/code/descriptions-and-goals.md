@@ -116,8 +116,9 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
   `part` for an entry about one part.
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
   draws as walls or tile patterns.
+  `readPar` reads a part's `.PAR` file; `tim2MirrorSide` says where TIM2.EXE measures a mirrored part from.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
-  lists.
+  lists, and the game's line routine (`tim2LinePixels`).
 
 ## The emulator: `src/run`
 
