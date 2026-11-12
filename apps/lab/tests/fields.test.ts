@@ -99,6 +99,13 @@ describe("textFields", () => {
     ]);
     expect(textFields(data, 1, 4)).toEqual([]);
   });
+
+  it("reads a run of letters longer than a call can take as arguments", () => {
+    const data = new Uint8Array(500_000).fill(0x41);
+    const [field] = textFields(data);
+    expect(field?.size).toBe(500_000);
+    expect(field?.value).toBe(`“${"A".repeat(500_000)}”`);
+  });
 });
 
 describe("fieldAt and firstFieldFrom", () => {

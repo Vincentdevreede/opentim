@@ -10,6 +10,8 @@ import { isProgramName, isVersionFile } from "./edition.ts";
 
 const LEGACY_LIBRARY = "library";
 const ACTIVE_LIBRARY = "opentim.lab.library";
+/** The lock every save holds while it writes, in every tab, so no tab cleans up a folder that is still being written. */
+const SAVING = "opentim.lab.saving";
 
 /**
  * False when this browser can't keep files, for example outside a secure context (a dev
@@ -52,6 +54,15 @@ export async function saveLibrary(
 ): Promise<void> {
   const opfs = await root();
   if (!opfs || !isCurrent()) return;
+  if (!navigator.locks) return writeLibrary(opfs, buffers, isCurrent);
+  await navigator.locks.request(SAVING, { mode: "shared" }, () => writeLibrary(opfs, buffers, isCurrent));
+}
+
+async function writeLibrary(
+  opfs: FileSystemDirectoryHandle,
+  buffers: { name: string; data: Uint8Array }[],
+  isCurrent: () => boolean,
+): Promise<void> {
   const staging = `${LEGACY_LIBRARY}-${crypto.randomUUID()}`;
   let committed = false;
   try {
@@ -86,6 +97,7 @@ export async function saveLibrary(
 /** The files of the active library, or none when nothing was saved. */
 export async function loadLibrary(): Promise<File[]> {
   const opfs = await root();
+  if (opfs) await removeUnfinished(opfs).catch(() => {});
   const name = activeLibrary();
   if (!opfs || !name) return [];
   try {
@@ -99,6 +111,24 @@ export async function loadLibrary(): Promise<File[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Removes the folders of saves that never finished, like one cut off by closing the tab. Nothing is removed while a save
+ * is running, here or in another tab, or when the browser can't tell.
+ */
+async function removeUnfinished(opfs: FileSystemDirectoryHandle): Promise<void> {
+  if (!navigator.locks) return;
+  await navigator.locks.request(SAVING, { ifAvailable: true }, async (lock) => {
+    // Read the active library only now: a save that finished just before may have changed it.
+    const active = activeLibrary();
+    if (!lock || active === null) return;
+    const unfinished: string[] = [];
+    for await (const [name, handle] of opfs.entries())
+      if (handle.kind === "directory" && name.startsWith(`${LEGACY_LIBRARY}-`) && name !== active)
+        unfinished.push(name);
+    for (const name of unfinished) await opfs.removeEntry(name, { recursive: true }).catch(() => {});
+  });
 }
 
 /** Removes the saved library from this browser. */

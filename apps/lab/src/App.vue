@@ -120,6 +120,8 @@ function onDragLeave(e: DragEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Escape closes the keyboard shortcuts panel wherever the focus is, as the panel itself holds nothing that takes it.
+  if (e.key === "Escape" && showKeys.value) showKeys.value = false;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
     e.preventDefault();
     void router.push("/");
@@ -198,7 +200,6 @@ const activeClass =
           <div
             v-if="showKeys"
             class="absolute bottom-0 left-[66px] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-sunken shadow-xl"
-            @keydown.esc="showKeys = false"
           >
             <LabPanelHeader title="Keyboard shortcuts" />
             <LabFacts label-width="auto" class="px-3 py-1.5">
