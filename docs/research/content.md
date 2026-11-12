@@ -117,18 +117,18 @@ loads, `TIM.EXE` included, and compares them with the committed list.
   the program. Each part's `.ANM` animation names its sheets and holds its frames: frame N is frame N of the
   animation, its sprites in the order the game draws them, all on layer 0. Boxes, lines and sounds in a frame are left
   out (the fish tank, the hedge trimmers and the coffee pot draw lines). The script checks the frames across the
-  builds but leaves them out of the committed list for now: with them it grows from 16 KB to 780 KB, and the lab
-  reads them from the loaded files. The steps and sequences of the animation become animations later;
+  builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists
+  (about 790 KB). The steps and sequences of the animation become animations later;
   [the file formats](file-formats.md#animations-anm) have the layout.
 
-| Version                       | List       | Status                                                             |
-| ----------------------------- | ---------- | ------------------------------------------------------------------ |
-| TIM 1 English, French, German | `tim1`     | Checked: the same 51 parts in all four builds                      |
-| Even More, all five builds    | `evenmore` | Checked: the same 63 parts in every build, the demo included       |
-| The Add-On Disk               | `evenmore` | Assumed: same sheets as Even More; its program isn't LZEXE-packed  |
-| TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts and frames; the list leaves frames out |
-| TIM 2 demo                    | `tim2`     | Same numbers and names, but most sheets are missing                |
-| TIM 1 demo                    | none yet   | Different table layout, not checked                                |
+| Version                       | List       | Status                                                            |
+| ----------------------------- | ---------- | ----------------------------------------------------------------- |
+| TIM 1 English, French, German | `tim1`     | Checked: the same 51 parts in all four builds                     |
+| Even More, all five builds    | `evenmore` | Checked: the same 63 parts in every build, the demo included      |
+| The Add-On Disk               | `evenmore` | Assumed: same sheets as Even More; its program isn't LZEXE-packed |
+| TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts and frames in both builds             |
+| TIM 2 demo                    | `tim2`     | Same numbers and names, but most sheets are missing               |
+| TIM 1 demo                    | none yet   | Different table layout, not checked                               |
 
 TIM 1 has records for types 51–54 but no sheets; Even More fills them in, so they are only in `evenmore`. In both
 games, sheets 55–57 are title and credits pictures, not parts. TIM 2 continues the numbers: its parts 0–65 fill the

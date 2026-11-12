@@ -46,7 +46,7 @@ describe("readLoadedParts", () => {
     expect(loaded?.differs).toContain(999);
   });
 
-  it("reads TIM 2 frames from the .ANM files, and the list without frames still counts as the same", () => {
+  it("reads TIM 2 frames from the .ANM files", () => {
     const resource = (name: string, data: Uint8Array) =>
       ({ name, kind: "binary", group: "other", archive: "RESOURCE.001", offset: 0, data }) as const;
     const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values).buffer);
@@ -64,7 +64,6 @@ describe("readLoadedParts", () => {
     expect(loaded?.list.parts[0]?.frames).toEqual([
       { id: 0, sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 3, layer: 0 }] },
     ]);
-    expect(loaded?.differs).not.toContain(0);
   });
 });
 

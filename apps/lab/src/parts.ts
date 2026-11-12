@@ -41,18 +41,14 @@ function newParts(list: PartList, committed: PartList): number[] {
     .sort((a, b) => a - b);
 }
 
-/**
- * The numbers of the parts that aren't the same in both lists. A committed part without frames only compares the rest:
- * the committed TIM 2 list leaves its frames out.
- */
+/** The numbers of the parts that aren't the same in both lists. */
 function differences(list: PartList, committed: PartList): number[] {
   const types = new Set([...list.parts, ...committed.parts].map((p) => p.type));
   return [...types]
     .filter((type) => {
       const mine = list.parts.find((p) => p.type === type);
       const ours = committed.parts.find((p) => p.type === type);
-      const compared = mine && ours && !ours.frames.length ? { ...mine, frames: [], states: undefined } : mine;
-      return JSON.stringify(compared) !== JSON.stringify(ours);
+      return JSON.stringify(mine) !== JSON.stringify(ours);
     })
     .sort((a, b) => a - b);
 }
