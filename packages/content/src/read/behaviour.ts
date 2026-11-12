@@ -4890,6 +4890,43 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s.stateWritten = true;
         }
       }
+      // A helper's stores through another pointer, like a local whose address the caller passed or an object the part
+      // points to, may have been made: what they reach is no longer known.
+      if (summary && !summary.uncertainEffects) {
+        const base = summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset;
+        for (const effect of summary.writes) {
+          if (["part", "stack", "data"].includes(effect.object)) continue;
+          const pointer = formalObject(effect.object, args, base, s, summary.objectPointer.argumentOffset);
+          if (pointer.value.kind === "pointer") {
+            s.registers.set("__summary_other", pointer);
+            write(
+              {
+                kind: "memory",
+                segment: "ds",
+                base: ["__summary_other"],
+                displacement: effect.offset,
+                direct: false,
+                width: effect.width === 8 ? 8 : 16,
+              },
+              tracked(unknown(`Possible effect of helper ${hex(summary.address)} on ${effect.object}`), [
+                evidenceOf(i),
+                ...effect.evidence,
+              ]),
+              s,
+              i,
+            );
+            s.registers.delete("__summary_other");
+            continue;
+          }
+          s.uncertain = true;
+          uncertainEffects = true;
+          const passesLocal = args.some((arg) => arg.value.kind === "pointer" && arg.value.object === "stack");
+          for (const key of s.memory.keys())
+            if (key.startsWith("stack:") ? passesLocal && Number(key.split(":")[1]) < 0 : !key.startsWith("part:"))
+              s.memory.delete(key);
+          diagnostics.add(`Effects of call at ${hex(i.address)} on ${effect.object} are not fully composed`);
+        }
+      }
       for (const name of ["ax", "bx", "cx", "dx", "es"])
         registerWrite(
           name,
