@@ -101,11 +101,11 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
   });
   watch(volume, (v) => gain && (gain.gain.value = v));
   watch(loop, (on) => {
-    if (!source) return;
-    // Turning the loop off while past the loop's end would stop at once; restart from where playback is instead.
-    const at = now();
+    if (!source || !context) return;
     source.loop = on;
-    if (!on) startedAt = (context?.currentTime ?? 0) - at;
+    // Turning the loop off while past the loop's end would stop at once; restart from where playback is instead.
+    // The loop is already off here, so work out that place as for a sound that loops.
+    if (!on && length.value) startedAt = context.currentTime - ((context.currentTime - startedAt) % length.value);
   });
 
   onBeforeUnmount(() => {
