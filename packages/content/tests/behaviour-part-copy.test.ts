@@ -39,7 +39,7 @@ function routines(belt?: number) {
   );
 }
 const pattern = ["push bp", "mov bp,sp", "callf $allocate", "callf $release", "pop bp", "retf"].join("\n");
-function allocator(kind = "nullable-allocation"): Map<number, EngineSummary> {
+function allocator(kind = "nullable-allocation", clears = true): Map<number, EngineSummary> {
   return new Map([
     [
       ALLOCATE,
@@ -54,6 +54,7 @@ function allocator(kind = "nullable-allocation"): Map<number, EngineSummary> {
         returns: [],
         calls: [],
         returnPointerClass: "nullable-fresh",
+        ...(clears ? { clearsAllocation: true as const } : {}),
         footprint: {
           complete: false,
           preservesArgumentMemory: false,
@@ -88,6 +89,12 @@ describe("the part copy", () => {
     expect(other.has(COPY)).toBe(false);
     const summaries = allocator();
     addPartCopySummary(routines(0x56), summaries, [pattern]);
+    expect(summaries.has(COPY)).toBe(false);
+  });
+
+  it("is not summarised when its allocator doesn't clear the block", () => {
+    const summaries = allocator("nullable-allocation", false);
+    addPartCopySummary(routines(), summaries, [pattern]);
     expect(summaries.has(COPY)).toBe(false);
   });
 });

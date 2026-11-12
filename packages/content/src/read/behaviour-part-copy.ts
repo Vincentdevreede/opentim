@@ -32,6 +32,7 @@ export function addPartCopySummary(
     if (!bound) continue;
     const allocate = summaries.get(bound.get("allocate")!);
     if (allocate?.kind !== "nullable-allocation" || allocate.returnPointerClass !== "nullable-fresh") continue;
+    if (!allocate.clearsAllocation) continue;
     // The release frees the copy's outline, belt and rope records, each only when set, and then the copy. The copy
     // sets them only from its own allocations, and the zero filled block holds zero in the others. That the release
     // changes nothing else is the second assumption.
