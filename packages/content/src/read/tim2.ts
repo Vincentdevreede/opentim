@@ -77,6 +77,14 @@ export interface Animation {
   sheets: Map<number, string>;
 }
 
+/**
+ * How long one step of TIM 2's machine takes at the least, in milliseconds. TIM2.EXE sets the PC's timer to 65,535 ÷ 13
+ * = 5,041 counts (236.7 Hz), counts a step timer down every 4 of those ticks (59.2 Hz), and its run loop waits until
+ * that timer is 0 and sets it to 2 before every step: at most 29.6 steps a second. An animation's steps repeat frames
+ * to hold them, so a part moves one state a step.
+ */
+export const TIM2_STEP_MS = (2 * 4 * Math.trunc(0xffff / 13) * 1000) / 1193182;
+
 /** The number of words each command takes, with the command itself, as TIM2.EXE's table has them. */
 const COMMAND_WORDS = [1, 1, 6, 7, 6, 2, 2];
 

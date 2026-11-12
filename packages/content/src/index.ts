@@ -179,3 +179,4 @@ export {
   type GoalCondition,
   type GoalSummary,
 } from "./read/goal-conditions.ts";
+export { TIM2_STEP_MS } from "./read/tim2.ts";

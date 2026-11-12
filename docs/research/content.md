@@ -141,7 +141,7 @@ same slots, and 66–148 are new. Its sheets `PART149` to `PART294` have no entr
 mountains, planets and paintings.
 
 What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast in TIM 1
-and Even More, and in TIM 2 how fast the steps go and what a sequence number stands for.
+and Even More, and in TIM 2 what a sequence number stands for. TIM 2's speed is its machine's step, about 29.6 a second.
 
 ## Not decided yet
 

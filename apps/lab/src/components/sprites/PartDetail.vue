@@ -4,6 +4,7 @@ import {
   composeFrame,
   drawOrder,
   partSequences,
+  TIM2_STEP_MS,
   type Part,
   type Placement,
   type SpriteOf,
@@ -135,7 +136,9 @@ const sequenceOptions = computed(() => [
 const count = computed(() =>
   strip.value === "frames" ? (run.value?.frames.length ?? props.part.frames.length) : sprites.value.length,
 );
-const player = usePlayer(count);
+/** A TIM 2 sequence plays at the game's own speed, one state a step. */
+const interval = computed(() => (run.value ? TIM2_STEP_MS : undefined));
+const player = usePlayer(count, 0, interval);
 const { position, playing, move } = player;
 
 watch(
@@ -429,8 +432,8 @@ const sideTabs = computed(() => [
         >
           <p class="text-meta text-muted">
             <template v-if="strip === 'frames' && run"
-              >Plays sequence {{ run.sequence }} in the game’s order, one state a step, {{ FPS }} a second; the game’s
-              speed isn’t known yet.</template
+              >Plays sequence {{ run.sequence }} in the game’s order, one state a step, at the game’s
+              {{ (1000 / TIM2_STEP_MS).toFixed(1) }} steps a second.</template
             >
             <template v-else-if="strip === 'frames'"
               >Steps through the frames in order, {{ FPS }} a second. Which frame follows which in the game isn’t known

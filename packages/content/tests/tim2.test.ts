@@ -1,7 +1,7 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import { readTim2Parts } from "../src/read/parts.ts";
-import { animationFrames, animationSheets, readAnimation, readPartNames } from "../src/read/tim2.ts";
+import { TIM2_STEP_MS, animationFrames, animationSheets, readAnimation, readPartNames } from "../src/read/tim2.ts";
 
 const bytes = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
 const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values, (v) => v & 0xffff).buffer);
@@ -114,5 +114,9 @@ describe("TIM 2", () => {
     const newer = anm.slice();
     newer[start + 2] = 0xea;
     expect(() => readAnimation(newer)).toThrow(/version 1002/);
+  });
+
+  it("steps the machine every 2 ticks of a 59.2 Hz timer", () => {
+    expect(TIM2_STEP_MS).toBeCloseTo(33.8, 1);
   });
 });
