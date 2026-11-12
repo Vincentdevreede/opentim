@@ -293,3 +293,27 @@ describe("indexed owner-field footprints", () => {
     expect(result.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(true);
   });
 });
+
+/** A far routine: `prefix`, a jump to the loop's test, the body, the test and a `jl` back to the body, then `tail`. */
+function loopRoutine(prefix: number[], body: number[], test: number[], tail: number[]) {
+  const bytes = [...prefix, 0xeb, body.length, ...body, ...test];
+  bytes.push(0x7c, -(body.length + test.length + 2) & 0xff, ...tail);
+  return Uint8Array.from(bytes);
+}
+
+describe("counted loop effects after the loop", () => {
+  it("forgets a linked part's field the body writes, also when it is first read after the loop", () => {
+    // The body stores 5 in [part+0x54]+0x20 twice; after the loop that field is copied to the state at 0x0c.
+    const image = loopRoutine(
+      [0x55, 0x8b, 0xec, 0x83, 0xec, 2, 0x56, 0x57, 0x8b, 0x76, 6, 0xc7, 0x46, 0xfe, 0, 0],
+      [0x8b, 0x7c, 0x54, 0xc7, 0x45, 0x20, 5, 0, 0xff, 0x46, 0xfe],
+      [0x83, 0x7e, 0xfe, 2],
+      [0x8b, 0x7c, 0x54, 0x8b, 0x45, 0x20, 0x89, 0x44, 0x0c, 0x5f, 0x5e, 0x8b, 0xe5, 0x5d, 0xcb],
+    );
+    const result = analyseRoutine(image, entry);
+    expect(result.loops).toHaveLength(1);
+    expect(result.transitions).toHaveLength(1);
+    expect(result.transitions[0]!.to).toMatchObject({ offset: 0x20, unresolved: true });
+    expect(result.transitions[0]!.confidence).not.toBe("inferred");
+  });
+});
