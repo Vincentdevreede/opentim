@@ -324,8 +324,12 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
 - With a count of 0 the entry is about its own part. With a count of N, the routine walks the list its part is on
   again and needs N parts of the part's type that pass.
 - The last word holds the goal back: the routine counts its own checks and says the goal isn't met before that many.
-  The count is set back to 0 by a routine that nothing calls directly (it is reached through a pointer), and whether
-  the routine runs once per step isn't read yet. Four levels use it, like 108 checks for the message computers.
+  The run loop (the routine at file offset `0x53240` in the floppy build) sets that count back to 0 when the machine
+  starts and runs the goal routine once a step, right after the step, so the last word is a number of steps. Four
+  levels use it, like 108 steps for the message computers.
+- When the routine first says the goal is met, the run loop goes on for 30 more steps and then ends the puzzle as
+  solved, whatever the routine says in those steps. The run loop waits for its step timer before each step (see
+  [the animation speed](file-formats.md#animations-anm)), so a step takes at least 33.8 ms.
 
 The Levels page shows these conditions, with the area of an inside test drawn on the level.
 

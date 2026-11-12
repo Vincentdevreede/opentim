@@ -234,7 +234,7 @@ palette; it draws a line as a straight run of pixels from end to end, not by the
 **Speed.** TIM2.EXE sets the PC's timer to 65,535 ÷ 13 = 5,041 counts, 236.7 ticks a second, and has the timer count
 a step timer down every 4 ticks, 59.2 times a second. Its run loop waits until the step timer is 0 and sets it to 2
 before each step of the machine, so a step takes at least 33.8 ms: at most 29.6 steps a second. The steps of an
-animation repeat a frame to hold it (the cat's step list shows frame 12 five times in a row), which only makes sense if
+animation repeat a frame to hold it (the cannon's step list shows frame 12 five times in a row), which only makes sense if
 a part moves one state a step; that each part's run routine does so is read from the step lists, not from every run
 routine. The Parts page plays a sequence at that speed (`TIM2_STEP_MS`).
 

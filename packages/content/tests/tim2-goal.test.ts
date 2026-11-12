@@ -57,7 +57,7 @@ describe("TIM 2 goals", () => {
   it("waits for the last word's number of checks, and has no way when the first word is 0", () => {
     expect(summariseTim2Goal(level(1, 108, [[2, 1, 1, 0, 0, 0, 0, 0]]), names)!.summary.ways[0]!.at(-1)).toEqual({
       kind: "word",
-      tests: ["checked at least 108 times"],
+      tests: ["at least 108 steps after the machine starts"],
     });
     const none = summariseTim2Goal(level(0, 0, [[2, 1, 1, 0, 0, 0, 0, 0]]), names)!.summary;
     expect(none.ways).toEqual([]);

@@ -10,8 +10,10 @@
  *   across and 0 to 400 down. Otherwise it tests the part's state, from the first limit to the second.
  * - With a count of 0 the entry is about its own part. With a count of N, N parts of that part's type on the same list
  *   must pass.
- * - The goal counts as met only from the routine's Nth check on, N being the last word. The routine counts its checks
- *   from a reset elsewhere in the program; that it checks once per step isn't read yet.
+ * - The goal counts as met only from the routine's Nth check on, N being the last word. The run loop sets the count
+ *   back to 0 when the machine starts and runs the routine once a step, so N is a number of steps.
+ * - Once the routine says the goal is met, the run loop goes on for 30 more steps and then ends the puzzle as solved,
+ *   whatever the routine says in those steps.
  */
 
 import type { GoalCondition, GoalSummary } from "./goal-conditions.ts";
@@ -72,7 +74,8 @@ export function summariseTim2Goal(level: Level, nameOf: (type: number) => string
   });
   const ways: GoalCondition[][] = [];
   if (goal.first !== 0) {
-    if (goal.last > 0) conditions.push({ kind: "word", tests: [`checked at least ${goal.last} times`] });
+    if (goal.last > 0)
+      conditions.push({ kind: "word", tests: [`at least ${goal.last} steps after the machine starts`] });
     ways.push(conditions);
   }
   return { lines, summary: { ways, remembered: [], ...(goal.first ? {} : { problem: "the first word is 0" }) } };
