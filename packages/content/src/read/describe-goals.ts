@@ -272,7 +272,9 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
       return `${value(t.left)} ${t.op === "==" ? "is" : "isn't"} ${type}`;
     }
     const unsigned = !t.signed && t.op !== "==" && t.op !== "!=" ? " (unsigned)" : "";
-    return `${value(t.left)} ${OPS[t.op]} ${value(t.right)}${unsigned}`;
+    // An unsigned test's number is said as the unsigned word it is: 40000, not -25536.
+    const right = unsigned && isConstant(t.right) ? String(t.right.value & 0xffff) : value(t.right);
+    return `${value(t.left)} ${OPS[t.op]} ${right}${unsigned}`;
   };
 
   const say = (body: readonly Shown[], depth: number, called: readonly number[]) => {
