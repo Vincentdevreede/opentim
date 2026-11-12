@@ -150,6 +150,34 @@ export interface Scene {
   notes: Note[];
   /** The knot TIM.EXE draws at a rope's ends: picture 36 of GP_BORD, 5 pixels left of and 2 above the slot. */
   knot: Composition;
+  /** The picture TIM2.EXE shows for each of a TIM 2 level's notes. */
+  noteMarks: NoteMark[];
+}
+
+/** Where a TIM 2 level's note is, and its picture. */
+export interface NoteMark {
+  text: string;
+  at: Point;
+  composition: Composition;
+}
+
+/** The sheet TIM2.EXE draws a note's picture from. */
+const NOTE_SHEET = "HANDLES";
+
+/**
+ * TIM2.EXE draws a note as picture 41 of HANDLES at the note's place, or picture 42 when the note's third word is 2 or
+ * more. When the word is odd it mirrors the picture left to right and draws it 4 pixels further left.
+ */
+function noteMarks(level: Level, spriteOf: SpriteOf): NoteMark[] {
+  return (level.tim2?.notes ?? []).map((note) => {
+    const mirrored = (note.z & 1) !== 0;
+    const sprite: Placement = { sheet: NOTE_SHEET, sprite: note.z > 1 ? 42 : 41, x: 0, y: 0, layer: 0 };
+    return {
+      text: note.text,
+      at: { x: note.x - (mirrored ? 4 : 0), y: note.y },
+      composition: compose([mirrored ? { ...sprite, flip: "h" } : sprite], spriteOf),
+    };
+  });
 }
 
 /** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
@@ -547,6 +575,7 @@ export function layoutScene(
     bin: level.parts.filter((p) => groupOf(level, p, solution) === "bin"),
     notes,
     knot,
+    noteMarks: noteMarks(level, spriteOf),
   };
 }
 

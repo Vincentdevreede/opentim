@@ -164,7 +164,7 @@ All numbers are words unless said otherwise.
 | magic, version       | 2 each               | `0xACEF`; the version is `0x111` to `0x113` in the shipped levels.                                                  |
 | spare, background    | 1 each               | From version `0x113`. A byte the game only writes back, and the palette colour of the play area.                    |
 | title, goal          | text                 | Always there.                                                                                                       |
-| notes                | 2, then 8 notes      | From version `0x110`. A note: x, y, from version `0x112` a third word, and text.                                    |
+| notes                | 2, then 8 notes      | From version `0x110`. A note: x, y, from version `0x112` its picture, and text.                                     |
 | airPressure, gravity | 2 each               |                                                                                                                     |
 | two words            | 2 each               | Where TIM 1 has the scroll limits. The game reads them and sets them to 0.                                          |
 | music                | 2                    |                                                                                                                     |

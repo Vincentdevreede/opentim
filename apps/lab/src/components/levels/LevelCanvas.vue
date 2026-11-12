@@ -55,6 +55,12 @@ const knotPicture = computed(() =>
   props.scene.knot.placed.length ? compositionCanvas(props.scene.knot, props.paletteOf("GP_BORD")) : undefined,
 );
 
+const notePictures = computed(() =>
+  props.scene.noteMarks.map((m) =>
+    m.composition.placed.length ? compositionCanvas(m.composition, props.paletteOf("HANDLES")) : undefined,
+  ),
+);
+
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(`--color-${name}`).trim();
 
 function drawPicture(context: CanvasRenderingContext2D, d: DrawnPart, picture: HTMLCanvasElement) {
@@ -150,6 +156,12 @@ watchEffect(() => {
   if (knot)
     for (const line of scene.lines)
       for (const p of line.knots ?? []) context.drawImage(knot, p.x + scene.knot.bounds.x, p.y + scene.knot.bounds.y);
+
+  // The notes’ pictures, after the parts.
+  scene.noteMarks.forEach((m, i) => {
+    const picture = notePictures.value[i];
+    if (picture) context.drawImage(picture, m.at.x + m.composition.bounds.x, m.at.y + m.composition.bounds.y);
+  });
 
   // The goal over the parts: the parts it looks at ringed, and the places it tests as numbered areas.
   for (const d of scene.parts) {

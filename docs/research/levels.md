@@ -296,7 +296,10 @@ What the loader does with the fields, from TIM2.EXE:
 - **Every level is a puzzle**: title and goal text are always there. When the game runs in another language, it reads
   the title, the goal and the notes again from a language file, so the level file keeps the English ones.
 - **Notes**: eight places for a text the puzzle shows, each with an x, a y, from version `0x112` a third word, and the
-  text. The game shows a note for each place with a text. The word before them is read and not kept.
+  text. The game shows a note for each place with a text. The word before them is read and not kept. The third word
+  picks the note's picture: TIM2.EXE draws picture 41 of `HANDLES.BMP` at the note's place, or 42 when the word is 2 or
+  more, and when the word is odd mirrors it left to right and draws it 4 pixels further left (the routine at file
+  offset `0x1e010` in the floppy build). The shipped levels use 0 to 3. The Levels page draws the pictures.
 - **Flags**: of the three flag words of a part the game keeps only bit `0x8000` of the first, bits `0x32` of the
   second (`0x10` and `0x20` mirror the part, as in TIM 1) and bits `0x140` of the third; the other bits come from the
   part's type. The files still have the type's bits, because the editor saved the whole words.
@@ -409,7 +412,6 @@ levels keep their parts between 0 and 568 across and above 377.
 
 What isn't worked out yet, and what the Lab does meanwhile:
 
-- **The notes' third word** (from version `0x112`): 0 to 3 in the shipped levels; what it changes isn't read.
 - **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
   with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
 - **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.

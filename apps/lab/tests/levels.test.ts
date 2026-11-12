@@ -337,6 +337,22 @@ describe("layoutScene", () => {
     expect(frame!.composition!.placed.map((p) => p.placement.x)).toEqual([11]);
   });
 
+  it("puts a picture of HANDLES at each TIM 2 note, as TIM2.EXE does by the note's third word", () => {
+    const empty = [0, 0, 0, ""];
+    const notes = [0, 100, 40, 3, "Hi.", 200, 50, 0, "Ho.", ...Array.from({ length: 6 }, () => empty).flat()];
+    const goal = [1, ...Array.from({ length: 8 }, () => [NONE, 0, 0, 0, 0, 0, 0, 0]).flat(), 0];
+    const data = bytes(0xacef, 0x112, "T", "G", ...notes, 67, 272, 0, 0, 1000, 0, 0, 0, ...goal);
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const sheets = (sheet: string, index: number) => (sheet === "HANDLES" ? sprite(8, 8) : spriteOf(sheet, index));
+    const marks = layoutScene(level, LIST, sheets).noteMarks;
+    expect(
+      marks.map((m) => [m.text, m.at, m.composition.placed.map((p) => [p.placement.sprite, p.placement.flip])]),
+    ).toEqual([
+      ["Hi.", { x: 96, y: 40 }, [[42, "h"]]],
+      ["Ho.", { x: 200, y: 50 }, [[41, undefined]]],
+    ]);
+  });
+
   it("tiles a standing wall from state + 4 to state + 7", () => {
     const data = puzzle("T", [{ type: 1, x: 8, y: 8, width: 16, height: 64, flags1: 0xe040 }]);
     const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;

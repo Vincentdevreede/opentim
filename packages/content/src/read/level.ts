@@ -111,7 +111,10 @@ export interface LevelPart {
 export interface LevelNote {
   x: number;
   y: number;
-  /** A third word, from version 0x112. Its meaning isn't known. */
+  /**
+   * From version 0x112: the note's picture. TIM2.EXE draws picture 41 of `HANDLES.BMP`, or 42 from 2 up, mirrored left
+   * to right and 4 pixels further left when it is odd.
+   */
   z: number;
   text: string;
 }
