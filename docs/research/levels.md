@@ -330,6 +330,13 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
   The run loop (the routine at file offset `0x53240` in the floppy build) sets that count back to 0 when the machine
   starts and runs the goal routine once a step, right after the step, so the last word is a number of steps. Four
   levels use it, like 108 steps for the message computers.
+- **Two other ways a run ends.** The run loop checks the input after every step. Its input routine (file offset
+  `0x36311` in the floppy build) keeps the mouse buttons in `[0x7ad8]`, the typed character in `[0x7ade]` (its low 7
+  bits) and the held modifier keys in `[0x7ae4]`: 1 for Ctrl (scan code `0x1d`), 2 for Alt (`0x38`), 4 for either
+  Shift (`0x2a`, `0x36`) and 8 for the right Alt. With Ctrl, Alt and Shift held (7) and character `0x16`, which is
+  Ctrl+V, the loop sets the game's mode to `0x200`, the same as a met goal: a hidden key that solves the puzzle. With
+  the right mouse button (value 2; the click code elsewhere counts the middle button, 4, as it too) it sets the mode to
+  `0x1000`, the mode the game is in while the player builds, so the machine stops.
 - When the routine first says the goal is met, the run loop goes on for 30 more steps and then ends the puzzle as
   solved, whatever the routine says in those steps. The run loop waits for its step timer before each step (see
   [the animation speed](file-formats.md#animations-anm)), so a step takes at least 33.8 ms.
@@ -412,6 +419,4 @@ levels keep their parts between 0 and 568 across and above 377.
 
 What isn't worked out yet, and what the Lab does meanwhile:
 
-- **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
-  with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
 - **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
