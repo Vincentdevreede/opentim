@@ -352,6 +352,31 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(effect.assumptions).toContain("The second path's own assumption.");
   });
 
+  it("does not say a test of a linked part's flip is the part's own", () => {
+    const flip: Expression = {
+      kind: "binary",
+      operator: "&",
+      left: { kind: "field", object: "referenced-by(part+0x78)", offset: 8, width: 16 },
+      right: constant(0x10),
+      width: 16,
+    };
+    const data = report([
+      rule(constant(1), { kind: "compare", left: flip, operator: "!=", right: constant(0), signed: false }),
+      rule(field(12), { kind: "compare", left: flip, operator: "==", right: constant(0), signed: false }),
+    ]);
+    data.layout.fields[2] = {
+      name: "drawingFlags",
+      offset: 8,
+      masks: [{ name: "horizontalFlip", value: 0x10 }],
+      ...proof,
+    };
+    const names = describeBehaviour(data)
+      .parts[0]!.animations.filter((item) => item.trigger.kind === "input-case")
+      .map((item) => item.trigger.name);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.some((name) => name.includes("reflected"))).toBe(false);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),

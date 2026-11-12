@@ -3807,7 +3807,8 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
     ) {
       const operand = term.left.left.kind === "field" ? term.left.left : term.left.right;
       const mask = term.left.left.kind === "constant" ? term.left.left : term.left.right;
-      if (operand.kind === "field" && mask.kind === "constant") {
+      // Only the part's own flags: a linked part's flag reads as a linked object's value below.
+      if (operand.kind === "field" && operand.object === "part" && mask.kind === "constant") {
         const name = report.layout.fields
           .find((field) => field.offset === operand.offset)
           ?.masks?.find((field) => field.value === mask.value)?.name;
