@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import type { Router } from "vue-router";
+import type { RouteLocationNormalized, Router } from "vue-router";
 
 /**
  * The page whose code didn't load, by its address. Pages load the first time they open; after a new version of the
@@ -16,13 +16,18 @@ export const isPageLoadError = (error: unknown) =>
   );
 
 /**
- * Keeps `pageLoadFailed` up to date: a page whose code didn't load stays where it was and the app says why. Opening a
- * page clears it; clicking the page that is already open, or a click that another click cut short, doesn't. A slow page
- * that fails after another page has opened never gets here, because the router drops it as soon as the other opens.
+ * Keeps `pageLoadFailed` up to date: a page whose code didn't load stays where it was and the app says why. Only the
+ * page being opened counts: a slow page whose code fails after another page was clicked still reaches the router's
+ * error handler, and would otherwise put up a stale message. Opening a page clears it; clicking the page that is
+ * already open, or a click that another click cut short, doesn't.
  */
 export function trackPageLoads(router: Router) {
+  let opening: RouteLocationNormalized | undefined;
+  router.beforeEach((to) => {
+    opening = to;
+  });
   router.onError((error, to) => {
-    if (isPageLoadError(error)) pageLoadFailed.value = to.fullPath;
+    if (isPageLoadError(error) && to === opening) pageLoadFailed.value = to.fullPath;
   });
   router.afterEach((_to, _from, failure) => {
     if (!failure) pageLoadFailed.value = undefined;

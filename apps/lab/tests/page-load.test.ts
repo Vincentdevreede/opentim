@@ -5,23 +5,31 @@ import { isOpenPage, isPageLoadError, pageLoadFailed, trackPageLoads } from "../
 const Page = { render: () => null };
 const gone = () => new TypeError("Failed to fetch dynamically imported module: /assets/PartsPage-x.js");
 
-/** A router like the Lab's, whose Parts page fails to load once `fail` is called. */
+/** A router like the Lab's, whose Parts page fails to load once `fail` is called, and Sprites opens once `open` is. */
 async function lab() {
   let fail!: () => void;
+  let open!: () => void;
+  let started!: () => void;
+  const partsStarted = new Promise<void>((resolve) => (started = resolve));
   const parts = new Promise<never>((_, reject) => (fail = () => reject(gone())));
-  // A page the router dropped leaves its failed load unhandled; the test doesn't need to hear about it.
-  parts.catch(() => undefined);
+  const sprites = new Promise<typeof Page>((resolve) => (open = () => resolve(Page)));
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: "/", component: Page },
-      { path: "/sprites", component: () => Promise.resolve(Page) },
-      { path: "/parts", component: () => parts },
+      { path: "/sprites", component: () => sprites },
+      {
+        path: "/parts",
+        component: () => {
+          started();
+          return parts;
+        },
+      },
     ],
   });
   trackPageLoads(router);
   await router.push("/");
-  return { router, fail };
+  return { router, fail, open, partsStarted };
 }
 
 beforeEach(() => {
@@ -47,11 +55,12 @@ it("leaves other errors to the page", () => {
 });
 
 it("says which page didn't load, and clears it once a page opens", async () => {
-  const { router, fail } = await lab();
+  const { router, fail, open } = await lab();
   const opening = router.push("/parts#details").catch(() => undefined);
   fail();
   await opening;
   expect(pageLoadFailed.value).toBe("/parts#details");
+  open();
   await router.push("/sprites");
   expect(pageLoadFailed.value).toBeUndefined();
 });
@@ -66,13 +75,28 @@ it("keeps the message when the page that is open is clicked again", async () => 
 });
 
 it("ignores a slow page that fails after another page has opened", async () => {
-  const { router, fail } = await lab();
+  const { router, fail, open, partsStarted } = await lab();
   const slow = router.push("/parts").catch(() => undefined);
+  await partsStarted;
+  open();
   await router.push("/sprites");
   fail();
   await slow;
   expect(router.currentRoute.value.path).toBe("/sprites");
   expect(pageLoadFailed.value).toBeUndefined();
+});
+
+it("ignores a slow page that fails while another page is still opening", async () => {
+  const { router, fail, open, partsStarted } = await lab();
+  const slow = router.push("/parts").catch(() => undefined);
+  await partsStarted;
+  const next = router.push("/sprites");
+  fail();
+  await slow;
+  expect(pageLoadFailed.value).toBeUndefined();
+  open();
+  await next;
+  expect(router.currentRoute.value.path).toBe("/sprites");
 });
 
 it("reloads instead of going to the address when it is the open page's own", () => {
