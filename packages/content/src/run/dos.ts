@@ -125,7 +125,10 @@ export class Dos implements CpuHooks {
       while (this.running.length && cpu.regs[4]! >= this.running.at(-1)!) this.running.pop();
     if (cpu.steps >= this.nextTick) {
       this.nextTick += this.tickEvery;
-      cpu.write16(0x40, 0x6c, cpu.read16(0x40, 0x6c) + 1);
+      // The BIOS count is a double word.
+      const low = (cpu.read16(0x40, 0x6c) + 1) & 0xffff;
+      cpu.write16(0x40, 0x6c, low);
+      if (!low) cpu.write16(0x40, 0x6e, cpu.read16(0x40, 0x6e) + 1);
       this.tickPending = true;
     }
     if (this.tickPending && cpu.flag(IF) && !this.inInterrupt) {
@@ -189,7 +192,7 @@ export class Dos implements CpuHooks {
         return true;
       }
       case 0x1a:
-        cpu.regs[1] = 0;
+        cpu.regs[1] = cpu.read16(0x40, 0x6e);
         cpu.regs[2] = cpu.read16(0x40, 0x6c);
         return true;
       case 0x11:

@@ -88,6 +88,17 @@ describe("the DOS the game runs on", () => {
     expect(d.cpu.regs[3]).toBe(1);
   });
 
+  it("carries the BIOS tick count into its high word, and returns both words from int 1Ah", () => {
+    const { d, cpu } = dos();
+    cpu.write16(0x40, 0x6c, 0xffff);
+    for (let k = 0; k < 2 * d.tickEvery; k++) d.step();
+    expect(cpu.read16(0x40, 0x6c)).toBe(1);
+    expect(cpu.read16(0x40, 0x6e)).toBe(1);
+    cpu.setRegister("ah", 0);
+    d.interrupt(cpu, 0x1a);
+    expect([cpu.regs[1], cpu.regs[2]]).toEqual([1, 1]);
+  });
+
   it("reads an LZEXE program's relocations and entry point", () => {
     // A minimal LZEXE 0.91 file: header, packed image of one copied byte, stub with the entry words and relocations.
     const exe = new Uint8Array(0x400);
