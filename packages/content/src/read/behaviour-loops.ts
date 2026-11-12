@@ -362,6 +362,8 @@ export function discoverCountedLoops(
         (name) =>
           !modified.has(name) &&
           !volatile.has(name) &&
+          // Every path into the loop still holds the part there: nothing between the load and the loop changed it.
+          origins.get(compare.address)?.get(name) === 1 &&
           ownerDefinitions.some(
             (i) => isRegister(i.operands[0], name) && dominates(i.address, compare.address, code.address),
           ),

@@ -338,3 +338,20 @@ describe("counted loop indexed stores", () => {
     expect(discoverCountedLoops(code, new Map(), 12)).toHaveLength(0);
   });
 });
+
+describe("counted loop owner register", () => {
+  it("does not take a register as the part after it was pointed somewhere else before the loop", () => {
+    // mov si,[bp+6]; lea si,[bp-16]; then three passes of mov word [si+2],5 and inc di.
+    const image = loopRoutine(
+      [
+        0x55, 0x8b, 0xec, 0x83, 0xec, 16, 0x56, 0x57, 0x8b, 0x76, 6, 0x8d, 0x76, 0xf0, 0xc7, 0x46, 0xf2, 1, 0, 0x33,
+        0xff,
+      ],
+      [0xc7, 0x44, 0x02, 5, 0, 0x47],
+      [0x83, 0xff, 3],
+      [0x8b, 0x46, 0xf2, 0x8b, 0x5e, 6, 0x89, 0x47, 0x0c, 0x5f, 0x5e, 0x8b, 0xe5, 0x5d, 0xcb],
+    );
+    expect(discoverCountedLoops(readRoutineCode(image, entry, 0), new Map(), 12)).toHaveLength(0);
+    expect(analyseRoutine(image, entry).transitions.every((t) => t.to.kind !== "constant")).toBe(true);
+  });
+});
