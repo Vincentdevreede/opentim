@@ -63,8 +63,8 @@ All in `behaviour.ts` unless named.
 | `Expression`                             | `constant`, `field` (`object`, `offset`, `width`, maybe `unresolved`), `binary`, `table` or `unknown` (with a `reason`).                                     |
 | `Predicate`                              | `true`, `compare` (`operator`, `left`, `right`, `signed`), `and` or `unknown`.                                                                               |
 | `FieldWrite`                             | A write to `object` at `offset`, with its `value` and `condition`.                                                                                           |
-| `Transition`                             | `from` (start states or null), `to` (the state it ends in), `condition`, `updates` (no globals), maybe `runValues`.                                          |
-| `RoutineOutcome`                         | One path's result: `condition`, final `fields` (globals too), `returnValue`. Callers compose these.                                                          |
+| `Transition`                             | `from` (start states or null), `to` (the state it ends in), `condition`, `updates`, maybe `runValues`.                                                       |
+| `RoutineOutcome`                         | One path's result: `condition`, final `fields` and `globals`, `returnValue`. Callers compose these.                                                          |
 | `IterationOutcome`                       | What one pass of a loop does to one found member.                                                                                                            |
 | `RoutineAnalysis`                        | `analyseRoutine`'s result: `RoutineCode` plus writes, transitions, outcomes, loops, joins, the work it took.                                                 |
 | `PartBehaviour`                          | One part type: its callbacks, transitions, counters, reset, effects, triggers, uncertainties.                                                                |

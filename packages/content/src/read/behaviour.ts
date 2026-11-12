@@ -130,6 +130,8 @@ export interface RoutineOutcome extends Finding {
   keepsState?: true;
   condition: Predicate;
   fields: FieldWrite[];
+  /** The globals the path leaves, for a caller to compose. */
+  globals?: FieldWrite[];
   returnValue: Expression;
   returnConfidence?: Confidence;
   returnPointer?: { object: string; displacement: number };
@@ -3091,7 +3093,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       : null;
     if (from?.length === 0 || !possible(condition)) return;
     const f = finding(to, condition, s, [...(value?.evidence ?? []), evidenceOf(i)]);
-    const updates: FieldWrite[] = [];
+    const updates: FieldWrite[] = [],
+      globals: FieldWrite[] = [];
     for (const [key, final] of s.memory) {
       const split = key.lastIndexOf(":");
       const before = key.slice(0, split);
@@ -3101,7 +3104,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const width = Number(key.slice(split + 1));
       if (object === "stack") continue;
       const expression = asExpression(final.value);
-      updates.push({
+      (object === "data" ? globals : updates).push({
         object,
         offset,
         width,
@@ -3144,6 +3147,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ...(!s.uncertain && s.partMemoryHavocAt !== undefined ? { keepsState: true as const } : {}),
       condition,
       fields: updates,
+      ...(globals.length ? { globals } : {}),
       returnValue: asExpression(returned.value),
       ...(returned.value.kind === "pointer"
         ? { returnPointer: { object: returned.value.object, displacement: returned.value.displacement } }
@@ -3152,22 +3156,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       returnConfidence: containsUnknown(asExpression(returned.value)) ? "unresolved" : "inferred",
     });
     const incomplete = s.uncertain || s.partMemoryHavocAt !== undefined;
-    // A caller composes the globals a path leaves as well; the rules of the state keep to the part's fields.
-    const ruleUpdates = updates.filter((u) => u.object !== "data");
     const transition = {
       ...f,
       from,
       to,
       condition,
       routine: entry.address,
-      updates: ruleUpdates,
+      updates,
       ...(incomplete ? { effectsIncomplete: true as const } : {}),
     };
     const key = JSON.stringify([
       from,
       to,
       condition,
-      ruleUpdates.map((u) => [u.object, u.offset, u.width, u.value]),
+      updates.map((u) => [u.object, u.offset, u.width, u.value]),
       incomplete,
     ]);
     if (!outputs.has(key)) {
@@ -4151,7 +4153,6 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const engineBefore = i.target && options.engineSummaries?.get(i.target.address);
       const composableObject = (object: string) =>
         object === "part" ||
-        object === "data" ||
         (engineBefore?.kind === "owner-and-outline-relation" &&
           engineBefore.writes.some(
             (write) => write.separateStorage === "outline" && object === `referenced-by(part+${hex(write.path[0]!)})`,
@@ -4698,7 +4699,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             summary.objectPointer.argumentOffset,
           );
           if (!possible(conjunction([...s.conditions, condition]))) continue;
-          const mapped = outcome.fields.map((effect) => ({
+          const mapped = [...outcome.fields, ...(outcome.globals ?? [])].map((effect) => ({
             effect,
             pointer: formalObject(
               effect.object,
