@@ -362,6 +362,7 @@
       "id": "toons-en-floppy",
       "name": "Sid & Al's Incredible Toons",
       "languages": ["en"],
+      "parts": "toons",
       "files": [
         {
           "name": "RESOURCE.001",

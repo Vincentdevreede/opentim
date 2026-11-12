@@ -44,6 +44,11 @@ export interface Part {
   sequences?: { sequence: number; state: number }[];
   /** The size TIM 2 mirrors a whole frame in: the game measures a mirrored sprite's place from its far side. */
   mirrorBox?: { width: number; height: number };
+  /**
+   * How Toons draws the part when a level marks it to be drawn as tiles, like a wall: tiles this wide (16 or 32) and 16
+   * high, with this many middle tiles taking turns between the two end tiles.
+   */
+  tiles?: { width: number; middles: number };
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }

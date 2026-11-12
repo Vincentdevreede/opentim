@@ -57,6 +57,8 @@ import LabListRow from "../LabListRow.vue";
 
 const props = defineProps<{
   part: Part;
+  /** The id of the part's list, for its names. */
+  listId?: string;
   /** The sprites of a sheet in the loaded files, or undefined when it isn't there. */
   sheetSprites: (sheet: string) => Bitmap[] | undefined;
   /** The palette setting of the gallery. */
@@ -100,7 +102,7 @@ const sideId = useId();
 
 const { colorsOf, choose, options } = usePalettes();
 const spriteOf: SpriteOf = (sheet, sprite) => props.sheetSprites(sheet)?.[sprite];
-const name = computed(() => partName(props.part));
+const name = computed(() => partName(props.part, props.listId));
 
 /** Every sprite of the part's sheets that is in the loaded files. */
 const sprites = computed(() =>
@@ -617,8 +619,8 @@ const sideTabs = computed(() => [
               </template>
             </LabTable>
             <p class="text-meta text-muted">
-              Positions are in pixels of the original game, from the part’s origin. In TIM 1 and Even More, the game’s
-              state {{ frame.id }} shows this frame.
+              Positions are in pixels of the original game, from the part’s origin. In TIM 1, Even More and Toons, the
+              game’s state {{ frame.id }} shows this frame.
             </p>
           </LabSection>
         </template>

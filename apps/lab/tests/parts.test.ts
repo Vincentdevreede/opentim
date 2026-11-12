@@ -23,6 +23,13 @@ describe("listIdOf", () => {
 });
 
 describe("readLoadedParts", () => {
+  it("asks for TOONS.EXE to read Toons' parts", () => {
+    const toons = readLoadedParts("toons", []);
+    expect(toons?.source).toBe("committed");
+    expect(toons?.problem).toMatch(/TOONS\.EXE/);
+    expect(toons?.program).toBeUndefined();
+  });
+
   it("uses the committed list, with the reason, when the files can't give the parts", () => {
     expect(readLoadedParts(undefined, [])).toBeUndefined();
     const withoutProgram = readLoadedParts("tim1", []);
@@ -73,6 +80,12 @@ describe("partName", () => {
     expect(partName(part("bowling-ball", 0))).toEqual({ name: "Bowling Ball", source: "game" });
     expect(partName(part("jack-o-lantern", 32))).toEqual({ name: "Jack o lantern", source: "id" });
     expect(partName(part("explosion", 41)).name).toBe("Explosion");
+  });
+
+  it("names a Toons part from Toons' own names only", () => {
+    expect(partName(part("teeter-totter", 3), "toons")).toEqual({ name: "Teeter-Totter", source: "game" });
+    expect(partName(part("pulley", 17), "toons")).toEqual({ name: "Pulley", source: "id" });
+    expect(partName(part("pulley", 7), "tim1").name).toBe("Pulley");
   });
 });
 

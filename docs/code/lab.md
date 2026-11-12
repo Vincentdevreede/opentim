@@ -74,7 +74,8 @@ The biggest file of the Lab. In order:
   image's name, else the game's main palette.
 - **Parts**: part cards; `PartDetail.vue` has a stage with frames and sprites, and side tabs Frame or Sprite,
   Behaviour (`BehaviourPanel`, three layouts), Interactions (`InteractionLists`) and Type (`RecordPanel`, the 58-byte
-  type record).
+  type record, or Toons' 70-byte one). `readLoadedParts` in `parts.ts` reads the parts from `TIM.EXE`, `INFO.RES` or
+  `TOONS.EXE`; `partName(part, listId)` takes Toons' names from Toons' own list. Toons gets no behaviour read.
 - **Levels**: `LevelCanvas` (the level drawn, goal areas), `LevelGoal` (conditions and the goal routine),
   `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
   the play area (`PLAY_AREAS`), which parts are tiles, the parts bin (`groupOf`), and for TIM 2 the frame a state picks

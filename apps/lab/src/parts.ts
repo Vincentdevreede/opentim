@@ -3,8 +3,10 @@
 import {
   PART_LISTS,
   PART_NAMES,
+  partNamesOf,
   readProgramParts,
   readTim2Parts,
+  readToonsParts,
   type Part,
   type PartList,
   type ProgramParts,
@@ -59,7 +61,7 @@ function differences(list: PartList, committed: PartList): number[] {
 }
 
 /**
- * Reads the parts of the loaded files: TIM 1 and Even More from their program, TIM 2 from `INFO.RES` and its
+ * Reads the parts of the loaded files: TIM 1, Even More and Toons from their program, TIM 2 from `INFO.RES` and its
  * animations. Without those files, or when they can't be read, the committed list stands in, with the reason.
  */
 export function readLoadedParts(
@@ -96,6 +98,23 @@ export function readLoadedParts(
         missing: newParts(read.list, committed),
       };
     }
+    if (listId === "toons") {
+      if (program?.name !== "TOONS.EXE") return fallback("Add TOONS.EXE to read the parts from the program.");
+      const spriteCount = (sheet: string) => {
+        const r = byName.get(sheetFile(sheet));
+        const d = r && decode(r);
+        return d?.status === "decoded" ? d.image.frames.length : undefined;
+      };
+      // No behaviour read: it knows TIM.EXE only, so the records are shown without `program`.
+      const read = readToonsParts(program.data, spriteCount, { keepUnknown: true });
+      return {
+        list: read.list,
+        source: "program",
+        records: new Map(read.records.map((r) => [r.type, r])),
+        differs: differences(read.list, committed),
+        missing: newParts(read.list, committed),
+      };
+    }
     if (listId === "tim2") {
       if (!byName.has("INFO.RES")) return fallback("INFO.RES isn’t in the loaded files.");
       // A part our list doesn't know yet is kept, so it shows as missing from our list.
@@ -114,23 +133,27 @@ export function readLoadedParts(
   return fallback("The lab can’t read the parts of this game from its files yet.");
 }
 
-/** The name to show for a part: the game's own when it has one, else its id in words. */
-export function partName(part: Part): { name: string; source: "game" | "id" } {
+/**
+ * The name to show for a part: the game's own when it has one, else its id in words. Toons parts take their names
+ * from Toons' own list, never from the TIM games'.
+ */
+export function partName(part: Part, listId?: string): { name: string; source: "game" | "id" } {
   const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const name = part.name ?? PART_NAMES.get(part.id);
+  const name = part.name ?? partNamesOf(listId).get(part.id);
   return name ? { name: capital(name), source: "game" } : { name: capital(part.id.replace(/-/g, " ")), source: "id" };
 }
 
 export type PartOrder = "number" | "name";
 
 /** The parts that match a search on name, id or number, in this order. */
-export function findParts(parts: readonly Part[], query: string, order: PartOrder): Part[] {
+export function findParts(parts: readonly Part[], query: string, order: PartOrder, listId?: string): Part[] {
   const q = query.trim().toLowerCase();
+  const name = (p: Part) => partName(p, listId).name;
   const found = parts.filter(
-    (p) => !q || String(p.type) === q || p.id.includes(q) || partName(p).name.toLowerCase().includes(q),
+    (p) => !q || String(p.type) === q || p.id.includes(q) || name(p).toLowerCase().includes(q),
   );
   return order === "name"
-    ? found.sort((a, b) => partName(a).name.localeCompare(partName(b).name))
+    ? found.sort((a, b) => name(a).localeCompare(name(b)))
     : found.sort((a, b) => a.type - b.type);
 }
 
@@ -146,5 +169,7 @@ export function whyNoFrames(listId: string, part: Part): string | undefined {
   if (part.frames.length) return undefined;
   if (!part.sheets.length) return "It has no sprite sheet: the game draws it without sprites, so there are no frames.";
   if (listId === "tim2") return "Its .ANM file has no frames with sprites: the game draws it another way.";
+  if (listId === "toons")
+    return "It has no PART sheet: TOONS.EXE draws it from the CAT or SID sheet of what it is doing. Not worked out yet.";
   return "Its record in TIM.EXE doesn’t place its sprites: the game draws it in its own code, like walls from tiles. Not worked out yet.";
 }

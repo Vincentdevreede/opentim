@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { PART_LISTS, PART_NAMES, partOfType, type Part, type PartList } from "../src/index.ts";
+import {
+  PART_LISTS,
+  PART_NAMES,
+  TOONS_PART_NAMES,
+  partNamesOf,
+  partOfType,
+  type Part,
+  type PartList,
+} from "../src/index.ts";
+import toonsNames from "../src/lists/toons-names.json" with { type: "json" };
 
 const lists = Object.values(PART_LISTS);
-const { tim1, evenmore, tim2 } = PART_LISTS as Record<"tim1" | "evenmore" | "tim2", PartList>;
+const { tim1, evenmore, tim2, toons } = PART_LISTS as Record<"tim1" | "evenmore" | "tim2" | "toons", PartList>;
 
 describe("the part lists", () => {
   it("has the lists the version catalog refers to", () => {
-    expect(Object.keys(PART_LISTS).sort()).toEqual(["evenmore", "tim1", "tim2"]);
+    expect(Object.keys(PART_LISTS).sort()).toEqual(["evenmore", "tim1", "tim2", "toons"]);
   });
 
   it.each(lists.map((l) => [l.id, l] as const))("gives every part of %s a unique name as id", (_, list) => {
@@ -66,7 +75,22 @@ describe("the part lists", () => {
 
   it("keeps names out of the game lists and names only ids a list has", () => {
     expect(lists.flatMap((l) => l.parts).filter((p) => p.name !== undefined)).toEqual([]);
-    const ids = new Set(lists.flatMap((l) => l.parts.map((p) => p.id)));
+    const ids = new Set(lists.filter((l) => l.id !== "toons").flatMap((l) => l.parts.map((p) => p.id)));
     expect([...PART_NAMES.keys()].filter((id) => !ids.has(id))).toEqual([]);
+  });
+
+  it("keeps Toons' names apart, each for a Toons part and with the level it comes from", () => {
+    const ids = new Set(toons.parts.map((p) => p.id));
+    expect([...TOONS_PART_NAMES.keys()].filter((id) => !ids.has(id))).toEqual([]);
+    expect(toonsNames.names.filter((n) => !/^[A-Z]{4}\d+[ ,]/.test(n.from))).toEqual([]);
+    expect(partNamesOf("toons").get("teeter-totter")).toBe("Teeter-Totter");
+    expect(partNamesOf("toons").get("pulley")).toBeUndefined();
+    expect(partNamesOf("tim1").get("pulley")).toBe("Pulley");
+  });
+
+  it("has Toons' parts with a sheet, and Al and Sid, who have none", () => {
+    expect(toons.parts).toHaveLength(75);
+    expect(partOfType(toons, 36)).toMatchObject({ id: "al-e-cat", sheets: [], frames: [] });
+    expect(partOfType(toons, 45)?.tiles).toEqual({ width: 32, middles: 1 });
   });
 });

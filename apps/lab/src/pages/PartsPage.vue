@@ -42,7 +42,7 @@ const { colorsOf, choose } = usePalettes();
 const loaded = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
 const list = computed(() => loaded.value?.list);
 /** The names of the parts, by type. */
-const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p).name])));
+const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name])));
 /** What the program does with the parts, read in the background once the parts come from the program. */
 const behaviour = shallowRef<BehaviourResult | { status: "reading" }>();
 /** The walks from the parts' triggers, which come a few seconds after the rest. */
@@ -73,7 +73,8 @@ watch(
 const noBehaviour = computed(() => {
   const l = loaded.value;
   if (!l || l.program) return undefined;
-  if (l.list.id === "tim2") return "The lab reads behaviour from the programs of TIM 1 and Even More only, so far.";
+  if (l.list.id === "tim2" || l.list.id === "toons")
+    return "The lab reads behaviour from the programs of TIM 1 and Even More only, so far.";
   return l.problem ?? "The parts weren’t read from the program.";
 });
 
@@ -87,7 +88,7 @@ const sheets = computed(() => {
 });
 const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)?.[sprite]);
 
-const parts = computed(() => (list.value ? findParts(list.value.parts, query.value, order.value) : []));
+const parts = computed(() => (list.value ? findParts(list.value.parts, query.value, order.value, list.value.id) : []));
 const withFrames = computed(() => list.value?.parts.filter((p) => p.frames.length).length ?? 0);
 /** The file the parts were read from, when they were read from the loaded files and compared with our list. */
 const readFrom = computed(() => {
@@ -174,7 +175,7 @@ onBeforeUnmount(() => (crumb.value = []));
             :key="p.id"
             :selected="p.id === currentPart.id"
             :data-card="p.id === currentPart.id ? 'selected' : ''"
-            :aria-label="`${partName(p).name}, number ${p.type}`"
+            :aria-label="`${partName(p, list.id).name}, number ${p.type}`"
             @click="pick(p.id)"
           >
             <LabPicture height="84px">
@@ -202,7 +203,7 @@ onBeforeUnmount(() => (crumb.value = []));
               />
             </LabPicture>
             <span class="flex flex-col px-0.5 pb-px">
-              <span class="truncate text-ui font-medium text-ink">{{ partName(p).name }}</span>
+              <span class="truncate text-ui font-medium text-ink">{{ partName(p, list.id).name }}</span>
               <LabCaption class="px-0!">{{
                 p.frames.length ? `${p.frames.length} ${p.frames.length === 1 ? "frame" : "frames"}` : "no frames"
               }}</LabCaption>
@@ -222,6 +223,7 @@ onBeforeUnmount(() => (crumb.value = []));
       :no-behaviour="noBehaviour"
       :part-names="partNames"
       :no-frames="whyNoFrames(list.id, currentPart)"
+      :list-id="list.id"
       :gallery-palette="AUTO"
       @open-sheet="openSheet"
       @view-bytes="viewBytes"

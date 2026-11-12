@@ -163,8 +163,8 @@ Then the static parts, the moving parts, from version `0x105` a `binFlag` word, 
 | pulley         | 2                                     | Only for the pulley (type 7; 17 in Toons).                                                                    |
 | outline        | 2 + 2 per point                       | Before version `0x102`, not in Toons.                                                                         |
 
-A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46), and an
-unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
+A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46, the
+tunnel), and an unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
 [the levels](levels.md#what-the-loader-keeps).
 
 ### TIM 2 levels
@@ -202,6 +202,51 @@ game does with the fields is in [the levels](levels.md#tim-2-levels).
 - **Part records**: in memory, each placed part is a `0xA0`-byte record. Its words are named in `PART_FIELDS`
   (`apps/lab/src/behaviour.ts`), its flag bits in [flag bits](behaviour/in-the-lab.md#flag-bits).
 - **Goals**: each puzzle's goal is a routine in TIM.EXE, not in the level file; see [the levels](levels.md).
+
+## TOONS.EXE
+
+Sid & Al's Incredible Toons' program isn't packed. Its load image is the bytes after the EXE header, up to the size the
+header gives (`loadImage` in `packages/content/src/read/toons.ts`); what follows is the Borland overlay data (`FBOV`).
+Far pointers in it are segment and offset as in the image, before DOS relocates them.
+
+**Type table.** One 70-byte record per type, 85 types. `findToonsTypeTable` finds it where the code reaches it:
+`mov dx, 70; imul dx; add ax, start; mov [bp+n], segment` (TOONS.EXE does this in every routine that looks at a type's
+record), and the count where the routines that walk every type stop (`cmp si, 85`). The record is TIM 1's with far
+pointers, so the fields after them move up (`TOONS_RECORD_FIELDS`):
+
+| Offset | Size | What                                                                                                                    |
+| ------ | ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| 0x00   | 2×6  | Density, mass, bounciness, friction, acceleration and terminal velocity, as in TIM 1. One loop works out 0x08 and 0x0a. |
+| 0x0c   | 2×4  | Size limits, as in TIM 1 (a guess from TIM 1; walls have 640 × 400 and 32 × 32).                                        |
+| 0x14   | 4    | 0 in the file: TOONS.EXE puts the loaded `PART` sheet here.                                                             |
+| 0x18   | 4    | Frames: a far pointer per frame to a chain of pieces, or 0.                                                             |
+| 0x1c   | 4    | Positions: two signed bytes per state, or 0.                                                                            |
+| 0x20   | 4    | Sizes: a width and height word per state, or 0. The program sets a part's size from it, else from the state's sprite.   |
+| 0x26   | 1×2  | The layers the type is drawn on, 0xff when unused.                                                                      |
+| 0x2a   | 2    | Unknown: mostly the type's own number; the inclines 47 to 51 have 48.                                                   |
+| 0x2c   | 2    | How many middle tiles take turns when the part is drawn as tiles (the low byte).                                        |
+| 0x2e   | 4×6  | Far pointers to the type's code, most into the overlay stubs, where TIM 1 has its six callbacks.                        |
+
+A piece is 17 bytes: a far pointer to the next piece (0 ends the frame), the layer, four sprite numbers (0xff ends
+them) and a signed x and y byte per sprite. The frame list has no count; the positions and sizes follow it in every
+record that has them, so the reader ends it there.
+
+**Drawing.** TOONS.EXE loads the sheet of type N as `part` + N + `.bmp`, except for 36 and 37, Al and Sid, whose
+sheets it loads by what they are doing (`catwalk`, `sidrun`, …). It draws a part:
+
+- as tiles when bit 0x40 of its first flag word is set: tiles 16 high and 16 wide (32 for the ladder, type 45). A row
+  starts with the sprite of the state, takes the middle sprites (state + 1 up to state + middles) in turn and ends with
+  state + middles + 1; a column starts with state + middles + 2, takes the next middles in turn and ends with state + 2
+  × middles + 3. A part both wider and taller repeats the state.
+- with its own code for types 0 (conveyor belt), 1 (belt), 14 (rope), 36 and 37 (Al and Sid), 38 (timer), 39
+  (counter), 40 (thumpulator) and 42 (message machine); 76 isn't drawn;
+- else from the frame list when bit 0x1000 of its drawing flags is set, and else as sprite N for state N, at the
+  record's position for N or at the origin. In the shipped levels every part of a type with a frame list has the
+  bit, except the teeter-totter, whose list and positions give the same picture, and the thumpulator, which has its own
+  code.
+
+What the own drawing code of the types above adds to their frames isn't read; the Lab draws their frames, the conveyor
+belt's included, and the belt and the rope as lines.
 
 ## TIM 2
 

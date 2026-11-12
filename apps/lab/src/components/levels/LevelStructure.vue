@@ -116,7 +116,7 @@ const open = ref(new Set<number>());
 const byType = computed(() => new Map(props.list?.parts.map((p) => [p.type, p])));
 const nameOf = (p: LevelPart) => {
   const listPart = byType.value.get(p.type);
-  return listPart ? partName(listPart).name : `Type ${p.type}`;
+  return listPart ? partName(listPart, props.list?.id).name : `Type ${p.type}`;
 };
 
 watch(

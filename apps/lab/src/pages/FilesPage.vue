@@ -178,7 +178,7 @@ const nameOf = computed(() => {
   const list = partList.value;
   return (type: number) => {
     const part = list?.parts.find((p) => p.type === type);
-    return part ? partName(part).name : `type ${type}`;
+    return part ? partName(part, list?.id).name : `type ${type}`;
   };
 });
 const levelLayout = computed(() => levelEntry.value?.level?.layout ?? layoutOf(edition.value));

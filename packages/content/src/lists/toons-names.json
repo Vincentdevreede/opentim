@@ -1,0 +1,226 @@
+{
+  "id": "toons-names",
+  "source": "the titles and goals of Toons' levels",
+  "names": [
+    {
+      "id": "conveyor-belt",
+      "name": "Conveyor Belt",
+      "from": "CAKE13 \"Conveyors and Gears\": \"Feed Al the fish on the conveyor belt.\""
+    },
+    {
+      "id": "belt",
+      "name": "Belt",
+      "from": "CAKE30 \"Trans-Roto- Matic\": \"Connect a rope and belt using the other TRM as an example.\""
+    },
+    {
+      "id": "electric-switch",
+      "name": "Electric Switch",
+      "from": "CAKE14 \"Switches and Hair Driers\": \"rig up an electric switch and hair drier\""
+    },
+    {
+      "id": "teeter-totter",
+      "name": "Teeter-Totter",
+      "from": "CAKE18, the level \"Teeter-Totter\""
+    },
+    {
+      "id": "rock",
+      "name": "Rock",
+      "from": "CAKE18 \"Teeter-Totter\": \"Help Sid and Al remove the rocks from the screen.\""
+    },
+    {
+      "id": "ball-of-yarn",
+      "name": "Ball of Yarn",
+      "from": "LOON15 \"Kitty Knits a Sweater\": \"get his paws on the ball of yarn\""
+    },
+    {
+      "id": "baseball",
+      "name": "Baseball",
+      "from": "CAKE19 \"Teapot\": \"Use the teapot to blow the baseball off the screen.\""
+    },
+    {
+      "id": "teapot",
+      "name": "Teapot",
+      "from": "CAKE19, the level \"Teapot\""
+    },
+    {
+      "id": "rope",
+      "name": "Rope",
+      "from": "CAKE20 \"Scissors\": \"cut the rope\""
+    },
+    {
+      "id": "scissors",
+      "name": "Scissors",
+      "from": "CAKE20, the level \"Scissors\""
+    },
+    {
+      "id": "gear",
+      "name": "Gear",
+      "from": "CAKE13 \"Conveyors and Gears\": \"You'll have to use gears to do this.\""
+    },
+    {
+      "id": "bomb",
+      "name": "Bomb",
+      "from": "CAKE27 \"Black Ball Bomb\": \"Help Bik Dragon use a bomb to set them free.\""
+    },
+    {
+      "id": "pistol",
+      "name": "Pistol",
+      "from": "CAKE26 \"Pop Goes the Pistol\": \"Use the pistol to pop both Sid and Al.\""
+    },
+    {
+      "id": "catapult",
+      "name": "Catapult",
+      "from": "CAKE6 \"Catapults!!\": \"Use a catapult to launch a rock\""
+    },
+    {
+      "id": "balloon",
+      "name": "Balloon",
+      "from": "LOON7 \"Looney Ballooney\": \"Pop the balloon at the top of the screen.\""
+    },
+    {
+      "id": "magnifying-glass",
+      "name": "Magnifying Glass",
+      "from": "CAKE8, the level \"Magnifying Glass\""
+    },
+    {
+      "id": "ball-bearing",
+      "name": "Ball Bearing",
+      "from": "BRAN4 \"Clobber the Critters\": \"bop Al with the ball bearing\""
+    },
+    {
+      "id": "bik-dragon",
+      "name": "Bik Dragon",
+      "from": "CAKE4 \"Introducing... Bik Dragon!\""
+    },
+    {
+      "id": "al-e-cat",
+      "name": "Al E. Cat",
+      "from": "CAKE29 \"Skeleto-Bobbin\": \"drop the bomb on Al E. Cat\""
+    },
+    {
+      "id": "sid-mouse",
+      "name": "Sid Mouse",
+      "from": "CAKE4 \"Introducing... Bik Dragon!\": \"Help Bik torch Sid Mouse.\""
+    },
+    {
+      "id": "timer",
+      "name": "Timer",
+      "from": "CAKE21 \"Timer Tumble\": \"Use the timer to push Al down the candy slide\""
+    },
+    {
+      "id": "up-down-counter",
+      "name": "Up/Down Counter",
+      "from": "CAKE5, the level \"Up/Down Counter\""
+    },
+    {
+      "id": "thumpulator",
+      "name": "Thumpulator",
+      "from": "CAKE17 \"See Ya Later, Thumpulator!\": \"Use a Thumpulator to knock Sid off the stump.\""
+    },
+    {
+      "id": "electro-ramp",
+      "name": "Electro-Ramp",
+      "from": "CAKE7, the level \"Electro-Ramp 1\""
+    },
+    {
+      "id": "message-machine",
+      "name": "Message Machine",
+      "from": "CAKE1 \"Introducing... Sid & Al!\": \"Open the curtains on all of the message machines.\""
+    },
+    {
+      "id": "trans-roto-matic",
+      "name": "Trans-Roto-Matic",
+      "from": "CAKE30 \"Trans-Roto- Matic\": \"Place the Trans-Roto-Matic into the stone box.\""
+    },
+    {
+      "id": "skeleto-bobbin",
+      "name": "Skeleto-Bobbin",
+      "from": "CAKE29, the level \"Skeleto-Bobbin\""
+    },
+    {
+      "id": "ladder",
+      "name": "Ladder",
+      "from": "CAKE3 \"Cheese, Ladders, Tunnels\": \"on the far side of a ladder or tunnel\""
+    },
+    {
+      "id": "tunnel",
+      "name": "Tunnel",
+      "from": "CAKE15, the level \"Tunnel\": \"Use a tunnel to help Al get to the bubble gum.\""
+    },
+    {
+      "id": "hair-drier",
+      "name": "Hair Drier",
+      "from": "CAKE14 \"Switches and Hair Driers\": \"rig up an electric switch and hair drier\""
+    },
+    {
+      "id": "bubble-gum",
+      "name": "Bubble Gum",
+      "from": "CAKE15 \"Tunnel\": \"help Al get to the bubble gum\""
+    },
+    {
+      "id": "fish",
+      "name": "Fish",
+      "from": "CAKE5 \"Up/Down Counter\": \"There's a nice slimy fish dinner waiting for Al.\""
+    },
+    {
+      "id": "cheese",
+      "name": "Cheese",
+      "from": "CAKE16 \"Say Cheese!\": \"Feed Sid the top hunk of cheese.\""
+    },
+    {
+      "id": "peanut",
+      "name": "Peanut",
+      "from": "CAKE2 \"Introducing... Eunice!\": \"Feed Eunice Elephant and her sister each a peanut.\""
+    },
+    {
+      "id": "banana",
+      "name": "Banana",
+      "from": "CAKE9 \"Electro-Ramp II\": \"help Sid get to the banana\""
+    },
+    {
+      "id": "piano",
+      "name": "Piano",
+      "from": "LOON9 \"Piano Lessons\": \"Wake him up by dropping the piano on his head.\""
+    },
+    {
+      "id": "anvil",
+      "name": "Anvil",
+      "from": "CAKE7 \"Electro-Ramp 1\": \"Slide the anvil down the chutes\""
+    },
+    {
+      "id": "missile",
+      "name": "Missile",
+      "from": "HARD19 \"Missile Mouse\": \"Show Sid what happens when mouse meets missile!\""
+    },
+    {
+      "id": "pencil",
+      "name": "Pencil",
+      "from": "LOON3 \"Pencil Power\": \"Help Sid use the pencil to get rid of that pesky Al.\""
+    },
+    {
+      "id": "eunice-elephant",
+      "name": "Eunice Elephant",
+      "from": "CAKE2 \"Introducing... Eunice!\": \"Feed Eunice Elephant and her sister each a peanut.\""
+    },
+    {
+      "id": "hildegard-hen",
+      "name": "Hildegard Hen",
+      "from": "CAKE24 \"Introducing... Hildegard Hen!\""
+    },
+    {
+      "id": "rug",
+      "name": "Rug",
+      "from": "CAKE9 \"Electro-Ramp II\": \"Use the Electro-Ramp under the rug\""
+    },
+    {
+      "id": "trap-door",
+      "name": "Trap Door",
+      "from": "CAKE22, the level \"Trap Door\""
+    },
+    {
+      "id": "chow-man",
+      "name": "Chow-Man",
+      "from": "CAKE25 \"Chow-Man\": \"Watch how Chow-Man feeds Sid the bubble gum.\""
+    }
+  ]
+}

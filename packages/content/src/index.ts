@@ -2,6 +2,8 @@ import evenmore from "./lists/evenmore.json" with { type: "json" };
 import names from "./lists/names.json" with { type: "json" };
 import tim1 from "./lists/tim1.json" with { type: "json" };
 import tim2 from "./lists/tim2.json" with { type: "json" };
+import toons from "./lists/toons.json" with { type: "json" };
+import toonsNames from "./lists/toons-names.json" with { type: "json" };
 import type { PartList } from "./model.ts";
 
 export type { Frame, Part, PartList, Placement, Shape } from "./model.ts";
@@ -20,6 +22,7 @@ export {
   GAMES,
   readProgramParts,
   readTim2Parts,
+  readToonsParts,
   type SpriteCount,
   type SheetData,
   type ListId,
@@ -27,10 +30,11 @@ export {
   type TypeRecord,
 } from "./read/parts.ts";
 export { RECORD_FIELDS, RECORD_SIZE, type RecordField } from "./read/type-table.ts";
+export { TOONS_RECORD_FIELDS, TOONS_RECORD_SIZE } from "./read/toons.ts";
 
 /** Every part list, by id. The version catalog says which list belongs to a version of a game. */
 export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
-  ([tim1, evenmore, tim2] as PartList[]).map((list) => [list.id, list]),
+  ([tim1, evenmore, tim2, toons] as PartList[]).map((list) => [list.id, list]),
 );
 
 /**
@@ -38,6 +42,17 @@ export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
  * same id in every list, so a TIM 1 part gets the name of the same object in TIM 2. A part TIM 2 doesn't have has none.
  */
 export const PART_NAMES: ReadonlyMap<string, string> = new Map(names.names.map((n) => [n.id, n.name]));
+
+/**
+ * The names of Sid & Al's Incredible Toons' parts, by id. Toons has its own ids and its own names, apart from the TIM
+ * games: its files name no parts, so each name is the game's own words from the title or goal of a level that has the
+ * part (`toons-names.json` says which).
+ */
+export const TOONS_PART_NAMES: ReadonlyMap<string, string> = new Map(toonsNames.names.map((n) => [n.id, n.name]));
+
+/** The names of a list's parts, by id: Toons has its own, the TIM games share theirs. */
+export const partNamesOf = (listId: string | undefined): ReadonlyMap<string, string> =>
+  listId === "toons" ? TOONS_PART_NAMES : PART_NAMES;
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);

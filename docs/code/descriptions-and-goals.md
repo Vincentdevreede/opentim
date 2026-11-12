@@ -118,6 +118,8 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
   draws as walls or tile patterns.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
   lists.
+- `toons.ts`: Toons' program (`loadImage`), its type table of 70-byte records (`findToonsTypeTable`,
+  `readToonsTypes`, `TOONS_RECORD_FIELDS`); `readToonsParts` in `parts.ts` makes the `toons` list from it.
 
 ## The emulator: `src/run`
 
