@@ -1421,34 +1421,35 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       return cached;
     }
-    if (
-      l &&
-      !["stack", "data"].includes(l.object) &&
-      (s.havoc ||
-        s.partMemoryHavocAt !== undefined ||
-        s.fieldHavoc?.some((f) => l.offset < f.offset + f.width / 8 && f.offset < l.offset + l.width / 8))
-    ) {
-      // A partial store supersedes an earlier field version even when no exact-width cell remains cached.
-      for (const [key, cell] of [...s.memory].reverse()) {
+    if (l) {
+      // A store at another width or offset that overlaps the read supersedes the version the routine started with.
+      let latest: { offset: number; width: number; cell: Tracked } | undefined;
+      for (const [key, cell] of s.memory) {
         const parts = key.split(":"),
           width = Number(parts.pop()),
           offset = Number(parts.pop()),
           object = parts.join(":");
         if (
-          object !== l.object ||
-          cell.writtenAt === undefined ||
-          offset >= l.offset + l.width / 8 ||
-          l.offset >= offset + width / 8
+          object === l.object &&
+          cell.writtenAt !== undefined &&
+          offset < l.offset + l.width / 8 &&
+          l.offset < offset + width / 8
         )
-          continue;
+          latest = { offset, width, cell };
+      }
+      if (latest) {
+        const { offset, width, cell } = latest;
         if (offset <= l.offset && offset + width / 8 >= l.offset + l.width / 8 && cell.value.kind === "constant")
           return tracked(
             constant(unsigned(cell.value.value >>> ((l.offset - offset) * 8), l.width), l.width),
             cell.evidence,
           );
+        // A local mixed from stores of other widths is no pointer the analysis can follow.
+        if (l.object === "stack")
+          return tracked(unknown(`Local mixed from a store at ${hex(cell.writtenAt!)}`, l.width), cell.evidence);
         return tracked(
           {
-            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt)}`, l.offset, l.width),
+            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt!)}`, l.offset, l.width),
             unresolved: true,
           } as Expression,
           cell.evidence,
