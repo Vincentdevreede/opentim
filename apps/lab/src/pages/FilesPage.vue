@@ -640,8 +640,10 @@ function screenBytes() {
 
 function jump() {
   const text = goto.value.trim();
-  const n = /^0x/i.test(text) || !decimal.value ? parseInt(text.replace(/^0x/i, ""), 16) : parseInt(text, 10);
-  gotoInvalid.value = !/^(0x)?[0-9a-f]+$/i.test(text) || Number.isNaN(n) || n >= bytes.value.length;
+  const hex = /^0x/i.test(text) || !decimal.value;
+  const n = hex ? parseInt(text.replace(/^0x/i, ""), 16) : parseInt(text, 10);
+  const valid = hex ? /^(0x)?[0-9a-f]+$/i : /^\d+$/;
+  gotoInvalid.value = !valid.test(text) || Number.isNaN(n) || n >= bytes.value.length;
   if (!gotoInvalid.value) moveTo(n, true);
 }
 
