@@ -132,6 +132,10 @@ describe("summariseGoal", () => {
     expect(text(summary(range))).toEqual([["some part on the moving list: 100 ≤ positionX < 40000 (unsigned)"]]);
   });
 
+  it("gives no way for a goal no part can meet, as a part of two types at once", () => {
+    expect(text(summary(walk(MOVING, [ofType(0, [ofType(2, [met])])])))).toEqual([]);
+  });
+
   it("leaves out a test another way of failing already asks, so a box of tests reads as ranges", () => {
     // if x < 342 fail, else if x > 442 fail, else if y < 218 fail
     const goal = summary([

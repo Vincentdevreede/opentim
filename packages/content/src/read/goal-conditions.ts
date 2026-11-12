@@ -635,6 +635,8 @@ function dnf(f: Formula, negated = false): Literal[][] {
           .map(tidy)
           .filter((w): w is Literal[] => !!w),
       );
+      // No part can pass tests that never all hold: "some" is never true then, and "none" always.
+      if (!inner.length) return negated ? [[]] : [];
       if (negated) return [[{ kind: "none", walk: f.walk, ways: inner }]];
       return [[{ kind: "some", walk: f.walk, ways: inner }]];
     }
