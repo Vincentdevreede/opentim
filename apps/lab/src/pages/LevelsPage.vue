@@ -23,11 +23,13 @@ import { edition, program, resources, selected as selectedFile } from "../librar
 import { LAYOUT_NAMES, MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
 import {
   LOADED_HEADERS,
+  hasWallLimits,
   readTim2Types,
   summariseTim2Goal,
   tim2Drawing as drawingOf,
   type GoalCondition,
   type SpriteOf,
+  type Tim2Drawing,
 } from "@opentim/content";
 import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
 import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
@@ -232,18 +234,29 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 const { colorsOf, choose } = usePalettes();
 const paletteOf = (sheet: string) => colorsOf(choose(sheetFile(sheet), AUTO)?.name);
 
-/** How TIM2.EXE draws each type, when it is loaded: walls and tile patterns have routines of their own. */
-const tim2Drawing = computed(() => {
-  if (program.value?.name !== "TIM2.EXE") return undefined;
-  try {
-    return drawingOf(readTim2Types(program.value.data));
-  } catch {
-    return undefined;
-  }
+/**
+ * How TIM2.EXE draws each type, when it is loaded: walls and tile patterns have routines of their own. Without it, the
+ * types whose `.PAR` file has the walls' size limits stand in for the wall routine's.
+ */
+const tim2Drawing = computed((): { how: Map<number, Tim2Drawing>; from: string } | undefined => {
+  if (program.value?.name === "TIM2.EXE")
+    try {
+      return { how: drawingOf(readTim2Types(program.value.data)), from: "TIM2.EXE’s" };
+    } catch {
+      // Falls back to the files below.
+    }
+  const walls = resources.value.flatMap((r): [number, Tim2Drawing][] => {
+    const type = /^PART(\d+)\.PAR$/.exec(r.name)?.[1];
+    return type !== undefined && hasWallLimits(r.data) ? [[Number(type), "wall"]] : [];
+  });
+  return walls.length ? { how: new Map(walls), from: "the .PAR files’" } : undefined;
 });
 const scene = computed(() =>
   level.value
-    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value, { solution: showSolution.value })
+    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value?.how, {
+        solution: showSolution.value,
+        drawingFrom: tim2Drawing.value?.from,
+      })
     : undefined,
 );
 

@@ -171,7 +171,7 @@ export type {
 } from "./read/behaviour-contact-response-pair.ts";
 export { readProgramGoals, type ProgramGoals, type PuzzleGoal } from "./read/program-goals.ts";
 export { TIM2_SCREEN, summariseTim2Goal, type Tim2Goal } from "./read/tim2-goal.ts";
-export { readTim2Types, tim2Drawing, type Tim2Drawing, type Tim2Types } from "./read/tim2-program.ts";
+export { hasWallLimits, readTim2Types, tim2Drawing, type Tim2Drawing, type Tim2Types } from "./read/tim2-program.ts";
 export {
   conditionText,
   summariseGoal,

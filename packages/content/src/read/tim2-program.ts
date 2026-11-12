@@ -7,6 +7,8 @@
  * draws their frame; walls and tiles have routines of their own, which `tim2Drawing` tells apart.
  */
 
+import { findChunk, readChunks } from "@opentim/resources";
+
 export interface Tim2Types {
   /** Where the data segment starts in the file. */
   dataSegment: number;
@@ -74,4 +76,23 @@ export function tim2Drawing(types: Tim2Types): Map<number, Tim2Drawing> {
       return [type, how];
     }),
   );
+}
+
+/**
+ * Whether a part's `.PAR` file has the size limits of TIM 2's walls. A `.PAR` file is a `PAR:` chunk that starts with
+ * `PROPI`, a byte 1 and the part's type, then words of its properties; the words at 0x16 and 0x18 look like the largest
+ * size a player can stretch the part to. In the floppy and CD builds the types with 576 × 416 there are exactly the ones
+ * TIM2.EXE draws with its wall routine, the large pipes included. That is a match in the files, not a rule the program
+ * follows, so it only stands in when TIM2.EXE isn't loaded.
+ */
+export function hasWallLimits(par: Uint8Array): boolean {
+  let data: Uint8Array | undefined;
+  try {
+    data = findChunk(readChunks(par), "PAR:")?.data;
+  } catch {
+    return false;
+  }
+  if (!data || data.length < 0x1a || String.fromCharCode(...data.subarray(0, 5)) !== "PROPI") return false;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view.getUint16(0x16, true) === 576 && view.getUint16(0x18, true) === 416;
 }

@@ -292,7 +292,10 @@ describe("layoutScene", () => {
           : p,
       ),
     };
-    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]])).parts;
+    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]]), {
+      drawingFrom: "the .PAR files’",
+    }).parts;
+    expect(lying!.detail).toBe("pieces of a wall, by the .PAR files’ wall rule");
     // PART47's sprites are 32 × 32: lying, each piece moves to 36 - 0 - 32 and turns upside down.
     expect(lying!.composition!.placed.map((p) => [p.placement.y, p.placement.flip])).toEqual([[4, "v"]]);
     // Standing, it moves to 40 - 0 - 32 across and turns left to right.

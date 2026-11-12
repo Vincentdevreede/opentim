@@ -369,8 +369,13 @@ the part's state. Two others draw from the part's size:
   routine repeats the frame of state 0 on a grid of that frame's size, starting at 0, 0 of the screen, and cuts it
   off at the part's box, widened across to whole groups of 8 pixels.
 
-Without TIM2.EXE the Lab goes by the type's flag bits the levels keep: bit `0x2000` of the third word for walls (every
-wall type but the large pipes, 97, has it) and bits `0x1080` without `0x0400` for tile patterns.
+Without TIM2.EXE nothing in the files names a type's draw routine; the level files, the `.ANM` and the `.PAR` files
+were checked. The Lab then goes by two matches in the files. A part's `.PAR` file (`PROPI`, the type, then its
+properties) has 576 × 416 in the two words that look like its largest size exactly for the types drawn by the wall
+routine, the large pipes (97) included, in the floppy and CD builds (`hasWallLimits`). And the type's flag bits the
+levels keep: bit `0x2000` of the third word for walls (every wall type but the large pipes has it) and bits `0x1080`
+without `0x0400` for tile patterns. Neither is a rule of the program, so the Lab says which one it used; the demo
+ships few `.PAR` files, so there only TIM2.EXE gets every wall right.
 
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block

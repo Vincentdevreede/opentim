@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TIM2_RECORD_SIZE, readTim2Types, tim2Drawing } from "../src/read/tim2-program.ts";
+import { writeChunk } from "@opentim/resources";
+import { TIM2_RECORD_SIZE, hasWallLimits, readTim2Types, tim2Drawing } from "../src/read/tim2-program.ts";
 
 /** A made-up program: an MZ header, entry code that loads the data segment, and a type table with its records. */
 function program(types: number, draw: (type: number) => number): Uint8Array {
@@ -45,5 +46,19 @@ describe("TIM2.EXE's type table", () => {
 
   it("refuses a program that isn't TIM2.EXE", () => {
     expect(() => readTim2Types(new Uint8Array(64))).toThrow(/MZ/);
+  });
+
+  it("tells a .PAR file with the walls' size limits", () => {
+    const par = (largest: [number, number]) => {
+      const data = new Uint8Array(0x24);
+      data.set(Array.from("PROPI", (c) => c.charCodeAt(0)));
+      const view = new DataView(data.buffer);
+      view.setUint16(0x16, largest[0], true);
+      view.setUint16(0x18, largest[1], true);
+      return writeChunk("PAR:", data);
+    };
+    expect(hasWallLimits(par([576, 416]))).toBe(true);
+    expect(hasWallLimits(par([576, 512]))).toBe(false);
+    expect(hasWallLimits(new Uint8Array(4))).toBe(false);
   });
 });

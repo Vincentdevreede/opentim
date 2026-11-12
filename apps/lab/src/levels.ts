@@ -359,6 +359,7 @@ function drawPart(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
+  drawingFrom = "TIM2.EXE’s",
 ): DrawnPart {
   const listPart = list?.parts.find((p) => p.type === part.type);
   const flags2 = part.flags[1] ?? 0;
@@ -385,7 +386,7 @@ function drawPart(
   const sheet = listPart.sheets[0];
   if (layout === "tim2") {
     const how = drawing?.get(part.type) ?? tim2DrawingFromFlags(part);
-    const by = drawing?.has(part.type) ? "TIM2.EXE’s" : "the flags’";
+    const by = drawing?.has(part.type) ? drawingFrom : "the flags’";
     if (how === "block") {
       const shape = blockShape(part);
       const composition = compose([], spriteOf, { shapes: [shape] });
@@ -502,10 +503,10 @@ export function layoutScene(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  { solution = false }: { solution?: boolean } = {},
+  { solution = false, drawingFrom = "TIM2.EXE’s" }: { solution?: boolean; drawingFrom?: string } = {},
 ): Scene {
   const board = level.parts.filter((p) => groupOf(level, p, solution) !== "bin");
-  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing));
+  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {
