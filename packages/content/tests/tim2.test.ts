@@ -9,12 +9,13 @@ const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values, (
 /** An animation of two frames over three steps, with one sequence, drawing from sheet 1, `PART7X`. */
 function animation(): Uint8Array {
   const commands = [
-    // Frame 0: a sprite, a sound and a line.
+    // Frame 0: a sprite, a sound, the sound stopped and a line.
     ...[2, 1, 4, 3, -2, 0],
     ...[5, 3019],
+    ...[6, 3019],
     ...[4, 1, 2, 1, 9, 15],
     0,
-    // Frame 1, at word 15: a mirrored sprite and a box.
+    // Frame 1, at word 17: a mirrored sprite and a box.
     ...[2, 1, 5, 0, 0, 2],
     ...[3, 0, 0, 10, 5, 11, 0x800b],
     0,
@@ -26,7 +27,7 @@ function animation(): Uint8Array {
     ...[40, 30],
     ...[0, 0, 1],
     ...[10, 20, 30, 15, 0],
-    ...[-5, 0, 20, 20, 15],
+    ...[-5, 0, 20, 20, 17],
     ...[1, 6],
     ...commands,
   );
@@ -75,6 +76,7 @@ describe("TIM 2", () => {
       commands: [
         { kind: "sprite", sheet: 1, sprite: 4, x: 3, y: -2, flags: 0 },
         { kind: "sound", sound: 3019 },
+        { kind: "stop", sound: 3019 },
         { kind: "line", x1: 1, y1: 2, x2: 1, y2: 9, colour: 15 },
       ],
     });

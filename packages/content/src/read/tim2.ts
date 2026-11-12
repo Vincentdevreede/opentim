@@ -50,8 +50,11 @@ export type AnimationCommand =
   | { kind: "line"; x1: number; y1: number; x2: number; y2: number; colour: number }
   /** Plays a sound, by the number in its file name: 3019 is `SX_3019.RAW`. */
   | { kind: "sound"; sound: number }
-  /** A command the shipped animations don't use, kept with its words. */
-  | { kind: "other"; command: number; words: number[] };
+  /**
+   * Stops the sound with that number if it is playing: TIM2.EXE's command 5 calls the same routine to stop a sound
+   * before it starts it again. No shipped animation uses it.
+   */
+  | { kind: "stop"; sound: number };
 
 export interface AnimationFrame {
   /** The frame's box, relative to the animation's origin. */
@@ -138,8 +141,7 @@ export function readAnimation(anm: Uint8Array): Animation {
         list.push({ kind: "box", x: w(1), y: w(2), width: w(3), height: w(4), colour: w(5), other: word(c + 12) });
       else if (command === 4) list.push({ kind: "line", x1: w(1), y1: w(2), x2: w(3), y2: w(4), colour: w(5) });
       else if (command === 5) list.push({ kind: "sound", sound: word(c + 2) });
-      else if (command !== 1)
-        list.push({ kind: "other", command, words: Array.from({ length: length - 1 }, (_, i) => word(c + 2 + i * 2)) });
+      else if (command === 6) list.push({ kind: "stop", sound: word(c + 2) });
       c += length * 2;
     }
     return { ...box, commands: list };

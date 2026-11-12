@@ -226,7 +226,7 @@ table and draws a frame by running them in order. Positions are from the frame's
 | 3       | 7     | A box: x, y, width, height, an outline colour and a fill word. When bit 15 of the fill word is set, the game fills the box with the fill word's low byte, and draws the outline unless it has the same colour. Screens use it, and the coffee pot. |
 | 4       | 6     | A line: x1, y1, x2, y2 and its colour, a palette index in the low byte.                                                                                                                                                                            |
 | 5       | 2     | Plays a sound, like 3019 for `SX_3019.RAW`.                                                                                                                                                                                                        |
-| 6       | 2     | Calls the sound code like command 5 does, with its word. No shipped file uses it.                                                                                                                                                                  |
+| 6       | 2     | Stops the sound with that number if it is playing. No shipped file uses it.                                                                                                                                                                        |
 
 The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
 palette; it draws a line as a straight run of pixels from end to end, not by the game's own line routine.
@@ -239,8 +239,13 @@ calls to the first, 91 pass a fixed number (16 of them -1, the others like 3 or 
 something else in each animation (the cannon has 1, 23, 24 and 19, the brick wall 2 and 1). So a number says which
 of its own runs a part's code asks for, and only reading that code says what the run is.
 
-**Still open.** What command 6 does
-(it calls the sound code with its word, and no file uses it); and the `.PAR` files' words besides the type and the
+**Command 6.** TIM2.EXE's frame routine runs command 5 as a call to its play routine (file offset `0x23ccf` in the
+floppy build) and command 6 as a call to the routine at `0x23f1b`. That one sorts the
+number by its thousands as the play routine does, and stops the sound: a song or part sound through the music driver
+(below 2000), or a `.RAW` sample (3000 to 4999), whose digital driver it also stops when that sample is the one
+playing. The play routine calls it itself to stop a sound before starting it again. So command 6 stops a sound.
+
+**Still open.** The `.PAR` files' words besides the type and the
 largest size (`PROPI`, a byte 1, the type, then properties that look like TIM 1's physics and size limits, and an
 outline). The Lab draws a line as a straight run of pixels, not by the game's own line routine.
 
