@@ -280,11 +280,13 @@ export class AdlibDriver {
 
   /** Finds a voice for a new note on a channel, or -1 when the note is dropped. */
   private allocate(channel: number): number {
-    for (const i of this.order) {
-      if (this.voices[i]!.note === FREE) {
-        this.voices[i]!.channel = channel;
-        return i;
-      }
+    // A free voice that already has the channel's instrument comes first, then any free voice.
+    const free = this.order.filter((i) => this.voices[i]!.note === FREE);
+    const program = this.channels[channel]!.program;
+    const voice = free.find((i) => this.voices[i]!.instrument === program) ?? free[0];
+    if (voice !== undefined) {
+      this.voices[voice]!.channel = channel;
+      return voice;
     }
     // Take a voice from the channel furthest over its reservation, or else from this channel.
     let over = 0;

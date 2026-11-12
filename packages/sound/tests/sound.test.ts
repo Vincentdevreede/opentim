@@ -97,14 +97,16 @@ function driver() {
   data.set(instrument(0, true), 136 * 28);
   data[5320 + 35 - 27] = 48;
   const regs = new Uint8Array(256);
-  const d = new AdlibDriver({ write: (r, v) => (regs[r] = v) }, readAdlibBank(data));
+  /** The registers written, in order. */
+  const log: number[] = [];
+  const d = new AdlibDriver({ write: (r, v) => (log.push(r), (regs[r] = v)) }, readAdlibBank(data));
   /** The pitch of a voice: its block and F-number. */
   const pitch = (voice: number) => ({
     block: (regs[0xb0 + voice]! >> 2) & 7,
     fnum: ((regs[0xb0 + voice]! & 3) << 8) | regs[0xa0 + voice]!,
   });
   const keyOn = (voice: number) => (regs[0xb0 + voice]! & 0x20) !== 0;
-  return { d, regs, pitch, keyOn };
+  return { d, regs, log, pitch, keyOn };
 }
 
 describe("AdlibDriver", () => {
@@ -174,6 +176,22 @@ describe("AdlibDriver", () => {
     d.message(0x90, 74, 127);
     // All voices play; the next note takes voice 1, the one used longest ago. Note 74 is D, 8 quarter semitones up.
     expect(pitch(1)).toEqual({ block: 5, fnum: 0x181 });
+  });
+
+  it("prefers a free voice that already has the channel's instrument", () => {
+    const { d, log, keyOn } = driver();
+    d.message(0xc1, 1, 0);
+    d.message(0x90, 60, 127);
+    d.message(0x80, 60, 0);
+    d.message(0x91, 62, 127);
+    d.message(0x81, 62, 0);
+    log.length = 0;
+    // Voice 2 is the free one used longest ago, but voice 0 already has channel 0's instrument.
+    d.message(0x90, 64, 127);
+    expect(keyOn(0)).toBe(true);
+    expect(keyOn(2)).toBe(false);
+    // So the instrument isn't written again.
+    expect(log.filter((r) => r >= 0x20 && r < 0x40)).toEqual([]);
   });
 });
 
