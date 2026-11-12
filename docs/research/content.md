@@ -144,4 +144,5 @@ and Even More, and in TIM 2 what a sequence number stands for.
 - Mixing a pack with imported files, and scaling.
 - Where physics lives. It differs per game, so it likely belongs to each game's list as a ruleset that the level
   chooses, apart from the pack that the player chooses.
-- Whether TIM 2's scenery sheets become parts.
+- Whether TIM 2's scenery sheets become parts. The levels place them as types 150 to 280, each with its own
+  `PART<n>.ANM`, and the lab draws them as types the list doesn't have.
