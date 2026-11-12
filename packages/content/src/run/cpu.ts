@@ -36,6 +36,9 @@ export class CpuStop extends Error {
   }
 }
 
+/** Stops a run that is still going when its limit of instructions is reached. */
+export class CpuRunsOn extends CpuStop {}
+
 const WORDS = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
 const BYTES: Record<string, [number, number]> = {
   al: [0, 0],
@@ -174,7 +177,7 @@ export class Cpu {
     const end = this.steps + limit;
     while (!(this.cs === segment && this.ip === offset)) {
       if (this.steps >= end)
-        throw new CpuStop(`still running after ${limit} instructions`, this.linear(this.cs, this.ip));
+        throw new CpuRunsOn(`still running after ${limit} instructions`, this.linear(this.cs, this.ip));
       this.step();
     }
   }

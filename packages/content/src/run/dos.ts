@@ -11,7 +11,7 @@
  *   while interrupts are off or another interrupt is still running is held back until it can run, as the interrupt
  *   controller does.
  */
-import { CF, Cpu, CpuStop, IF, type CpuHooks } from "./cpu.ts";
+import { CF, Cpu, CpuRunsOn, CpuStop, IF, type CpuHooks } from "./cpu.ts";
 import type { DosProgram } from "./program.ts";
 
 /** Where the BIOS stub that every unused interrupt vector points at lives: a single `iret`. */
@@ -137,11 +137,12 @@ export class Dos implements CpuHooks {
     }
   }
 
-  /** Runs until `stop` says so, or fails after `limit` instructions with `what` in the message. */
+  /** Runs until `stop` says so, or fails with `CpuRunsOn` after `limit` instructions, with `what` in the message. */
   runUntil(stop: () => boolean, limit: number, what: string): void {
     const end = this.cpu.steps + limit;
     while (!stop()) {
-      if (this.cpu.steps >= end) throw new CpuStop(`${what}: still running`, this.cpu.linear(this.cpu.cs, this.cpu.ip));
+      if (this.cpu.steps >= end)
+        throw new CpuRunsOn(`${what}: still running`, this.cpu.linear(this.cpu.cs, this.cpu.ip));
       this.step();
     }
   }

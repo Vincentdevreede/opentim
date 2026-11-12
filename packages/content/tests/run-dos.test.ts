@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CF } from "../src/run/cpu.ts";
+import { CF, CpuRunsOn, CpuStop } from "../src/run/cpu.ts";
 import { Dos } from "../src/run/dos.ts";
 import { readLzexeProgram } from "../src/run/program.ts";
 
@@ -97,6 +97,25 @@ describe("the DOS the game runs on", () => {
     cpu.setRegister("ah", 0);
     d.interrupt(cpu, 0x1a);
     expect([cpu.regs[1], cpu.regs[2]]).toEqual([1, 1]);
+  });
+
+  it("tells a call that runs past its limit from one that stops another way", () => {
+    const d = new Dos({ file: () => undefined });
+    // At 0x100: a jump to itself. At 0x110: hlt.
+    const image = new Uint8Array(0x300);
+    image.set([0xeb, 0xfe], 0x100);
+    image.set([0xf4], 0x110);
+    d.start({ image, relocations: [], cs: 0, ip: 0x100, ss: 0, sp: 0x2fe });
+    expect(() => d.callFar(d.load, 0x100, [], 100, "the loop")).toThrow(CpuRunsOn);
+    d.cpu.regs[4] = 0x2fe;
+    let stop: unknown;
+    try {
+      d.callFar(d.load, 0x110, [], 100, "the halt");
+    } catch (problem) {
+      stop = problem;
+    }
+    expect(stop).toBeInstanceOf(CpuStop);
+    expect(stop).not.toBeInstanceOf(CpuRunsOn);
   });
 
   it("reads an LZEXE program's relocations and entry point", () => {
