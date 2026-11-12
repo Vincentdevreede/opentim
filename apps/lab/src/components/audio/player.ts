@@ -26,11 +26,23 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
     return out;
   }
 
+  /**
+   * Where a looping sound is after playing for some seconds: it plays up to the loop's end once, then repeats the part
+   * between the loop's start and end, as Web Audio does. A loop that isn't one (end not after start) is the whole sound.
+   */
+  function looped(t: number): number {
+    const s = sample.value;
+    let start = s ? s.loopStart / s.rate : 0;
+    let end = s ? s.loopEnd / s.rate : 0;
+    if (!(end > start) || end > length.value) [start, end] = [0, length.value];
+    return t < end || end <= start ? t : start + ((t - start) % (end - start));
+  }
+
   /** Where playback is now, wrapping around while it loops. */
   function now(): number {
     if (!context || !playing.value) return position.value;
     const t = context.currentTime - startedAt;
-    return loop.value && length.value ? t % length.value : Math.min(t, length.value);
+    return loop.value && length.value ? looped(t) : Math.min(t, length.value);
   }
 
   function tick() {
@@ -105,7 +117,7 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
     source.loop = on;
     // Turning the loop off while past the loop's end would stop at once; restart from where playback is instead.
     // The loop is already off here, so work out that place as for a sound that loops.
-    if (!on && length.value) startedAt = context.currentTime - ((context.currentTime - startedAt) % length.value);
+    if (!on && length.value) startedAt = context.currentTime - looped(context.currentTime - startedAt);
   });
 
   onBeforeUnmount(() => {
