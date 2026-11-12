@@ -73,6 +73,21 @@ describe("the DOS the game runs on", () => {
     expect(d.inInterrupt).toBe(false);
   });
 
+  it("holds back a tick that falls due while interrupts are off, and delivers it once they are on", () => {
+    const d = new Dos({ file: () => undefined, tickEvery: 10 });
+    // At 0x100: cli; mov cx, 30; loop to itself; sti; then a loop of inc dx; jmp back. The handler at 0x200: inc bx; iret.
+    const image = new Uint8Array(0x300);
+    image.set([0xfa, 0xb9, 30, 0, 0xe2, 0xfe, 0xfb, 0x42, 0xeb, 0xfd], 0x100);
+    image.set([0x43, 0xcf], 0x200);
+    d.start({ image, relocations: [], cs: 0, ip: 0x100, ss: 0, sp: 0x2fe });
+    d.cpu.write16(0, 8 * 4, 0x200);
+    d.cpu.write16(0, 8 * 4 + 2, d.load);
+    // Ticks fall due at steps 10, 20 and 30, all before the sti at step 33. The handler runs once, at step 34.
+    for (let k = 0; k < 34; k++) d.step();
+    expect(d.cpu.read16(0x40, 0x6c)).toBe(3);
+    expect(d.cpu.regs[3]).toBe(1);
+  });
+
   it("reads an LZEXE program's relocations and entry point", () => {
     // A minimal LZEXE 0.91 file: header, packed image of one copied byte, stub with the entry words and relocations.
     const exe = new Uint8Array(0x400);
