@@ -138,8 +138,16 @@ export function readTim2Parts(
     if (!id) throw new Error(`TIM 2 part ${type} (${name}) has no id in part-ids.ts`);
     const anm = resource(`PART${type}.ANM`);
     const sheets = anm ? animationSheets(anm) : resource(`PART${type}.BMP`) ? [`PART${type}`] : [];
-    const frames = anm ? animationFrames(readAnimation(anm)) : [];
-    return { id, type, name, sheets: sheets.filter((s) => resource(`${s}.BMP`)), frames };
+    const animation = anm ? readAnimation(anm) : undefined;
+    const part: Part = {
+      id,
+      type,
+      name,
+      sheets: sheets.filter((s) => resource(`${s}.BMP`)),
+      frames: animation ? animationFrames(animation) : [],
+    };
+    if (animation?.steps.length) part.states = animation.steps;
+    return part;
   });
   return { id: "tim2", game: GAMES.tim2.game, parts };
 }

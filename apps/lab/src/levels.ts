@@ -4,6 +4,7 @@
  */
 
 import {
+  PULLEY,
   readLevel,
   type Level,
   type LevelLayout,
@@ -33,6 +34,17 @@ export interface LevelEntry {
  * in it, and the ones outside stand just off its edge. TIM.EXE starts the view at -8, -8.
  */
 export const PLAY_AREA = { width: 576, height: 368 };
+/**
+ * The play area by layout. TIM 2's is measured the same way: its floors end 16 pixels lower than in TIM 1, most often
+ * at 376, and its walls on the right at 568 as in TIM 1.
+ */
+export const PLAY_AREAS: Record<LevelLayout, { width: number; height: number }> = {
+  tim: PLAY_AREA,
+  toons: PLAY_AREA,
+  tim2: { width: 576, height: 384 },
+};
+/** The games of each level layout, for display. */
+export const LAYOUT_NAMES: Record<LevelLayout, string> = { tim: "TIM 1, Even More", toons: "Toons", tim2: "TIM 2" };
 /** How far around the play area the page draws, to show the parts placed outside it. */
 export const MARGIN = 48;
 
@@ -119,6 +131,8 @@ export interface Note {
 }
 
 export interface Scene {
+  /** The play area of the level's game. */
+  area: { width: number; height: number };
   /** The static and moving parts, in the order the file stores them, which is also the drawing order. */
   parts: DrawnPart[];
   lines: Line[];
@@ -131,6 +145,15 @@ export interface Scene {
 
 /** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
 const TILED = 0x40;
+/**
+ * TIM 2 keeps only bit 0x8000 of a level's first flag word and takes the others from its type, so bit 0x40 says
+ * something else there. Its walls and tiles have both bits 0x80 and 0x100 in the second word, which the levels save
+ * from the type, and sprites 0 to 7 of their sheets are the 16 × 16 tiles of TIM 1's walls. That they are drawn the
+ * same way is read from the files, not yet from TIM2.EXE.
+ */
+const TIM2_TILED = 0x180;
+const isTiled = (part: LevelPart, layout: LevelLayout) =>
+  layout === "tim2" ? ((part.flags[1] ?? 0) & TIM2_TILED) === TIM2_TILED : ((part.flags[0] ?? 0) & TILED) !== 0;
 /** Bits of the second flag word that mirror a part, left to right and upside down. */
 const MIRROR_X = 0x10;
 const MIRROR_Y = 0x20;
@@ -138,7 +161,6 @@ const MIRROR_Y = 0x20;
 const VIEW = -8;
 const TILE = 16;
 const LINE_PARTS = new Set(["rope", "belt"]);
-const PULLEY = { tim: 7, toons: 17 } as const;
 const ROPE_COLOR = 6;
 const ROPE_END = 49;
 const KNOT: Placement = { sheet: "GP_BORD", sprite: 36, x: -5, y: -2, layer: 0 };
@@ -193,7 +215,7 @@ function mirror(
   });
 }
 
-function drawPart(part: LevelPart, list: PartList | undefined, spriteOf: SpriteOf): DrawnPart {
+function drawPart(part: LevelPart, layout: LevelLayout, list: PartList | undefined, spriteOf: SpriteOf): DrawnPart {
   const listPart = list?.parts.find((p) => p.type === part.type);
   const flags2 = part.flags[1] ?? 0;
   const mirrored = { x: (flags2 & MIRROR_X) !== 0, y: (flags2 & MIRROR_Y) !== 0 };
@@ -217,15 +239,18 @@ function drawPart(part: LevelPart, list: PartList | undefined, spriteOf: SpriteO
     };
   }
   const sheet = listPart.sheets[0];
-  if ((part.flags[0] ?? 0) & TILED && sheet) {
+  if (isTiled(part, layout) && sheet) {
     const composition = compose(tiles(part, sheet), spriteOf);
     if (composition.missing.length) return { ...base, how: "outline", detail: `tiles of ${sheet} are missing` };
     return { ...base, how: "tiles", detail: `tiles of ${sheet} from sprite ${state}`, composition };
   }
-  const frame = listPart.frames.find((f) => f.id === state);
+  // In TIM 2 the state picks a frame from the animation's list of states.
+  const shown = listPart.states?.[state] ?? state;
+  const frame = listPart.frames.find((f) => f.id === shown);
   if (frame) {
     const composition = compose(mirror(frame.sprites, part, spriteOf, mirrored.x, mirrored.y), spriteOf);
-    if (composition.placed.length) return { ...base, how: "frame", detail: `frame ${state}`, composition };
+    const detail = shown === state ? `frame ${state}` : `frame ${shown} for state ${state}`;
+    if (composition.placed.length) return { ...base, how: "frame", detail, composition };
   }
   if (!sheet) return { ...base, how: "outline", detail: "no sprite sheet" };
   if (!spriteOf(sheet, state)) return { ...base, how: "outline", detail: `${sheet} has no sprite ${state}` };
@@ -310,7 +335,7 @@ const numbers = (parts: { part: LevelPart }[]) => parts.map((p) => `#${p.part.in
 /** Lays out a level for drawing, and lists what the drawing leaves out or guesses. */
 export function layoutScene(level: Level, list: PartList | undefined, spriteOf: SpriteOf): Scene {
   const board = level.parts.filter((p) => p.group !== "bin");
-  const parts = board.map((p) => drawPart(p, list, spriteOf));
+  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {
@@ -341,7 +366,14 @@ export function layoutScene(level: Level, list: PartList | undefined, spriteOf: 
       detail: `${broken.map((l) => `#${l.part}`).join(", ")}: the links lead to a part that isn’t a pulley, so the last piece is drawn straight.`,
     });
   const knot = compose([KNOT], spriteOf);
-  return { parts, lines, bin: level.parts.filter((p) => p.group === "bin"), notes, knot };
+  return {
+    area: PLAY_AREAS[level.layout],
+    parts,
+    lines,
+    bin: level.parts.filter((p) => p.group === "bin"),
+    notes,
+    knot,
+  };
 }
 
 /** The topmost part at a point of the level, for clicks. Lines can't be picked; their part shows in the structure. */

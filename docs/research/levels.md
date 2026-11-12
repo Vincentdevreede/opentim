@@ -283,3 +283,38 @@ any other flag bit reads by its name ([flag bits](behaviour/in-the-lab.md#flag-b
 (English floppy) the goals of the 161 levels show no number in hex, down from 166. A test of a step count says the least time those
 steps take, from the timer ticks the run loop waits for each step: Even More puzzle 70 reads "the second step count ≥
 308 (10 s)".
+
+## TIM 2 levels
+
+TIM 2's levels (magic `0xACEF`) are read by `readLevel` in their own layout, as TIM2.EXE's loader reads them (in its
+overlays; the loader checks the magic and the version, `0x113` in nearly all shipped files). All 206 levels of the
+floppy and the CD and the 8 of the demo read to their last byte. The byte layout is in
+[the file formats](file-formats.md#tim-2-levels).
+
+What the loader does with the fields, from TIM2.EXE:
+
+- **Every level is a puzzle**: title and goal text are always there. When the game runs in another language, it reads
+  the title, the goal and the notes again from a language file, so the level file keeps the English ones.
+- **Notes**: eight places for a text the puzzle shows, each with an x, a y, from version `0x112` a third word, and the
+  text. The game shows a note for each place with a text. The word before them is read and not kept.
+- **Flags**: of the three flag words of a part the game keeps only bit `0x8000` of the first, bits `0x32` of the
+  second (`0x10` and `0x20` mirror the part, as in TIM 1) and bits `0x140` of the third; the other bits come from the
+  part's type. The files still have the type's bits, because the editor saved the whole words.
+- **The part's state** is a step of its animation, not a frame: the step picks the frame. No saved state is past the
+  animation's last step, and 255 are past its last frame.
+- **The two words where TIM 1 has the scroll limits** are read and set to 0. **The third part count** is read and not
+  kept; it is 0 in every shipped level, so TIM 2 levels have no bin list in the file.
+- **The programmable ball** (87) stores six words more from version `0x111`. The lasers and the laser mixer have a
+  read routine of their own in their type, but it reads nothing from the file.
+- **After the parts**, from version `0x107`: a word, eight entries and a word. An entry starts with a part of the level
+  (`0xFFFF` for none), like the eight ball in "Knock the eight ball off the screen", so they likely hold the goal; the
+  other seven words aren't worked out yet. In TIM 1 the goal is a routine in TIM.EXE instead.
+
+Not known yet: what bits `0x40` and `0x100` of the third flag word mean (0x40 is on most fixed parts, and the editor
+clears it from a part taken from the bin; 0x100 is on parts like the balls of the first puzzle that stand in a row
+below the play area, so it may mark the parts bin), and the two bytes after the version (the second goes from 1 to 15
+and may pick the background).
+
+The Lab draws TIM 2 walls as tiles when both bits `0x80` and `0x100` of the second flag word are set, as they are for
+every wall and tile type; that rule is read from the files and the sheets, not yet from TIM2.EXE. Its play area,
+576 × 384, is measured from the levels like TIM 1's: the floors end most often at 376, 16 pixels lower than in TIM 1.

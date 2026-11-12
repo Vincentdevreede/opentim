@@ -29,6 +29,11 @@ export interface Part {
    * of its sheets. In TIM 1 and Even More, the game's state N shows frame N.
    */
   frames: Frame[];
+  /**
+   * The frame each of the game's states shows, when state N doesn't show frame N. TIM 2's animations have such a list:
+   * a level saves a state, and the state picks the frame.
+   */
+  states?: number[];
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }

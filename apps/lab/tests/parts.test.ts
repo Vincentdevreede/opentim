@@ -52,9 +52,7 @@ describe("readLoadedParts", () => {
     const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values).buffer);
     // One frame that draws sprite 0 of sheet 1 at (2, 3), in a 10 by 10 box at the origin.
     const anm = words(0x4254, 1001, 0, 1, 0, 16, 10, 10, 0, 0, 10, 10, 0, 2, 1, 0, 2, 3, 0, 0, 1);
-    const tag = Uint8Array.from(
-      [1, 0, 1, 0, ..."PART0.BMP\0"].map((c) => (typeof c === "string" ? c.charCodeAt(0) : c)),
-    );
+    const tag = Uint8Array.from([1, 0, 1, 0, ...Array.from("PART0.BMP\0", (c) => c.charCodeAt(0))]);
     const loaded = readLoadedParts("tim2", [
       resource(
         "INFO.RES",

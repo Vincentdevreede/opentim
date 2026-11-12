@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
-import { MARGIN, PLAY_AREA, partAt, type DrawnPart, type Scene } from "../../levels.ts";
+import { MARGIN, partAt, type DrawnPart, type Scene } from "../../levels.ts";
 import { compositionCanvas } from "../pixels.ts";
 
 /**
@@ -25,8 +25,9 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [index: number | undefined] }>();
 
 const canvas = useTemplateRef<HTMLCanvasElement>("canvas");
-const width = PLAY_AREA.width + 2 * MARGIN;
-const height = PLAY_AREA.height + 2 * MARGIN;
+const area = computed(() => props.scene.area);
+const width = computed(() => area.value.width + 2 * MARGIN);
+const height = computed(() => area.value.height + 2 * MARGIN);
 
 /** The picture of each part, drawn once per scene and palette. */
 const pictures = computed(
@@ -81,23 +82,23 @@ watchEffect(() => {
     ink: token("ink"),
     goal: token("decoded"),
   };
-  el.width = width * zoom;
-  el.height = height * zoom;
+  el.width = width.value * zoom;
+  el.height = height.value * zoom;
   context.imageSmoothingEnabled = false;
   context.setTransform(zoom, 0, 0, zoom, MARGIN * zoom, MARGIN * zoom);
 
   // Levels have no background picture: the canvas stays transparent over the background the page chooses, as sprites
   // do on the Sprites page. Everything outside the play area is darkened, in the canvas's margin and, by a shadow on the
   // canvas, up to the edges of the page, so parts placed outside the play area stand out.
-  context.clearRect(-MARGIN, -MARGIN, width, height);
+  context.clearRect(-MARGIN, -MARGIN, width.value, height.value);
   context.fillStyle = "rgb(0 0 0 / 0.3)";
-  context.fillRect(-MARGIN, -MARGIN, width, MARGIN);
-  context.fillRect(-MARGIN, PLAY_AREA.height, width, MARGIN);
-  context.fillRect(-MARGIN, 0, MARGIN, PLAY_AREA.height);
-  context.fillRect(PLAY_AREA.width, 0, MARGIN, PLAY_AREA.height);
+  context.fillRect(-MARGIN, -MARGIN, width.value, MARGIN);
+  context.fillRect(-MARGIN, area.value.height, width.value, MARGIN);
+  context.fillRect(-MARGIN, 0, MARGIN, area.value.height);
+  context.fillRect(area.value.width, 0, MARGIN, area.value.height);
   context.strokeStyle = colors.line;
   context.lineWidth = px;
-  context.strokeRect(0, 0, PLAY_AREA.width, PLAY_AREA.height);
+  context.strokeRect(0, 0, area.value.width, area.value.height);
 
   for (const d of scene.parts) {
     const picture = pictures.value.get(d.part.index);
@@ -186,8 +187,8 @@ function onClick(e: MouseEvent) {
   const el = canvas.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * width - MARGIN;
-  const y = ((e.clientY - rect.top) / rect.height) * height - MARGIN;
+  const x = ((e.clientX - rect.left) / rect.width) * width.value - MARGIN;
+  const y = ((e.clientY - rect.top) / rect.height) * height.value - MARGIN;
   emit("select", partAt(props.scene, { x, y })?.part.index);
 }
 </script>

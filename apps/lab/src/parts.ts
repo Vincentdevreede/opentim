@@ -51,7 +51,7 @@ function differences(list: PartList, committed: PartList): number[] {
     .filter((type) => {
       const mine = list.parts.find((p) => p.type === type);
       const ours = committed.parts.find((p) => p.type === type);
-      const compared = mine && ours && !ours.frames.length ? { ...mine, frames: [] } : mine;
+      const compared = mine && ours && !ours.frames.length ? { ...mine, frames: [], states: undefined } : mine;
       return JSON.stringify(compared) !== JSON.stringify(ours);
     })
     .sort((a, b) => a - b);

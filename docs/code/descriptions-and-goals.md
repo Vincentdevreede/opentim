@@ -105,7 +105,8 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
 
 - `level.ts`: `readLevel(data, { layout, name })` reads TIM 1, Even More and Toons `.LEV`/`.GKC` files. Puzzle or
   freeform isn't stored, so both are tried. A `Level` has the header and the parts (static, moving, bin), and every
-  value also as `fields` (key, offset, size) for byte views. TIM 2 levels aren't read.
+  value also as `fields` (key, offset, size) for byte views. A TIM 2 level (magic `0xACEF`) is read in its own layout
+  (`readTim2`) whatever the layout says, with its notes and goal entries in `level.tim2`.
 - `level-loader.ts`: where the game's loader puts each field of a placed part in its record (`LOADED_FIELDS`) and
   each header value in the data segment (`LOADED_HEADERS`, by program hash). Found with the emulator by
   `check-level-fields`; TIM 1 and Even More only.

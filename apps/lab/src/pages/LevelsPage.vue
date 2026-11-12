@@ -20,7 +20,7 @@ import LevelStructure from "../components/levels/LevelStructure.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
-import { MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
+import { LAYOUT_NAMES, MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
 import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
 import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
 import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
@@ -50,9 +50,10 @@ const observer = new ResizeObserver(([entry]) => {
 /** The zoom: fitted to the space, or a fixed one. Before the space is measured, the fit is 1. */
 const zoom = computed(() => {
   if (zoomSetting.value !== "fit") return Number(zoomSetting.value);
+  const area = scene.value?.area ?? PLAY_AREA;
   const fit = Math.min(
-    (room.value.width - PADDING) / (PLAY_AREA.width + 2 * MARGIN),
-    (room.value.height - PADDING) / (PLAY_AREA.height + 2 * MARGIN),
+    (room.value.width - PADDING) / (area.width + 2 * MARGIN),
+    (room.value.height - PADDING) / (area.height + 2 * MARGIN),
   );
   return fit > 0 ? fit : 1;
 });
@@ -135,6 +136,8 @@ const puzzle = computed(() => {
 /** The goal of the level shown, or why there is none. */
 const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefined>(() => {
   if (current.value?.kind !== "level") return undefined;
+  if (level.value?.layout === "tim2")
+    return { status: "none", why: "TIM 2 keeps the goal in the level file; the lab doesn’t say it in words yet." };
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
   if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
@@ -157,7 +160,7 @@ const goalAreas = computed(() => {
     number: number;
     box: { x: number; y: number; width: number; height: number };
   }[] = [];
-  const edge = { left: -MARGIN, top: -MARGIN, right: PLAY_AREA.width + MARGIN, bottom: PLAY_AREA.height + MARGIN };
+  const edge = { left: -MARGIN, top: -MARGIN, right: s.area.width + MARGIN, bottom: s.area.height + MARGIN };
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
@@ -218,9 +221,9 @@ const stats = computed(() => {
   if (!s) return [];
   const count = (how: string[]) => s.parts.filter((p) => how.includes(p.how)).length;
   return [
-    { label: "Layout", value: level.value!.layout === "toons" ? "Toons" : "TIM 1, Even More" },
+    { label: "Layout", value: LAYOUT_NAMES[level.value!.layout] },
     { label: "Version", value: `0x${level.value!.version.toString(16)}` },
-    { label: "Play area", value: `${PLAY_AREA.width} × ${PLAY_AREA.height}` },
+    { label: "Play area", value: `${s.area.width} × ${s.area.height}` },
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },

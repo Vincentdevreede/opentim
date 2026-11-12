@@ -143,7 +143,7 @@ describe("readLevels", () => {
       "tim",
     );
     expect(entries.map((e) => [e.resource.name, e.kind, e.level?.title ?? e.error])).toEqual([
-      ["ELEV1.LEV", "level", "TIM 2 levels have their own layout, which isn’t read yet"],
+      ["ELEV1.LEV", "level", "The file ends too early (at byte 4)"],
       ["L2.LEV", "level", "Two"],
       ["L10.LEV", "level", "Ten"],
       ["TITLE.GKC", "scene", undefined],
@@ -178,6 +178,27 @@ describe("layoutScene", () => {
     expect(scene.notes.map((n) => n.status)).toEqual(["partial"]);
     expect(partAt(scene, { x: 210, y: 60 })?.part.index).toBe(2);
     expect(partAt(scene, { x: 500, y: 300 })).toBeUndefined();
+  });
+
+  it("draws TIM 2 walls as tiles by their second flag word, and other parts by the frame of their state", () => {
+    const tim2 = (...parts: PartSpec[]) =>
+      bytes(0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, parts.length, 0, 0, ...parts.flatMap(part));
+    const data = tim2(
+      // Bit 0x40 of the first word means something else in TIM 2, so this ball isn't tiled.
+      { type: 0, flags1: 0x1040, state: 1 },
+      { type: 1, width: 48, flags1: 0x6000, flags2: 0x180 },
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const list: PartList = {
+      ...LIST,
+      parts: LIST.parts.map((p) => (p.type === 0 ? { ...p, states: [0, 0], frames: [...p.frames] } : p)),
+    };
+    const scene = layoutScene(level, list, spriteOf);
+    expect(scene.area).toEqual({ width: 576, height: 384 });
+    expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
+      ["frame", "frame 0 for state 1"],
+      ["tiles", "tiles of PART1 from sprite 0"],
+    ]);
   });
 
   it("tiles a standing wall from state + 4 to state + 7", () => {

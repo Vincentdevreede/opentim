@@ -98,8 +98,8 @@ copies the usual names (`RESOURCE.F03` becomes `RESOURCE.003`, `RESOURCE.FAP` be
 
 ## Level files (.LEV, .TIM, .GKC)
 
-`readLevel` (`packages/content/src/read/level.ts`). TIM 1, Even More and Toons; TIM 2 levels (magic `0xACEF`) aren't
-read yet. Nothing says whether a file is a puzzle or freeform, so the reader tries both and keeps the one that ends at
+`readLevel` (`packages/content/src/read/level.ts`). TIM 1, Even More and Toons here; TIM 2 has
+[its own layout](#tim-2-levels). Nothing says whether a file is a puzzle or freeform, so the reader tries both and keeps the one that ends at
 the last byte. Texts are NUL-terminated.
 
 **Header**
@@ -137,6 +137,29 @@ Then the static parts, the moving parts, from version `0x105` a `binFlag` word, 
 A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46), and an
 unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
 [the levels](levels.md#what-the-loader-keeps).
+
+### TIM 2 levels
+
+`readLevel` reads a file with magic `0xACEF` in TIM 2's layout (`readTim2` in `level.ts`), as TIM2.EXE's loader does.
+All numbers are words unless said otherwise.
+
+| Field                | Size                 | Notes                                                                                                               |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| magic, version       | 2 each               | `0xACEF`; the version is `0x111` to `0x113` in the shipped levels.                                                  |
+| two bytes            | 1 each               | From version `0x113`. Not known yet.                                                                                |
+| title, goal          | text                 | Always there.                                                                                                       |
+| notes                | 2, then 8 notes      | From version `0x110`. A note: x, y, from version `0x112` a third word, and text.                                    |
+| airPressure, gravity | 2 each               |                                                                                                                     |
+| two words            | 2 each               | Where TIM 1 has the scroll limits. The game reads them and sets them to 0.                                          |
+| music                | 2                    |                                                                                                                     |
+| static, moving       | 2 each               | Part counts.                                                                                                        |
+| a third count        | 2                    | Read and not kept; 0 in every shipped level.                                                                        |
+| parts                |                      | The static parts, then the moving parts.                                                                            |
+| goal                 | 2, 8 × 16 (or 14), 2 | From version `0x107`: a word, eight entries of a part link and seven words (six up to version `0x109`), and a word. |
+
+A part is laid out as in TIM 1 from version `0x102`, with signed sizes, and the programmable ball (87) adds six words
+from version `0x111`. Versions `0x108` and `0x109` keep the notes after the goal instead of in the header. What the
+game does with the fields is in [the levels](levels.md#tim-2-levels).
 
 ## TIM.EXE
 
