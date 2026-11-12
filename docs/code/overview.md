@@ -59,7 +59,7 @@ Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side b
 | `validate-behaviour`        | Checks saved reports against v25's callback measurements.                                                      |
 | `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.             |
 | `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                        |
-| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair that is neither described nor ruled out.              |
+| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                  |
 | `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions.                         |
 | `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the goal reader against the game's routine in the emulator.           |
 | `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)). |
