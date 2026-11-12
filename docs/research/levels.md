@@ -422,3 +422,7 @@ What isn't worked out yet, and what the Lab does meanwhile:
   whose type takes its mirror size from the `.PAR` file is mirrored in its own size.
 - **Cut off pictures.** The usual draw routine draws types 36, 45 and 70 with bit `0x10` of the third flag word cut off
   at a row the part's record keeps (offset `0xae`). What sets that row isn't read, and the Lab draws them whole.
+- **Screen width.** The 256 colour `VGA:` driver in `VM.OVL` addresses rows 320 pixels wide in a 400 line mode, while
+  the play area is taken as 640 by 400 from the goal check and the panel animations. How the two fit (a doubled pixel,
+  or another mode for the play area) isn't settled. The line rule is the same at any width, so drawing lines doesn't
+  depend on it.
