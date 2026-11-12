@@ -1481,7 +1481,8 @@ export function effectsFromOthers(
       }
       const tests = testsOf(kept);
       if (!tests || impossible(tests)) continue;
-      const key = JSON.stringify([c.routine, settings.sets, c.returns ?? null]);
+      // Two types that share a bounce each get their own line, which names them.
+      const key = JSON.stringify([c.sourceType, c.routine, settings.sets, c.returns ?? null]);
       const group = groups.get(key) ?? [];
       groups.set(key, group);
       group.push({
@@ -1896,8 +1897,9 @@ export function effectsFromOthers(
         ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
         : "";
       const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*(its|the game) /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
-      // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
-      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
+      // Outcomes join only when their source and its tests match too, so a line never drops another outcome's source
+      // or source test.
+      const key = JSON.stringify([c.sourceType, c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
       if (prior) {

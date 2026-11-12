@@ -705,3 +705,65 @@ describe("part names in the descriptions", () => {
     expect(nameOf("pinball-bumper")).toBe("pinball bumper");
   });
 });
+
+describe("a callback two part types share", () => {
+  const checked = { confidence: "checked" as const, assumptions: [], evidence: [] };
+  const sharedReport = (
+    slot: number,
+    routine: object,
+    ids: [string, number][] = [
+      ["fan", 10],
+      ["bellows", 11],
+    ],
+  ) =>
+    ({
+      layout: {
+        fields: [
+          { offset: 4, name: "type" },
+          { offset: 12, name: "state" },
+        ],
+      },
+      parts: [
+        ...ids.map(([id, type]) => ({
+          id,
+          type,
+          routines: [{ slot, field: 0x26, address: 0x100, segment: 0, offset: 0, shared: true, sharedDefault: false }],
+          transitions: [],
+        })),
+        { id: "balloon", type: 4, routines: [], transitions: [] },
+      ],
+      helpers: [{ kind: "part-factory", factory: { startingWords: [{ field: 6, values: Array(42).fill(0x800) }] } }],
+      routines: [{ address: 0x100, ...routine }],
+      relatedObjectEffects: [],
+    }) as unknown as BehaviourReport;
+  const setsField = (object: string): FieldWrite => ({
+    ...checked,
+    object,
+    offset: 0x40,
+    width: 16,
+    value: c(7),
+    condition: { kind: "true" },
+    routine: 0x100,
+  });
+  const way = (object: string, condition: Predicate) => ({
+    ...checked,
+    effectsComplete: true,
+    object,
+    header: 0,
+    condition,
+    fields: [setsField(object)],
+    returnValue: c(0),
+  });
+  const sources = (data: BehaviourReport) =>
+    (effectsFromOthers(data, evaluateBehaviourCondition).get(4)?.effects ?? []).map((line) => line.sourcePart).sort();
+
+  it("gives each type its own line for what its run does to a part it finds", () => {
+    const data = sharedReport(1, { iterationOutcomes: [way(MEMBER, compare(f(MEMBER, 4), "==", c(4)))] });
+    expect(sources(data)).toEqual(["bellows", "fan"]);
+  });
+
+  it("gives each type its own touch line for what its bounce does", () => {
+    const data = sharedReport(0, { outcomes: [way("collider", { kind: "true" })] });
+    expect(sources(data)).toEqual(["bellows", "fan"]);
+  });
+});
