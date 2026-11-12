@@ -245,6 +245,45 @@ describe("layoutScene", () => {
     expect(scene.parts[2]!.clip).toEqual({ x: 0, y: 0, width: 48, height: 16 });
   });
 
+  it("turns a mirrored TIM 2 wall over its long side, as TIM2.EXE's wall routine does", () => {
+    const data = bytes(
+      0xacef,
+      0x106,
+      "T",
+      "G",
+      67,
+      272,
+      0,
+      0,
+      1000,
+      2,
+      0,
+      0,
+      ...part({ type: 1, width: 32, height: 16, flags2: 0x20, flags3: 0x40 }),
+      ...part({ type: 1, width: 16, height: 32, flags2: 0x10, flags3: 0x40 }),
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const tile = (id: number) => ({ id, sprites: [{ sheet: "PART47", sprite: 0, x: 0, y: 0, layer: 0 }] });
+    const list: PartList = {
+      ...LIST,
+      parts: LIST.parts.map((p) =>
+        p.type === 1
+          ? {
+              ...p,
+              frames: Array.from({ length: 4 }, (_, i) => tile(i)),
+              sequences: [{ sequence: 2, state: 2 }],
+              mirrorBox: { width: 40, height: 36 },
+            }
+          : p,
+      ),
+    };
+    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]])).parts;
+    // PART47's sprites are 32 × 32: lying, each piece moves to 36 - 0 - 32 and turns upside down.
+    expect(lying!.composition!.placed.map((p) => [p.placement.y, p.placement.flip])).toEqual([[4, "v"]]);
+    // Standing, it moves to 40 - 0 - 32 across and turns left to right.
+    expect(standing!.composition!.placed.map((p) => [p.placement.x, p.placement.flip])).toEqual([[8, "h"]]);
+  });
+
   it("tiles a standing wall from state + 4 to state + 7", () => {
     const data = puzzle("T", [{ type: 1, x: 8, y: 8, width: 16, height: 64, flags1: 0xe040 }]);
     const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;

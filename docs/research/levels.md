@@ -351,7 +351,11 @@ the part's state. Two others draw from the part's size:
   in all three builds. For a part as wide as tall or wider, the routine takes the states from 0 up to where the
   animation's next sequence starts; for a taller one, the first sequence that starts after state 0, up to the next.
   It draws pieces as wide (or tall) as the first of those frames: the first state at one end, the last at the other,
-  and the ones between in turn. The Lab follows it, without the mirroring the routine also does.
+  and the ones between in turn. When either mirror bit (`0x10` or `0x20` of the second flag word) is set, the routine
+  turns every piece over the wall's long side: a lying wall upside down, a standing one left to right, each piece
+  measured from the far side of the animation's size (the size in the `.ANM` header), and a standing pool table wall
+  (118) moves right by its piece's width less 16. Only pool table walls are mirrored in the shipped levels. The Lab
+  follows all of it; the animation's size is kept as the part's `mirrorBox`.
 - **Tile patterns**: the tile (122) and the types sharing its routine: 121 to 124, 203, 205, 271 and 280. The
   routine repeats the frame of state 0 on a grid of that frame's size, starting at 0, 0 of the screen, and cuts it
   off at the part's box, widened across to whole groups of 8 pixels.

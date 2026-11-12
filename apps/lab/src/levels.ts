@@ -270,18 +270,38 @@ function wallRun(part: Part, standing: boolean): number[] | undefined {
  */
 function wallPieces(part: LevelPart, listPart: Part, spriteOf: SpriteOf): Placement[] | undefined {
   const standing = part.size.width < part.size.height;
+  // Either mirror bit turns a wall over its long side: one lying down upside down, a standing one left to right.
+  const mirrored = ((part.flags[1] ?? 0) & (MIRROR_X | MIRROR_Y)) !== 0;
+  const turn = (p: Placement): Placement => {
+    const image = spriteOf(p.sheet, p.sprite);
+    const box = listPart.mirrorBox;
+    if (!mirrored || !image || !box) return p;
+    const h = (p.flip?.includes("h") ?? false) !== standing;
+    const v = (p.flip?.includes("v") ?? false) !== !standing;
+    const flip = `${h ? "h" : ""}${v ? "v" : ""}` as Placement["flip"] | "";
+    const turned: Placement = {
+      sheet: p.sheet,
+      sprite: p.sprite,
+      x: standing ? box.width - p.x - image.width + shift : p.x,
+      y: standing ? p.y : box.height - p.y - image.height,
+      layer: p.layer,
+    };
+    return flip ? { ...turned, flip } : turned;
+  };
   const run = wallRun(listPart, standing);
   const first = run && frameOf(listPart, run[0]!);
   if (!run || !first) return undefined;
   const box = compose(first.sprites, spriteOf).bounds;
   const size = standing ? box.height : box.width;
+  // The pool table wall standing mirrored moves right by its piece's width less 16, as TIM2.EXE does.
+  const shift = standing && listPart.id === "pool-table-wall" ? box.width - 16 : 0;
   if (!size) return undefined;
   const count = Math.trunc((standing ? part.size.height : part.size.width) / size);
   const middles = run.length - 2;
   return Array.from({ length: count }, (_, k) => {
     const state = k === 0 ? run[0]! : k === count - 1 ? run.at(-1)! : run[1 + ((k - 1) % Math.max(middles, 1))]!;
     const frame = frameOf(listPart, state);
-    return (frame?.sprites ?? []).map((p) => ({
+    return (frame?.sprites ?? []).map(turn).map((p) => ({
       ...p,
       x: p.x + (standing ? 0 : k * size),
       y: p.y + (standing ? k * size : 0),

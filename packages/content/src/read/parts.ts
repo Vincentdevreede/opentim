@@ -147,6 +147,7 @@ export function readTim2Parts(
       frames: animation ? animationFrames(animation) : [],
     };
     if (animation?.steps.length) part.states = animation.steps;
+    if (animation) part.mirrorBox = { width: animation.width, height: animation.height };
     if (animation?.sequences.length)
       part.sequences = animation.sequences.map(({ sequence, step }) => ({ sequence, state: step }));
     return part;

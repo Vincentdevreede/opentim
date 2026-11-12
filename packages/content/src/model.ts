@@ -42,6 +42,8 @@ export interface Part {
    * program asks for a sequence by its number.
    */
   sequences?: { sequence: number; state: number }[];
+  /** The size TIM 2 mirrors a whole frame in: the game measures a mirrored sprite's place from its far side. */
+  mirrorBox?: { width: number; height: number };
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }

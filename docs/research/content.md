@@ -122,7 +122,8 @@ loads, `TIM.EXE` included, and compares them with the committed list.
   builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists
   (about 790 KB). A part also keeps the animation's steps as `states` (the frame each state shows; a level saves a
   state) and its sequences as `sequences` (each starts at a state and runs until the next starts); `partSequences`
-  gives each sequence's states and frames, and the Parts page plays them in that order.
+  gives each sequence's states and frames, and the Parts page plays them in that order. `mirrorBox` is the animation's
+  size, which the game mirrors a whole frame in.
   [The file formats](file-formats.md#animations-anm) have the layout.
 
 | Version                       | List       | Status                                                            |
