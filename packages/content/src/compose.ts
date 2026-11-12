@@ -71,3 +71,19 @@ export function coverSprites(part: Part): Placement[] {
   const sheet = part.sheets[0];
   return sheet ? [{ sheet, sprite: 0, x: 0, y: 0, layer: 0 }] : [];
 }
+
+/**
+ * A part's sequences in the game's order, each with the states it runs through and the frame each state shows. A
+ * sequence starts at its state and runs until the next one starts, the last one to the part's last state.
+ */
+export function partSequences(part: Part): { sequence: number; states: number[]; frames: number[] }[] {
+  const end = part.states?.length ?? part.frames.length;
+  const starts = [...new Set(part.sequences?.map((s) => s.state) ?? [])].sort((a, b) => a - b);
+  return (part.sequences ?? [])
+    .map(({ sequence, state }) => {
+      const next = starts.find((s) => s > state) ?? end;
+      const states = Array.from({ length: Math.max(0, next - state) }, (_, i) => state + i);
+      return { sequence, states, frames: states.map((s) => part.states?.[s] ?? s) };
+    })
+    .sort((a, b) => (a.states[0] ?? 0) - (b.states[0] ?? 0));
+}

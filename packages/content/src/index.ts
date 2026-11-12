@@ -9,6 +9,7 @@ export {
   compose,
   coverSprites,
   drawOrder,
+  partSequences,
   type Bounds,
   type Composition,
   type Placed,

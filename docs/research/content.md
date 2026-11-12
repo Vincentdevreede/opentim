@@ -119,8 +119,10 @@ loads, `TIM.EXE` included, and compares them with the committed list.
   animation, its sprites in the order the game draws them, all on layer 0. Boxes, lines and sounds in a frame are left
   out (the fish tank, the hedge trimmers and the coffee pot draw lines). The script checks the frames across the
   builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists
-  (about 790 KB). The steps and sequences of the animation become animations later;
-  [the file formats](file-formats.md#animations-anm) have the layout.
+  (about 790 KB). A part also keeps the animation's steps as `states` (the frame each state shows; a level saves a
+  state) and its sequences as `sequences` (each starts at a state and runs until the next starts); `partSequences`
+  gives each sequence's states and frames, and the Parts page plays them in that order.
+  [The file formats](file-formats.md#animations-anm) have the layout.
 
 | Version                       | List       | Status                                                            |
 | ----------------------------- | ---------- | ----------------------------------------------------------------- |
@@ -137,7 +139,7 @@ same slots, and 66–148 are new. Its sheets `PART149` to `PART294` have no entr
 mountains, planets and paintings.
 
 What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast in TIM 1
-and Even More, and in TIM 2 what a sequence number stands for.
+and Even More, and in TIM 2 how fast the steps go and what a sequence number stands for.
 
 ## Not decided yet
 

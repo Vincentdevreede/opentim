@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { compose, drawOrder, type Part, type Placement, type SpriteOf, type TypeRecord } from "@opentim/content";
+import {
+  compose,
+  drawOrder,
+  partSequences,
+  type Part,
+  type Placement,
+  type SpriteOf,
+  type TypeRecord,
+} from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, reactive, ref, useId, watch, watchEffect } from "vue";
 import { readingPerType, type BehaviourResult, type WalksResult } from "../../behaviour.ts";
@@ -111,7 +119,21 @@ const opened = computed(() => {
   const first = props.part.sheets.find((s) => props.sheetSprites(s)?.length);
   return first === undefined ? undefined : { sheet: first, sprite: 0 };
 });
-const count = computed(() => (strip.value === "frames" ? props.part.frames.length : sprites.value.length));
+/** TIM 2's sequences, which the frames strip plays in the game's order, one state after another. */
+const sequences = computed(() => partSequences(props.part));
+/** The sequence played, by its number, or "all" for every frame in order. */
+const sequence = ref("all");
+const run = computed(() => sequences.value.find((s) => String(s.sequence) === sequence.value));
+const sequenceOptions = computed(() => [
+  { value: "all", label: "All frames" },
+  ...sequences.value.map((s) => ({
+    value: String(s.sequence),
+    label: `Sequence ${s.sequence} · ${s.states.length} ${s.states.length === 1 ? "state" : "states"}`,
+  })),
+]);
+const count = computed(() =>
+  strip.value === "frames" ? (run.value?.frames.length ?? props.part.frames.length) : sprites.value.length,
+);
 const player = usePlayer(count);
 const { position, playing, move } = player;
 
@@ -119,6 +141,7 @@ watch(
   () => props.part,
   (part) => {
     strip.value = part.frames.length ? "frames" : "sprites";
+    sequence.value = String(partSequences(part)[0]?.sequence ?? "all");
     position.value = 0;
     playing.value = false;
     hidden.clear();
@@ -126,12 +149,16 @@ watch(
   },
   { immediate: true },
 );
-watch(strip, () => {
+watch([strip, sequence], () => {
   position.value = 0;
   playing.value = false;
 });
 
-const frame = computed(() => (strip.value === "frames" ? props.part.frames[position.value] : undefined));
+const frame = computed(() => {
+  if (strip.value !== "frames") return undefined;
+  const id = run.value?.frames[position.value];
+  return id === undefined ? props.part.frames[position.value] : props.part.frames.find((f) => f.id === id);
+});
 const shownSprite = computed(() => (strip.value === "sprites" ? sprites.value[position.value] : undefined));
 const placements = computed<Placement[]>(() => {
   if (frame.value) return frame.value.sprites;
@@ -212,15 +239,29 @@ function save() {
   download(compositionCanvas(composition.value, colors.value), file);
 }
 
+/**
+ * Shows the frame at this index of the part's frames: at its place in the sequence played, or else among all frames.
+ */
+function pick(index: number) {
+  const id = props.part.frames[index]?.id;
+  const inRun = run.value?.frames.indexOf(id ?? -1) ?? -1;
+  if (inRun >= 0) position.value = inRun;
+  else if (run.value) {
+    sequence.value = "all";
+    // Changing the sequence starts it at its first item; go to the frame after that.
+    void nextTick(() => (position.value = index));
+  } else position.value = index;
+}
+
 /** Shows the frame with this id, like the target of a state change. */
 function showFrame(id: number) {
   const index = props.part.frames.findIndex((f) => f.id === id);
   if (index < 0) return;
-  if (strip.value === "frames") position.value = index;
+  if (strip.value === "frames") pick(index);
   else {
     strip.value = "frames";
     // Changing the strip starts it at its first item; go to the frame after that.
-    void nextTick(() => (position.value = index));
+    void nextTick(() => pick(index));
   }
 }
 
@@ -382,7 +423,11 @@ const sideTabs = computed(() => [
           @move="move"
         >
           <p class="text-meta text-muted">
-            <template v-if="strip === 'frames'"
+            <template v-if="strip === 'frames' && run"
+              >Plays sequence {{ run.sequence }} in the game’s order, one state a step, {{ FPS }} a second; the game’s
+              speed isn’t known yet.</template
+            >
+            <template v-else-if="strip === 'frames'"
               >Steps through the frames in order, {{ FPS }} a second. Which frame follows which in the game isn’t known
               yet.</template
             >
@@ -398,6 +443,12 @@ const sideTabs = computed(() => [
               class="w-52 pl-1"
             />
             <div class="flex-1"></div>
+            <LabSelect
+              v-if="strip === 'frames' && sequences.length"
+              v-model="sequence"
+              label="Sequence to play"
+              :options="sequenceOptions"
+            />
             <LabSelect v-model="detailPalette" label="Palette for this part" :options="options('Palette: automatic')" />
             <LabButton :disabled="!composition.placed.length" @click="save">Save PNG</LabButton>
           </div>
@@ -421,10 +472,10 @@ const sideTabs = computed(() => [
               v-for="(f, i) in part.frames"
               :key="f.id"
               class="w-[76px] shrink-0"
-              :selected="i === position"
-              :data-item="i === position ? 'selected' : ''"
+              :selected="f.id === frame?.id"
+              :data-item="f.id === frame?.id ? 'selected' : ''"
               :aria-label="`Frame ${f.id}`"
-              @click="position = i"
+              @click="pick(i)"
             >
               <LabPicture height="60px">
                 <PartPicture
