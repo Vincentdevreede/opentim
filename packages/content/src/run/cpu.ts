@@ -72,6 +72,10 @@ export class Cpu {
   /** The instruction running now. */
   current?: Instruction;
   private readonly decoded = new Map<number, Instruction>();
+  /** How many decoded instructions cover each byte: a write to a covered byte forgets those instructions. */
+  private readonly code = new Uint8Array(MEMORY + 0x10000);
+  /** The size of the longest instruction decoded, so a write knows how far back an instruction covering it can start. */
+  private longest = 0;
 
   readonly hooks: CpuHooks;
   constructor(hooks: CpuHooks = {}) {
@@ -127,7 +131,9 @@ export class Cpu {
     return this.read8(segment, offset) | (this.read8(segment, offset + 1) << 8);
   }
   write8(segment: number, offset: number, value: number): void {
-    this.memory[this.linear(segment, offset)] = value;
+    const at = this.linear(segment, offset);
+    this.memory[at] = value;
+    if (this.code[at]) this.forgetCodeAt(at);
   }
   write16(segment: number, offset: number, value: number): void {
     this.write8(segment, offset, value);
@@ -177,13 +183,30 @@ export class Cpu {
     const at = this.linear(this.cs, this.ip);
     const cached = this.decoded.get(at);
     if (cached && cached.segment === this.cs) return cached;
+    if (cached) this.cover(at, cached.size, -1);
     const instruction = decodeInstruction(this.memory, at, this.cs);
     this.decoded.set(at, instruction);
+    this.cover(at, instruction.size, 1);
+    this.longest = Math.max(this.longest, instruction.size);
     return instruction;
   }
-  /** Forgets decoded code, after the caller writes new code into memory. */
+  private cover(at: number, size: number, by: number): void {
+    for (let k = at; k < at + size; k++) this.code[k]! += by;
+  }
+  /** Forgets the decoded instructions that cover a byte the code wrote. */
+  private forgetCodeAt(at: number): void {
+    for (let start = at; start > at - this.longest && start >= 0; start--) {
+      const instruction = this.decoded.get(start);
+      if (instruction && start + instruction.size > at) {
+        this.decoded.delete(start);
+        this.cover(start, instruction.size, -1);
+      }
+    }
+  }
+  /** Forgets decoded code. A write through the processor does this itself; a caller that writes into `memory` doesn't. */
   forgetCode(): void {
     this.decoded.clear();
+    this.code.fill(0);
   }
 
   private segmentOf(operand: Extract<Operand, { kind: "memory" }>): number {

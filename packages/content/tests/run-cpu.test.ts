@@ -104,6 +104,12 @@ describe("the processor", () => {
     expect(cpu.es).toBe(0x1234);
   });
 
+  it("runs code in its new form after the code changes it", () => {
+    // mov cx, 2; l: inc ax; mov byte cs:[3], 0x48 (makes the inc a dec); loop l
+    const cpu = run([0xb9, 2, 0, 0x40, 0x2e, 0xc6, 0x06, 3, 0, 0x48, 0xe2, 0xf7]);
+    expect(cpu.regs[0]).toBe(0);
+  });
+
   it("calls a far routine with its arguments and comes back", () => {
     const cpu = new Cpu();
     // push bp; mov bp, sp; mov ax, [bp+6]; add ax, [bp+8]; pop bp; retf
