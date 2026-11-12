@@ -6171,7 +6171,7 @@ export function readBehaviourInSteps(
     timing,
     helpers: helpers.sort((a, b) => a.address - b.address),
     lifecycle,
-    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment),
+    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment, codes),
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),

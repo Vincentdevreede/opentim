@@ -53,12 +53,16 @@ function same(a: State, b: State): boolean {
   );
 }
 
-/** Factory metadata bounds the initialization table; each constructor is inspected as a separate far routine. */
+/**
+ * Factory metadata bounds the initialization table; each constructor is inspected as a separate far routine. `graphs`
+ * holds the routines already read, so a factory is read in its own segment; without it the segment is guessed.
+ */
 export function discoverCreationDefaults(
   image: Uint8Array,
   helpers: EngineSummary[],
   layout: BehaviourLayout,
   dataSegment: number,
+  graphs: ReadonlyMap<number, RoutineCode> = new Map(),
 ): CreationDefault[] {
   const roles = new Set([
     "state",
@@ -102,11 +106,13 @@ export function discoverCreationDefaults(
           name: named.get(offset)?.name ?? `+0x${offset.toString(16).padStart(2, "0")}`,
         })),
     ];
-    const factoryCode = read({
-      address: engine.address,
-      segment: Math.floor(engine.address / 0x10000) * 0x1000,
-      offset: engine.address & 0xffff,
-    });
+    const factoryCode =
+      graphs.get(engine.address) ??
+      read({
+        address: engine.address,
+        segment: Math.floor(engine.address / 0x10000) * 0x1000,
+        offset: engine.address & 0xffff,
+      });
     const indirect = factoryCode.calls.find(
       (c) =>
         c.far &&

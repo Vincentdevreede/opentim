@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import { discoverCreationDefaults } from "../src/read/behaviour-creation.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
@@ -124,6 +125,17 @@ describe("creation defaults", () => {
       expect(result[1]?.source).toBe("zeroed-allocation");
       expect(result[1]?.fields.map((field) => [field.name, field.value])).toEqual([["state", 0]]);
     }
+  });
+
+  it("reads a factory that crosses a 64K boundary in its own segment", () => {
+    const f = fixture([...prefix, 0xb8, 28, 0, 0x89, 0x44, 0x30, ...suffix]);
+    const image = new Uint8Array(0x21000);
+    image.set(f.image);
+    image.set(f.image.subarray(0x100, 0x112), 0x1fff8);
+    f.engine.address = 0x1fff8;
+    const graphs = new Map([[0x1fff8, readRoutineCode(image, { address: 0x1fff8, segment: 0x1fff, offset: 8 }, 0)]]);
+    const [created] = discoverCreationDefaults(image, f.helpers, f.layout, 0, graphs);
+    expect(created?.fields.map((field) => [field.name, field.value])).toEqual([["state", 28]]);
   });
 
   it("starts the constructor from every word the cleared allocation leaves zero, named or not", () => {
