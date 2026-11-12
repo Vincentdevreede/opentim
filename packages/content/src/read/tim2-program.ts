@@ -120,7 +120,7 @@ export interface Tim2Properties {
    * x becomes width - 1 - x. The loader doesn't keep the word, and no other bit is read.
    */
   flags: number;
-  /** One per step of the animation: the part's shape for collisions, as points. */
+  /** The part's shapes for collisions, as points. Which one the game uses when isn't read yet. */
   outlines: Tim2Outline[];
 }
 

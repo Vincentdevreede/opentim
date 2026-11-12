@@ -245,9 +245,7 @@ number by its thousands as the play routine does, and stops the sound: a song or
 (below 2000), or a `.RAW` sample (3000 to 4999), whose digital driver it also stops when that sample is the one
 playing. The play routine calls it itself to stop a sound before starting it again. So command 6 stops a sound.
 
-**Still open.** The `.PAR` files' words besides the type and the
-largest size (`PROPI`, a byte 1, the type, then properties that look like TIM 1's physics and size limits, and an
-outline). The Lab draws a line as a straight run of pixels, not by the game's own line routine.
+**Still open.** The Lab draws a line as a straight run of pixels, not by the game's own line routine.
 
 **Speed.** TIM2.EXE sets the PC's timer to 65,535 ÷ 13 = 5,041 counts, 236.7 ticks a second, and has the timer count
 a step timer down every 4 ticks, 59.2 times a second. Its run loop waits until the step timer is 0 and sets it to 2
@@ -258,3 +256,31 @@ routine. The Parts page plays a sequence at that speed (`TIM2_STEP_MS`).
 
 To mirror a whole frame, the game flips each sprite's flags and measures its position from the other side of the
 animation's width or height. All 433 animations of the floppy, CD and demo read to their last byte this way.
+
+### Part properties (.PAR)
+
+`readPar` (`packages/content/src/read/tim2-program.ts`). Every part has a `PART<n>.PAR`, a `PAR:` chunk that
+TIM2.EXE's loader (file offset `0x6571f` in the floppy build) reads right after the part's animation, word by word,
+into the part's type record. It refuses a file that doesn't start with `PROP`, has a version of 0 or above `0x149`,
+or is for another type. All 149 files of the floppy and CD builds read to their last byte this way.
+
+| Bytes | What                                                                                                                                                                                         |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4     | `PROP`.                                                                                                                                                                                      |
+| 2     | Version: `0x149` in every file (its low byte is the `I` that made it look like `PROPI`).                                                                                                     |
+| 2     | The part's type.                                                                                                                                                                             |
+| 2     | Density (type record `0x36`): compared with the air to work out how fast the part falls, as in TIM 1.                                                                                        |
+| 2     | Mass (`0x38`); the loader makes 0 into 1000.                                                                                                                                                 |
+| 2     | Bounciness (`0x3a`) and friction (`0x3c`), 2 each: the collision code reads them together.                                                                                                   |
+| 2     | Terminal velocity (`0x40`). 0 in every file: TIM2.EXE works it out from the air for every type.                                                                                              |
+| 2 × 2 | The smallest width and height (`0x32`) a player can resize the part to; it shrinks in steps of 16.                                                                                           |
+| 2 × 2 | The largest width and height (`0x2e`); it grows in steps of 16. 576 × 416 for the walls, 0 for most parts.                                                                                   |
+| 2 × 2 | The width and height (`0x42`) TIM2.EXE mirrors most parts in, and gives a part whose type has no size.                                                                                       |
+| 2     | Flags, not kept. Bit `0x08` makes the loader add every outline mirrored left to right, `0x10` upside down.                                                                                   |
+| 2     | The number of outlines: the part's shapes for collisions, 1 to 8.                                                                                                                            |
+| 2     | Their number of points in all. The loader reads outlines only when it isn't 0, and keeps this divided by their number as the points per outline; one file has outlines of different lengths. |
+| …     | Per outline, two words the loader skips, then points of three words: flags, x and y. The last has bit `0x4000`. Which outline a part uses when isn't read yet.                               |
+
+A mirrored outline takes x to the width less 1 less x (and y the same way), in the size above. The other flag bits
+(`0x01`, `0x02`, `0x04`, `0x80`, `0x200` in the files) and the points' other flag bits aren't read by the loader. The
+Files page names every word.
