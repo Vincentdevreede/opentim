@@ -120,6 +120,18 @@ describe("summariseGoal", () => {
     });
   });
 
+  it("says the number of an unsigned test as it is, also from 0x8000 up", () => {
+    const below = (left: GoalValue, right: GoalValue): GoalTest => ({ op: "<", signed: false, left, right });
+    const atLeast = (left: GoalValue, right: GoalValue): GoalTest => ({ op: ">=", signed: false, left, right });
+    expect(text(summary(walk(MOVING, [when(below(field("si", 0x1e), c(40000)), [met])])))).toEqual([
+      ["some part on the moving list: positionX < 40000 (unsigned)"],
+    ]);
+    const range = walk(MOVING, [
+      when(atLeast(field("si", 0x1e), c(100)), [when(below(field("si", 0x1e), c(40000)), [met])]),
+    ]);
+    expect(text(summary(range))).toEqual([["some part on the moving list: 100 ≤ positionX < 40000 (unsigned)"]]);
+  });
+
   it("leaves out a test another way of failing already asks, so a box of tests reads as ranges", () => {
     // if x < 342 fail, else if x > 442 fail, else if y < 218 fail
     const goal = summary([
