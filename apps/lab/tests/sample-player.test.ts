@@ -68,3 +68,18 @@ it("wraps within the sample's own loop, after playing up to its end once", async
   audio.frame?.(0);
   expect(player.position.value).toBe(3);
 });
+
+it("starts a looping sample asked to start past its loop at the loop's end, as Web Audio does", async () => {
+  const audio = fakeAudio();
+  // Ten seconds that loop from 2 to 4 seconds.
+  const sample = ref<Pcm>({ rate: 100, samples: new Float32Array(1000), loopStart: 200, loopEnd: 400 });
+  const player = useSamplePlayer(sample);
+  player.loop.value = true;
+  await nextTick();
+  player.play();
+  player.seek(7);
+  audio.clock = 0.25;
+  audio.frame?.(0);
+  // It starts at 4, the loop's end, which wraps to 2 at once.
+  expect(player.position.value).toBeCloseTo(2.25);
+});

@@ -31,11 +31,16 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
    * between the loop's start and end, as Web Audio does. A loop that isn't one (end not after start) is the whole sound.
    */
   function looped(t: number): number {
-    const s = sample.value;
-    let start = s ? s.loopStart / s.rate : 0;
-    let end = s ? s.loopEnd / s.rate : 0;
-    if (!(end > start) || end > length.value) [start, end] = [0, length.value];
+    const [start, end] = loopBounds();
     return t < end || end <= start ? t : start + ((t - start) % (end - start));
+  }
+
+  /** The loop's start and end in seconds; a loop that isn't one is the whole sound. */
+  function loopBounds(): [number, number] {
+    const s = sample.value;
+    const start = s ? s.loopStart / s.rate : 0;
+    const end = s ? s.loopEnd / s.rate : 0;
+    return end > start && end <= length.value ? [start, end] : [0, length.value];
   }
 
   /** Where playback is now, wrapping around while it loops. */
@@ -71,6 +76,9 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
     buffer ??= audioBuffer(context, s);
     stopSource();
     if (from >= length.value) from = 0;
+    // Web Audio starts a looping sound that is asked to start past the loop's end at the loop's end.
+    const end = loopBounds()[1];
+    if (loop.value && from > end) from = end;
     const node = context.createBufferSource();
     node.buffer = buffer;
     node.loop = loop.value;
