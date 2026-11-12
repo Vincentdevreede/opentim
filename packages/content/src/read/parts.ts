@@ -7,7 +7,7 @@
 import type { Frame, Part, PartList } from "../model.ts";
 import { NOT_IN_TIM1, TIM2_IDS, TIM_IDS } from "../part-ids.ts";
 import { unpackLzexe } from "./lzexe.ts";
-import { animationSheets, readPartNames } from "./tim2.ts";
+import { animationFrames, animationSheets, readAnimation, readPartNames } from "./tim2.ts";
 import { RECORD_SIZE, findDataSegment, findTypeTable, readOffsets, readTypes, type ExeType } from "./type-table.ts";
 import { sheetFrameSizes, type FrameSize } from "./behaviour-sheet-frames.ts";
 
@@ -138,7 +138,8 @@ export function readTim2Parts(
     if (!id) throw new Error(`TIM 2 part ${type} (${name}) has no id in part-ids.ts`);
     const anm = resource(`PART${type}.ANM`);
     const sheets = anm ? animationSheets(anm) : resource(`PART${type}.BMP`) ? [`PART${type}`] : [];
-    return { id, type, name, sheets: sheets.filter((s) => resource(`${s}.BMP`)), frames: [] };
+    const frames = anm ? animationFrames(readAnimation(anm)) : [];
+    return { id, type, name, sheets: sheets.filter((s) => resource(`${s}.BMP`)), frames };
   });
   return { id: "tim2", game: GAMES.tim2.game, parts };
 }

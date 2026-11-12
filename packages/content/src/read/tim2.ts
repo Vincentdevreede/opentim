@@ -1,9 +1,10 @@
 /**
  * Reads what TIM 2 says about its parts: `INFO.RES` lists every part number with its English name and help text, and
- * each part's `.ANM` animation names the sheets it draws from in a `TAG:` chunk.
+ * each part's `.ANM` animation holds its frames and names the sheets it draws from in a `TAG:` chunk.
  */
 
 import { findChunk, readChunks } from "@opentim/resources";
+import type { Frame, Placement } from "../model.ts";
 
 /**
  * The English names in `INFO.RES`, by part number. Each line is the number with a dot, a tab, the name, a tab and
@@ -18,22 +19,150 @@ export function readPartNames(info: Uint8Array): Map<number, string> {
   return names;
 }
 
-/** The sheets an animation draws from, in the order its `TAG:` chunk lists them, like `PART18X`. */
-export function animationSheets(anm: Uint8Array): string[] {
+/** The sheets an animation's `TAG:` chunk names, by the number its sprite commands use, like 1 for `PART18X`. */
+export function animationSheetNumbers(anm: Uint8Array): Map<number, string> {
   const tag = findChunk(readChunks(anm), "TAG:")?.data;
-  if (!tag || tag.length < 2) return [];
+  const sheets = new Map<number, string>();
+  if (!tag || tag.length < 2) return sheets;
   const view = new DataView(tag.buffer, tag.byteOffset, tag.byteLength);
-  const sheets: string[] = [];
   let at = 2;
   for (let i = 0; i < view.getUint16(0, true) && at + 2 < tag.length; i++) {
     const end = tag.indexOf(0, at + 2);
     if (end < 0) break;
-    sheets.push(
-      String.fromCharCode(...tag.subarray(at + 2, end))
-        .toUpperCase()
-        .replace(/\.BMP$/, ""),
-    );
+    const name = String.fromCharCode(...tag.subarray(at + 2, end))
+      .toUpperCase()
+      .replace(/\.BMP$/, "");
+    sheets.set(view.getUint16(at, true), name);
     at = end + 1;
   }
   return sheets;
+}
+
+/** The sheets an animation draws from, in the order its `TAG:` chunk lists them, like `PART18X`. */
+export const animationSheets = (anm: Uint8Array): string[] => [...animationSheetNumbers(anm).values()];
+
+/** One command of a frame, as TIM2.EXE's frame drawing routine runs them. Coordinates are relative to the frame. */
+export type AnimationCommand =
+  /** Draws a sprite. `flags` bit 2 mirrors it left to right, bit 1 top to bottom. */
+  | { kind: "sprite"; sheet: number; sprite: number; x: number; y: number; flags: number }
+  /** Draws a box. What the two colour bytes and the high bit do isn't known; the game keeps them for its box routine. */
+  | { kind: "box"; x: number; y: number; width: number; height: number; colour: number; other: number }
+  | { kind: "line"; x1: number; y1: number; x2: number; y2: number; colour: number }
+  /** Plays a sound, by the number in its file name: 3019 is `SX_3019.RAW`. */
+  | { kind: "sound"; sound: number }
+  /** A command the shipped animations don't use, kept with its words. */
+  | { kind: "other"; command: number; words: number[] };
+
+export interface AnimationFrame {
+  /** The frame's box, relative to the animation's origin. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  commands: AnimationCommand[];
+}
+
+export interface Animation {
+  /** 1000 or 1001; the game refuses a higher one. */
+  version: number;
+  /** The size the game mirrors a whole frame in. */
+  width: number;
+  height: number;
+  /** The frame each step shows, or empty when step N shows frame N. */
+  steps: number[];
+  frames: AnimationFrame[];
+  /** Each sequence's number and the step it starts at; it runs until the next one starts. */
+  sequences: { sequence: number; step: number }[];
+  /** The sheets, by the number the sprite commands use. */
+  sheets: Map<number, string>;
+}
+
+/** The number of words each command takes, with the command itself, as TIM2.EXE's table has them. */
+const COMMAND_WORDS = [1, 1, 6, 7, 6, 2, 2];
+
+/**
+ * Reads an `.ANM` animation: an `ANM:` chunk and a `TAG:` chunk. The `ANM:` chunk is, all words little-endian:
+ *
+ * - `TB`, the version, the number of steps, frames and sequences, and the size of the commands in bytes;
+ * - the width and height;
+ * - a frame number per step;
+ * - per frame its box (x, y, width, height, signed) and where its commands start, in words from the first command;
+ * - per sequence the step it starts at and its number;
+ * - the commands. Each frame's commands end with a 0.
+ */
+export function readAnimation(anm: Uint8Array): Animation {
+  const data = findChunk(readChunks(anm), "ANM:")?.data;
+  if (!data) throw new Error("No ANM: chunk");
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const word = (at: number) => {
+    if (at + 2 > data.length) throw new Error(`The animation ends at byte ${data.length}, before ${at + 2}`);
+    return view.getUint16(at, true);
+  };
+  const signed = (at: number) => (word(at) << 16) >> 16;
+  if (data[0] !== 0x54 || data[1] !== 0x42) throw new Error("Not an animation: it doesn't start with TB");
+  const version = word(2);
+  if (version > 1001) throw new Error(`Animation version ${version} is newer than the game reads`);
+  const [stepCount, frameCount, sequenceCount, size] = [word(4), word(6), word(8), word(10)];
+  let at = 16;
+  const steps = Array.from({ length: stepCount }, (_, i) => word(at + i * 2));
+  at += stepCount * 2;
+  const boxes = Array.from({ length: frameCount }, (_, i) => {
+    const b = at + i * 10;
+    return { x: signed(b), y: signed(b + 2), width: signed(b + 4), height: signed(b + 6), start: word(b + 8) };
+  });
+  at += frameCount * 10;
+  const sequences = Array.from({ length: sequenceCount }, (_, i) => ({
+    step: word(at + i * 4),
+    sequence: word(at + i * 4 + 2),
+  }));
+  const commands = at + sequenceCount * 4;
+  if (commands + size > data.length) throw new Error(`The commands end past the animation, at byte ${commands + size}`);
+  const frames = boxes.map(({ start, ...box }): AnimationFrame => {
+    const list: AnimationCommand[] = [];
+    for (let c = commands + start * 2; ;) {
+      const command = word(c);
+      if (command === 0) break;
+      const length = COMMAND_WORDS[command];
+      if (!length) throw new Error(`Unknown command ${command} at byte ${c}`);
+      const w = (n: number) => signed(c + n * 2);
+      if (command === 2) list.push({ kind: "sprite", sheet: w(1), sprite: w(2), x: w(3), y: w(4), flags: w(5) });
+      else if (command === 3)
+        list.push({ kind: "box", x: w(1), y: w(2), width: w(3), height: w(4), colour: w(5), other: word(c + 12) });
+      else if (command === 4) list.push({ kind: "line", x1: w(1), y1: w(2), x2: w(3), y2: w(4), colour: w(5) });
+      else if (command === 5) list.push({ kind: "sound", sound: word(c + 2) });
+      else if (command !== 1)
+        list.push({ kind: "other", command, words: Array.from({ length: length - 1 }, (_, i) => word(c + 2 + i * 2)) });
+      c += length * 2;
+    }
+    return { ...box, commands: list };
+  });
+  return {
+    version,
+    width: word(12),
+    height: word(14),
+    steps,
+    frames,
+    sequences,
+    sheets: animationSheetNumbers(anm),
+  };
+}
+
+const FLIPS: Record<number, Placement["flip"]> = { 1: "v", 2: "h", 3: "hv" };
+
+/**
+ * The frames of an animation as the part lists keep them: the sprites of each frame, placed relative to the
+ * animation's origin, in the order the game draws them, all on layer 0. Boxes, lines and sounds are left out.
+ */
+export function animationFrames(animation: Animation): Frame[] {
+  return animation.frames.map((frame, id) => ({
+    id,
+    sprites: frame.commands.flatMap((c): Placement[] => {
+      if (c.kind !== "sprite") return [];
+      const sheet = animation.sheets.get(c.sheet);
+      if (!sheet) throw new Error(`Frame ${id} draws from sheet ${c.sheet}, which the TAG: chunk doesn't name`);
+      const flip = FLIPS[c.flags & 3];
+      const placement: Placement = { sheet, sprite: c.sprite, x: frame.x + c.x, y: frame.y + c.y, layer: 0 };
+      return [flip ? { ...placement, flip } : placement];
+    }),
+  }));
 }

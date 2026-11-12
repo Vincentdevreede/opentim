@@ -1,9 +1,38 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import { readTim2Parts } from "../src/read/parts.ts";
-import { animationSheets, readPartNames } from "../src/read/tim2.ts";
+import { animationFrames, animationSheets, readAnimation, readPartNames } from "../src/read/tim2.ts";
 
 const bytes = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
+const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values, (v) => v & 0xffff).buffer);
+
+/** An animation of two frames over three steps, with one sequence, drawing from sheet 1, `PART7X`. */
+function animation(): Uint8Array {
+  const commands = [
+    // Frame 0: a sprite, a sound and a line.
+    ...[2, 1, 4, 3, -2, 0],
+    ...[5, 3019],
+    ...[4, 1, 2, 1, 9, 15],
+    0,
+    // Frame 1, at word 15: a mirrored sprite and a box.
+    ...[2, 1, 5, 0, 0, 2],
+    ...[3, 0, 0, 10, 5, 11, 0x800b],
+    0,
+    // A last no-op, as the shipped files have.
+    1,
+  ];
+  const anm = words(
+    ...[0x4254, 1001, 3, 2, 1, commands.length * 2],
+    ...[40, 30],
+    ...[0, 0, 1],
+    ...[10, 20, 30, 15, 0],
+    ...[-5, 0, 20, 20, 15],
+    ...[1, 6],
+    ...commands,
+  );
+  const tag = Uint8Array.from([1, 0, 1, 0, ...bytes("part7x.bmp\0")]);
+  return Uint8Array.from([...writeChunk("ANM:", anm), ...writeChunk("TAG:", tag)]);
+}
 
 describe("TIM 2", () => {
   it("reads the part names from INFO.RES", () => {
@@ -31,5 +60,50 @@ describe("TIM 2", () => {
     const tag = Uint8Array.from([2, 0, 1, 0, ...bytes("part18X.BMP\0"), 2, 0, ...bytes("PART41.BMP\0")]);
     const anm = Uint8Array.from([...writeChunk("ANM:", new Uint8Array(4)), ...writeChunk("TAG:", tag)]);
     expect(animationSheets(anm)).toEqual(["PART18X", "PART41"]);
+  });
+
+  it("reads an animation's steps, frames, sequences and commands", () => {
+    const read = readAnimation(animation());
+    expect(read).toMatchObject({ version: 1001, width: 40, height: 30, steps: [0, 0, 1] });
+    expect(read.sequences).toEqual([{ step: 1, sequence: 6 }]);
+    expect(read.sheets).toEqual(new Map([[1, "PART7X"]]));
+    expect(read.frames[0]).toEqual({
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 15,
+      commands: [
+        { kind: "sprite", sheet: 1, sprite: 4, x: 3, y: -2, flags: 0 },
+        { kind: "sound", sound: 3019 },
+        { kind: "line", x1: 1, y1: 2, x2: 1, y2: 9, colour: 15 },
+      ],
+    });
+    expect(read.frames[1]!.commands[1]).toEqual({
+      kind: "box",
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 5,
+      colour: 11,
+      other: 0x800b,
+    });
+  });
+
+  it("places an animation's sprites from the frame's corner, mirrored by their flags", () => {
+    expect(animationFrames(readAnimation(animation()))).toEqual([
+      { id: 0, sprites: [{ sheet: "PART7X", sprite: 4, x: 13, y: 18, layer: 0 }] },
+      { id: 1, sprites: [{ sheet: "PART7X", sprite: 5, x: -5, y: 0, layer: 0, flip: "h" }] },
+    ]);
+  });
+
+  it("refuses an animation that isn't one, or is newer than the game reads", () => {
+    const anm = animation();
+    const start = 8; // past the ANM: chunk's tag and size
+    const wrong = anm.slice();
+    wrong[start] = 0;
+    expect(() => readAnimation(wrong)).toThrow(/TB/);
+    const newer = anm.slice();
+    newer[start + 2] = 0xea;
+    expect(() => readAnimation(newer)).toThrow(/version 1002/);
   });
 });

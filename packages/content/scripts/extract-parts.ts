@@ -65,7 +65,10 @@ for (const list of Object.keys(GAMES) as ListId[]) {
     if (differ.length || other.parts.length !== first.parts.length)
       throw new Error(`${list}: ${folders[i]} differs from ${folders[0]} in types ${differ.map((p) => p.type)}`);
   });
-  const json = JSON.stringify(first);
+  // TIM 2's frames are checked across the builds but left out of its list for now: with them it grows from 16 KB to
+  // 780 KB, and the Lab reads them from the loaded files anyway.
+  const written = list === "tim2" ? { ...first, parts: first.parts.map((p) => ({ ...p, frames: [] })) } : first;
+  const json = JSON.stringify(written);
   writeFileSync(join(out, `${list}.json`), await format(json, { parser: "json", printWidth: 120 }));
   console.log(`${list}: wrote ${results[0]!.parts.length} parts, the same in ${folders.length} builds`);
 }

@@ -41,11 +41,20 @@ function newParts(list: PartList, committed: PartList): number[] {
     .sort((a, b) => a - b);
 }
 
-/** The numbers of the parts that aren't the same in both lists. */
+/**
+ * The numbers of the parts that aren't the same in both lists. A committed part without frames only compares the rest:
+ * the committed TIM 2 list leaves its frames out.
+ */
 function differences(list: PartList, committed: PartList): number[] {
   const types = new Set([...list.parts, ...committed.parts].map((p) => p.type));
-  const find = (l: PartList, type: number) => JSON.stringify(l.parts.find((p) => p.type === type));
-  return [...types].filter((t) => find(list, t) !== find(committed, t)).sort((a, b) => a - b);
+  return [...types]
+    .filter((type) => {
+      const mine = list.parts.find((p) => p.type === type);
+      const ours = committed.parts.find((p) => p.type === type);
+      const compared = mine && ours && !ours.frames.length ? { ...mine, frames: [] } : mine;
+      return JSON.stringify(compared) !== JSON.stringify(ours);
+    })
+    .sort((a, b) => a - b);
 }
 
 /**
@@ -131,13 +140,13 @@ export function findParts(parts: readonly Part[], query: string, order: PartOrde
 export const sheetFile = (sheet: string) => `${sheet}.BMP`;
 
 /**
- * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. TIM 2 keeps
- * its frames in `.ANM` files the lab doesn't read yet; in TIM 1 and Even More, a part without frames has a record in
- * `TIM.EXE` that doesn't place its sprites, so the program draws it in its own code.
+ * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. In TIM 2 the
+ * part's `.ANM` file then draws no sprites; in TIM 1 and Even More, a part without frames has a record in `TIM.EXE`
+ * that doesn't place its sprites, so the program draws it in its own code.
  */
 export function whyNoFrames(listId: string, part: Part): string | undefined {
   if (part.frames.length) return undefined;
   if (!part.sheets.length) return "It has no sprite sheet: the game draws it without sprites, so there are no frames.";
-  if (listId === "tim2") return "TIM 2 keeps its frames in the part’s .ANM file, which the lab doesn’t read yet.";
+  if (listId === "tim2") return "Its .ANM file has no frames with sprites: the game draws it another way.";
   return "Its record in TIM.EXE doesn’t place its sprites: the game draws it in its own code, like walls from tiles. Not worked out yet.";
 }

@@ -1,4 +1,5 @@
 import { PART_LISTS, type Part } from "@opentim/content";
+import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Edition } from "../src/edition.ts";
 import { findParts, listIdOf, partName, readLoadedParts, whyNoFrames } from "../src/parts.ts";
@@ -44,6 +45,29 @@ describe("readLoadedParts", () => {
     expect(loaded?.missing).toEqual([999]);
     expect(loaded?.differs).toContain(999);
   });
+
+  it("reads TIM 2 frames from the .ANM files, and the list without frames still counts as the same", () => {
+    const resource = (name: string, data: Uint8Array) =>
+      ({ name, kind: "binary", group: "other", archive: "RESOURCE.001", offset: 0, data }) as const;
+    const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values).buffer);
+    // One frame that draws sprite 0 of sheet 1 at (2, 3), in a 10 by 10 box at the origin.
+    const anm = words(0x4254, 1001, 0, 1, 0, 16, 10, 10, 0, 0, 10, 10, 0, 2, 1, 0, 2, 3, 0, 0, 1);
+    const tag = Uint8Array.from(
+      [1, 0, 1, 0, ..."PART0.BMP\0"].map((c) => (typeof c === "string" ? c.charCodeAt(0) : c)),
+    );
+    const loaded = readLoadedParts("tim2", [
+      resource(
+        "INFO.RES",
+        Uint8Array.from("0.\tBowling Ball\tHelp.\r\n", (c) => c.charCodeAt(0)),
+      ),
+      resource("PART0.ANM", Uint8Array.from([...writeChunk("ANM:", anm), ...writeChunk("TAG:", tag)])),
+      resource("PART0.BMP", new Uint8Array(1)),
+    ]);
+    expect(loaded?.list.parts[0]?.frames).toEqual([
+      { id: 0, sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 3, layer: 0 }] },
+    ]);
+    expect(loaded?.differs).not.toContain(0);
+  });
 });
 
 describe("partName", () => {
@@ -81,7 +105,7 @@ describe("whyNoFrames", () => {
     expect(whyNoFrames("tim2", part({ sheets: [] }))).toMatch(/no sprite sheet/);
   });
 
-  it("says TIM 2 frames are in the .ANM files", () => {
+  it("says a TIM 2 part without frames draws no sprites in its .ANM file", () => {
     expect(whyNoFrames("tim2", part({}))).toMatch(/\.ANM/);
   });
 

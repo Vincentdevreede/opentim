@@ -151,4 +151,43 @@ unknown word (and from version `0x106` a byte before it). What the game's loader
   (`apps/lab/src/behaviour.ts`), its flag bits in [flag bits](behaviour/in-the-lab.md#flag-bits).
 - **Goals**: each puzzle's goal is a routine in TIM.EXE, not in the level file; see [the levels](levels.md).
 
-TIM 2 keeps its part names in `INFO.RES` and its animation sheets in `.ANM` files (`tim2.ts`).
+## TIM 2
+
+TIM 2 has one archive, `RESOURCE.001`. Its sheets and screens are read like those of TIM 1, and it draws them with
+`TIM.PAL` (TIM2.EXE loads `tim.pal`; `TIM2.PAL` has the same colours). Its part names are in `INFO.RES`, one line per
+part: the number with a dot, a tab, the name, a tab and the help text.
+
+### Animations (.ANM)
+
+`readAnimation` (`packages/content/src/read/tim2.ts`). Every part has one, `PART<n>.ANM`, and so do the screens and the
+help pictures. An animation is an `ANM:` chunk and a `TAG:` chunk. The `TAG:` chunk names the sheets: a u16 count, then
+per sheet its u16 number and its NUL-terminated file name, like `1` and `part18x.BMP`.
+
+The `ANM:` chunk, as TIM2.EXE's loader reads it:
+
+| Bytes          | What                                                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 2              | `TB`.                                                                                                                                     |
+| 2              | Version: 1000 or 1001. The game refuses a higher one.                                                                                     |
+| 2 × 4          | The number of steps, frames and sequences, and the size of the commands in bytes.                                                         |
+| 2 × 2          | Width and height: the box the game mirrors a whole frame in.                                                                              |
+| 2 per step     | The frame the step shows. Without steps, step N shows frame N.                                                                            |
+| 10 per frame   | The frame's box (x, y, width, height, signed, from the animation's origin) and where its commands start, in words from the first command. |
+| 4 per sequence | The step the sequence starts at and its number. The game finds a sequence by its number and the other way round.                          |
+| size           | The commands.                                                                                                                             |
+
+A frame is commands, each a u16 number followed by its words, and ends with a 0. TIM2.EXE keeps the length of each in a
+table and draws a frame by running them in order. Positions are from the frame's top left corner.
+
+| Command | Words | What                                                                                                                              |
+| ------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 0       | 1     | The end of the frame.                                                                                                             |
+| 1       | 1     | Nothing. The shipped files end their commands with one.                                                                           |
+| 2       | 6     | A sprite: sheet number, sprite, x, y, flags. Flag 2 mirrors it left to right, flag 1 top to bottom.                               |
+| 3       | 7     | A box: x, y, width, height, then two words the game keeps as two colour bytes and a high bit. Screens use it, and the coffee pot. |
+| 4       | 6     | A line: x1, y1, x2, y2, colour.                                                                                                   |
+| 5       | 2     | Plays a sound, like 3019 for `SX_3019.RAW`.                                                                                       |
+| 6       | 2     | Calls the sound code like command 5 does, with its word. No shipped file uses it.                                                 |
+
+To mirror a whole frame, the game flips each sprite's flags and measures its position from the other side of the
+animation's width or height. All 433 animations of the floppy, CD and demo read to their last byte this way.
