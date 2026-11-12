@@ -226,7 +226,8 @@ export function addConnectionSummaries(
             "Places a rope's ends from its parts and pulleys, updates each pulley's rope record and the end words of the rope's first part.",
             wordFields(0x14, 0x16, 0x18, 0x1a),
             wordFields(0x96, 0x9c),
-            wordFields(0x14, 0x16),
+            // Each pulley's loop runs twice, writing words 0x14 and 0x16 of its rope record, then 0x18 and 0x1a.
+            wordFields(0x14, 0x16, 0x18, 0x1a),
             [point!],
             false,
           ),
