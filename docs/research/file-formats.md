@@ -229,7 +229,18 @@ table and draws a frame by running them in order. Positions are from the frame's
 | 6       | 2     | Stops the sound with that number if it is playing. No shipped file uses it.                                                                                                                                                                        |
 
 The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
-palette; it draws a line as a straight run of pixels from end to end, not by the game's own line routine.
+palette, and a line pixel for pixel as the game does (`tim2LinePixels`).
+
+**Lines.** Command 4 calls TIM2.EXE's line routine (file offset `0x15302` in the floppy build), which cuts the line
+off at the edges of the area being drawn, sorts its ends so it runs to the right and hands it to the video driver's
+line function, the third entry of the driver's table. The drivers are in `VM.OVL`, an `OVL:` chunk with a chunk per
+driver packed like a `BIN:` chunk: `VGA:` for 256 colours and `HEG:` for 16. The VGA driver draws a straight line as a
+run, and any other with Bresenham's rule: a line wider than tall (or as wide as tall) steps right from its left end
+and moves one row up or down when its error, which starts at 2 × height − width, isn't below 0, adding 2 × height,
+or 2 × height − 2 × width when it moves. A line taller than wide always runs down from its top end, the same way with
+width and height swapped. So a tie moves at once, and the same line can come out a pixel different from the one drawn
+from the other end. The 16 colour driver works its runs out by division instead; the Lab follows the VGA one,
+whose palette it draws with.
 
 **Sequences.** A sequence's number is a name for a run of steps that only the code of its part (or screen) knows:
 nothing in the file says more. TIM2.EXE keeps the sequences as a table that ends with number 0, so no sequence is 0.
@@ -244,8 +255,6 @@ floppy build) and command 6 as a call to the routine at `0x23f1b`. That one sort
 number by its thousands as the play routine does, and stops the sound: a song or part sound through the music driver
 (below 2000), or a `.RAW` sample (3000 to 4999), whose digital driver it also stops when that sample is the one
 playing. The play routine calls it itself to stop a sound before starting it again. So command 6 stops a sound.
-
-**Still open.** The Lab draws a line as a straight run of pixels, not by the game's own line routine.
 
 **Speed.** TIM2.EXE sets the PC's timer to 65,535 ÷ 13 = 5,041 counts, 236.7 ticks a second, and has the timer count
 a step timer down every 4 ticks, 59.2 times a second. Its run loop waits until the step timer is 0 and sets it to 2

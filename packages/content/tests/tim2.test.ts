@@ -1,7 +1,14 @@
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import { readTim2Parts } from "../src/read/parts.ts";
-import { TIM2_STEP_MS, animationFrames, animationSheets, readAnimation, readPartNames } from "../src/read/tim2.ts";
+import {
+  TIM2_STEP_MS,
+  animationFrames,
+  animationSheets,
+  readAnimation,
+  readPartNames,
+  tim2LinePixels,
+} from "../src/read/tim2.ts";
 
 const bytes = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
 const words = (...values: number[]) => new Uint8Array(Uint16Array.from(values, (v) => v & 0xffff).buffer);
@@ -122,5 +129,32 @@ describe("TIM 2", () => {
 
   it("steps the machine every 2 ticks of a 59.2 Hz timer", () => {
     expect(TIM2_STEP_MS).toBeCloseTo(33.8, 1);
+  });
+
+  it("draws a line as TIM2.EXE's VGA driver does, from the left end or, when it is steep, from the top", () => {
+    const at = (x1: number, y1: number, x2: number, y2: number) =>
+      tim2LinePixels(x1, y1, x2, y2).map((p) => [p.x, p.y]);
+    // An error of 0 steps the row at once, also going up.
+    expect(at(4, 0, 0, 2)).toEqual([
+      [0, 2],
+      [1, 1],
+      [2, 1],
+      [3, 0],
+      [4, 0],
+    ]);
+    // A steep line going up is drawn from its top end, stepping left.
+    expect(at(0, 4, 2, 0)).toEqual([
+      [2, 0],
+      [1, 1],
+      [1, 2],
+      [0, 3],
+      [0, 4],
+    ]);
+    expect(at(3, 3, 3, 3)).toEqual([[3, 3]]);
+    expect(at(0, 0, 2, 2)).toEqual([
+      [0, 0],
+      [1, 1],
+      [2, 2],
+    ]);
   });
 });

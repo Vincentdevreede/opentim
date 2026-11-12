@@ -157,6 +157,49 @@ export function readAnimation(anm: Uint8Array): Animation {
   };
 }
 
+/**
+ * The pixels of a line as TIM2.EXE's VGA driver (the `VGA:` file in `VM.OVL`) draws it, in the order it draws them.
+ * The game sorts the ends so the line runs to the right. A line wider than tall then steps across from the left end and
+ * moves up or down one row when its running error, which starts at 2 × height - width, isn't below 0. A line taller
+ * than wide always runs down from its top end, the same way with width and height swapped. Lines as wide as tall, and
+ * straight ones, are plain runs.
+ */
+export function tim2LinePixels(x1: number, y1: number, x2: number, y2: number): { x: number; y: number }[] {
+  if (x1 > x2) [x1, y1, x2, y2] = [x2, y2, x1, y1];
+  const across = x2 - x1;
+  const down = Math.abs(y2 - y1);
+  const pixels = [{ x: x1, y: y1 }];
+  if (across >= down) {
+    // From the left end: every step moves right, and down or up when the error says so.
+    const up = y2 < y1 ? -1 : 1;
+    let error = 2 * down - across;
+    for (let x = x1, y = y1, i = 0; i < across; i++) {
+      x++;
+      if (error < 0) error += 2 * down;
+      else {
+        y += up;
+        error += 2 * down - 2 * across;
+      }
+      pixels.push({ x, y });
+    }
+    return pixels;
+  }
+  // From the top end: every step moves down, and left or right when the error says so.
+  const [x, y, sideways] = y2 < y1 ? [x2, y2, -1] : [x1, y1, 1];
+  pixels[0] = { x, y };
+  let error = 2 * across - down;
+  for (let cx = x, cy = y, i = 0; i < down; i++) {
+    cy++;
+    if (error < 0) error += 2 * across;
+    else {
+      cx += sideways;
+      error += 2 * across - 2 * down;
+    }
+    pixels.push({ x: cx, y: cy });
+  }
+  return pixels;
+}
+
 const FLIPS: Record<number, Placement["flip"]> = { 1: "v", 2: "h", 3: "hv" };
 
 /** Bit 15 of a box's second colour word: TIM2.EXE fills the box with the low byte of that word. */
