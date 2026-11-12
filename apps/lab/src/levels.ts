@@ -159,10 +159,16 @@ const TIM2_NOT_IN_SOLUTION = 0x100;
  * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
  * third flag word into the parts bin, so those are the bin. When the player asks for the designer's solution, it loads
  * the level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
+ *
+ * Toons has no bin in its files either, and TOONS.EXE treats bit 0x40 the same way: a part with it can't be moved or
+ * changed, and the program puts every part without it back to state 0, unmirrored and at its own size, as a part in
+ * the bin is. So those are the bin, and where the file puts them is the solution. The bits that are 0x100 in TIM 2
+ * aren't set in Toons' levels.
  */
 export const groupOf = (level: Level, part: LevelPart, solution = false): LevelPart["group"] => {
   const third = part.flags[2] ?? 0;
-  if (level.layout !== "tim2" || third & TIM2_FIXED) return part.group;
+  if (level.layout === "tim" || third & TIM2_FIXED) return part.group;
+  if (level.layout === "toons") return solution ? part.group : "bin";
   return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
 };
 
@@ -222,6 +228,35 @@ export function tiles(part: LevelPart, sheet: string): Placement[] {
     }
     down ^= 1;
   }
+  return out;
+}
+
+/**
+ * The tiles of a Toons part drawn as tiles, as TOONS.EXE draws them: `width` wide (32 for the ladder, else 16) and 16
+ * high. A row starts with the sprite of the state and ends with state + middles + 1; a column starts with state +
+ * middles + 2 and ends with state + 2 × middles + 3. The tiles between take the middle sprites in turn, from the first.
+ * A part both wider and taller than a tile repeats the state.
+ */
+export function toonsTiles(part: LevelPart, sheet: string, { width, middles }: { width: number; middles: number }) {
+  const columns = Math.floor(part.size.width / width);
+  const rows = part.size.height >> 4;
+  const state = part.state[0];
+  let turn = 0;
+  let sprite = state;
+  const out: Placement[] = [];
+  for (let row = 0; row < rows; row++)
+    for (let column = 0; column < columns; column++) {
+      if (rows === 1)
+        sprite = column === 0 ? state : column === columns - 1 ? state + middles + 1 : state + (turn++ % middles) + 1;
+      else if (columns === 1)
+        sprite =
+          row === 0
+            ? state + middles + 2
+            : row === rows - 1
+              ? state + 2 * middles + 3
+              : state + middles + (turn++ % middles) + 3;
+      out.push({ sheet, sprite, x: column * width, y: row * TILE, layer: 0 });
+    }
   return out;
 }
 
@@ -404,7 +439,8 @@ function drawPart(
         return { ...base, how: "tiles", detail: `a pattern of tiles, by ${by} pattern rule`, composition, clip };
     }
   } else if ((part.flags[0] ?? 0) & TILED && sheet) {
-    const composition = compose(tiles(part, sheet), spriteOf);
+    const toons = layout === "toons" && listPart.tiles;
+    const composition = compose(toons ? toonsTiles(part, sheet, toons) : tiles(part, sheet), spriteOf);
     if (composition.missing.length) return { ...base, how: "outline", detail: `tiles of ${sheet} are missing` };
     return { ...base, how: "tiles", detail: `tiles of ${sheet} from sprite ${state}`, composition };
   }

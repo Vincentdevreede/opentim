@@ -67,7 +67,7 @@ const zoom = computed(() => {
   return fit > 0 ? fit : 1;
 });
 const showBounds = ref(true);
-/** For TIM 2: the puzzle as the game shows its designer's solution, with the solution's parts out of the bin. */
+/** For TIM 2 and Toons: the puzzle with the parts of the bin where the file puts them, which is the solution. */
 const showSolution = ref(false);
 const showGoal = ref(true);
 const selectedPart = ref<number>();
@@ -152,12 +152,13 @@ const puzzle = computed(() => {
 const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefined>(() => {
   if (current.value?.kind !== "level") return undefined;
   if (level.value?.layout === "tim2") {
-    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p).name]));
+    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name]));
     const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`);
     return read
       ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
       : { status: "none", why: "This level has no goal entries." };
   }
+  if (level.value?.layout === "toons") return { status: "none", why: "Toons’ goals aren’t read from TOONS.EXE yet." };
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
   if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
@@ -371,7 +372,7 @@ onBeforeUnmount(() => {
           <LabBadge v-bind="status" />
           <div class="flex-1"></div>
           <LabCheckbox v-model="showBounds">Part boxes</LabCheckbox>
-          <LabCheckbox v-if="level?.layout === 'tim2'" v-model="showSolution">Solution</LabCheckbox>
+          <LabCheckbox v-if="level?.layout !== 'tim'" v-model="showSolution">Solution</LabCheckbox>
           <LabCheckbox v-if="goal?.status === 'done'" v-model="showGoal">Goal</LabCheckbox>
           <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
           <LabSegmented v-model="zoomSetting" label="Zoom" :options="ZOOMS" />

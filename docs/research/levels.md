@@ -399,3 +399,32 @@ What isn't worked out yet, and what the Lab does meanwhile:
 - **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
   with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
 - **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
+
+## Toons levels
+
+Sid & Al's Incredible Toons ships 100 puzzles in four sets, `CAKE1` to `CAKE30`, `BRAN1` to `BRAN20`, `HARD1` to
+`HARD25` and `LOON1` to `LOON25`. All 100 read to their last byte in the Toons layout
+([file formats](file-formats.md#level-files-lev-tim-gkc)), versions `0x105` and `0x106`. Each has a title and a goal
+text; the goal itself isn't in the file.
+
+**Parts bin.** The files have no bin list. Bit 0x40 of a part's third flag word decides, as in TIM 2: TOONS.EXE lets
+the player neither move nor change a part with it (the routine that says what the player may do with a part returns
+early), and it walks both lists and puts every part without it back to state 0, unmirrored and at its own size, as a
+part in the bin is, ropes and belts excepted. So the Lab puts the parts without the bit in the bin, and the Solution
+box shows them where the file puts them. CAKE15 ("Use a tunnel to help Al get to the bubble gum") then has its two
+tunnels in the bin. That the routine is the start of a puzzle is read from what it does, not from where it is called.
+
+**Drawing.** The Lab draws a Toons level with the `toons` list: frames by state, walls and the ladder as tiles by
+TOONS.EXE's rule ([file formats](file-formats.md#toonsexe)), the rope and the belt as lines.
+
+### Toons: still open
+
+- **Goals.** Not read. TOONS.EXE has to have them in its code or data, as TIM 1 has; the Lab shows the goal text.
+- **Al and Sid** are drawn as boxes: TOONS.EXE draws them from the `CAT` and `SID` sheet of what they are doing, with
+  tables of their own (records 36 and 37 point into them), which aren't read.
+- **Own drawing code.** The conveyor belt, the timer, the counter, the thumpulator and the message machine have
+  drawing code of their own; the Lab draws only their frames.
+- **The play area** is TIM's 576 × 368 in the Lab. The walls of Toons' levels reach 549 across and 392 down (40 levels
+  scroll to -91 across, the others to -8), so Toons' is likely a little different; it isn't read from TOONS.EXE.
+- **The two Toons words** of each part (a byte from version `0x106` and a word) and the tunnel's link: what the game
+  does with them isn't read.

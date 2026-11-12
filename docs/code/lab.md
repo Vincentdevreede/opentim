@@ -78,7 +78,8 @@ The biggest file of the Lab. In order:
   `TOONS.EXE`; `partName(part, listId)` takes Toons' names from Toons' own list. Toons gets no behaviour read.
 - **Levels**: `LevelCanvas` (the level drawn, goal areas), `LevelGoal` (conditions and the goal routine),
   `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
-  the play area (`PLAY_AREAS`), which parts are tiles, the parts bin (`groupOf`), and for TIM 2 the frame a state picks
+  the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
+  for TIM 2 and Toons, whose files keep no bin), and for TIM 2 the frame a state picks
   (`Part.states`) and the wall and tile pattern routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`), when it is
   loaded.
 - **Audio**: banks and samples, played as samples or as music through emulated Sound Blaster Pro or AdLib FM, in a

@@ -1,8 +1,8 @@
-import type { PartList } from "@opentim/content";
+import type { Level, LevelPart, PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { layoutScene, partAt, readLevels } from "../src/levels.ts";
+import { groupOf, layoutScene, partAt, readLevels, toonsTiles } from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -380,5 +380,56 @@ describe("layoutScene", () => {
     const scene = layoutScene(level, undefined, spriteOf);
     expect(scene.parts[0]!.how).toBe("outline");
     expect(scene.notes[0]!.title).toBe("No part list for this game.");
+  });
+});
+
+/** A placed Toons part with only what the tile and bin rules read. */
+const toonsPart = (width: number, height: number, state = 0, marks = 0) =>
+  ({
+    index: 0,
+    group: "static",
+    flags: [0x6040, 0x180, marks],
+    state: [state, 0],
+    size: { width, height },
+  }) as LevelPart;
+
+describe("toonsTiles", () => {
+  const sprites = (p: LevelPart, width = 16, middles = 3) =>
+    toonsTiles(p, "PART28", { width, middles }).map((t) => t.sprite);
+
+  it("ends a row with its end tiles and takes the middle tiles in turn from the first", () => {
+    expect(sprites(toonsPart(96, 16))).toEqual([0, 1, 2, 3, 1, 4]);
+    expect(sprites(toonsPart(48, 16, 10))).toEqual([10, 11, 14]);
+  });
+
+  it("uses the column's own end and middle tiles after the row's", () => {
+    expect(sprites(toonsPart(16, 96))).toEqual([5, 6, 7, 8, 6, 9]);
+  });
+
+  it("draws the ladder's tiles 32 wide", () => {
+    const tiles = toonsTiles(toonsPart(32, 48), "PART45", { width: 32, middles: 1 });
+    expect(tiles.map((t) => [t.sprite, t.x, t.y])).toEqual([
+      [3, 0, 0],
+      [4, 0, 16],
+      [5, 0, 32],
+    ]);
+  });
+
+  it("repeats the state on a part wider and taller than a tile", () => {
+    expect(sprites(toonsPart(32, 32, 6))).toEqual([6, 6, 6, 6]);
+  });
+});
+
+describe("groupOf", () => {
+  const level = { layout: "toons" } as Level;
+
+  it("puts a Toons part without bit 0x40 of the third flag word in the bin, and on the board for the solution", () => {
+    expect(groupOf(level, toonsPart(16, 16, 0, 0x48))).toBe("static");
+    expect(groupOf(level, toonsPart(16, 16, 0, 0x08))).toBe("bin");
+    expect(groupOf(level, toonsPart(16, 16, 0, 0x08), true)).toBe("static");
+  });
+
+  it("keeps TIM 1's groups as the file has them", () => {
+    expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
   });
 });
