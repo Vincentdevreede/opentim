@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BehaviourReport, Expression, FieldWrite, Predicate } from "../src/read/behaviour.ts";
 import { choose } from "../src/read/behaviour.ts";
-import { PLACE_DIFFERENCE_ASSUMPTION } from "../src/read/describe-hits.ts";
+import { hitsFromOthers, PLACE_DIFFERENCE_ASSUMPTION } from "../src/read/describe-hits.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import {
   ANSWER_ASSUMPTION,
@@ -706,7 +706,7 @@ describe("part names in the descriptions", () => {
   });
 });
 
-describe("a callback two part types share", () => {
+describe("lines and walks made from several callbacks or paths", () => {
   const checked = { confidence: "checked" as const, assumptions: [], evidence: [] };
   const sharedReport = (
     slot: number,
@@ -715,6 +715,7 @@ describe("a callback two part types share", () => {
       ["fan", 10],
       ["bellows", 11],
     ],
+    reads: number[] = [],
   ) =>
     ({
       layout: {
@@ -730,7 +731,18 @@ describe("a callback two part types share", () => {
           routines: [{ slot, field: 0x26, address: 0x100, segment: 0, offset: 0, shared: true, sharedDefault: false }],
           transitions: [],
         })),
-        { id: "balloon", type: 4, routines: [], transitions: [] },
+        {
+          id: "balloon",
+          type: 4,
+          routines: [],
+          transitions: reads.map((offset) => ({
+            ...checked,
+            from: null,
+            to: f("part", 12),
+            condition: compare(f("part", offset), "!=", c(0)),
+            routine: 0x500,
+          })),
+        },
       ],
       helpers: [{ kind: "part-factory", factory: { startingWords: [{ field: 6, values: Array(42).fill(0x800) }] } }],
       routines: [{ address: 0x100, ...routine }],
@@ -745,7 +757,7 @@ describe("a callback two part types share", () => {
     condition: { kind: "true" },
     routine: 0x100,
   });
-  const way = (object: string, condition: Predicate) => ({
+  const way = (object: string, condition: Predicate, more: object = {}) => ({
     ...checked,
     effectsComplete: true,
     object,
@@ -753,6 +765,7 @@ describe("a callback two part types share", () => {
     condition,
     fields: [setsField(object)],
     returnValue: c(0),
+    ...more,
   });
   const sources = (data: BehaviourReport) =>
     (effectsFromOthers(data, evaluateBehaviourCondition).get(4)?.effects ?? []).map((line) => line.sourcePart).sort();
@@ -765,5 +778,36 @@ describe("a callback two part types share", () => {
   it("gives each type its own touch line for what its bounce does", () => {
     const data = sharedReport(0, { outcomes: [way("collider", { kind: "true" })] });
     expect(sources(data)).toEqual(["bellows", "fan"]);
+  });
+
+  it("takes the weaker confidence and every assumption of two paths that make one line or one walk", () => {
+    const isBalloon = compare(f(MEMBER, 4), "==", c(4));
+    const routine = {
+      iterationOutcomes: [
+        way(MEMBER, isBalloon, { evidence: [{ address: 0xaaa, bytes: [], text: "first" }] }),
+        way(
+          MEMBER,
+          { kind: "and", terms: [isBalloon, compare(f(MEMBER, 4), "!=", c(3))] },
+          {
+            confidence: "inferred",
+            assumptions: ["The second path's own assumption."],
+            evidence: [{ address: 0xbbb, bytes: [], text: "second" }],
+          },
+        ),
+      ],
+    };
+    const lines = effectsFromOthers(sharedReport(1, routine, [["fan", 10]]), evaluateBehaviourCondition).get(
+      4,
+    )!.effects;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.evidence.map((item) => item.address)).toEqual([0xaaa, 0xbbb]);
+    expect(lines[0]!.confidence).toBe("inferred");
+    expect(lines[0]!.assumptions).toContain("The second path's own assumption.");
+    const hits = hitsFromOthers(sharedReport(1, routine, [["fan", 10]], [0x40]), evaluateBehaviourCondition).get(
+      4,
+    )!.hits;
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.assumptions).toContain("The second path's own assumption.");
+    expect(hits[0]!.confidence).toBe("inferred");
   });
 });

@@ -1902,8 +1902,23 @@ export function effectsFromOthers(
       const key = JSON.stringify([c.sourceType, c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
+      // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
+      const confidence: Confidence = c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence;
+      const lineAssumptions = [
+        ...c.outcome.assumptions,
+        ...c.writes.flatMap((w) => w.assumptions),
+        ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
+        ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
+        ...proofs,
+        ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
+        ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
+        "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
+      ];
+      // Paths that make the same line join: the weaker confidence, and every path's assumptions and evidence.
       if (prior) {
         prior.evidence = uniqueEvidence([...prior.evidence, ...evidence]);
+        if (confidence === "inferred" && prior.confidence === "checked") prior.confidence = confidence;
+        prior.assumptions = [...new Set([...prior.assumptions, ...lineAssumptions])];
         continue;
       }
       effects.set(key, {
@@ -1923,20 +1938,8 @@ export function effectsFromOthers(
         ...(c.place.length ? { place: c.place } : {}),
         ...(c.searched.length ? { searched: c.searched } : {}),
         description,
-        // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
-        confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
-        assumptions: [
-          ...new Set([
-            ...c.outcome.assumptions,
-            ...c.writes.flatMap((w) => w.assumptions),
-            ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
-            ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
-            ...proofs,
-            ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
-            ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
-            "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
-          ]),
-        ],
+        confidence,
+        assumptions: [...new Set(lineAssumptions)],
         evidence,
       });
     }
