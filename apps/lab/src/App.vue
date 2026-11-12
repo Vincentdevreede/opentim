@@ -185,7 +185,8 @@ const activeClass =
         </template>
 
         <div class="flex-1"></div>
-        <div class="relative">
+        <!-- Escape closes the panel from the Keys button, as the panel itself holds nothing that takes focus. -->
+        <div class="relative" @keydown.esc="showKeys = false">
           <button
             type="button"
             :class="[navClass, 'w-[60px] cursor-pointer']"
@@ -198,7 +199,6 @@ const activeClass =
           <div
             v-if="showKeys"
             class="absolute bottom-0 left-[66px] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-sunken shadow-xl"
-            @keydown.esc="showKeys = false"
           >
             <LabPanelHeader title="Keyboard shortcuts" />
             <LabFacts label-width="auto" class="px-3 py-1.5">
