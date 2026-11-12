@@ -120,6 +120,8 @@ function onDragLeave(e: DragEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Escape closes the keyboard shortcuts panel wherever the focus is, as the panel itself holds nothing that takes it.
+  if (e.key === "Escape" && showKeys.value) showKeys.value = false;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
     e.preventDefault();
     void router.push("/");
@@ -185,8 +187,7 @@ const activeClass =
         </template>
 
         <div class="flex-1"></div>
-        <!-- Escape closes the panel from the Keys button, as the panel itself holds nothing that takes focus. -->
-        <div class="relative" @keydown.esc="showKeys = false">
+        <div class="relative">
           <button
             type="button"
             :class="[navClass, 'w-[60px] cursor-pointer']"

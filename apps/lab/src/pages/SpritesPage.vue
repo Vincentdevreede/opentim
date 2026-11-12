@@ -51,9 +51,11 @@ const currentImage = computed(
 const galleryColors = (image: string) => colorsOf(choose(image, AUTO)?.name);
 
 function pick(file: string) {
-  startSprite.value = undefined;
   selected.value = file;
 }
+
+// A sprite asked for by another page belongs to the image that was open then, also when loading files picks another.
+watch(selected, () => (startSprite.value = undefined));
 
 function viewBytes(r: Resource, offset?: number) {
   selected.value = r.name;
