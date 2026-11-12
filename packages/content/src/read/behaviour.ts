@@ -5395,6 +5395,11 @@ export function readBehaviourInSteps(
 ): { report: BehaviourReport; readLoopsPerType(onProgress?: ReadProgress): void } {
   /** The loops over found parts to read once for each type, after the rest. */
   const loopsPerType: (() => void)[] = [];
+  /** Starts the routines' reads over. A loop queued for a read that is forgotten would be read again for nothing. */
+  const forgetSummaries = () => {
+    summaries.clear();
+    loopsPerType.length = 0;
+  };
   const image = unpackLzexe(program);
   for (const record of list.records) {
     if (!record.bytes.every((byte, index) => image[record.at + index] === byte))
@@ -5867,9 +5872,9 @@ export function readBehaviourInSteps(
             )
             .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
         : undefined;
-      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, () => summaries.clear());
+      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, forgetSummaries);
     }
-    summaries.clear();
+    forgetSummaries();
   }
   for (const [address, code] of codes)
     if (!summaries.has(address))
