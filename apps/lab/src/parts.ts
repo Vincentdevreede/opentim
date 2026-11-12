@@ -2,6 +2,7 @@
 
 import {
   PART_LISTS,
+  PART_NAMES,
   readProgramParts,
   readTim2Parts,
   type Part,
@@ -41,14 +42,18 @@ function newParts(list: PartList, committed: PartList): number[] {
     .sort((a, b) => a - b);
 }
 
-/** The numbers of the parts that aren't the same in both lists. */
+/**
+ * The numbers of the parts that aren't the same in both lists. A name read from the files is compared with the names
+ * list, as the committed lists leave names out.
+ */
 function differences(list: PartList, committed: PartList): number[] {
   const types = new Set([...list.parts, ...committed.parts].map((p) => p.type));
   return [...types]
     .filter((type) => {
       const mine = list.parts.find((p) => p.type === type);
       const ours = committed.parts.find((p) => p.type === type);
-      return JSON.stringify(mine) !== JSON.stringify(ours);
+      if (mine?.name !== undefined && mine.name !== PART_NAMES.get(mine.id)) return true;
+      return JSON.stringify(mine && { ...mine, name: undefined }) !== JSON.stringify(ours);
     })
     .sort((a, b) => a - b);
 }
@@ -109,13 +114,10 @@ export function readLoadedParts(
   return fallback("The lab can’t read the parts of this game from its files yet.");
 }
 
-/** TIM 2 names its parts; the same object has the same id in the other lists. */
-const GAME_NAMES = new Map((PART_LISTS.tim2?.parts ?? []).flatMap((p) => (p.name ? [[p.id, p.name] as const] : [])));
-
 /** The name to show for a part: the game's own when it has one, else its id in words. */
 export function partName(part: Part): { name: string; source: "game" | "id" } {
   const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const name = part.name ?? GAME_NAMES.get(part.id);
+  const name = part.name ?? PART_NAMES.get(part.id);
   return name ? { name: capital(name), source: "game" } : { name: capital(part.id.replace(/-/g, " ")), source: "id" };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PART_LISTS, partOfType, type Part, type PartList } from "../src/index.ts";
+import { PART_LISTS, PART_NAMES, partOfType, type Part, type PartList } from "../src/index.ts";
 
 const lists = Object.values(PART_LISTS);
 const { tim1, evenmore, tim2 } = PART_LISTS as Record<"tim1" | "evenmore" | "tim2", PartList>;
@@ -58,8 +58,15 @@ describe("the part lists", () => {
     expect(partOfType(tim2, 138)?.id).toBe("candle");
   });
 
-  it("has TIM 2's parts 0–148 with the game's own names", () => {
+  it("has TIM 2's parts 0–148, each with the game's own name in the names list", () => {
     expect(tim2.parts.map((p) => p.type)).toEqual(Array.from({ length: 149 }, (_, i) => i));
-    expect(tim2.parts.filter((p) => !p.name)).toEqual([]);
+    expect(tim2.parts.filter((p) => !PART_NAMES.has(p.id))).toEqual([]);
+    expect(PART_NAMES.get("bowling-ball")).toBe("Bowling Ball");
+  });
+
+  it("keeps names out of the game lists and names only ids a list has", () => {
+    expect(lists.flatMap((l) => l.parts).filter((p) => p.name !== undefined)).toEqual([]);
+    const ids = new Set(lists.flatMap((l) => l.parts.map((p) => p.id)));
+    expect([...PART_NAMES.keys()].filter((id) => !ids.has(id))).toEqual([]);
   });
 });

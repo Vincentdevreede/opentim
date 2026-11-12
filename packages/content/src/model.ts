@@ -19,7 +19,10 @@ export interface Part {
   id: string;
   /** The number the original game uses for the part, in its levels and sheet names. */
   type: number;
-  /** The game's own English name for the part, when the game has one. */
+  /**
+   * The game's own English name, when a part is read from files that name it (TIM 2's `INFO.RES`). The committed lists
+   * leave it out: `names.json` holds the names, by id, for every list.
+   */
   name?: string;
   /** The sprite sheets the part's sprites come from, like `PART18`. Empty for parts drawn as lines, like the belt. */
   sheets: string[];

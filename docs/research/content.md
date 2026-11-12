@@ -41,7 +41,7 @@ interface PartList {
 interface Part {
   id: string; // "bowling-ball": stable, other data will refer to it
   type: number; // the number the original game uses, as in PART18.BMP
-  name?: string; // the game's own English name, when it has one: "Bowling Ball" in TIM 2
+  name?: string; // the game's own name, only when read from files that have one; the lists keep it in names.json
   sheets: string[]; // the sprite sheets its sprites come from, like "PART18"; empty for parts drawn as lines
   frames: Frame[]; // empty when the program draws the part another way, or the list doesn't know yet
   /** Values from the original program whose meaning isn't known yet. Never used for drawing. */
@@ -113,8 +113,9 @@ loads, `TIM.EXE` included, and compares them with the committed list.
 - A type without pieces shows sprite N as frame N on its one layer. Its record then points at `0x18` to a position
   per frame, or the sheet has a single sprite at the origin. The program draws the remaining types its own way, like
   walls and pipes from tiles and the gear and pulley in code, so they have no frames yet.
-- **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers and names from there and doesn't need
-  the program. Each part's `.ANM` animation names its sheets and holds its frames: frame N is frame N of the
+- **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers from there and doesn't need the
+  program. The names go into `names.json`, a list of names by id that every game shares: a TIM 1 part shows the name
+  of the same object in TIM 2, and a part TIM 2 doesn't have shows its id. Each part's `.ANM` animation names its sheets and holds its frames: frame N is frame N of the
   animation, its sprites in the order the game draws them, all on layer 0. Boxes, lines and sounds in a frame are left
   out (the fish tank, the hedge trimmers and the coffee pot draw lines). The script checks the frames across the
   builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists

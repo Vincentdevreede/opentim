@@ -65,7 +65,13 @@ for (const list of Object.keys(GAMES) as ListId[]) {
     if (differ.length || other.parts.length !== first.parts.length)
       throw new Error(`${list}: ${folders[i]} differs from ${folders[0]} in types ${differ.map((p) => p.type)}`);
   });
-  const json = JSON.stringify(first);
+  // TIM 2's names go into the names list, by id, which every game's list shares; the game's list keeps the rest.
+  if (list === "tim2") {
+    const names = first.parts.flatMap((p) => (p.name ? [{ id: p.id, name: p.name }] : []));
+    const json = JSON.stringify({ id: "names", source: "tim2", names });
+    writeFileSync(join(out, "names.json"), await format(json, { parser: "json", printWidth: 120 }));
+  }
+  const json = JSON.stringify({ ...first, parts: first.parts.map((p) => ({ ...p, name: undefined })) });
   writeFileSync(join(out, `${list}.json`), await format(json, { parser: "json", printWidth: 120 }));
   console.log(`${list}: wrote ${results[0]!.parts.length} parts, the same in ${folders.length} builds`);
 }

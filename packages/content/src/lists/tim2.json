@@ -5,7 +5,6 @@
     {
       "id": "bowling-ball",
       "type": 0,
-      "name": "Bowling Ball",
       "sheets": ["PART0"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART0", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -21,7 +20,6 @@
     {
       "id": "brick-wall",
       "type": 1,
-      "name": "Brick Wall",
       "sheets": ["PART1"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART1", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -49,7 +47,6 @@
     {
       "id": "wood-incline",
       "type": 2,
-      "name": "Wood incline",
       "sheets": ["PART2"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART2", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -61,7 +58,6 @@
     {
       "id": "tipsy-trailer",
       "type": 3,
-      "name": "Tipsy Trailer",
       "sheets": ["PART3"],
       "frames": [
         {
@@ -90,7 +86,6 @@
     {
       "id": "balloon",
       "type": 4,
-      "name": "Balloon",
       "sheets": ["PART4", "PART4B", "PART4C", "PART4D"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART4", "sprite": 10, "x": 0, "y": 0, "layer": 0 }] },
@@ -121,7 +116,6 @@
     {
       "id": "conveyor-belt",
       "type": 5,
-      "name": "Conveyor Belt",
       "sheets": ["PART5"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART5", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -154,7 +148,6 @@
     {
       "id": "mouse-motor",
       "type": 6,
-      "name": "Mouse Motor",
       "sheets": ["PART6", "PART42", "TWINKLE"],
       "frames": [
         {
@@ -317,7 +310,6 @@
     {
       "id": "pulley",
       "type": 7,
-      "name": "Pulley",
       "sheets": ["PART7"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART7", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -326,11 +318,10 @@
         { "id": 3, "sprites": [{ "sheet": "PART7", "sprite": 3, "x": 0, "y": 3, "layer": 0 }] }
       ]
     },
-    { "id": "belt", "type": 8, "name": "Belt", "sheets": [], "frames": [] },
+    { "id": "belt", "type": 8, "sheets": [], "frames": [] },
     {
       "id": "basketball",
       "type": 9,
-      "name": "Basketball",
       "sheets": ["PART9"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART9", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -355,14 +346,12 @@
     {
       "id": "rope",
       "type": 10,
-      "name": "Rope",
       "sheets": ["PART10"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART10", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "laundry-basket",
       "type": 11,
-      "name": "Laundry Basket",
       "sheets": ["PART11"],
       "frames": [
         {
@@ -378,7 +367,6 @@
     {
       "id": "curie-cat",
       "type": 12,
-      "name": "Curie Cat",
       "sheets": ["PART12"],
       "frames": [
         {
@@ -1519,7 +1507,6 @@
     {
       "id": "jack-in-the-box",
       "type": 13,
-      "name": "Jack-in-the-box",
       "sheets": ["PART13"],
       "frames": [
         {
@@ -1821,7 +1808,6 @@
     {
       "id": "gear",
       "type": 14,
-      "name": "Gear",
       "sheets": ["PART14"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART14", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -1834,7 +1820,6 @@
     {
       "id": "fish-tank",
       "type": 15,
-      "name": "Fish Tank",
       "sheets": ["PART15"],
       "frames": [
         {
@@ -3166,7 +3151,6 @@
     {
       "id": "bike-pump",
       "type": 16,
-      "name": "Bike Pump",
       "sheets": ["PART16"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART16", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -3177,7 +3161,6 @@
     {
       "id": "bucket",
       "type": 17,
-      "name": "Bucket",
       "sheets": ["PART17"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART17", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -3187,7 +3170,6 @@
     {
       "id": "cannon",
       "type": 18,
-      "name": "Cannon",
       "sheets": ["PART18X", "PART18ST", "PART41", "PART18Y", "PART18Z"],
       "frames": [
         {
@@ -4428,7 +4410,6 @@
     {
       "id": "dynamite",
       "type": 19,
-      "name": "Dynamite",
       "sheets": ["PART19", "PART41"],
       "frames": [
         {
@@ -4573,7 +4554,6 @@
     {
       "id": "phazer-pulse",
       "type": 20,
-      "name": "Phazer pulse",
       "sheets": ["PART20"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART20", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -4588,7 +4568,6 @@
     {
       "id": "electric-switch",
       "type": 21,
-      "name": "Electric Switch & Outlet",
       "sheets": ["PART21"],
       "frames": [
         {
@@ -4660,7 +4639,6 @@
     {
       "id": "remote-control",
       "type": 22,
-      "name": "Remote Control",
       "sheets": ["PART22"],
       "frames": [
         {
@@ -4790,7 +4768,6 @@
     {
       "id": "boat-cleat",
       "type": 23,
-      "name": "Boat Cleat",
       "sheets": ["PART23", "TWINKLE"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART23", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -4820,7 +4797,6 @@
     {
       "id": "fan",
       "type": 24,
-      "name": "Electric Fan",
       "sheets": ["PART24"],
       "frames": [
         {
@@ -5449,7 +5425,6 @@
     {
       "id": "flashlight",
       "type": 25,
-      "name": "Flashlight",
       "sheets": ["PART25"],
       "frames": [
         {
@@ -5481,7 +5456,6 @@
     {
       "id": "generator",
       "type": 26,
-      "name": "Generator",
       "sheets": ["PART26", "PART120", "SPARKS"],
       "frames": [
         {
@@ -5809,7 +5783,6 @@
     {
       "id": "phazer",
       "type": 27,
-      "name": "Captain Z Super Phazer",
       "sheets": ["PART27"],
       "frames": [
         {
@@ -5906,7 +5879,6 @@
     {
       "id": "baseball",
       "type": 28,
-      "name": "Baseball",
       "sheets": ["PART28"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART28", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -5922,7 +5894,6 @@
     {
       "id": "lava-lamp",
       "type": 29,
-      "name": "Lava Lamp",
       "sheets": ["PART29"],
       "frames": [
         {
@@ -6019,14 +5990,12 @@
     {
       "id": "magnifying-glass",
       "type": 30,
-      "name": "Magnifying Glass",
       "sheets": ["PART30"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART30", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "mandrill-motor",
       "type": 31,
-      "name": "Mandrill Motor",
       "sheets": ["PART31"],
       "frames": [
         {
@@ -6962,7 +6931,6 @@
     {
       "id": "boris-the-bat",
       "type": 32,
-      "name": "Boris the Bat",
       "sheets": ["PART32"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART32", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -6994,7 +6962,6 @@
     {
       "id": "cupid",
       "type": 33,
-      "name": "Cupid",
       "sheets": ["PART33"],
       "frames": [
         {
@@ -7042,7 +7009,6 @@
     {
       "id": "santa-claus",
       "type": 34,
-      "name": "Santa Claus",
       "sheets": ["PART34"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART34", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -7067,7 +7033,6 @@
     {
       "id": "boxing-glove",
       "type": 35,
-      "name": "Boxing Glove",
       "sheets": ["PART35"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART35", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -7089,7 +7054,6 @@
     {
       "id": "rocket",
       "type": 36,
-      "name": "Rocket",
       "sheets": ["ROKTBLAS", "PART36", "TWINKLE"],
       "frames": [
         {
@@ -7902,7 +7866,6 @@
     {
       "id": "hedge-trimmers",
       "type": 37,
-      "name": "Hedge Trimmers",
       "sheets": ["PART37", "TWINKLE"],
       "frames": [
         {
@@ -7965,7 +7928,6 @@
     {
       "id": "solar-panel",
       "type": 38,
-      "name": "Solar Panel",
       "sheets": ["PART38"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART38", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8019,7 +7981,6 @@
     {
       "id": "springboard",
       "type": 39,
-      "name": "Springboard",
       "sheets": ["PART39"],
       "frames": [
         {
@@ -8090,7 +8051,6 @@
     {
       "id": "pinwheel",
       "type": 40,
-      "name": "Pinwheel",
       "sheets": ["PART40"],
       "frames": [
         {
@@ -8175,7 +8135,6 @@
     {
       "id": "explosion",
       "type": 41,
-      "name": "explosion",
       "sheets": ["PART41"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART41", "sprite": 2, "x": 0, "y": 0, "layer": 0 }] },
@@ -8198,7 +8157,6 @@
     {
       "id": "newton-mouse",
       "type": 42,
-      "name": "Newton Mouse",
       "sheets": ["PART42"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART42", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8265,7 +8223,6 @@
     {
       "id": "pinball",
       "type": 43,
-      "name": "Pinball",
       "sheets": ["PART43", "TWINKLE"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART43", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8295,7 +8252,6 @@
     {
       "id": "tennis-ball",
       "type": 44,
-      "name": "Tennis Ball",
       "sheets": ["PART44"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART44", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8311,7 +8267,6 @@
     {
       "id": "aladdins-lamp",
       "type": 45,
-      "name": "Aladdin's Lamp",
       "sheets": ["PART45", "FLAMES", "TWINKLE"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART45", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8376,7 +8331,6 @@
     {
       "id": "pipe-wall",
       "type": 46,
-      "name": "Pipe Wall",
       "sheets": ["PART46"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART46", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8404,7 +8358,6 @@
     {
       "id": "curved-pipe-wall",
       "type": 47,
-      "name": "Curved Pipe Wall",
       "sheets": ["PART47"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART47", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8416,7 +8369,6 @@
     {
       "id": "wood-wall",
       "type": 48,
-      "name": "Wood Wall",
       "sheets": ["PART48"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART48", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -8459,11 +8411,10 @@
         { "id": 37, "sprites": [{ "sheet": "PART48", "sprite": 37, "x": 0, "y": 0, "layer": 0 }] }
       ]
     },
-    { "id": "rope-end", "type": 49, "name": "rope end (phantom)", "sheets": [], "frames": [] },
+    { "id": "rope-end", "type": 49, "sheets": [], "frames": [] },
     {
       "id": "electric-motor",
       "type": 50,
-      "name": "Electric Motor",
       "sheets": ["PART50"],
       "frames": [
         {
@@ -8813,7 +8764,6 @@
     {
       "id": "vacuum-cleaner",
       "type": 51,
-      "name": "Vacuum",
       "sheets": ["PART51"],
       "frames": [
         {
@@ -9298,14 +9248,12 @@
     {
       "id": "cheese",
       "type": 52,
-      "name": "Cheese",
       "sheets": ["PART52"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART52", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "thumb-tack",
       "type": 53,
-      "name": "Thumb Tack",
       "sheets": ["PART53", "TWINKLE"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART53", "sprite": 0, "x": 4, "y": 0, "layer": 0 }] },
@@ -9402,7 +9350,6 @@
     {
       "id": "mel-schlemming",
       "type": 54,
-      "name": "Mel Schlemming",
       "sheets": ["PART54"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART54", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -9798,7 +9745,6 @@
     {
       "id": "remote-control-explosives",
       "type": 55,
-      "name": "Remote Control Explosives",
       "sheets": ["PART22"],
       "frames": [
         {
@@ -9875,7 +9821,6 @@
     {
       "id": "caution-wall",
       "type": 56,
-      "name": "Caution Wall",
       "sheets": ["PART56"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART56", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -9901,7 +9846,6 @@
     {
       "id": "large-curved-pipe",
       "type": 57,
-      "name": "Large Curved Pipe",
       "sheets": ["PART57"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART57", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -9913,7 +9857,6 @@
     {
       "id": "mels-house",
       "type": 58,
-      "name": "Mel's House",
       "sheets": ["PART58"],
       "frames": [
         {
@@ -10777,7 +10720,6 @@
     {
       "id": "super-ball",
       "type": 59,
-      "name": "Super Ball",
       "sheets": ["PART59"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART59", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -10788,7 +10730,6 @@
     {
       "id": "grass-floor",
       "type": 60,
-      "name": "Grass Floor",
       "sheets": ["PART60"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART60", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -10826,7 +10767,6 @@
     {
       "id": "alligator",
       "type": 61,
-      "name": "Alligator",
       "sheets": ["PART61"],
       "frames": [
         {
@@ -11215,7 +11155,6 @@
     {
       "id": "coffee-pot",
       "type": 62,
-      "name": "Coffee Pot",
       "sheets": ["PART62"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART62", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -11373,7 +11312,6 @@
     {
       "id": "pool-ball",
       "type": 63,
-      "name": "Pool Ball",
       "sheets": ["PART63"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART63", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -11397,7 +11335,6 @@
     {
       "id": "pinball-bumper",
       "type": 64,
-      "name": "Pinball Bumper",
       "sheets": ["PART64"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART64", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
@@ -11409,7 +11346,6 @@
     {
       "id": "leprechaun",
       "type": 65,
-      "name": "Leprechaun",
       "sheets": ["PART65"],
       "frames": [
         {
@@ -11544,7 +11480,6 @@
     {
       "id": "mouse-hole",
       "type": 66,
-      "name": "Mouse Hole",
       "sheets": ["PART66"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART66", "sprite": 4, "x": 0, "y": 0, "layer": 0 }] },
@@ -11595,7 +11530,6 @@
     {
       "id": "can-opener",
       "type": 67,
-      "name": "Can Opener",
       "sheets": ["PART67"],
       "frames": [
         {
@@ -11812,7 +11746,6 @@
     {
       "id": "soccer-ball",
       "type": 68,
-      "name": "Soccer Ball",
       "sheets": ["PART68"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART68", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -11828,7 +11761,6 @@
     {
       "id": "anti-gravity-pad",
       "type": 69,
-      "name": "Anti-Gravity Pad",
       "sheets": ["PART69"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART69", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -11841,7 +11773,6 @@
     {
       "id": "missile",
       "type": 70,
-      "name": "Missile",
       "sheets": ["ROKTBLAS", "PART70", "BLANK"],
       "frames": [
         {
@@ -12530,7 +12461,6 @@
     {
       "id": "boxes",
       "type": 71,
-      "name": "Boxes",
       "sheets": ["PART71"],
       "frames": [
         {
@@ -12571,7 +12501,6 @@
     {
       "id": "peg",
       "type": 72,
-      "name": "Peg",
       "sheets": ["PART75"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART75", "sprite": 1, "x": 0, "y": 0, "layer": 0 }] },
@@ -12591,7 +12520,6 @@
     {
       "id": "trap-door",
       "type": 73,
-      "name": "Trap Door",
       "sheets": ["PART73"],
       "frames": [
         {
@@ -12670,7 +12598,6 @@
     {
       "id": "nitroglycerine",
       "type": 74,
-      "name": "Nitroglycerine",
       "sheets": ["PART74", "BLANK"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART74", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -12687,7 +12614,6 @@
     {
       "id": "match-on-a-spring",
       "type": 75,
-      "name": "Match-on-a-Spring",
       "sheets": ["PART75", "FLAMES"],
       "frames": [
         {
@@ -12849,14 +12775,12 @@
     {
       "id": "steel-cable",
       "type": 76,
-      "name": "Steel Cable",
       "sheets": ["PART76"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART76", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "tin-snips",
       "type": 77,
-      "name": "Tin Snips",
       "sheets": ["PART77"],
       "frames": [
         {
@@ -12874,7 +12798,6 @@
     {
       "id": "flint-and-tinder",
       "type": 78,
-      "name": "Flint & Tinder",
       "sheets": ["SPARKS", "FLAMES", "PART78"],
       "frames": [
         {
@@ -13182,7 +13105,6 @@
     {
       "id": "hot-air-balloon",
       "type": 79,
-      "name": "Hot Air Balloon",
       "sheets": ["PART79", "FLAMES"],
       "frames": [
         {
@@ -13280,7 +13202,6 @@
     {
       "id": "fireworks",
       "type": 80,
-      "name": "Fireworks",
       "sheets": ["PART80", "ROKTBLAS", "BLANK", "FWBLUE", "FWGREN", "FWYEL"],
       "frames": [
         {
@@ -13953,7 +13874,6 @@
     {
       "id": "toaster",
       "type": 81,
-      "name": "Toaster",
       "sheets": ["PART81"],
       "frames": [
         {
@@ -14360,7 +14280,6 @@
     {
       "id": "sand-wall",
       "type": 82,
-      "name": "Sand Wall",
       "sheets": ["PART82"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART82", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -14398,7 +14317,6 @@
     {
       "id": "cinder-block-wall",
       "type": 83,
-      "name": "Cinder Block Wall",
       "sheets": ["PART83"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART83", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -14426,7 +14344,6 @@
     {
       "id": "greco-roman-wall",
       "type": 84,
-      "name": "Greco-Roman Wall",
       "sheets": ["PART84"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART84", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -14459,7 +14376,6 @@
     {
       "id": "log-wall",
       "type": 85,
-      "name": "Log Wall",
       "sheets": ["PART85"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART85", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -14502,7 +14418,6 @@
     {
       "id": "tiny-gear",
       "type": 86,
-      "name": "Tiny Gear",
       "sheets": ["PART86"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART86", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -14515,7 +14430,6 @@
     {
       "id": "programmable-ball",
       "type": 87,
-      "name": "Programmable Ball",
       "sheets": ["PART87"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART87", "sprite": 20, "x": 0, "y": 0, "layer": 0 }] },
@@ -14544,7 +14458,6 @@
     {
       "id": "accelerator-tube",
       "type": 88,
-      "name": "Accelerator Tube",
       "sheets": ["PART88"],
       "frames": [
         {
@@ -14632,7 +14545,6 @@
     {
       "id": "trans-roto-matic",
       "type": 89,
-      "name": "Trans-Roto-Matic",
       "sheets": ["PART89"],
       "frames": [
         {
@@ -14730,7 +14642,6 @@
     {
       "id": "roto-trans-converter",
       "type": 90,
-      "name": "Roto-Trans Converter",
       "sheets": ["PART90"],
       "frames": [
         {
@@ -14819,7 +14730,6 @@
     {
       "id": "red-laser",
       "type": 91,
-      "name": "Red Laser",
       "sheets": ["PART91", "LASER"],
       "frames": [
         {
@@ -14971,7 +14881,6 @@
     {
       "id": "green-laser",
       "type": 92,
-      "name": "Green Laser",
       "sheets": ["PART92", "LASER"],
       "frames": [
         {
@@ -15120,7 +15029,6 @@
     {
       "id": "blue-laser",
       "type": 93,
-      "name": "Blue Laser",
       "sheets": ["PART93", "LASER"],
       "frames": [
         {
@@ -15272,7 +15180,6 @@
     {
       "id": "angled-mirror",
       "type": 94,
-      "name": "Angled Mirror",
       "sheets": ["PART94"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART94", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -15284,7 +15191,6 @@
     {
       "id": "laser-mixer",
       "type": 95,
-      "name": "Laser Mixer",
       "sheets": ["PART95"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART95", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16198,7 +16104,6 @@
     {
       "id": "laser-activated-plug",
       "type": 96,
-      "name": "Laser-Activated Plug",
       "sheets": ["PART96"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART96", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16367,7 +16272,6 @@
     {
       "id": "large-pipe",
       "type": 97,
-      "name": "Large Pipes",
       "sheets": ["PART97"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART97", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16381,14 +16285,12 @@
     {
       "id": "t-connector",
       "type": 98,
-      "name": "T-Connector",
       "sheets": ["PART98"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART98", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "grass-incline",
       "type": 99,
-      "name": "Grass Incline",
       "sheets": ["PART99"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART99", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16400,7 +16302,6 @@
     {
       "id": "log-incline",
       "type": 100,
-      "name": "Log Incline",
       "sheets": ["PART100"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART100", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16412,7 +16313,6 @@
     {
       "id": "granite-incline",
       "type": 101,
-      "name": "Granite Incline",
       "sheets": ["PART101"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART101", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16424,7 +16324,6 @@
     {
       "id": "brick-incline",
       "type": 102,
-      "name": "Brick Incline",
       "sheets": ["PART102"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART102", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16436,35 +16335,30 @@
     {
       "id": "archway",
       "type": 103,
-      "name": "Archway",
       "sheets": ["PART103"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART103", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "wooden-barrier",
       "type": 104,
-      "name": "Wooden Barrier",
       "sheets": ["PART104"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART104", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "scaffold-barrier",
       "type": 105,
-      "name": "Scaffold Barrier",
       "sheets": ["PART105"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART105", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "lattice-archway",
       "type": 106,
-      "name": "Lattice Archway",
       "sheets": ["PART106"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART106", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "electric-mixer",
       "type": 107,
-      "name": "Electric Mixer",
       "sheets": ["PART107"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART107", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16477,7 +16371,6 @@
     {
       "id": "leaky-bucket",
       "type": 108,
-      "name": "Leaky Bucket",
       "sheets": ["PART108"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART108", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16707,7 +16600,6 @@
     {
       "id": "blimp",
       "type": 109,
-      "name": "Blimp",
       "sheets": ["PART109", "FLAMES"],
       "frames": [
         {
@@ -16836,49 +16728,42 @@
     {
       "id": "elm-tree",
       "type": 110,
-      "name": "Elm Tree",
       "sheets": ["PART110"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART110", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "spruce-tree",
       "type": 111,
-      "name": "Spruce Tree",
       "sheets": ["PART111"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART111", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "cactus",
       "type": 112,
-      "name": "Cactus",
       "sheets": ["PART112"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART112", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "sun",
       "type": 113,
-      "name": "Sun",
       "sheets": ["PART113"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART113", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "big-cloud",
       "type": 114,
-      "name": "Big Cloud",
       "sheets": ["PART114"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART114", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "little-cloud",
       "type": 115,
-      "name": "Little Cloud",
       "sheets": ["PART115"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART115", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "pinball-flipper",
       "type": 116,
-      "name": "Pinball Flipper",
       "sheets": ["PART116"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART116", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16888,7 +16773,6 @@
     {
       "id": "pool-cue",
       "type": 117,
-      "name": "Pool Cue",
       "sheets": ["PART117"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART117", "sprite": 0, "x": 35, "y": 34, "layer": 0 }] },
@@ -16952,7 +16836,6 @@
     {
       "id": "pool-table-wall",
       "type": 118,
-      "name": "Pool Table Wall",
       "sheets": ["PART118"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART118", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -16983,7 +16866,6 @@
     {
       "id": "pool-table-pocket",
       "type": 119,
-      "name": "Pool Table Pocket",
       "sheets": ["PART119"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART119", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -17007,7 +16889,6 @@
     {
       "id": "electrical-outlet",
       "type": 120,
-      "name": "Electrical Outlet",
       "sheets": ["PART120"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART120", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -17038,35 +16919,30 @@
     {
       "id": "vine-tile",
       "type": 121,
-      "name": "Vine Tile",
       "sheets": ["PART121"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART121", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "gear-tile",
       "type": 122,
-      "name": "tile",
       "sheets": ["PART122"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART122", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "metal-tile",
       "type": 123,
-      "name": "tile",
       "sheets": ["PART123"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART123", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "diamond-tile",
       "type": 124,
-      "name": "tile",
       "sheets": ["PART124"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART124", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "yellow-brick-wall",
       "type": 125,
-      "name": "Yellow Brick Wall",
       "sheets": ["PART125"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART125", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -17094,7 +16970,6 @@
     {
       "id": "yellow-brick-incline",
       "type": 126,
-      "name": "Yellow Brick Incline",
       "sheets": ["PART126"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART126", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -17103,67 +16978,58 @@
         { "id": 3, "sprites": [{ "sheet": "PART126", "sprite": 3, "x": 0, "y": 0, "layer": 0 }] }
       ]
     },
-    { "id": "color-block", "type": 127, "name": "Color Block", "sheets": [], "frames": [] },
+    { "id": "color-block", "type": 127, "sheets": [], "frames": [] },
     {
       "id": "purple-mountain",
       "type": 128,
-      "name": "purple mountain",
       "sheets": ["PART128"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART128", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "desert-mesa",
       "type": 129,
-      "name": "desert mesa",
       "sheets": ["PART129"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART129", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "glass-building",
       "type": 130,
-      "name": "Glass Building",
       "sheets": ["PART130"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART130", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "apartment-building",
       "type": 131,
-      "name": "apartment building",
       "sheets": ["PART131"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART131", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "office-building",
       "type": 132,
-      "name": "office building",
       "sheets": ["PART132"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART132", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "car",
       "type": 133,
-      "name": "car",
       "sheets": ["PART133"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART133", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "lamp-post",
       "type": 134,
-      "name": "lamp post",
       "sheets": ["PART134"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART134", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "fire-hydrant",
       "type": 135,
-      "name": "fire hydrant",
       "sheets": ["PART135"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART135", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "message-computer",
       "type": 136,
-      "name": "Message Computer",
       "sheets": ["PART136", "PART136A"],
       "frames": [
         {
@@ -17229,7 +17095,6 @@
     {
       "id": "egg-timer",
       "type": 137,
-      "name": "Egg Timer",
       "sheets": ["PART137"],
       "frames": [
         {
@@ -17599,7 +17464,6 @@
     {
       "id": "candle",
       "type": 138,
-      "name": "Candle",
       "sheets": ["PART138", "FLAMES"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART138", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },
@@ -17643,7 +17507,6 @@
     {
       "id": "teeter-totter",
       "type": 139,
-      "name": "Teeter-Totter",
       "sheets": ["PART139"],
       "frames": [
         {
@@ -17672,63 +17535,54 @@
     {
       "id": "small-cactus",
       "type": 140,
-      "name": "Small Cactus",
       "sheets": ["PART140"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART140", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "small-maple-tree",
       "type": 141,
-      "name": "Small Maple Tree",
       "sheets": ["PART141"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART141", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "small-pine-tree",
       "type": 142,
-      "name": "Small Pine Tree",
       "sheets": ["PART142"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART142", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "small-cloud",
       "type": 143,
-      "name": "Small Cloud",
       "sheets": ["PART143"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART143", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "small-mountain",
       "type": 144,
-      "name": "small mountain",
       "sheets": ["PART144"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART144", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "medium-mountain",
       "type": 145,
-      "name": "medium mountain",
       "sheets": ["PART145"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART145", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "small-mesa",
       "type": 146,
-      "name": "small mesa",
       "sheets": ["PART146"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART146", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "medium-mesa",
       "type": 147,
-      "name": "medium mesa",
       "sheets": ["PART147"],
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART147", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] }]
     },
     {
       "id": "laser-detector",
       "type": 148,
-      "name": "Laser Detector",
       "sheets": ["PART148"],
       "frames": [
         { "id": 0, "sprites": [{ "sheet": "PART148", "sprite": 0, "x": 0, "y": 0, "layer": 0 }] },

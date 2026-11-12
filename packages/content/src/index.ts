@@ -1,4 +1,5 @@
 import evenmore from "./lists/evenmore.json" with { type: "json" };
+import names from "./lists/names.json" with { type: "json" };
 import tim1 from "./lists/tim1.json" with { type: "json" };
 import tim2 from "./lists/tim2.json" with { type: "json" };
 import type { PartList } from "./model.ts";
@@ -29,6 +30,12 @@ export { RECORD_FIELDS, RECORD_SIZE, type RecordField } from "./read/type-table.
 export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
   ([tim1, evenmore, tim2] as PartList[]).map((list) => [list.id, list]),
 );
+
+/**
+ * The English name of each part, by id. The names are the game's own, from TIM 2's `INFO.RES`; the same object has the
+ * same id in every list, so a TIM 1 part gets the name of the same object in TIM 2. A part TIM 2 doesn't have has none.
+ */
+export const PART_NAMES: ReadonlyMap<string, string> = new Map(names.names.map((n) => [n.id, n.name]));
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);
