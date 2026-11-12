@@ -1667,7 +1667,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const expr = asExpression(value.value);
     const f = finding(expr, condition, s, [...e, ...l.evidence]);
     if (l.uncertain) f.confidence = "unresolved";
-    if (!["stack", "data"].includes(l.object))
+    if (l.object !== "stack")
       writes.push({
         ...f,
         object: l.object,
@@ -3092,7 +3092,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const object = before.slice(0, separator);
       const offset = Number(before.slice(separator + 1));
       const width = Number(key.slice(split + 1));
-      if (object === "stack" || object === "data") continue;
+      if (object === "stack") continue;
       const expression = asExpression(final.value);
       updates.push({
         object,
@@ -3145,20 +3145,22 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       returnConfidence: containsUnknown(asExpression(returned.value)) ? "unresolved" : "inferred",
     });
     const incomplete = s.uncertain || s.partMemoryHavocAt !== undefined;
+    // A caller composes the globals a path leaves as well; the rules of the state keep to the part's fields.
+    const ruleUpdates = updates.filter((u) => u.object !== "data");
     const transition = {
       ...f,
       from,
       to,
       condition,
       routine: entry.address,
-      updates,
+      updates: ruleUpdates,
       ...(incomplete ? { effectsIncomplete: true as const } : {}),
     };
     const key = JSON.stringify([
       from,
       to,
       condition,
-      updates.map((u) => [u.object, u.offset, u.width, u.value]),
+      ruleUpdates.map((u) => [u.object, u.offset, u.width, u.value]),
       incomplete,
     ]);
     if (!outputs.has(key)) {
@@ -4141,6 +4143,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const engineBefore = i.target && options.engineSummaries?.get(i.target.address);
       const composableObject = (object: string) =>
         object === "part" ||
+        object === "data" ||
         (engineBefore?.kind === "owner-and-outline-relation" &&
           engineBefore.writes.some(
             (write) => write.separateStorage === "outline" && object === `referenced-by(part+${hex(write.path[0]!)})`,
@@ -4712,14 +4715,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           branch.assumptions = [...new Set([...branch.assumptions, ...outcome.assumptions])];
           branch.evidence.push(evidenceOf(i), ...outcome.evidence);
           for (const item of mapped) {
+            const global = item.effect.object === "data";
             branch.registers.set("__summary_owner", item.pointer);
             write(
               {
                 kind: "memory",
                 segment: "ds",
-                base: ["__summary_owner"],
+                base: global ? [] : ["__summary_owner"],
                 displacement: item.effect.offset,
-                direct: false,
+                direct: global,
                 width: item.effect.width === 8 ? 8 : 16,
               },
               tracked(
@@ -4890,22 +4894,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           s.stateWritten = true;
         }
       }
-      // A helper's stores through another pointer, like a local whose address the caller passed or an object the part
-      // points to, may have been made: what they reach is no longer known.
+      // A helper's stores to globals or through another pointer, like a local whose address the caller passed or an
+      // object the part points to, may have been made: what they reach is no longer known.
       if (summary && !summary.uncertainEffects) {
         const base = summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset;
         for (const effect of summary.writes) {
-          if (["part", "stack", "data"].includes(effect.object)) continue;
-          const pointer = formalObject(effect.object, args, base, s, summary.objectPointer.argumentOffset);
-          if (pointer.value.kind === "pointer") {
+          if (effect.object === "part" || effect.object === "stack") continue;
+          const global = effect.object === "data";
+          const pointer = global
+            ? tracked(constant(0))
+            : formalObject(effect.object, args, base, s, summary.objectPointer.argumentOffset);
+          if (global || pointer.value.kind === "pointer") {
             s.registers.set("__summary_other", pointer);
             write(
               {
                 kind: "memory",
                 segment: "ds",
-                base: ["__summary_other"],
+                base: global ? [] : ["__summary_other"],
                 displacement: effect.offset,
-                direct: false,
+                direct: global,
                 width: effect.width === 8 ? 8 : 16,
               },
               tracked(unknown(`Possible effect of helper ${hex(summary.address)} on ${effect.object}`), [

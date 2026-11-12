@@ -30,4 +30,17 @@ describe("effects of a called routine", () => {
     const routine = callerWith(caller, helper);
     expect(routine.transitions.map((t) => [t.to.kind, t.confidence])).toEqual([["unknown", "unresolved"]]);
   });
+
+  it("reads a global after the call as the helper left it", () => {
+    // The caller sets the global at 0x300 to 1, calls the helper with the part and copies the global to field 0x20.
+    const caller = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0xc7, 0x06, 0, 3, 1, 0, 0x56];
+    caller.push(...call(caller.length, 0x80), 0x59, 0xa1, 0, 3, 0x89, 0x44, 0x20, 0x5e, 0x5d, 0xcb);
+    // The helper sets the global to 2 and the state to 3.
+    const helper = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 4, 0xc7, 0x06, 0, 3, 2, 0, 0xc7, 0x44, 0x0c, 3, 0];
+    helper.push(0x5e, 0x5d, 0xc3);
+    const routine = callerWith(caller, helper);
+    expect(routine.transitions).toHaveLength(1);
+    const update = routine.transitions[0]!.updates?.find((u) => u.object === "part" && u.offset === 0x20);
+    expect(update?.value).toEqual({ kind: "constant", value: 2, width: 16 });
+  });
 });
