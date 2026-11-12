@@ -223,7 +223,7 @@ interface Bits {
   width: number;
 }
 type Bindings = Map<string, Bits>;
-const full = (width: number) => 2 ** width - 1;
+const full = (width: number) => (width === 16 ? 0xffff : width === 8 ? 0xff : 2 ** width - 1);
 const bits = (value: number, mask: number, width: number): Bits => ({
   value: unsigned(value, width) & mask,
   mask: mask & full(width),
@@ -231,10 +231,27 @@ const bits = (value: number, mask: number, width: number): Bits => ({
 });
 const unknownBits = (width: number): Bits => bits(0, 0, width);
 const known = (value: Bits) => value.mask === full(value.width);
-const key = (object: string, offset: number) => `${object}:${offset}`;
-const evidence = (...items: Evidence[][]): Evidence[] => [
-  ...new Map(items.flat().map((item) => [item.address, item])).values(),
-];
+/** The key of each byte of each object, kept: the walks ask for the same few thousand all the time. */
+const keys = new Map<string, string[]>();
+const key = (object: string, offset: number) => {
+  let list = keys.get(object);
+  if (!list) keys.set(object, (list = []));
+  return (list[offset] ??= `${object}:${offset}`);
+};
+/** Lists `evidence` made: each has one item per address already. */
+const mergedEvidence = new WeakSet<Evidence[]>();
+/** The evidence of the lists as one list, one item per address. */
+const evidence = (...items: Evidence[][]): Evidence[] => {
+  let merged: Evidence[];
+  if (items.length === 1 && mergedEvidence.has(items[0]!)) merged = items[0]!.slice();
+  else {
+    const byAddress = new Map<number, Evidence>();
+    for (const list of items) for (const item of list) byAddress.set(item.address, item);
+    merged = [...byAddress.values()];
+  }
+  mergedEvidence.add(merged);
+  return merged;
+};
 const confidence = (...values: Confidence[]): Confidence =>
   values.includes("unresolved") ? "unresolved" : values.includes("inferred") ? "inferred" : "checked";
 const finding = (items: Finding[], extra: string[] = []): Finding => ({
@@ -285,6 +302,7 @@ function opaque(expression: Expression): boolean {
   }
   return known;
 }
+const COMPARISONS = new Set(["==", "!=", "<", "<=", ">", ">="]);
 /** Partial bits allow a proved flag clear or set without inventing the remaining flags. */
 function valueOf(expression: Expression, bindings: Bindings): Bits {
   const width = expression.width;
@@ -309,7 +327,7 @@ function valueOf(expression: Expression, bindings: Bindings): Bits {
   if (expression.operator === "^") return bits(left.value ^ right.value, left.mask & right.mask, width);
   if (!known(left) || !known(right))
     return expression.operator === "+" ? choiceBits(expression, bindings) : unknownBits(width);
-  if (["==", "!=", "<", "<=", ">", ">="].includes(expression.operator)) {
+  if (COMPARISONS.has(expression.operator)) {
     const a = unsigned(left.value, expression.left.width),
       b = unsigned(right.value, expression.left.width),
       op = expression.operator;

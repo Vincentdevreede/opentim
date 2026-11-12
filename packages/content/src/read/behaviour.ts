@@ -264,7 +264,37 @@ const textOf = (value: unknown) => {
   if (text === undefined) texts.set(value, (text = JSON.stringify(value)));
   return text;
 };
-const same = (a: unknown, b: unknown) => textOf(a) === textOf(b);
+const same = (a: unknown, b: unknown) => a === b || textOf(a) === textOf(b);
+/** The kinds of expressions and predicates, whose texts are kept. */
+const TERM_KINDS = new Set(["constant", "field", "binary", "table", "unknown", "true", "compare", "and"]);
+const quotedNames = new Map<string, string>();
+/**
+ * The JSON text of a finding without the evidence in it, at any depth: findings with the same key say the same thing.
+ * It is what `JSON.stringify` gives with a replacer that drops every `evidence`, but an expression or predicate in the
+ * finding gives its kept text instead of being walked again, which is most of a finding.
+ */
+function findingKey(value: unknown): string {
+  if (typeof value !== "object" || value === null) return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) {
+    let list = "[";
+    for (let i = 0; i < value.length; i++) list += (i ? "," : "") + findingKey(value[i]);
+    return list + "]";
+  }
+  const kind = (value as { kind?: unknown }).kind;
+  if (typeof kind === "string" && TERM_KINDS.has(kind)) {
+    const text = textOf(value);
+    if (!text.includes('"evidence":')) return text;
+  }
+  let record = "{";
+  for (const name of Object.keys(value)) {
+    const item = (value as Record<string, unknown>)[name];
+    if (name === "evidence" || item === undefined || typeof item === "function") continue;
+    let quoted = quotedNames.get(name);
+    if (quoted === undefined) quotedNames.set(name, (quoted = JSON.stringify(name)));
+    record += (record.length > 1 ? "," : "") + quoted + ":" + findingKey(item);
+  }
+  return record + "}";
+}
 /** The named part fields the asking part keeps: those its own rope callback can't write when a question comes back. */
 const askingKeeps = (connected: NonNullable<EngineSummary["connected"]>) =>
   connected.partFields
@@ -326,7 +356,8 @@ export function binary(
   budget = 96,
 ): Expression {
   if (left.kind === "unknown" || right.kind === "unknown") return unknown(`Unresolved operand in ${operator}`, width);
-  if (expressionSize(left) + expressionSize(right) > budget) return unknown(SIZE_BUDGET_REACHED, width);
+  if (budget !== Infinity && expressionSize(left) + expressionSize(right) > budget)
+    return unknown(SIZE_BUDGET_REACHED, width);
   if (left.kind === "constant" && right.kind === "constant") {
     const a = unsigned(left.value, left.width);
     const b = unsigned(right.value, right.width);
@@ -623,7 +654,7 @@ function possible(predicate: Predicate, state?: number, stateOffset = 0x0c, scal
     const ranges = new Map<string, { low: number; high: number; excluded: Set<number> }>();
     for (const p of predicate.terms) {
       if (p.kind !== "compare" || p.right.kind !== "constant" || p.left.kind === "unknown") continue;
-      const key = JSON.stringify([p.left, p.signed]);
+      const key = `${textOf(p.left)}${p.signed}`;
       const limit = 2 ** p.left.width;
       const range = ranges.get(key) ?? {
         low: p.signed ? -limit / 2 : 0,
@@ -5018,9 +5049,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       );
   }
   // Findings that say the same thing are duplicates whichever path proved them; one path's evidence is enough.
-  const key = (item: unknown) =>
-    JSON.stringify(item, (name, value: unknown) => (name === "evidence" ? undefined : value));
-  const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [key(item), item])).values()];
+  const dedup = <T>(items: T[]) => [...new Map(items.map((item) => [findingKey(item), item])).values()];
   return {
     ...code,
     ...(gearRun ? { gearRun } : {}),
