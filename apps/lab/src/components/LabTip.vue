@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
+import { nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 
 /**
  * A tip that shows next to its trigger as soon as the pointer is on it or it has keyboard focus. It is drawn on the
@@ -7,7 +7,7 @@ import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
  * that repeat down long lists; screen readers then read the text as the trigger's description. While it shows, the
  * browser's own tooltip of a surrounding element, like a row's `title`, is held back, so the two don't show at once.
  */
-withDefaults(defineProps<{ text: string; focusable?: boolean }>(), { focusable: true });
+const props = withDefaults(defineProps<{ text: string; focusable?: boolean }>(), { focusable: true });
 
 const trigger = useTemplateRef<HTMLElement>("trigger");
 const tip = useTemplateRef<HTMLElement>("tip");
@@ -31,6 +31,11 @@ async function show() {
     owner.removeAttribute("title");
   }
   shown.value = true;
+  await place();
+}
+
+/** Puts the tip below its trigger, or above it when there is no room below. */
+async function place() {
   await nextTick();
   const t = trigger.value?.getBoundingClientRect();
   const box = tip.value?.getBoundingClientRect();
@@ -39,6 +44,11 @@ async function show() {
   const below = t.bottom + 6;
   at.value = { left, top: below + box.height > innerHeight - 8 ? t.top - box.height - 6 : below };
 }
+// A tip whose text changes while it shows, like the read's progress, is placed again, so a longer text still fits.
+watch(
+  () => props.text,
+  () => shown.value && place(),
+);
 </script>
 
 <template>
