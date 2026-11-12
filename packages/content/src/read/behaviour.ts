@@ -330,6 +330,7 @@ const selectedWrite = (effect: { offset: number; width: number }, i: Instruction
     unresolved: true,
   }) as Expression;
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
+const FRESH_OBJECT = /^(nullable allocation|fresh object) returned at 0x[0-9a-f]+$/;
 const signed = (n: number, width: number) => {
   const u = unsigned(n, width);
   return u >= 2 ** (width - 1) ? u - 2 ** width : u;
@@ -4908,7 +4909,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       if (summary && !summary.uncertainEffects) {
         const base = summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset;
         for (const effect of summary.writes) {
-          if (effect.object === "part" || effect.object === "stack") continue;
+          // Storage the helper allocated is new: nothing the caller knew can be in it.
+          if (["part", "stack"].includes(effect.object) || FRESH_OBJECT.test(effect.object)) continue;
           const global = effect.object === "data";
           const pointer = global
             ? tracked(constant(0))
