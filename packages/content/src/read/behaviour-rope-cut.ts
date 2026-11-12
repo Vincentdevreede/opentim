@@ -107,8 +107,9 @@ export function addRopeCutSummary(
       assumptions,
       address: code.address,
       kind: "rope-cut",
+      // Most forms stop after the first cut; three go on along the parts list and cut every rope that crosses.
       purpose:
-        "Cuts every rope that crosses the given edge in two, with new rope pieces, and relinks the parts and pulleys on it.",
+        "Cuts a rope that crosses the given edge in two (in some builds every rope that crosses it), with new rope pieces, and relinks the parts and pulleys on it.",
       argumentOffset: 6,
       argumentKind: "object",
       writes: unknownWrites,

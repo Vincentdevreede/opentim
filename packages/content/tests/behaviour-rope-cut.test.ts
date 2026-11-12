@@ -115,6 +115,8 @@ describe("the scissors' rope cut", () => {
     addRopeCutSummary(routine(), summaries, [pattern]);
     const summary = summaries.get(0)!;
     expect(summary.kind).toBe("rope-cut");
+    // Most builds stop after one cut, so the purpose doesn't promise every rope.
+    expect(summary.purpose).toMatch(/^Cuts a rope that crosses/);
     expect(summary.footprint).toMatchObject({ partMemoryComplete: true, preservesPartState: true });
     const parts = summary.connected!.partFields.map((field) => field.offset);
     expect(parts).toEqual(expect.arrayContaining([0x5a, 0x5c, 0x66, 0x68, 0x00, 0x96]));
