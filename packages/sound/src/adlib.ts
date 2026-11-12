@@ -458,17 +458,17 @@ export class AdlibDriver {
 
   /**
    * Scales the level of the operators that are heard: the carrier, and the modulator too in additive instruments. On
-   * the Sound Blaster Pro it is written to one chip.
+   * the Sound Blaster Pro it is written to one chip. The carrier comes first, as in the driver.
    */
   private loudness(index: number, loudness: number, chip?: number) {
     const ins = this.bank.instruments[this.voices[index]!.instrument];
     if (!ins) return;
     const share = LEVELS[loudness]!;
-    ins.operators.forEach((op, i) => {
-      if (i === 0 && !ins.additive) return;
+    for (const i of ins.additive ? [1, 0] : [1]) {
+      const op = ins.operators[i]!;
       const reg = OFFSETS[MODULATORS[index]! + i * 3]!;
       this.opl.write(0x40 + reg, (op.ksl << 6) | (63 - Math.floor((share * (63 - op.level)) / 63)), chip);
-    });
+    }
   }
 }
 

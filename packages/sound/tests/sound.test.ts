@@ -193,6 +193,16 @@ describe("AdlibDriver", () => {
     // So the instrument isn't written again.
     expect(log.filter((r) => r >= 0x20 && r < 0x40)).toEqual([]);
   });
+
+  it("writes an additive instrument's carrier level before its modulator's", () => {
+    const { d, log } = driver();
+    d.message(0xc0, 1, 0);
+    d.message(0x90, 60, 127);
+    d.message(0x80, 60, 0);
+    log.length = 0;
+    d.message(0x90, 60, 64);
+    expect(log.filter((r) => r >= 0x40 && r < 0x60)).toEqual([0x43, 0x40]);
+  });
 });
 
 describe("AdlibDriver on the Sound Blaster Pro", () => {
