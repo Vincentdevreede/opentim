@@ -43,6 +43,7 @@ export function readTim2Types(exe: Uint8Array): Tim2Types {
     const count = (first - table) / 2;
     const records = Array.from({ length: count }, (_, type) => {
       const record = dataSegment + word(at + type * 2);
+      if (record + TIM2_RECORD_SIZE > exe.length) throw new Error(`Type ${type}'s record runs past the program`);
       return exe.slice(record, record + TIM2_RECORD_SIZE);
     });
     return { dataSegment, table, records };

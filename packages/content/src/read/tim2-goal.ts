@@ -36,7 +36,9 @@ export function summariseTim2Goal(level: Level, nameOf: (type: number) => string
   const conditions: GoalCondition[] = [];
   goal.entries.forEach((entry, i) => {
     if (entry.part === null) return;
-    const [low = 0, high = 0, count = 0, x = 0, y = 0, width = 0, height = 0] = entry.values;
+    // Up to version 0x109 an entry keeps one state limit; TIM2.EXE's loader uses it as the second limit too.
+    const values = entry.values.length === 6 ? [entry.values[0]!, ...entry.values] : entry.values;
+    const [low = 0, high = 0, count = 0, x = 0, y = 0, width = 0, height = 0] = values;
     lines.push(`entry ${i + 1}: part #${entry.part}, ${entry.values.join(", ")}`);
     const part = level.parts[entry.part];
     if (!part) return;

@@ -7,6 +7,7 @@ import {
   PULLEY,
   TIM2_SCREEN,
   readLevel,
+  type GoalCondition,
   type Level,
   type LevelLayout,
   type LevelPart,
@@ -546,6 +547,12 @@ export function layoutScene(
     knot,
   };
 }
+
+/** The parts a goal's condition looks at: the one part it names, or else every part of its types. */
+export const goalPartsOf = (condition: GoalCondition, parts: readonly DrawnPart[]): DrawnPart[] =>
+  condition.part !== undefined
+    ? parts.filter((d) => d.part.index === condition.part)
+    : parts.filter((d) => condition.types?.some((t) => t.type === d.part.type));
 
 /** The topmost part at a point of the level, for clicks. Lines can't be picked; their part shows in the structure. */
 export function partAt(scene: Scene, point: Point): DrawnPart | undefined {

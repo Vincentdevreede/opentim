@@ -121,6 +121,14 @@ describe("TIM 2", () => {
     expect(() => readAnimation(newer)).toThrow(/version 1002/);
   });
 
+  it("refuses a frame whose commands lie past the commands' size, even when the chunk goes on", () => {
+    const anm = animation();
+    const start = 8; // past the ANM: chunk's tag and size
+    // Only frame 0's 15 words are in the commands now; frame 1 starts at word 15.
+    anm[start + 10] = 30;
+    expect(() => readAnimation(anm)).toThrow(/past the commands' end, at byte/);
+  });
+
   it("steps the machine every 2 ticks of a 59.2 Hz timer", () => {
     expect(TIM2_STEP_MS).toBeCloseTo(33.8, 1);
   });

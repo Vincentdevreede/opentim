@@ -2,7 +2,7 @@ import type { PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { layoutScene, partAt, readLevels } from "../src/levels.ts";
+import { goalPartsOf, layoutScene, partAt, readLevels, type DrawnPart } from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -380,5 +380,17 @@ describe("layoutScene", () => {
     const scene = layoutScene(level, undefined, spriteOf);
     expect(scene.parts[0]!.how).toBe("outline");
     expect(scene.notes[0]!.title).toBe("No part list for this game.");
+  });
+});
+
+describe("goalPartsOf", () => {
+  it("rings only the part a condition names, and every part of the types otherwise", () => {
+    const drawn = (index: number, type: number) => ({ part: { index, type } }) as DrawnPart;
+    const parts = [drawn(0, 13), drawn(1, 13), drawn(2, 9)];
+    const lamp = { type: 13, name: "Lava Lamp" };
+    const indexes = (c: Parameters<typeof goalPartsOf>[0]) => goalPartsOf(c, parts).map((d) => d.part.index);
+    expect(indexes({ kind: "part", part: 1, types: [lamp], tests: [] })).toEqual([1]);
+    expect(indexes({ kind: "count", types: [lamp], tests: [] })).toEqual([0, 1]);
+    expect(indexes({ kind: "word", tests: [] })).toEqual([]);
   });
 });
