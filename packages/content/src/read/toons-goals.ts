@@ -475,7 +475,9 @@ export interface ToonsPuzzleStart {
  * The type routines that set a state again are read for two types: the electric switch takes 1 for a plug in its first
  * place and 2 for one in its second, and keeps bit 4 (file offset `0x6f461`); the anvil takes 1 while a rope is tied at
  * its first place, else 0 (`0x5382b`). These are the only parts on the board whose state the setup changes in the
- * shipped levels, as the setup run on the CPU shows.
+ * shipped levels, as the setup run on the CPU shows. The anvil's routine leaves the state it starts from at 1, and the
+ * reset after the setup (`0xec1e`, called at `0x22911`) runs the routine again and keeps its 0 there. That the board
+ * is drawn with that 0 is a decided assumption ("Toons: assumptions" in docs/research/levels.md).
  */
 export function toonsPuzzleStart(
   level: Level,

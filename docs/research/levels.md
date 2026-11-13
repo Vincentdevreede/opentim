@@ -479,7 +479,8 @@ goes. `readToonsBinKinds` reads the table, and `toonsPuzzleStart` gives the bin 
 files as the level reader builds them (each list put together with the game's insertion routine in file order), gives
 the same bin in the same order, the same tunnels taken off, the same plugs and the same states on the board as
 `toonsPuzzleStart`, in all 100 puzzles. The second flag word of a part on the board changes only by the belt bit, on
-the same 22 parts. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
+the same 22 parts. Run between the two resets of a puzzle start ([Toons: assumptions](#toons-assumptions)), it gives
+the same again. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
 trans-roto-matic #18, skeleto-bobbin #19, bomb #46, baseball #45 and tunnel #20; the file has them in the order 0, 1,
 18, 19, 20, 42, 43, 45, 46. Without TOONS.EXE the Lab sorts by the type's number, which gives another order in 78
 puzzles.
@@ -493,9 +494,10 @@ drier #0 and timer #18 from #1), HARD25 (vacuum #29 from #28), LOON12 (timer #26
 state 4 or 0 instead of 5, 1 or 3. Untying a rope runs the anvil's routine too, which gives it state 1 while a rope is
 tied at its first place and else 0 (`0x5382b`): the anvils #24 in HARD19, #66 in LOON1 and #32 in LOON12 lose their
 rope to the bin and start with state 0, which is the frame TOONS.EXE draws them with (the drawing routine `0x1df79`
-reads the state at 0x0e). The anvil's routine doesn't keep it as the state the part starts from (`0x99` stays 1);
-what a run does with that isn't read. These are the only parts on the board whose state
-the setup changes in the shipped levels. The Lab draws the switches and the anvils with these states, and says in the
+reads the state at 0x0e). The anvil's routine doesn't keep it as the state the part starts from (`0x99` stays 1), but
+the reset that follows the setup does; that the Lab shows 0 is a decided assumption
+([Toons: assumptions](#toons-assumptions)). These are the only parts on the board whose state the setup changes in the
+shipped levels. The Lab draws the switches and the anvils with these states, and says in the
 Structure panel which plugs are pulled out.
 
 **Ropes and belts the player can change.** Clearing the bit is what lets the player change a rope or a belt that is
@@ -723,6 +725,54 @@ goal has one.
 
 A Toons part's record is 0xb3 bytes: the level reader and two other places allocate it with `calloc(1, 0xb3)`
 (`0x24b45`, `0x24293`, `0xc15a`), so a goal's offsets up to `0xb2` are fields (the counters' setting at `0xaf`).
+
+### Toons: assumptions
+
+Where the code read so far doesn't settle what the Lab shows, the owner decided an answer. Each is written the way
+[the decided assumptions](../assumptions/behaviour-assumptions.md) of the behaviour analysis are: the question, what is
+read from code, what we assume, what it gives and how to recheck it. They are kept here, next to what they are about,
+because `docs/assumptions/` is for the behaviour analysis of TIM.EXE, whose wording a test keeps the same as in that
+code.
+
+#### 1. The anvil that loses its rope
+
+Decided on 2026-11-13. In the code: `states` of `toonsPuzzleStart` (`packages/content/src/read/toons-goals.ts`), which
+`layoutScene` in `apps/lab/src/levels.ts` draws the board with and the Structure panel tags ("0 at the start").
+
+**The question.** In HARD19 (#24), LOON1 (#66) and LOON12 (#32) an anvil stays on the board while the rope tied at its
+first rope place goes to the bin. The file gives it state 1. Which frame does the player see while building the
+machine, and does the run start from it?
+
+**Read from code.**
+
+- Untying the rope (`0xb902`) runs the anvil's type routine (the type record's far pointer at 0x36), which sets the
+  state at 0x0e to 1 while a rope is tied at its first rope place (0x6f) and else to 0 (`0x5382b`). It leaves the state
+  the part starts from (0x99) at 1, where unplugging a switch keeps the new state there too (`0xb7b3`).
+- A puzzle starts through `0x25710`, which loads the level (`0x2573f`): the level loader (`0x250ca`), the reset
+  (`0xec1e`, its call at `0x2578b`), and then the setup (`0x257e5`). `0x228d0`, which sets the play area's view, calls
+  `0x25710` when the word at `0x46d7` is 0 and then calls the reset again (`0x22911`).
+- The reset puts each part on the board back to the state it starts from (0x99 into 0x0e at `0xed22`), runs its type
+  routine through the same pointer (`0xedf1`) and keeps the state that gives as the one it starts from (`0xedf7`). For
+  an anvil without a rope that is 0 again, now in 0x99 too. The run loop's first routine calls the same reset
+  (`0x8753`), so a run starts the anvil at 0 as well, unless the player ties a rope at its first place.
+- TOONS.EXE draws the anvil from its frames by the state at 0x0e (`0x1df79`).
+- Checked on the CPU: the reset, the setup and the reset again, run over records built from all 100 level files, leave
+  the three anvils with state 0 at both 0x0e and 0x99, and give the same bin, plugs and states as `toonsPuzzleStart`.
+
+**What we assume.**
+
+- The board the player sees while building is the one this sequence leaves, so the Lab shows the anvil with state 0,
+  not the file's 1.
+- Nothing else sets the anvil's state back to 1 before the board is drawn or before a run starts. The routines that run
+  between the setup and the first drawing (`0x22d4b`, `0x22884`, `0x228bc`, `0xa1fe`) aren't read for it. `0x25710` is
+  also called at `0x21f07`, which doesn't call the reset after it; there 0x99 stays 1 until the run's reset gives 0
+  again, and the frame drawn is 0 either way.
+
+**What it gives.** The Lab draws the three anvils with state 0 and tags it in the Structure panel. The Solution box
+shows the file's state.
+
+**How to recheck.** Open HARD19, LOON1 or LOON12 in the game and look at the anvil before starting the machine: state 0
+and state 1 are different frames. Or read the routines named in the second bullet for a write of the state at 0x0e.
 
 ### Toons: still open
 
