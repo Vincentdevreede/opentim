@@ -83,3 +83,16 @@ it("starts a looping sample asked to start past its loop at the loop's end, as W
   // It starts at 4, the loop's end, which wraps to 2 at once.
   expect(player.position.value).toBeCloseTo(2.25);
 });
+
+it("keeps the loop's start when its end lies past the sound, and cuts the end to the sound's end", async () => {
+  const audio = fakeAudio();
+  // Ten seconds that loop from 2 to 12 seconds, so really from 2 to 10.
+  const sample = ref<Pcm>({ rate: 100, samples: new Float32Array(1000), loopStart: 200, loopEnd: 1200 });
+  const player = useSamplePlayer(sample);
+  player.loop.value = true;
+  await nextTick();
+  player.play();
+  audio.clock = 11;
+  audio.frame?.(0);
+  expect(player.position.value).toBe(3);
+});

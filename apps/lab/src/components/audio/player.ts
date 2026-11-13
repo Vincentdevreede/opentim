@@ -35,12 +35,15 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
     return t < end || end <= start ? t : start + ((t - start) % (end - start));
   }
 
-  /** The loop's start and end in seconds; a loop that isn't one is the whole sound. */
+  /**
+   * The loop's start and end in seconds, with an end past the sound cut to the sound's end, as Web Audio does. A loop
+   * that isn't one is the whole sound.
+   */
   function loopBounds(): [number, number] {
     const s = sample.value;
     const start = s ? s.loopStart / s.rate : 0;
-    const end = s ? s.loopEnd / s.rate : 0;
-    return end > start && end <= length.value ? [start, end] : [0, length.value];
+    const end = Math.min(s ? s.loopEnd / s.rate : 0, length.value);
+    return start >= 0 && end > start ? [start, end] : [0, length.value];
   }
 
   /** Where playback is now, wrapping around while it loops. */
