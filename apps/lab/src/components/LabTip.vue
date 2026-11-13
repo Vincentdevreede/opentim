@@ -51,6 +51,8 @@ function onKey(e: KeyboardEvent) {
 function hide() {
   stay();
   removeEventListener("keydown", onKey);
+  removeEventListener("scroll", follow, true);
+  removeEventListener("resize", follow);
   shown.value = false;
   // Vue sets the title again itself when it changes in the meantime; then that newer one stays.
   if (heldBack && !heldBack.element.hasAttribute("title")) heldBack.element.setAttribute("title", heldBack.title);
@@ -61,6 +63,9 @@ onBeforeUnmount(hide);
 async function show() {
   stay();
   addEventListener("keydown", onKey);
+  // A tip that the keyboard keeps open stays next to its trigger while the page scrolls or the window changes size.
+  addEventListener("scroll", follow, true);
+  addEventListener("resize", follow);
   const owner = trigger.value?.parentElement?.closest("[title]");
   if (owner && !heldBack) {
     heldBack = { element: owner, title: owner.getAttribute("title")! };
@@ -81,6 +86,7 @@ async function place() {
   const above = below + box.height > innerHeight - 8;
   at.value = { left, top: above ? t.top - box.height - 6 : below, above };
 }
+const follow = () => void place();
 // A tip whose text changes while it shows, like the read's progress, is placed again, so a longer text still fits.
 watch(
   () => props.text,
