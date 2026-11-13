@@ -1,7 +1,7 @@
 /**
  * Lists which part types can do something to which, as the code allows it, and where each pair is described in the
- * part's "From other parts" (step C2 of the finished behaviour plan). Fails when a pair is neither described, ruled out by
- * a decided assumption, nor missing with a reason. The builds are read side by side (`--jobs` sets how many at once).
+ * part's "From other parts" (step C2 of the finished behaviour plan). Fails when a pair that isn't described has no
+ * reason the check can name. The builds are read side by side (`--jobs` sets how many at once).
  *
  *   pnpm --filter @opentim/content list-other-part-pairs --tim1 <game folder> --evenmore <game folder>
  */
@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { readBehaviour } from "../src/read/behaviour.ts";
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
-import { otherPartPairs, renderOtherPartPairs } from "../src/read/other-part-pairs.ts";
+import { otherPartPairs, renderOtherPartPairs, unexplainedPairs } from "../src/read/other-part-pairs.ts";
 import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder } from "./builds.ts";
 
 export function inBuild(build: BuildFolder) {
@@ -17,7 +17,7 @@ export function inBuild(build: BuildFolder) {
   const pairs = otherPartPairs(readBehaviour(program, parts), evaluateBehaviourCondition);
   return {
     text: renderOtherPartPairs(pairs),
-    unexplained: pairs.pairs.some((p) => p.status !== "described" && !p.reasons.length),
+    unexplained: unexplainedPairs(pairs).length,
   };
 }
 
@@ -40,7 +40,7 @@ if (isMainThread) {
       console.log(`== ${folder}`);
       console.log(text);
       if (unexplained) {
-        console.error("A pair has no description and no reason.");
+        console.error(`${unexplained} pair(s) aren't described, for a reason this check doesn't name.`);
         process.exitCode = 1;
       }
     },

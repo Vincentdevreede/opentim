@@ -186,6 +186,19 @@ describe("readGoalRoutines and runGoal", () => {
     expect(routines.get(0)).toMatchObject({ at: 18, reason: expect.stringContaining("flags") });
   });
 
+  it("doesn't read a called routine that lacks the usual start", () => {
+    // The goal: push bp; mov bp, sp; push cs; call 0x20; pop bp; retf. At 0x20: mov ax, 5; mov [0x102], ax; retf.
+    const routines = readGoalRoutines(
+      image(0x40, [
+        [0, "558bec0ee819005dcb"],
+        [0x20, "b80500a30201cb"],
+      ]),
+      0,
+      0,
+    );
+    expect(routines.get(0x20)).toMatchObject({ address: 0x20, at: 0x20, reason: expect.stringContaining("push bp") });
+  });
+
   it("names a routine it can't read and why", () => {
     // push bp; mov bp, sp; call far [bx]; pop bp; retf
     const routines = readGoalRoutines(image(0x20, [[0, "558becff1f5dcb"]]), 0, 0);
@@ -256,5 +269,28 @@ describe("describeGoal", () => {
     expect(lines).toContain("        if word 0x5068[bx] = 0:");
     expect(lines.slice(-2)).toEqual(["if di ≠ 0:", "  the goal is met"]);
     expect(lines.join("\n")).not.toContain("0x682f");
+  });
+
+  it("says the number of an unsigned test as an unsigned word", () => {
+    const k = (value: number) => ({ kind: "constant" as const, value });
+    const positionX = {
+      kind: "word" as const,
+      address: {
+        kind: "binary" as const,
+        op: "+" as const,
+        left: { kind: "register" as const, name: "si" },
+        right: k(0x1e),
+      },
+    };
+    const body = [
+      {
+        kind: "if",
+        test: { left: positionX, op: "<", right: k(40000), signed: false },
+        then: [{ kind: "set", target: { kind: "word", address: k(MODE) }, value: k(0x200) }],
+        else: [],
+      },
+    ];
+    const lines = describeGoal(new Map([[0, { body }]]) as unknown as Parameters<typeof describeGoal>[0], 0, names);
+    expect(lines[0]).toBe("if si.positionX < 40000 (unsigned):");
   });
 });

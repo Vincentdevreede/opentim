@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { outlineFormulae, type ContactOutline, type OutlineContext } from "../src/read/behaviour-contact-outline.ts";
+import {
+  commitSetTwoWhen,
+  outlineFormulae,
+  outlineSymbols,
+  type ContactOutline,
+  type OutlineContext,
+} from "../src/read/behaviour-contact-outline.ts";
+import { candidateOutlinePatterns, subjectOutlinePatterns } from "../src/read/behaviour-contact-outline-patterns.ts";
 import { analyseRoutine, type Expression, type Predicate } from "../src/read/behaviour.ts";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
@@ -530,5 +537,54 @@ describe("typed contact membership caller", () => {
     const result = membershipCaller(17, 0x400);
     expect(result.writes.find((w) => w.object === "part" && w.offset === 12)?.confidence).toBe("unresolved");
     expect(result.engineCalls?.[0]?.purpose).toBe("Checks membership");
+  });
+});
+
+describe("outline commit flags", () => {
+  const typeTest = (pattern: string) => JSON.stringify(commitSetTwoWhen(pattern)).includes('"value":63');
+
+  it("states the candidate type 63 test only for the forms of the code that have it", () => {
+    for (const { code } of [...candidateOutlinePatterns, ...subjectOutlinePatterns])
+      expect(typeTest(code)).toBe(code.includes("cmp 16:ds[bx+4],#63"));
+    expect(typeTest(candidateOutlinePatterns[0]!.code)).toBe(true);
+    expect(typeTest(candidateOutlinePatterns[2]!.code)).toBe(false);
+    expect(typeTest(subjectOutlinePatterns[2]!.code)).toBe(false);
+  });
+});
+
+describe("outline symbol notes", () => {
+  const at = (offset: number) => `16:ss[bp+${offset}]`;
+
+  it("takes registers and frame offsets from each form of the code", () => {
+    for (const [n, pattern] of [...candidateOutlinePatterns, ...subjectOutlinePatterns].entries()) {
+      const { code, frame } = pattern;
+      expect(/mov ([sd]i),16:ds\[bx\+130\]/.exec(code)?.[1]?.toUpperCase()).toBe(pattern.outerRecord);
+      const leas = [...code.matchAll(/lea ax,16:ss\[bp\+(-\d+)\]/g)].map((m) => Number(m[1]));
+      expect(leas.slice(0, 2)).toEqual([frame.translatedStart[0], frame.testOutput[0]]);
+      expect(code).toContain(`mov ax,${at(frame.testOutput[1])}`);
+      for (const offset of frame.translatedStart) expect(code).toContain(`mov ${at(offset)},#0`);
+      for (const offset of frame.translatedEnd) expect(code).toContain(`mov ${at(offset)},ax`);
+      expect(code).toContain(`mov ${at(frame.previousInner)},ax`);
+      for (const offset of [...frame.outerStart, ...frame.outerEnd]) expect(code).toContain(`mov ${at(offset)},ax`);
+      expect(frame.centreBeforeRefresh !== undefined).toBe(n >= candidateOutlinePatterns.length);
+      if (frame.centreBeforeRefresh !== undefined)
+        expect(code).toContain(
+          `mov ax,16:ds[{subjectCenterX}]\nsub ax,${at(frame.outerStart[0])}\nmov ${at(frame.centreBeforeRefresh)},ax`,
+        );
+    }
+  });
+
+  it("gives the third subject form its own registers and offsets", () => {
+    const symbols = outlineSymbols(subjectOutlinePatterns[2]!);
+    const offsets = (object: string) => symbols.find((s) => s.object === object)?.frameOffsets;
+    expect(symbols[0]!.meaning).toContain("DI");
+    expect(symbols[2]!.meaning).toContain("SI");
+    expect(offsets("first test output")).toEqual([-68, -66]);
+    expect(offsets("translated boundary start")).toEqual([-56, -54]);
+    expect(offsets("translated boundary end")).toEqual([-52, -50]);
+    expect(offsets("centre before refresh")).toEqual([-36]);
+    expect(
+      outlineSymbols(subjectOutlinePatterns[0]!).find((s) => s.object === "centre before refresh")?.frameOffsets,
+    ).toEqual([-32]);
   });
 });
