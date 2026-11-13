@@ -487,8 +487,15 @@ and words a goal reaches through `es` once it has loaded a constant segment ther
 finder as the part it finds ("word 0x340f:7514 = the 1st al-e-cat on the moving list, or 0 if there is none") and a
 write of the countdown as "the goal is met, and the run ends 10 steps later". The fields are named by the record
 offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid's `action` at `0x0c`, `positionX` at
-`0x1f`, and so on). All 100 goals read; the Levels page shows the routine next to the goal text. The reading isn't
-checked in an emulator as TIM 1's is.
+`0x1f`, and so on). All 100 goals read; the Levels page shows the routine next to the goal text.
+
+`check-toons-goals` checks the reading in the emulator as `check-goals` does TIM's: TOONS.EXE laid out with its
+overlays at segment 0 runs each goal routine on the CPU, and the read program runs over the same made-up parts lists
+and words, the step count 0 in half the trials. All 100 goals leave the same words in the data segment and in the far
+segment `0x340f` in 1,000 trials each. The parts lists come from the list head routine the finder calls (`0xc36a`):
+the fixed list at `[0x4a89]` (mask bit `0x2000`), the moving list at `[0x49d6]` (`0x1000`) and the third at
+`[0x4923]` (`0x0800`). About half of the tests are taken both ways; the others are mostly in the finder and the list
+head routine, which the made-up worlds rarely take every way.
 
 Eleven routines needed more of the reader than TIM's goals, which it now takes (TIM's goals read the same as before,
 by `list-goals` and `check-goals` on six builds):

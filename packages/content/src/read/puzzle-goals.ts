@@ -940,7 +940,10 @@ function callsIn(body: GoalStatement[], out = new Set<string>()): Set<string> {
   return out;
 }
 
-/** The words of the data segment a goal reads and writes, for the machine to give it. */
+/**
+ * The words of the data segment a goal reads and writes, for the machine to give it. A word of a far segment comes
+ * with its whole address (`FAR_WORDS` and up, see `farWord`).
+ */
 export interface GoalMemory {
   read(address: number): number;
   write(address: number, value: number): void;
@@ -971,7 +974,9 @@ export function runGoal(
   let steps = 0;
   const STACK_TOP = 0xf000;
   const onStack = (address: number) => address >= STACK_TOP - 0x2000 && address < STACK_TOP + 0x100;
+  // A word of a far segment (`FAR_WORDS` and up) goes to the memory as it is.
   const read = (address: number) => {
+    if (address >= FAR_WORDS) return memory.read(address) & 0xffff;
     address &= 0xffff;
     if (!onStack(address)) return memory.read(address) & 0xffff;
     const value = stack.get(address);
@@ -979,6 +984,7 @@ export function runGoal(
     return value;
   };
   const write = (address: number, value: number) => {
+    if (address >= FAR_WORDS) return memory.write(address, value & 0xffff);
     address &= 0xffff;
     if (onStack(address)) stack.set(address, value & 0xffff);
     else memory.write(address, value & 0xffff);
@@ -992,7 +998,7 @@ export function runGoal(
     const evaluate = (v: GoalValue): number => {
       switch (v.kind) {
         case "constant":
-          return v.value & 0xffff;
+          return v.value >= FAR_WORDS ? v.value : v.value & 0xffff;
         case "register": {
           const value = registers.get(v.name);
           if (value === undefined) throw new UnsetValue(`${v.name} was never set`);
@@ -1009,6 +1015,10 @@ export function runGoal(
           const r = evaluate(v.right);
           const sl = l >= 0x8000 ? l - 0x10000 : l;
           const sr = r >= 0x8000 ? r - 0x10000 : r;
+          // A place of a far segment plus or less a number stays in that segment.
+          const far = farWord(Math.max(l, r));
+          if (far && (v.op === "+" || v.op === "-"))
+            return FAR_WORDS + far.segment * 0x10000 + ((far.offset + (v.op === "+" ? Math.min(l, r) : -r)) & 0xffff);
           switch (v.op) {
             case "+":
               return (l + r) & 0xffff;
@@ -1096,7 +1106,9 @@ export function runGoal(
           }
           case "loop": {
             for (;;) {
+              // A break in the test's part leaves the loop, as a branch out of `while (a && b)` does.
               const before = exec(s.before);
+              if (before === "break") break;
               if (before) return before;
               if (!holds(s.test)) break;
               const end = exec(s.body);

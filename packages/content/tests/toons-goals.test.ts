@@ -102,6 +102,57 @@ describe("readGoalRoutines for Toons' byte counters, long loops and sums", () =>
   });
 });
 
+describe("runGoal for Toons", () => {
+  const c = (value: number) => ({ kind: "constant", value }) as const;
+  const far = (offset: number) => FAR_WORDS + 0x340f * 0x10000 + offset;
+
+  it("keeps a far segment's words apart from the data segment's, also at a place worked out from a counter", () => {
+    const si = { kind: "register", name: "si" } as const;
+    const body: GoalStatement[] = [
+      { kind: "set", target: si, value: c(4) },
+      { kind: "set", target: { kind: "word", address: c(far(0x7514)) }, value: c(5) },
+      {
+        kind: "set",
+        target: { kind: "word", address: { kind: "binary", op: "+", left: si, right: c(far(0x7584)) } },
+        value: c(6),
+      },
+    ];
+    const written = new Map<number, number>();
+    runGoal(new Map([[0, { address: 0, segment: 0, offset: 0, body }]]), 0, {
+      read: () => 0,
+      write: (a, v) => written.set(a, v),
+    });
+    expect(written).toEqual(
+      new Map([
+        [far(0x7514), 5],
+        [far(0x7588), 6],
+      ]),
+    );
+  });
+
+  it("leaves a loop on a break in its test's part, as `while (a && b)` does", () => {
+    // xor di, di; mov si, [bp+6]; jmp test; body: mov si, [si]; inc di; test: cmp di, [bp+8]; jge out; or si, si;
+    // jne body; out: mov ax, di, then store ax at 0x10
+    const code = "558bec33ff8b7606eb038b34473b7e087d040bf675f48bc7a310005dcb";
+    const routines = readGoalRoutines(image(0x40, [[0, code]]), 0, 0);
+    const body: GoalStatement[] = [
+      { kind: "set", target: { kind: "local", offset: -2 }, value: c(3) },
+      { kind: "set", target: { kind: "local", offset: -4 }, value: c(0x100) },
+      { kind: "call", routine: 0, segment: 0, offset: 0, stack: -4 },
+    ];
+    routines.set(0x100, { address: 0x100, segment: 0, offset: 0x100, body });
+    const memory = new Map([
+      [0x100, 0x200],
+      [0x200, 0x300],
+      [0x300, 0x400],
+      [0x400, 0],
+    ]);
+    runGoal(routines, 0x100, { read: (a) => memory.get(a) ?? 0, write: (a, v) => memory.set(a, v) });
+    // Three steps along the list, stopped by the count before the list's end.
+    expect(memory.get(0x10)).toBe(3);
+  });
+});
+
 describe("describeGoal for Toons", () => {
   it("says a call to the finder as the part it finds, and a write of the countdown as the goal met", () => {
     const ax = { kind: "register", name: "ax" } as const;

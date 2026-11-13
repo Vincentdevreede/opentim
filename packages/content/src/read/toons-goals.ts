@@ -207,7 +207,7 @@ function farWords(routines: Iterable<GoalRoutine | GoalProblem>): number[] {
 }
 
 /** The routine the goals call to find the n-th part of a type: the one most goals call first. */
-function finder(routines: ReadonlyMap<number, GoalRoutine | GoalProblem>, goals: ReadonlySet<number>) {
+export function toonsFinder(routines: ReadonlyMap<number, GoalRoutine | GoalProblem>, goals: ReadonlySet<number>) {
   const counts = new Map<number, number>();
   for (const [address, r] of routines) {
     if (!goals.has(address) || !("body" in r)) continue;
@@ -234,7 +234,7 @@ export function readToonsGoals(
   for (const goal of table.routines)
     readGoalRoutines(toons.memory, goal.segment, goal.offset, routines, { resolve: toons.resolve, farWords: true });
   const goalAddresses = new Set(table.routines.map((g) => g.address));
-  const find = finder(routines, goalAddresses);
+  const find = toonsFinder(routines, goalAddresses);
   const routineNames = new Map<number, string>();
   for (const goal of table.routines)
     if (!routineNames.has(goal.address))

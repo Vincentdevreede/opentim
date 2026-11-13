@@ -100,6 +100,8 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
    plain words. `conditionText` says one condition in a line.
 
 `check-goals` compares `runGoal` with the game's own routine in the emulator on random worlds (`goal-check.ts`).
+`runGoal` gives a far word (`FAR_WORDS` and up) to its memory as it is, and a break in a loop's test part leaves the
+loop.
 
 Toons' goals (`toons-goals.ts`): `findToonsGoalTable` finds the dispatcher, its table and the level names in TOONS.EXE
 laid out with its overlays (`readToonsMemory`), and `readToonsGoals` reads the routines with `readGoalRoutines` (with
@@ -166,6 +168,9 @@ Node only and not exported from the package; the scripts import it by path. See
   the game's own loader), `loadPuzzle` (the records right after loading) and `runPuzzle` (step the game's run loop and
   read every part record after each step).
 - `goal-check.ts`: `checkGoals`, the random-world comparison of the goal reader with the game.
+- `toons-goal-check.ts`: `checkToonsGoals`, the same for Toons, with TOONS.EXE's memory loaded straight into a `Cpu`
+  (no DOS), parts of 0xb3 bytes, and the far segment compared too; `toonsLists` reads the parts lists from the list
+  head routine. Run by `check-toons-goals`.
 
 ## The package's exports
 
