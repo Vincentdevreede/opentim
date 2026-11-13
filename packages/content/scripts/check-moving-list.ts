@@ -13,7 +13,7 @@ import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { readBehaviour } from "../src/read/behaviour.ts";
 import { exeHash, GAME_BUILDS, runPuzzle } from "../src/run/game.ts";
-import { readBuild, type Game } from "./builds.ts";
+import { readBuild, type TimGame } from "./builds.ts";
 
 const FIXED = 0x4000;
 const LIST_FLAGS = 0x06;
@@ -128,7 +128,7 @@ if (!isMainThread) {
   const jobs = values.jobs ? count("jobs", values.jobs) : 1;
 
   // The fixed types, from the part factory's starting flags as the analysis reads them.
-  const game: Game = build.name.startsWith("Even More") ? "evenmore" : "tim1";
+  const game: TimGame = build.name.startsWith("Even More") ? "evenmore" : "tim1";
   const { files, parts } = readBuild({ game, folder, index: 0 });
   const report = readBehaviour(program, parts);
   const starting = report.helpers
