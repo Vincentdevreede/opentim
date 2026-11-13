@@ -428,6 +428,20 @@ routine is the start of a puzzle is read from what it does, not from where it is
   other part's state as the one it starts from (`0x99` from `0x0e`) and marks it to be drawn again. For a part with
   0x2 it clears both its plugs and the first plug word of each part in them, and runs their type routines and its
   own. The part's plug place byte isn't cleared. So the part that stays on the board is unplugged where it stands.
+- **The belt bit** (`0xb88c`). Untying a belt also clears, on both its parts, bit 0x2 of the second flag word, in the
+  working word (0x08) and the saved one (0x9d), and the part's belt record word (0x5d). The bit says a belt runs round
+  the part: tying a belt end sets it (`0x27b81` and `0x27bc8` when the player drops a belt, `0x2816b` when they drag one
+  end), and in the shipped files exactly the 100 parts a belt runs round have it. One routine reads it (`0xb0eb`, the
+  tests at `0xb112` and `0xb141`): for a belt with a loose end, a part that `0xa7e6` finds on the board takes the end
+  only when it has bit 0x1 (a place for a belt) and not bit 0x2 (no belt yet). A belt tied at both ends skips the test.
+  The routine is called when the player drops a belt (`0x27b4e`) or drags one (`0x28013`), and at `0xc0a6`, `0xd2bf`
+  and `0xd72b`, each with a belt's record. The drawing routine (`0x1df79`) tests bits 0x10, 0x20 and 0x1000 of the
+  word, not this one, and a search of TOONS.EXE and its overlays for code that tests, sets or clears bit 0x2 of the
+  word at 0x08 finds only the places named here. The reset that starts a run copies the saved word back (`0xecc6`), so
+  the bit stays clear. So clearing it changes nothing on the screen: it lets the player tie a belt from the bin round
+  that part again. In the shipped puzzles it is cleared on 22 parts in 19 puzzles that stay on the board while their
+  belt goes to the bin: 12 conveyor belts, 5 chow-men, 2 ant motors, 2 skeleto-bobbins and the gear in CAKE29. The
+  Lab draws them as the file does.
 - A tunnel takes the tunnel at its other end with it: that one is taken off its list and freed (`0x28253`, `0x23fa8`).
   So the bin holds one tunnel of a pair, and when the player puts it on the board TOONS.EXE makes a copy at its other
   end (`0x27fbb`), which the player places next.
@@ -464,7 +478,8 @@ goes. `readToonsBinKinds` reads the table, and `toonsPuzzleStart` gives the bin 
 **Checked on the CPU.** The puzzle setup itself, run on the CPU over part records built from each of the 100 level
 files as the level reader builds them (each list put together with the game's insertion routine in file order), gives
 the same bin in the same order, the same tunnels taken off, the same plugs and the same states on the board as
-`toonsPuzzleStart`, in all 100 puzzles. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
+`toonsPuzzleStart`, in all 100 puzzles. The second flag word of a part on the board changes only by the belt bit, on
+the same 22 parts. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
 trans-roto-matic #18, skeleto-bobbin #19, bomb #46, baseball #45 and tunnel #20; the file has them in the order 0, 1,
 18, 19, 20, 42, 43, 45, 46. Without TOONS.EXE the Lab sorts by the type's number, which gives another order in 78
 puzzles.

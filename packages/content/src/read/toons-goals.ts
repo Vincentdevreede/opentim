@@ -453,7 +453,9 @@ export interface ToonsPuzzleStart {
  *   pulled out: the other's plug at the part's plug place and the part's own plug are cleared. A part that takes plugs
  *   lets go of both. The part on the board stays where it is; its type's routine (the record's far pointer at 0x36)
  *   sets its state again, and the routine keeps that state as the one it starts from;
- * - a belt round it, untied at both ends and put in the bin (`0xb88c`, which puts it there at `0xb8f8`);
+ * - a belt round it, untied at both ends and put in the bin (`0xb88c`, which puts it there at `0xb8f8`). Untying it
+ *   clears bit 0x2 of both parts' second flag word, which only says a belt runs round the part: a belt end the player
+ *   drops takes a part without it (`0xb0eb`). No drawing code reads it, so the parts look the same;
  * - the ropes tied to it, its first rope place first, each untied at both ends and put in the bin (`0xb902`, at
  *   `0xbabf`). Untying runs the type routine of both parts the rope ties, and clears the links of the pulleys between
  *   the first end and the second.
