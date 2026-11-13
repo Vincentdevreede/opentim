@@ -450,6 +450,11 @@ export interface ToonsPuzzleStart {
    * the player builds. Only the types whose routine is read: the electric switch and the anvil.
    */
   states: Map<number, number>;
+  /**
+   * The rope places of board parts the setup unties, as a part's index and the place (0 or 1): the places of the parts
+   * a rope in the bin was tied to, and the second place of a pulley, which holds the rope over it.
+   */
+  untied: [number, number][];
 }
 
 /**
@@ -522,10 +527,12 @@ export function toonsPuzzleStart(
       for (const end of p.belt.parts) if (end !== null) beltAt.set(end, p.index);
   }
   // A pulley keeps the rope over it at its second rope place: the level reader takes the record at the first place of
-  // the part the pulley's field names (`0x24f3c`).
+  // the part the pulley's field names (`0x24f3c`) as it reads the pulley. It reads the parts in the file's order and
+  // makes a rope's record as it reads the rope, so a pulley before its rope in the file gets none (HARD6, HARD25).
   for (const p of parts)
-    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined)
+    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined && p.pulley < p.index)
       ropeAt.get(p.index)![1] = ropeAt.get(p.pulley)?.[0] ?? null;
+  const tiedAtFirst = new Map([...ropeAt].map(([index, places]) => [index, places.map((r) => r !== null)]));
   const state = (index: number) => states.get(index) ?? parts[index]!.state[0];
   const fixed = (index: number) => ((parts[index]!.flags[2] ?? 0) & FIXED_IN_PLACE) !== 0;
   const toBin = (index: number) => {
@@ -669,6 +676,10 @@ export function toonsPuzzleStart(
   }
   for (const index of [...states.keys()])
     if (bin.has(index) || states.get(index) === parts[index]!.state[0]) states.delete(index);
+  const untied: [number, number][] = [];
+  for (const [index, tied] of tiedAtFirst)
+    if (!bin.has(index) && !gone.has(index))
+      tied.forEach((was, place) => was && ropeAt.get(index)![place] === null && untied.push([index, place]));
   return {
     bin,
     binOrder,
@@ -676,6 +687,7 @@ export function toonsPuzzleStart(
     unplugged,
     plugs: new Map([...changedPlugs].sort((a, b) => a - b).map((index) => [index, plugs.get(index)!])),
     states,
+    untied,
   };
 }
 
