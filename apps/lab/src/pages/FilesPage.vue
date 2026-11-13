@@ -130,8 +130,11 @@ function openFile(r: Resource) {
   openAt.value = hitsByFile.value?.get(r.name)?.[0];
   selected.value = r.name;
 }
-/** Opens the file of a bookmark at its bytes. */
+/** Whether a file of this name is loaded; bookmarks of the same version can be for a file that isn't. */
+const isLoaded = (file: string) => files.value.some((r) => r.name === file);
+/** Opens the file of a bookmark at its bytes, when that file is loaded. */
 function openMark(b: Bookmark) {
+  if (!isLoaded(b.file)) return;
   if (b.file === current.value?.name) return moveTo(b.offset, true);
   openAt.value = b.offset;
   selected.value = b.file;
@@ -637,8 +640,10 @@ function screenBytes() {
 
 function jump() {
   const text = goto.value.trim();
-  const n = /^0x/i.test(text) || !decimal.value ? parseInt(text.replace(/^0x/i, ""), 16) : parseInt(text, 10);
-  gotoInvalid.value = !/^(0x)?[0-9a-f]+$/i.test(text) || Number.isNaN(n) || n >= bytes.value.length;
+  const hex = /^0x/i.test(text) || !decimal.value;
+  const n = hex ? parseInt(text.replace(/^0x/i, ""), 16) : parseInt(text, 10);
+  const valid = hex ? /^(0x)?[0-9a-f]+$/i : /^\d+$/;
+  gotoInvalid.value = !valid.test(text) || Number.isNaN(n) || n >= bytes.value.length;
   if (!gotoInvalid.value) moveTo(n, true);
 }
 
@@ -753,7 +758,12 @@ watchEffect(() => (crumb.value = current.value ? ["Files", current.value.name, h
       </LabToolbar>
       <div v-if="showMarks" class="min-h-0 flex-1 overflow-auto pb-2">
         <template v-for="(b, i) in markList" :key="`${b.file}@${b.offset}`">
-          <LabListHeading v-if="b.file !== markList[i - 1]?.file" :title="b.file" class="font-mono" />
+          <LabListHeading
+            v-if="b.file !== markList[i - 1]?.file"
+            :title="b.file"
+            :meta="isLoaded(b.file) ? undefined : 'not loaded'"
+            class="font-mono"
+          />
           <LabListRow
             :name="hex(b.offset, 4)"
             name-width="3.25rem"

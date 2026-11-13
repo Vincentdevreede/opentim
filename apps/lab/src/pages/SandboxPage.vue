@@ -66,12 +66,19 @@ function onKeydown(e: KeyboardEvent) {
   else if (e.key.toLowerCase() === "r") reset();
 }
 
+/** Set when the page is left, also while PixiJS is still starting. */
+let left = false;
+
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   const el = container.value;
   if (!el) return;
   const instance = new Application();
   await instance.init({ width: WIDTH * SCALE, height: HEIGHT * SCALE, backgroundAlpha: 0, antialias: true });
+  if (left) {
+    instance.destroy(true, { children: true });
+    return;
+  }
   app = instance;
   el.appendChild(instance.canvas);
 
@@ -97,6 +104,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  left = true;
   window.removeEventListener("keydown", onKeydown);
   app?.destroy(true, { children: true });
   crumb.value = [];

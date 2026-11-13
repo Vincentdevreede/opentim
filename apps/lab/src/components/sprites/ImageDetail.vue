@@ -72,6 +72,10 @@ watch(
     playing.value = false;
   },
 );
+// The colour grid only clears its highlight when the pointer leaves it, which doesn't happen when the tab is left.
+watch(tab, () => (highlight.value = undefined));
+// The pixel under the pointer was read from the picture that was there; it is read again when the pointer moves.
+watch([shownSprite, flip, zoom], () => (hover.value = undefined));
 
 const choice = computed(() =>
   detailPalette.value === AUTO

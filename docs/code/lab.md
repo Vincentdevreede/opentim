@@ -18,8 +18,9 @@ goals, and sounds.
   and stages files, `confirmImport` checks and saves them, `load` publishes them and starts the behaviour read in the
   background. It holds the resources, the edition and the program; parts are read again per page
   (`readLoadedParts` in `parts.ts`). A `generation` counter cancels work that a newer import made stale.
-- `storage.ts`: keeps the files in the browser's private file system (OPFS), one folder per import. Without a secure
-  context an import lasts only for the tab.
+- `storage.ts`: keeps the files in the browser's private file system (OPFS), one folder per import. A save holds a
+  lock while it writes; loading removes the folders of saves that never finished, when no save holds that lock. Without
+  a secure context an import lasts only for the tab.
 - `bookmarks.ts`: byte range bookmarks per version, in localStorage. `ui.ts`: shared state in memory (`selectedPart`,
   `behaviourLayout`, `selectedLevel`, …).
 
