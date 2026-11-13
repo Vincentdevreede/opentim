@@ -110,6 +110,21 @@ describe("the processor", () => {
     expect(cpu.regs[0]).toBe(0);
   });
 
+  it("runs an instruction that wraps past the end of its segment in its new form after the code changes it", () => {
+    // mov al, 1 at 1000:ffff, whose immediate wraps round to 1000:0000.
+    const cpu = new Cpu();
+    cpu.memory[0x1ffff] = 0xb0;
+    cpu.memory[0x10000] = 1;
+    cpu.segs[1] = 0x1000;
+    cpu.ip = 0xffff;
+    cpu.runUntil(0x1000, 1, 10);
+    expect(cpu.regs[0]! & 0xff).toBe(1);
+    cpu.write8(0x1000, 0, 2);
+    cpu.ip = 0xffff;
+    cpu.runUntil(0x1000, 1, 10);
+    expect(cpu.regs[0]! & 0xff).toBe(2);
+  });
+
   it("calls a far routine with its arguments and comes back", () => {
     const cpu = new Cpu();
     // push bp; mov bp, sp; mov ax, [bp+6]; add ax, [bp+8]; pop bp; retf

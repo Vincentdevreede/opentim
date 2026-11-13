@@ -186,25 +186,32 @@ export class Cpu {
     const at = this.linear(this.cs, this.ip);
     const cached = this.decoded.get(at);
     if (cached && cached.segment === this.cs) return cached;
-    if (cached) this.cover(at, cached.size, -1);
+    if (cached) this.cover(at, cached, -1);
     const instruction = decodeInstruction(this.memory, at, this.cs);
     this.decoded.set(at, instruction);
-    this.cover(at, instruction.size, 1);
+    this.cover(at, instruction, 1);
     this.longest = Math.max(this.longest, instruction.size);
     return instruction;
   }
-  private cover(at: number, size: number, by: number): void {
-    for (let k = at; k < at + size; k++) this.code[k]! += by;
+  /** The bytes of an instruction decoded at `at`: its offsets wrap within its code segment, as the decoder reads them. */
+  private covered(at: number, instruction: Instruction): number[] {
+    const base = instruction.segment * 16;
+    return Array.from({ length: instruction.size }, (_, k) => base + ((at - base + k) & 0xffff));
+  }
+  private cover(at: number, instruction: Instruction, by: number): void {
+    for (const k of this.covered(at, instruction)) this.code[k]! += by;
   }
   /** Forgets the decoded instructions that cover a byte the code wrote. */
   private forgetCodeAt(at: number): void {
-    for (let start = at; start > at - this.longest && start >= 0; start--) {
-      const instruction = this.decoded.get(start);
-      if (instruction && start + instruction.size > at) {
-        this.decoded.delete(start);
-        this.cover(start, instruction.size, -1);
+    for (let back = 0; back < this.longest; back++)
+      // An instruction starts just before the byte, or near the end of its segment and wraps round to the byte.
+      for (const start of [at - back, at + 0x10000 - back]) {
+        const instruction = this.decoded.get(start);
+        if (instruction && this.covered(start, instruction).includes(at)) {
+          this.decoded.delete(start);
+          this.cover(start, instruction, -1);
+        }
       }
-    }
   }
   /** Forgets decoded code. A write through the processor does this itself; a caller that writes into `memory` doesn't. */
   forgetCode(): void {
