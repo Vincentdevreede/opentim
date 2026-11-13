@@ -541,7 +541,45 @@ it. A rope or a part of type 76 goes before the first part with its word, and so
 follows this, and the emulator agrees: the insertion routine run on the CPU with made-up parts builds the same lists
 in 3,000 trials. So the Lab can say which level part a condition is about: in LOON1 the 1st al-e-cat is the lowest
 one, #60. It numbers the part in the condition ("al-e-cat #60") and rings it on the drawing, where TIM 1's goals ring
-every part of a type they look at. The places are the file's: for a part in the bin, where the player puts it decides.
+every part of a type they look at. The places are the file's: for a part in the bin, where the player puts it decides
+(below).
+
+**The order when a run starts.** Two routines change a list: the insertion routine (`0xbcd1`) and the removal routine
+just before it (`0xbcad`), which unlinks a part. Neither moves the other parts, so a part keeps its place among them
+until it is itself taken off and put back. Their callers, read from code:
+
+- the level loader (`0x250b3`), each list in file order;
+- the bin, the third list. A part goes there through `0xbe19` (its call at `0xbe9d`) when the puzzle setup (`0x25829`)
+  or the player puts it in the bin (`0x281c9`), when a rope or a belt is taken off (`0xbabf`, `0xb8f8`), or when
+  `0xbf06` puts every part there. `0x240a9` fills the third list with new parts, and `0x27fbb` puts a copy of a part
+  there and keeps it at the part's `0xb1` (a tunnel's other end, inferred from that word);
+- the board. `0xbea6` (its call at `0xbedd`) puts a part on the fixed or the moving list, by bit 0x4000 of its list
+  word, when the player puts it on the board (`0x27bb4`, `0x27dcf`, `0x27f87`, `0x280c4`, `0x28e50`). At `0x27f87`
+  and `0x280c4` the part's place is first copied into `savedPositionX` and `savedPositionY`, which the insertion
+  routine sorts by, so the part goes where the player's place puts it;
+- a part changing list during a run. `0x30345` takes a part off its list and puts it on the fixed list, `0x30374` on
+  the moving list. The code of Al's and Sid's actions calls them 32 times (`0x29a8f` to `0x2fe60`; the two calls read,
+  `0x29a8f` and `0x29b87`, put Al on the fixed list when he takes hold of the part his `0xb1` holds), an overlay
+  routine once (`0x56a42`), and the reset below;
+- a part made during a run. `0x303a3` puts a new part on the fixed or the moving list (`0x303d6`, `0x303ee`), before
+  its place is set. Al's code calls it for his angel (`0x2ac16`, action 17) and for a splat (`0x2aa17`), and other
+  types' code in the overlays at `0x528ef`, `0x56c19` and `0x6fb01`. Some types' overlay code puts new parts on the
+  lists itself: a part of type 76 (`0x6e8f6`), a copy of a part (`0x6edc7`, `0x6ef3a`), one of type 75 (`0x6f04f`),
+  and a rope with two parts (`0x70490` to `0x704de`), which it marks with bit 0x10 of the list word;
+- the removal alone: when the reset frees a part made during a run (`0xecb4`), when a tunnel's other end goes with it
+  (`0x28253`, `0xbf5f`), and in two editing routines not read further (`0xbaed`, `0x28b6e`).
+
+When a run starts, the run loop's first routine (`0x874e`) calls the reset (`0xec1e`), which the loop also calls when
+a run ends unsolved (`0x879b`). The reset takes every Al and Sid on the fixed list to the moving list and every rug
+(type 77) on the moving list to the fixed list, clearing their `0xb1`, which sorts them again by their saved place. It
+frees the parts made during a run (bit 0x10 of the list word), and puts every other part back to its saved place and
+state without moving it on its list. So at the first step the lists are the level loader's, less the parts the puzzle
+setup put in the bin, plus the bin parts the player put on the board, each where its place sorts it, with Al and Sid
+on the moving list. In all 100 shipped goals, every part a goal finds is fixed in place (bit 0x40) and on the list the
+goal searches, no level keeps Al or Sid on the fixed list or a rug on the moving list, and the level has no part of
+that type in the bin. So the order the goals see is the file's, sorted by the file's places, whatever the player
+does. Where a part from the bin could come before the found one, the Lab says so in a chip ("bin parts"); no shipped
+goal has one.
 
 **As conditions.** All 100 goals show as conditions on the Levels page, said in game terms:
 
@@ -595,9 +633,11 @@ A Toons part's record is 0xb3 bytes: the level reader and two other places alloc
 
 ### Toons: still open
 
-- **The goal's parts during a run.** The goals find their parts in the first step of a run, from the lists as they
-  are then. Whether anything in a run takes a part off a list and puts it back (which would sort it again by where it
-  is then) isn't read; the Lab says the order of the parts where the file puts them.
+- **The first step's own changes.** Within a step the parts' own code runs before the goal: the run loop calls
+  `0x82f2`, which calls each part's routines from the type table, at `0x8696`, and checks the goal at `0x86fb`. So in
+  the first step a part could already change list (Al's and Sid's actions) or a new part be made before the goal finds
+  its parts. Whether that happens in a shipped level depends on what the parts do, which isn't read; the Lab says the
+  order as the run starts.
 - **Ropes and belts in the bin.** TOONS.EXE leaves every rope and belt on its list when a puzzle starts, and the
   Lab puts them in the bin. 56 of the 121 shipped ropes and 15 of the 50 belts tie two parts that stay on the board;
   the others tie a part that goes to the bin, and how TOONS.EXE then draws them, or whether it takes them off later,
