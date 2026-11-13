@@ -155,50 +155,70 @@ memory at a time only changes speed, not what the code does.
 
 ## What the reader reads so far
 
-Numbers from `extract-behaviour` and one read per build, without the loops read once per found type. A part counts as
-read fully when all six of its callbacks are; a routine is read fully when its status is `complete`. No routine stops
-the read in any build (none has the status `error`).
+Numbers from one read per build, without the loops read once per found type. A part counts as read fully when all six
+of its callbacks are; a routine is read fully when its status is `complete`. No routine stops the read in any build
+(none has the status `error`). Fewer routines than in the first read: a call to the program's start (0:0) is no longer
+followed (see below), so the reader no longer reads the whole program as a callee.
 
 | Build                      | Parts | Parts read fully | Routines | Read fully | Read in part | Helpers recognised |  Time |
 | -------------------------- | ----: | ---------------: | -------: | ---------: | -----------: | -----------------: | ----: |
 | Even More, English CD      |    63 |               63 |      940 |        210 |          730 |                159 |  12 s |
-| Toons, English             |    75 |                6 |     1046 |        178 |          868 |                 96 | 140 s |
-| TIM 2, multilingual CD     |   149 |                0 |     1182 |        179 |         1003 |                 68 |  12 s |
-| TIM 2, multilingual floppy |   149 |                0 |      554 |        118 |          436 |                 45 |   8 s |
-| TIM 2, English demo        |   149 |                0 |     1138 |        175 |          963 |                 68 |  11 s |
+| Toons, English             |    75 |                6 |      454 |        118 |          336 |                 67 | 140 s |
+| TIM 2, multilingual CD     |   149 |                0 |      655 |        143 |          512 |                 34 |   9 s |
+| TIM 2, multilingual floppy |   149 |                0 |      642 |        142 |          500 |                 33 |   9 s |
+| TIM 2, English demo        |   149 |                0 |      642 |        141 |          501 |                 33 |   9 s |
 
 In Even More most routines read in part are bounded by a helper's summary (700 of the 730), which is why all its parts
 read fully. In Toons and TIM 2 the reasons are different:
 
-| Reason the reader gives (times, over all routines)                            | Even More CD | Toons | TIM 2 CD |
-| ----------------------------------------------------------------------------- | -----------: | ----: | -------: |
-| A call's effects are not fully resolved (the callee is read in part)          |           20 |  3151 |     2650 |
-| A loop (back edge) without a proved invariant                                 |            5 |   397 |      450 |
-| The path budget runs out                                                      |            1 |   126 |      123 |
-| The part pointer is lost at a write to a variable in the code segment (`cs:`) |            0 |   183 |      207 |
-| An instruction with no rule (`int`, `rcl`, `rcr`, `in`, `out`, string moves)  |            3 |   302 |      367 |
-| An indirect call or jump without a proved target or table bound               |           17 |   124 |      185 |
+| Reason the reader gives (times, over all routines)                           | Even More CD | Toons | TIM 2 CD |
+| ---------------------------------------------------------------------------- | -----------: | ----: | -------: |
+| A call's effects are not fully resolved (the callee is read in part)         |           20 |   622 |     1134 |
+| A loop (back edge) without a proved invariant                                |            5 |    87 |      164 |
+| The path budget runs out                                                     |            1 |    31 |       55 |
+| The part pointer is lost at a write through an address it can't place        |            0 |    31 |       31 |
+| An instruction with no rule (`int`, `rcl`, `rcr`, `in`, `out`, string moves) |            3 |    67 |       78 |
+| An indirect call or jump without a proved target or table bound              |           17 |    15 |       15 |
 
-The TIM 2 floppy build reaches fewer routines than the CD and the demo: in those two, the tipsy trailer's run callback
-reaches a routine with a far call to `0:0`, the program's start, and the reader follows it into most of the
-program. The floppy build's run callback doesn't.
+### What changed the counts
+
+- **Calls to the program's start.** TOONS.EXE and TIM2.EXE (CD and demo) have calls that reach the program's start,
+  0:0, and following them read the whole program as a callee. The reader stops there and says so in the routine's
+  notes. TIM.EXE has such calls too, through code pointers that are still 0 when the game starts (for example the
+  driver pointer at `cs:0x1ed` in Even More); its reads still follow them, because changing that would change its
+  checked results (`stopAtProgramStart` in the profile).
+- **Switch tables.** TIM2.EXE doubles a switch's index with `add bx, bx` where TIM.EXE uses `shl bx, 1`; the reader
+  takes both. This opened up most of TIM 2's type switches (unbounded indirect jumps went from 185 to 15).
+- **Confined loops.** A loop that changes only registers and private locals, makes no calls and has no other stores is
+  gone past: those registers and locals are forgotten and the code goes on where the loop leaves
+  (`CONFINED_LOOP_ASSUMPTION`). It is on for TIM 2 and Toons only (`confinedLoops` in the profile), for the same reason
+  as above.
+- **Code segment variables.** A store to a fixed address in the code segment (`mov cs:[x], ax`, the overlay manager's
+  and the drivers' variables) is a variable apart from the parts (`CODE_VARIABLE_ASSUMPTION`), so the part stays known.
+  TIM.EXE has no such stores, so this holds for all games.
 
 ## What is left
 
-- **The helpers.** TIM.EXE's shared helpers (lists, contact, gears, ropes, the factory, …) are recognised by their
-  instruction forms, written for a 58-byte record, TIM.EXE's part offsets and near part pointers. Toons has the same
-  compiler and near parts, but other offsets and 70-byte records, so few forms match; TIM 2 passes parts as far
-  pointers, so almost none do. Each recogniser needs the forms of these programs, ideally found from the code (the
-  offsets from the layout, the record size from the profile) rather than added by hand. Most of the "call's effects"
-  count follows from this.
-- **The loops.** The counted, find-first and list loops are recognised in TIM.EXE's forms; the same goes for them.
+- **The helpers.** TIM.EXE's shared helpers are recognised by the shape of their code, written for its 58-byte records,
+  its part offsets and near part pointers. Toons recognises about half of Even More's kinds (lists, insertion, field
+  relations and updates, wide arithmetic, angle helpers), but not the ones that reach a part's outline or another part
+  through a far pointer in the part (Toons keeps the outline points' far pointer at 0x89, TIM.EXE a near one at 0x82),
+  nor the factory, the frame position or the contact searches. TIM 2 recognises only the kinds that don't touch a
+  part (wrappers, read-only, field relations, buffers, wide arithmetic): every helper that takes a part gets it as a far
+  pointer, and the lists return far pointers in DX:AX where the list loops expect a near one in AX. The biggest single
+  blockers:
+  - TIM 2: the animation loader (CD `0x36500`, 373 instructions, reads `.ANM` files through the resource service), which
+    the frame size and frame position helpers call, and through them about 90 routines. In TIM.EXE this is the
+    "scalar resource service" kind, with its own assumption that the service never touches a live part.
+  - Toons: an outline crossing test (`0xdfe4`, 31 callers) over the far outline points, and Al's and Sid's action code
+    (`0x5f5c0` and `0x5f74e`, about 20 callers each), which has no TIM.EXE counterpart.
+- **The loops.** The counted, find-first and list loops are recognised in TIM.EXE's forms. TIM 2's list loops walk far
+  pointers, so the list machinery (list head and next helpers, the members a loop finds) needs a far form first.
 - **The part fields.** The layout names only the type and state in TIM 2, and the type, state, flags and a few more in
-  Toons; TIM.EXE's other field names (position, speed, size, contact, outline) come from its helpers. A Toons field
-  named "previous state" (0x0c) by TIM.EXE's rule may be Al's and Sid's action word instead.
-- **The bounce callback of the part itself.** Both programs call the bounce callback for the part itself as well as for
-  the part it touches. The reader reads only the calls for the touched part and says so in an assumption.
-- **Callers without a proved owner.** In TIM 2 the reset, flip and resize callbacks have calls whose owner the layout
-  can't tell, as in TIM.EXE for reset and flip. In Toons, reset, flip and resize.
-- **TIM 2's other routines.** The draw routine (+0x18) and the set-up routine (+0x1c) are found but not read.
+  Toons; TIM.EXE's other field names (position, speed, size, contact, outline) come from its helpers.
+- **Open decisions** (unchanged): the bounce callback for the part itself (only the calls for the touched part are
+  read), TIM 2's draw and set-up routines (found, not read), and the Toons field 0x0c named "previous state" by
+  TIM.EXE's rule. Also new: whether TIM.EXE's reads should stop at calls to the program's start and go past confined
+  loops too, which would change their results.
 - **Goals and frames.** The goals of TIM 2 and Toons are checked by their own readers; the reader's frame drawing,
   outline tables, collision dispatch and gear scheduling still only know TIM.EXE's forms.
