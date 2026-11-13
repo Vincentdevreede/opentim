@@ -1197,6 +1197,9 @@ function liveRegisters(code: RoutineCode): Map<number, Set<string>> {
  * Analyses a routine as a graph of symbolic transfer functions. Each acyclic path is retained; a back edge is a
  * loss of information, not an invitation to run the loop. The finite path budget is reported whenever reached.
  */
+export const CODE_VARIABLE_ASSUMPTION =
+  "A store to a fixed place in a code segment changes a variable the program keeps there, not code it runs; it isn't part or data segment memory.";
+
 export const CONFINED_LOOP_ASSUMPTION =
   "A loop that changes only registers and private locals ends; after it those registers and locals hold values the reader doesn't know, and everything else is as before the loop.";
 
@@ -1807,6 +1810,18 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     if (operand.kind !== "memory") return;
     let l = location(operand, s);
+    if (!l && operand.segment === "cs" && operand.direct && !operand.base.length) {
+      // A variable the program keeps in its code segment: a fixed place, apart from the parts and the data segment.
+      l = {
+        object: `code segment ${hex(i.segment)}`,
+        offset: operand.displacement,
+        width: operand.width,
+        uncertain: false,
+        evidence: [],
+      };
+      if (!s.assumptions.includes(CODE_VARIABLE_ASSUMPTION))
+        s.assumptions = [...s.assumptions, CODE_VARIABLE_ASSUMPTION];
+    }
     if (!l) {
       l = { object: "unknown", offset: operand.displacement, width: operand.width, uncertain: true, evidence: [] };
       diagnostics.add(`Object pointer is lost at ${hex(i.address)}: ${i.text}`);
