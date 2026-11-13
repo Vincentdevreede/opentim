@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import icon from "@opentim/theme/icon.svg";
 import logo from "@opentim/theme/opentim-logo.png";
 
 const PLAY_URL = "https://play.opentim.app/";
@@ -27,6 +28,7 @@ const FEATURES = [
   <div class="flex min-h-screen flex-col">
     <main class="flex-1">
       <section class="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 pt-16 pb-12 text-center sm:pt-24">
+        <img :src="icon" alt="" width="64" height="64" class="size-16" />
         <img
           :src="logo"
           alt="OpenTIM"
