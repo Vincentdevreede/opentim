@@ -208,7 +208,9 @@ export {
   readToonsListKinds,
   toonsGoalParts,
   toonsListOrder,
+  toonsPuzzleStart,
   toonsRopePlaces,
   type ToonsGoalParts,
+  type ToonsPuzzleStart,
   type ToonsGoalTable,
 } from "./read/toons-goals.ts";

@@ -408,14 +408,46 @@ Sid & Al's Incredible Toons ships 100 puzzles in four sets, `CAKE1` to `CAKE30`,
 text; the goal itself isn't in the file but in TOONS.EXE ([Toons goals](#toons-goals)).
 
 **Parts bin.** The files have no bin list. Bit 0x40 of a part's third flag word decides, as in TIM 2: TOONS.EXE lets
-the player neither move nor change a part with it (the routine that says what the player may do with a part returns
-early), and it walks both lists and puts every part without it back to state 0, unmirrored and at its own size, as a
-part in the bin is, ropes and belts excepted. So the Lab puts the parts without the bit in the bin, and the Solution
-box shows them where the file puts them. CAKE15 ("Use a tunnel to help Al get to the bubble gum") then has its two
-tunnels in the bin. That the routine (file offset `0x25829`) is the start of a puzzle is read from what it does, not
-from where it is called. For a rope or a belt it only clears the bit (`0x25892`) and leaves the part on its list, so
-the player may move it; none of the shipped ropes and belts has the bit. The Lab still puts them in the bin with the
-other parts without it (below).
+the player neither move nor change a part with it (the routine that says what the player may do with a part,
+`0xab37`, returns early), and its puzzle setup (file offset `0x25829`) puts every part without it in the bin. That the
+routine is the start of a puzzle is read from what it does, not from where it is called. Read from code:
+
+- The setup walks the moving list and then the fixed list, in the order the level loader leaves them. It puts each
+  part without the bit back to state 0, unmirrored and at its own size, and then into the bin through the same routine
+  as the player's bin handle (`0x281c9`), with the words that routine reads set as for a drop in the bin (`0x25a24`).
+- That routine first takes off what the part holds (`0xbb07`, called after the part is on the third list): a belt round
+  the part is untied from both its parts and goes to the bin too (`0xb88c`, which puts it there at `0xb8f8`), and a
+  rope tied to the part is untied from both its parts, which clears their rope places, and goes to the bin
+  (`0xb902`, at `0xbabf`). A part plugged into it, or that it is plugged into, is unplugged and stays where it is
+  (`0xb7b3`).
+- A tunnel takes the tunnel at its other end with it: that one is taken off its list and freed (`0x28253`, `0x23fa8`).
+  So the bin holds one tunnel of a pair, and when the player puts it on the board TOONS.EXE makes a copy at its other
+  end (`0x27fbb`), which the player places next.
+- The setup skips ropes and belts themselves: for them it only clears the bit (`0x25892`). So a rope or a belt between
+  two parts that stay on the board stays there, tied as the level ties it. None of the shipped ropes and belts has the
+  bit.
+- Before it puts a pulley in the bin, the setup follows the pulley's links to the end of the rope that runs over it and
+  puts that rope in the bin first (`0x258ac`). No shipped level has a pulley without the bit under a rope whose two
+  ends stay.
+
+So in the 100 shipped puzzles, 699 of the 3,439 parts start in the bin: 65 of the 121 ropes and 35 of the 50 belts,
+each because a part it ties goes there. The other 56 ropes and 15 belts stay on the board, and 7 tunnels are taken
+off (in BRAN10, BRAN18, BRAN20, CAKE15, HARD5, LOON7 and LOON21). The Lab does the same (`toonsPuzzleStart`): it draws
+the ropes and belts that stay, puts the others in the bin, and lists a tunnel taken off on its own in the Structure
+panel and in a note. Which tunnel of a pair goes to the bin follows the lists' order, with TOONS.EXE's type table when
+it is loaded; the shipped levels give the same tunnels by place alone. The Solution box shows every part where the
+file puts it. CAKE15 ("Use a tunnel to help Al get to the bubble gum") has one of its two tunnels in the bin and the
+other taken off. In LOON7, rope #2 between balloon #41 and eye-hook #4 is now drawn on the board.
+
+**Ropes and belts the player can change.** Clearing the bit is what lets the player change a rope or a belt that is
+tied when the puzzle starts. Read from code: the routine that says what the player may do with a part (`0xab37`) gives
+a rope or a belt without the bit two handles, the bin handle and the part itself, and nothing more. Clicking the place
+where a rope is tied on a part picks the rope, with the clicked end as the one to move (`0xa7ac`, which turns the rope
+round when that is its first end); a belt is picked at its hub the same way (`0xa6ed`). Dragging it then unties that
+end and leaves the other tied (`0x280f3`: `0xb902` with only the second end, and for a belt `0xb88c` and the first end
+tied again), and the player ties the loose end where they drop it. The bin handle unties both ends and puts the rope
+or the belt in the bin (`0x281c9`). Either way the rope place of the part it is untied from is cleared, the word
+LOON7's goal tests.
 
 **Drawing.** The Lab draws a Toons level with the `toons` list: frames by state, walls and the ladder as tiles by
 TOONS.EXE's rule ([file formats](file-formats.md#toonsexe)), the rope and the belt as lines.
@@ -574,7 +606,7 @@ a run ends unsolved (`0x879b`). The reset takes every Al and Sid on the fixed li
 (type 77) on the moving list to the fixed list, clearing their `0xb1`, which sorts them again by their saved place. It
 frees the parts made during a run (bit 0x10 of the list word), and puts every other part back to its saved place and
 state without moving it on its list. So at the first step the lists are the level loader's, less the parts the puzzle
-setup put in the bin, plus the bin parts the player put on the board, each where its place sorts it, with Al and Sid
+setup put in the bin or took off, plus the bin parts the player put on the board, each where its place sorts it, with Al and Sid
 on the moving list. In all 100 shipped goals, every part a goal finds is fixed in place (bit 0x40) and on the list the
 goal searches, no level keeps Al or Sid on the fixed list or a rug on the moving list, and the level has no part of
 that type in the bin. So the order the goals see is the file's, sorted by the file's places, whatever the player
@@ -619,9 +651,10 @@ goal has one.
   list (their sort word is 1, the lowest), the lower one, #40, first. The level's rope #2 ties the upper one, #41, at
   its first place to eye-hook #4 (both fixed in place), so the goal is about balloon #41: the Lab numbers it and rings
   only it. Neither other way holds as the puzzle starts (the first part on the moving list is a balloon, and #41 has a
-  rope), which the Lab says with a chip and doesn't ring. Which balloon it is depends on the ropes, though: TOONS.EXE's
-  puzzle setup (`0x25829`) clears the fixed bit of every rope and belt (`0x25892`) and leaves them on their list, so
-  the player may move them, and the Lab says so in a chip.
+  rope), which the Lab says with a chip and doesn't ring. Which balloon it is depends on the ropes, though: the puzzle setup
+  leaves rope #2 tied on the board with its fixed bit cleared (`0x25892`), so the player can take either end off and
+  tie it elsewhere, or put it in the bin ([Ropes and belts the player can change](#toons-levels)). The Lab says so in a
+  chip ("ropes").
 - Al's and Sid's action is named by its sheet ("action = 50 (CATFISH)"), and a state by its frame in the sheet of the
   action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is the frame drawn is read from the
   drawing code ([Al and Sid](#toons-levels)); which action's frames it is in comes from the action tables. CAKE26
@@ -638,8 +671,4 @@ A Toons part's record is 0xb3 bytes: the level reader and two other places alloc
   the first step a part could already change list (Al's and Sid's actions) or a new part be made before the goal finds
   its parts. Whether that happens in a shipped level depends on what the parts do, which isn't read; the Lab says the
   order as the run starts.
-- **Ropes and belts in the bin.** TOONS.EXE leaves every rope and belt on its list when a puzzle starts, and the
-  Lab puts them in the bin. 56 of the 121 shipped ropes and 15 of the 50 belts tie two parts that stay on the board;
-  the others tie a part that goes to the bin, and how TOONS.EXE then draws them, or whether it takes them off later,
-  isn't read.
 - **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.

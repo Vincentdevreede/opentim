@@ -21,6 +21,8 @@ import {
   type SpriteOf,
   type Tim2Drawing,
   type ToonsDrawing,
+  type ToonsPuzzleStart,
+  toonsPuzzleStart,
 } from "@opentim/content";
 import type { Font } from "@opentim/resources";
 import { toonsPicture } from "./toons-drawing.ts";
@@ -177,21 +179,44 @@ export interface Scene {
 const TIM2_FIXED = 0x40;
 /** Bit 0x100 of TIM 2's third flag word: the part stays in the bin when the game shows the puzzle's solution. */
 const TIM2_NOT_IN_SOLUTION = 0x100;
+/** Where a part is when the puzzle starts: on its list, in the bin, or `gone` for a Toons tunnel the setup frees. */
+export type StartGroup = LevelPart["group"] | "gone";
+
+const toonsStarts = new WeakMap<Level, { kinds?: ReadonlyMap<number, number>; start: ToonsPuzzleStart }>();
+/** TOONS.EXE's puzzle start of a level, worked out once per level and type table. */
+function toonsStart(level: Level, kinds?: ReadonlyMap<number, number>): ToonsPuzzleStart {
+  const known = toonsStarts.get(level);
+  if (known && known.kinds === kinds) return known.start;
+  const start = toonsPuzzleStart(level, kinds);
+  toonsStarts.set(level, { kinds, start });
+  return start;
+}
+
 /**
  * The list a part is on when the puzzle starts. TIM 1 keeps its parts bin as a third list in the file. TIM 2 keeps
  * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
  * third flag word into the parts bin, so those are the bin. When the player asks for the designer's solution, it loads
  * the level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
  *
- * Toons has no bin in its files either, and TOONS.EXE treats bit 0x40 the same way: a part with it can't be moved or
- * changed, and the program puts every part without it back to state 0, unmirrored and at its own size, as a part in
- * the bin is. So those are the bin, and where the file puts them is the solution. The bits that are 0x100 in TIM 2
- * aren't set in Toons' levels.
+ * Toons has no bin in its files either. TOONS.EXE's puzzle setup puts every part without bit 0x40 in the bin, and with
+ * it the ropes and belts tied to it and the other end of a tunnel, which it frees (`toonsPuzzleStart`); a rope or a
+ * belt between two parts that stay stays on the board. `kinds`, the type table's sort words, decide which tunnel of a
+ * pair goes to the bin. Where the file puts the parts is the solution. The bits that are 0x100 in TIM 2 aren't set in
+ * Toons' levels.
  */
-export const groupOf = (level: Level, part: LevelPart, solution = false): LevelPart["group"] => {
+export const groupOf = (
+  level: Level,
+  part: LevelPart,
+  solution = false,
+  kinds?: ReadonlyMap<number, number>,
+): StartGroup => {
   const third = part.flags[2] ?? 0;
+  if (level.layout === "toons") {
+    if (solution) return part.group;
+    const start = toonsStart(level, kinds);
+    return start.bin.has(part.index) ? "bin" : start.gone.has(part.index) ? "gone" : part.group;
+  }
   if (level.layout === "tim" || third & TIM2_FIXED) return part.group;
-  if (level.layout === "toons") return solution ? part.group : "bin";
   return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
 };
 
@@ -608,9 +633,11 @@ export function layoutScene(
     solution = false,
     drawingFrom = "TIM2.EXE’s",
     toons,
-  }: { solution?: boolean; drawingFrom?: string; toons?: ToonsCode } = {},
+    toonsKinds,
+  }: { solution?: boolean; drawingFrom?: string; toons?: ToonsCode; toonsKinds?: ReadonlyMap<number, number> } = {},
 ): Scene {
-  const board = level.parts.filter((p) => groupOf(level, p, solution) !== "bin");
+  const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsKinds)]));
+  const board = level.parts.filter((p) => groups.get(p) !== "bin" && groups.get(p) !== "gone");
   const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom, toons));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
@@ -641,12 +668,19 @@ export function layoutScene(
       title: `${plural(broken.length, "rope")} with a route that doesn’t close.`,
       detail: `${broken.map((l) => `#${l.part}`).join(", ")}: the links lead to a part that isn’t a pulley, so the last piece is drawn straight.`,
     });
+  const gone = level.parts.filter((p) => groups.get(p) === "gone");
+  if (gone.length)
+    notes.push({
+      status: "decoded",
+      title: `${plural(gone.length, "tunnel")} taken off.`,
+      detail: `${gone.map((p) => `#${p.index}`).join(", ")}: the other end of a tunnel in the bin. TOONS.EXE takes it off as the puzzle starts and makes a new one when the player puts the tunnel on the board.`,
+    });
   const knot = compose([KNOT], spriteOf);
   return {
     area: PLAY_AREAS[level.layout],
     parts,
     lines,
-    bin: level.parts.filter((p) => groupOf(level, p, solution) === "bin"),
+    bin: level.parts.filter((p) => groups.get(p) === "bin"),
     notes,
     knot,
   };

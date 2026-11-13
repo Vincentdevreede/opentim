@@ -22,7 +22,7 @@ import {
   type GoalValue,
 } from "./puzzle-goals.ts";
 import { readToonsMemory, type ToonsMemory } from "./toons-drawing.ts";
-import type { Level } from "./level.ts";
+import type { Level, RopeSlot } from "./level.ts";
 import { findToonsTypeTable, loadImage, readToonsActions, TOONS_RECORD_SIZE } from "./toons.ts";
 
 const ANY = -1;
@@ -374,12 +374,79 @@ export function toonsListOrder(level: Level, lists: string, kinds: ReadonlyMap<n
 /** Bit 0x40 of the third flag word: the part stays where the file puts it, and the player can neither move nor change it. */
 const FIXED_IN_PLACE = 0x40;
 
+/** The Toons types the puzzle setup treats on their own. */
+const TOONS_BELT = 1;
+const TOONS_ROPE = 14;
+const TOONS_PULLEY = 17;
+const TOONS_TUNNEL = 46;
+
+/** Where the parts are when a Toons puzzle starts, as TOONS.EXE's puzzle setup leaves them. */
+export interface ToonsPuzzleStart {
+  /** The parts in the bin, by index in the level. Every other part is on the board, except the `gone` ones. */
+  bin: Set<number>;
+  /** Tunnels the setup takes off the board and frees: the other end of a tunnel it puts in the bin. */
+  gone: Set<number>;
+}
+
+/** The pulleys a rope runs over, from its first part towards its second, as the parts' links lead. */
+function ropePulleys(level: Level, rope: NonNullable<RopeSlot["rope"]>): number[] {
+  const [from, to] = rope.parts;
+  if (from === null) return [];
+  const pulleys: number[] = [];
+  let next = level.parts[from]?.links[rope.slots[0]];
+  while (next !== null && next !== undefined && next !== to && !pulleys.includes(next)) {
+    const part = level.parts[next];
+    if (part?.type !== TOONS_PULLEY) break;
+    pulleys.push(next);
+    next = part.links[0];
+  }
+  return pulleys;
+}
+
 /**
- * Which rope places of each part hold a rope once the level is read, by part index. TOONS.EXE's level reader (file
- * offset `0x24e0a`) gives each rope it reads a record of its own, puts it in the rope's own place, and puts it at the
- * place the rope ties on each of its two parts: the word at 0x6f for the first place, 0x71 for the second.
+ * Which parts TOONS.EXE has in the bin when a puzzle starts. Its puzzle setup (file offset `0x25829`) walks the moving
+ * list and then the fixed list, in the order the level loader leaves them (`toonsListOrder`), and puts every part
+ * without bit 0x40 of its third flag word in the bin through the routine of the player's bin handle (`0x281c9`). That
+ * routine takes off what the part holds (`0xbb07`): a belt round it is untied at both ends and goes to the bin too
+ * (`0xb88c`, which puts it there at `0xb8f8`), and so does a rope tied to it (`0xb902`, at `0xbabf`). A tunnel takes
+ * the tunnel at its other end with it: that one is taken off its list and freed (`0x28253`, `0x23fa8`), so the bin
+ * holds one tunnel of the pair, and when the player puts it on the board TOONS.EXE makes a new other end (`0x27fbb`).
+ *
+ * The setup skips ropes and belts themselves (`0x25892`), so a rope or a belt whose two parts stay on the board stays
+ * there, tied. Before it puts a pulley in the bin, it follows the pulley's links to the end of the rope that runs over
+ * it and puts that rope in the bin first (`0x258ac`); this follows the rope's route instead, which finds the same rope.
+ * The order only decides which tunnel of a pair goes to the bin; without `kinds` it is the order by place alone.
  */
-export function toonsRopePlaces(level: Level): Map<number, [boolean, boolean]> {
+export function toonsPuzzleStart(level: Level, kinds: ReadonlyMap<number, number> = new Map()): ToonsPuzzleStart {
+  const bin = new Set<number>();
+  const gone = new Set<number>();
+  const order = [...toonsListOrder(level, "the moving list", kinds), ...toonsListOrder(level, "the fixed list", kinds)];
+  for (const index of order) {
+    const part = level.parts[index]!;
+    if (gone.has(index) || part.type === TOONS_ROPE || part.type === TOONS_BELT) continue;
+    if ((part.flags[2] ?? 0) & FIXED_IN_PLACE) continue;
+    const other = part.tunnel;
+    if (part.type === TOONS_TUNNEL && other !== null && other !== undefined && other !== index) gone.add(other);
+    bin.add(index);
+  }
+  const off = (index: number | null | undefined) =>
+    index !== null && index !== undefined && (bin.has(index) || gone.has(index));
+  for (const part of level.parts) {
+    if (part.type === TOONS_BELT && part.belt.parts?.some(off)) bin.add(part.index);
+    if (part.type !== TOONS_ROPE) continue;
+    const tied = part.ropes.flatMap((place) => (place.rope ? [place.rope] : []));
+    if (tied.some((rope) => rope.parts.some(off) || ropePulleys(level, rope).some(off))) bin.add(part.index);
+  }
+  return { bin, gone };
+}
+
+/**
+ * Which rope places of each part hold a rope, by part index. TOONS.EXE's level reader (file offset `0x24e0a`) gives
+ * each rope it reads a record of its own, puts it in the rope's own place, and puts it at the place the rope ties on
+ * each of its two parts: the word at 0x6f for the first place, 0x71 for the second. With `start`, as the puzzle starts:
+ * a rope the setup puts in the bin is first untied from both its parts, which clears their places (`0xb902`).
+ */
+export function toonsRopePlaces(level: Level, start?: ToonsPuzzleStart): Map<number, [boolean, boolean]> {
   const places = new Map<number, [boolean, boolean]>();
   const tie = (part: number | null, place: number) => {
     if (part === null || place > 1) return;
@@ -392,7 +459,7 @@ export function toonsRopePlaces(level: Level): Map<number, [boolean, boolean]> {
       const rope = place.rope;
       if (!rope) return;
       tie(part.index, n);
-      rope.parts.forEach((end, k) => tie(end, rope.slots[k]!));
+      if (!start?.bin.has(part.index)) rope.parts.forEach((end, k) => tie(end, rope.slots[k]!));
     });
   return places;
 }
@@ -405,8 +472,8 @@ export interface ToonsGoalParts {
   holds?: boolean;
   /**
    * What the player can change that may make it other parts: `bin` when parts from the bin can go before them on the
-   * list (where the player puts them decides), `ropes` when it depends on the ropes, which the puzzle lets the
-   * player move.
+   * list (where the player puts them decides), `ropes` when it depends on the ropes, whose ends the player may take
+   * off and tie elsewhere.
    */
   player?: "bin" | "ropes";
 }
@@ -417,12 +484,15 @@ export interface ToonsGoalParts {
  * `where` (`first`); and for `every` and `first`, whether tests of only the rope places and the type hold as the
  * puzzle starts. Undefined for a condition it can't place.
  *
- * The lists are in the order the level loader leaves them (`toonsListOrder`). When a run starts, TOONS.EXE doesn't
- * sort them again: it puts the parts back where they were and only moves Al and Sid from the fixed list to the moving
- * list and the rug the other way (file offset `0xec1e`), which none of the shipped levels needs. A part the player
- * puts on the board from the bin goes into its list by the place the player gives it (`0x27f87`, `0x280c4`), so when
- * a part from the bin could come before the found one, `player` is `bin`. The rope places are the level's
- * (`toonsRopePlaces`); the puzzle setup clears every rope's fixed bit (`0x25892`), so a condition on them is `ropes`.
+ * The lists are in the order the level loader leaves them (`toonsListOrder`), less the parts the puzzle setup puts in
+ * the bin or takes off (`toonsPuzzleStart`). When a run starts, TOONS.EXE doesn't sort them again: it puts the parts
+ * back where they were and only moves Al and Sid from the fixed list to the moving list and the rug the other way
+ * (file offset `0xec1e`), which none of the shipped levels needs. A part the player puts on the board from the bin goes
+ * into its list by the place the player gives it (`0x27f87`, `0x280c4`), so when a part from the bin could come before
+ * the found one, `player` is `bin`. The rope places are those of the ropes the setup leaves tied
+ * (`toonsRopePlaces`). The setup clears every rope's fixed bit (`0x25892`), which lets the player take either end of
+ * a tied rope off and tie it elsewhere (`0x280f3`), or put the rope in the bin (`0x281c9`), so a condition on rope
+ * places is `ropes`.
  */
 export function toonsGoalParts(
   level: Level,
@@ -433,9 +503,10 @@ export function toonsGoalParts(
   const group = c.lists === "the fixed list" ? "static" : c.lists === "the moving list" ? "moving" : undefined;
   if (!group || (c.types?.length ?? 0) > 1) return undefined;
   const type = c.types?.[0]?.type;
-  const order = toonsListOrder(level, c.lists!, kinds);
+  const start = toonsPuzzleStart(level, kinds);
+  const order = toonsListOrder(level, c.lists!, kinds).filter((i) => !start.bin.has(i) && !start.gone.has(i));
   const ofType = type === undefined ? order : order.filter((index) => level.parts[index]?.type === type);
-  const ropes = toonsRopePlaces(level);
+  const ropes = toonsRopePlaces(level, start);
   // A test of a rope place or of the type, as the condition says it, against a part; undefined for any other test.
   const test = (text: string): ((index: number) => boolean) | undefined => {
     const rope = /^rope([12]) ([=≠]) 0$/.exec(text);
@@ -457,7 +528,7 @@ export function toonsGoalParts(
     return level.parts.some(
       (p) =>
         p.group === group &&
-        !((p.flags[2] ?? 0) & FIXED_IN_PLACE) &&
+        start.bin.has(p.index) &&
         (type === undefined ? (kinds.get(p.type) ?? 0) <= kind : p.type === type),
     );
   };

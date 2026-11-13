@@ -157,11 +157,15 @@ condition is about the part a field of the n-th part holds.
 
 `toonsListOrder` (`toons-goals.ts`) puts a Toons level's list in TOONS.EXE's order, so the Lab can say which level part
 "the 1st al-e-cat on the moving list" is; `readToonsListKinds` reads the type table's word it sorts by.
-`toonsRopePlaces` says which rope places of each part hold a rope once the level is read, as the level reader puts
-each rope's record in both parts it ties. `toonsGoalParts` places a condition on the level as the puzzle starts: the
-n-th part, the first part whose rope places and type pass `where` (LOON7's balloon with a rope), whether tests of only
-the rope places and the type hold then (`holds`), and `player` when parts from the bin could come before it (`bin`) or
-it depends on the ropes, which the puzzle frees for the player (`ropes`). It reads the condition's `where` and `tests`
+`toonsPuzzleStart` says where TOONS.EXE's puzzle setup (`0x25829`) leaves each part: in the bin every part without the
+fixed bit with the ropes and belts tied to it, taken off (`gone`) the other end of a tunnel it puts in the bin, and on
+the board the rest, ropes and belts between two parts that stay included. `toonsRopePlaces` says which rope places of
+each part hold a rope, as the level reader puts each rope's record in both parts it ties, and with a `start` leaves out
+the ropes the setup puts in the bin. `toonsGoalParts` places a condition on the level as the puzzle starts, on the
+lists less the parts in the bin: the n-th part, the first part whose rope places and type pass `where` (LOON7's
+balloon with a rope), whether tests of only the rope places and the type hold then (`holds`), and `player` when parts
+from the bin could come before it (`bin`) or it depends on the ropes, whose ends the player may take off and tie
+elsewhere (`ropes`). It reads the condition's `where` and `tests`
 texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any other test undecided.
 
 ## Level files

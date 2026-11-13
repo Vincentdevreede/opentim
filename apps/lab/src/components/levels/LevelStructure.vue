@@ -7,13 +7,12 @@ import {
   type LoadedHeader,
   type LoadedKey,
   type LoadedPlace,
-  type PartGroup,
   type PartList,
 } from "@opentim/content";
 import { computed, nextTick, ref, watch } from "vue";
 import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
-import { groupOf, toonsSetting } from "../../levels.ts";
+import { groupOf, toonsSetting, type StartGroup } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -40,10 +39,12 @@ const props = defineProps<{
   header?: LoadedHeader;
   /** The part record's fields as the behaviour read of the loaded program names them, once it is read. */
   record?: readonly WriterField[];
+  /** For Toons, the type table's sort words, which decide which tunnel of a pair the puzzle start puts in the bin. */
+  toonsKinds?: ReadonlyMap<number, number>;
 }>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
-const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
+const GROUPS: { group: StartGroup; label: string; hint: string }[] = [
   {
     group: "static",
     label: "Static",
@@ -55,12 +56,33 @@ const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
     label: "Parts bin",
     hint: "Parts the player can place, not on the board. The loader puts them on the third list, in this order.",
   },
+  {
+    group: "gone",
+    label: "Taken off",
+    hint: "The other end of a tunnel in the bin. TOONS.EXE frees it as the puzzle starts and makes a new one when the player puts the tunnel on the board.",
+  },
 ];
 
 /** TIM 2 stores no bin: the puzzle start puts the parts without bit 0x40 of the third flag word there. */
-const TIM2_HINTS: Partial<Record<PartGroup, string>> = {
+const TIM2_HINTS: Partial<Record<StartGroup, string>> = {
   bin: "Parts without bit 0x40 of the third flag word. The file keeps them where the designer left them; TIM2.EXE drops them into the bin when the puzzle starts.",
 };
+
+/** Toons stores no bin either: the puzzle start puts the parts without bit 0x40 there, with what is tied to them. */
+const TOONS_HINTS: Partial<Record<StartGroup, string>> = {
+  bin: "Parts without bit 0x40 of the third flag word, and the ropes and belts tied to them. The file keeps them where the designer left them; TOONS.EXE puts them in the bin when the puzzle starts.",
+};
+
+/** The parts of each group as the puzzle starts, leaving out a group that only Toons has when it is empty. */
+const groups = computed(() =>
+  GROUPS.map((g) => ({
+    ...g,
+    hint:
+      (props.level.layout === "tim2" ? TIM2_HINTS : props.level.layout === "toons" ? TOONS_HINTS : {})[g.group] ??
+      g.hint,
+    parts: props.level.parts.filter((p) => groupOf(props.level, p, false, props.toonsKinds) === g.group),
+  })).filter((g) => g.group !== "gone" || g.parts.length),
+);
 
 /** The bits of TIM 2's flag words that are known, by word: the game keeps only these from the file. */
 const TIM2_FLAGS: [number, string][][] = [
@@ -353,18 +375,9 @@ function rows(p: LevelPart): Row[] {
         </LabFact>
       </LabFacts>
 
-      <template v-for="g in GROUPS" :key="g.group">
-        <LabListHeading
-          :title="g.label"
-          :meta="String(level.parts.filter((p) => groupOf(level, p) === g.group).length)"
-          :hint="level.layout === 'tim2' ? (TIM2_HINTS[g.group] ?? g.hint) : g.hint"
-          class="font-sans"
-        />
-        <div
-          v-for="p in level.parts.filter((p) => groupOf(level, p) === g.group)"
-          :key="p.index"
-          :data-structure-part="p.index"
-        >
+      <template v-for="g in groups" :key="g.group">
+        <LabListHeading :title="g.label" :meta="String(g.parts.length)" :hint="g.hint" class="font-sans" />
+        <div v-for="p in g.parts" :key="p.index" :data-structure-part="p.index">
           <LabListRow
             :name="`#${p.index}`"
             name-width="2rem"

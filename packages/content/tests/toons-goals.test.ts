@@ -12,7 +12,13 @@ import {
 } from "../src/read/puzzle-goals.ts";
 import type { ToonsMemory } from "../src/read/toons-drawing.ts";
 import type { Level } from "../src/read/level.ts";
-import { findToonsGoalTable, toonsGoalParts, toonsListOrder, toonsRopePlaces } from "../src/read/toons-goals.ts";
+import {
+  findToonsGoalTable,
+  toonsGoalParts,
+  toonsListOrder,
+  toonsPuzzleStart,
+  toonsRopePlaces,
+} from "../src/read/toons-goals.ts";
 
 const hex = (text: string) => Uint8Array.from(text.match(/../g)!.map((b) => parseInt(b, 16)));
 function image(size: number, pieces: [number, string][]) {
@@ -591,6 +597,8 @@ describe("toonsGoalParts", () => {
           { at: { x: 0, y: 0 }, ...(p.tie ? { rope: { parts: p.tie, slots: [0, 1] } } : {}) },
           { at: { x: 0, y: 0 } },
         ],
+        links: [null, null],
+        belt: { at: { x: 0, y: 0 }, width: 0 },
       })),
     }) as unknown as Level;
   // Two balloons, the upper one (#1) tied at its first place to an eye-hook (#2) by a rope (#3), as in LOON7.
@@ -636,6 +644,89 @@ describe("toonsGoalParts", () => {
       { type: 23, y: 300 },
       { type: 23, y: 14, fixed: false },
     ]);
-    expect(toonsGoalParts(binned, nth, kinds)).toEqual({ parts: [1], holds: true, player: "bin" });
+    // The second balloon starts in the bin, so the moving list has only one as the puzzle starts.
+    expect(toonsGoalParts(binned, nth, kinds)).toEqual({ parts: [], player: "bin" });
+  });
+
+  it("leaves out the rope places of a rope the puzzle start puts in the bin", () => {
+    // As above, but the eye-hook goes to the bin and takes the rope with it.
+    const loose = level([
+      { type: 23, y: 300 },
+      { type: 23, y: 14 },
+      { type: 15, y: 104, group: "static", fixed: false },
+      { type: 14, y: -100, group: "static", fixed: false, tie: [1, 2] },
+    ]);
+    expect([...toonsRopePlaces(loose, toonsPuzzleStart(loose, kinds))]).toEqual([[3, [true, false]]]);
+    const c = { kind: "first", lists: moving, types: balloon, where: ["rope1 ≠ 0"], tests: [] };
+    expect(toonsGoalParts(loose, c as unknown as GoalCondition, kinds)).toEqual({ parts: [], player: "ropes" });
+  });
+});
+
+describe("toonsPuzzleStart", () => {
+  const FIXED = 0x40;
+  type Spec = {
+    type: number;
+    x?: number;
+    group?: "static" | "moving";
+    fixed?: boolean;
+    tie?: [number, number];
+    belt?: [number, number];
+    links?: [number | null, number | null];
+    tunnel?: number;
+  };
+  const level = (specs: Spec[]) =>
+    ({
+      parts: specs.map((p, index) => ({
+        index,
+        group: p.group ?? "static",
+        type: p.type,
+        flags: [0, 0, p.fixed === false ? 0 : FIXED],
+        position: { x: p.x ?? 0, y: 0 },
+        ropes: [
+          { at: { x: 0, y: 0 }, ...(p.tie ? { rope: { parts: p.tie, slots: [0, 0] } } : {}) },
+          { at: { x: 0, y: 0 } },
+        ],
+        links: p.links ?? [null, null],
+        belt: { at: { x: 0, y: 0 }, width: 0, ...(p.belt ? { parts: p.belt } : {}) },
+        ...(p.tunnel === undefined ? {} : { tunnel: p.tunnel }),
+      })),
+    }) as unknown as Level;
+  const start = (l: Level) => {
+    const s = toonsPuzzleStart(l);
+    return { bin: [...s.bin].sort((a, b) => a - b), gone: [...s.gone] };
+  };
+
+  it("puts the parts without the fixed bit in the bin, and the ropes and belts tied to them", () => {
+    const l = level([
+      { type: 15 },
+      { type: 15 },
+      { type: 23, fixed: false },
+      { type: 14, fixed: false, tie: [0, 1] },
+      { type: 14, fixed: false, tie: [2, 1] },
+      { type: 1, fixed: false, belt: [0, 1] },
+      { type: 1, fixed: false, belt: [0, 2] },
+    ]);
+    expect(start(l)).toEqual({ bin: [2, 4, 6], gone: [] });
+  });
+
+  it("puts a rope in the bin with a pulley it runs over", () => {
+    const l = level([
+      { type: 15, links: [2, null] },
+      { type: 15 },
+      { type: 17, fixed: false, links: [1, null] },
+      { type: 14, fixed: false, tie: [0, 1] },
+    ]);
+    expect(start(l)).toEqual({ bin: [2, 3], gone: [] });
+  });
+
+  it("puts the first tunnel of a pair in the bin and takes the other end off", () => {
+    // On one list the part further right comes first.
+    const l = level([
+      { type: 46, x: 10, fixed: false, tunnel: 1 },
+      { type: 46, x: 90, fixed: false, tunnel: 0 },
+      { type: 46, x: 50, tunnel: 3 },
+      { type: 46, x: 70, tunnel: 2 },
+    ]);
+    expect(start(l)).toEqual({ bin: [1], gone: [0] });
   });
 });

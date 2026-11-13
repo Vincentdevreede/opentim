@@ -262,8 +262,8 @@ const toonsKinds = computed(() =>
 );
 /**
  * For a Toons goal, the level parts each condition is about when the puzzle starts, in the order TOONS.EXE keeps its
- * lists, with every part where the file puts it and the ropes as the level ties them: the n-th part of a type, the
- * first one whose ropes pass a test, and whether a test of only the ropes and the type holds then.
+ * lists, with the parts on the board where the file puts them and the ropes the puzzle start leaves tied: the n-th part
+ * of a type, the first one whose ropes pass a test, and whether a test of only the ropes and the type holds then.
  */
 const toonsParts = computed(() => {
   const out = new Map<GoalCondition, ToonsGoalParts>();
@@ -361,6 +361,7 @@ const scene = computed(() =>
         solution: showSolution.value,
         drawingFrom: tim2Drawing.value?.from,
         toons: toonsCode.value,
+        toonsKinds: toonsKinds.value,
       })
     : undefined,
 );
@@ -559,6 +560,7 @@ onBeforeUnmount(() => {
         :selected="selectedPart"
         :header="loadedHeader"
         :record="recordFields"
+        :toons-kinds="toonsKinds"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

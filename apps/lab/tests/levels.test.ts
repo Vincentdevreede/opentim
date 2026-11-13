@@ -421,16 +421,54 @@ describe("toonsTiles", () => {
 });
 
 describe("groupOf", () => {
-  const level = { layout: "toons" } as Level;
+  // A Toons level: two fixed eye-hooks tied by a rope, a balloon without the fixed bit tied to one of them by another
+  // rope, and two tunnels without it that are each other's other end.
+  const part = (index: number, type: number, marks: number, more: Partial<LevelPart> = {}) =>
+    ({
+      ...toonsPart(16, 16, 0, marks),
+      index,
+      type,
+      position: { x: index * 20, y: 0 },
+      ropes: [{ at: { x: 0, y: 0 } }, { at: { x: 0, y: 0 } }],
+      links: [null, null],
+      belt: { at: { x: 0, y: 0 }, width: 0 },
+      ...more,
+    }) as LevelPart;
+  const rope = (index: number, parts: [number, number]) =>
+    part(index, 14, 0x08, {
+      ropes: [{ at: { x: 0, y: 0 }, rope: { parts, slots: [0, 0] } }, { at: { x: 0, y: 0 } }],
+    });
+  const level = {
+    layout: "toons",
+    parts: [
+      part(0, 15, 0x48),
+      part(1, 15, 0x48),
+      part(2, 23, 0x08),
+      rope(3, [0, 1]),
+      rope(4, [2, 1]),
+      part(5, 46, 0x08, { tunnel: 6 }),
+      part(6, 46, 0x08, { tunnel: 5 }),
+    ],
+  } as unknown as Level;
+  const groups = (solution = false) => level.parts.map((p) => groupOf(level, p, solution));
 
-  it("puts a Toons part without bit 0x40 of the third flag word in the bin, and on the board for the solution", () => {
-    expect(groupOf(level, toonsPart(16, 16, 0, 0x48))).toBe("static");
-    expect(groupOf(level, toonsPart(16, 16, 0, 0x08))).toBe("bin");
-    expect(groupOf(level, toonsPart(16, 16, 0, 0x08), true)).toBe("static");
+  it("puts a Toons part without bit 0x40 of the third flag word in the bin, with the ropes tied to it", () => {
+    expect(groups()).toEqual(["static", "static", "bin", "static", "bin", "gone", "bin"]);
+  });
+
+  it("puts every Toons part where the file has it for the solution", () => {
+    expect(groups(true)).toEqual(level.parts.map(() => "static"));
   });
 
   it("keeps TIM 1's groups as the file has them", () => {
     expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
+  });
+
+  it("draws a rope between two parts on the board, and says which tunnel the puzzle start takes off", () => {
+    const scene = layoutScene(level, undefined, () => undefined);
+    expect(scene.parts.map((p) => p.part.index)).toEqual([0, 1, 3]);
+    expect(scene.bin.map((p) => p.index)).toEqual([2, 4, 6]);
+    expect(scene.notes.map((n) => n.title)).toContain("1 tunnel taken off.");
   });
 });
 
