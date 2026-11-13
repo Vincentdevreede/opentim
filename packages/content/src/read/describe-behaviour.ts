@@ -587,9 +587,21 @@ export function evaluateBehaviourCondition(
   return predicateOf(condition, bindingsOf(fields));
 }
 
-/** A rule with numbers for its values after a query: the rule it was made from, and those numbers as text. */
+/**
+ * A copy of a rule (with numbers for its values after a query, or with its countdowns rewritten): the rule or return
+ * path it was first made from, and the numbers as text. A return path of a split rule is a rule of its own here, since
+ * it carries its own evidence.
+ */
 const originalRule = new WeakMap<object, WithUpdates>();
 const runValueKey = new WeakMap<object, string>();
+/** A number for each rule and return path a walk can step under, so a step's finding is kept per rule object. */
+const ruleNumbers = new WeakMap<object, number>();
+let nextRuleNumber = 0;
+function ruleNumber(rule: object): number {
+  let number = ruleNumbers.get(rule);
+  if (number === undefined) ruleNumbers.set(rule, (number = nextRuleNumber++));
+  return number;
+}
 /** By part: its rules with numbers for their values after a query, made once per set of numbers. */
 const runRuleSets = new WeakMap<PartBehaviour, Map<string, WithUpdates[]>>();
 /** The rules with these numbers for their values after a query. */
@@ -613,7 +625,7 @@ function rulesWithRunValues(part: PartBehaviour, rules: WithUpdates[], values: R
         condition: withRunValues(rule.condition, values),
         ...(updates ? { updates } : {}),
       };
-      originalRule.set(copy, rule);
+      originalRule.set(copy, originalRule.get(rule) ?? rule);
       runValueKey.set(copy, text);
       return copy;
     });
@@ -621,8 +633,8 @@ function rulesWithRunValues(part: PartBehaviour, rules: WithUpdates[], values: R
   }
   return list;
 }
-/** The finding of each set of rules a part's walks take a step under, by the rules' places in its transitions. */
-const stepFindings = new WeakMap<PartBehaviour, { index: Map<unknown, number>; steps: Map<string, Finding> }>();
+/** The finding of each set of rules a part's walks take a step under, by the rules' numbers. */
+const stepFindings = new WeakMap<PartBehaviour, Map<string, Finding>>();
 /** The fields each part's walks track, worked out once per part; callers get their own copy to add to. */
 const definitionsOf = new WeakMap<PartBehaviour, { object: string; offset: number; width: number }[]>();
 function fieldDefinitions(
@@ -1623,7 +1635,6 @@ export function splitRules(
         updates,
         evidence: evidence(rule.evidence, outcome.evidence),
       };
-      originalRule.set(path, rule);
       return path;
     });
   });
@@ -2554,13 +2565,12 @@ export function walkBehaviourRules(
   /** The finding of one step under these rules, worked out once per set of rules: walks take the same steps often. */
   const stepFinding = (candidates: WithUpdates[]): Finding => {
     let cache = stepFindings.get(part);
-    if (!cache)
-      stepFindings.set(part, (cache = { index: new Map(part.transitions.map((t, n) => [t, n])), steps: new Map() }));
+    if (!cache) stepFindings.set(part, (cache = new Map()));
     const id =
-      candidates.map((rule) => cache.index.get(originalRule.get(rule) ?? rule)).join() +
+      candidates.map((rule) => ruleNumber(originalRule.get(rule) ?? rule)).join() +
       candidates.map((rule) => runValueKey.get(rule) ?? "").join();
-    let step = cache.steps.get(id);
-    if (!step) cache.steps.set(id, (step = finding(candidates.map(pathFinding))));
+    let step = cache.get(id);
+    if (!step) cache.set(id, (step = finding(candidates.map(pathFinding))));
     return step;
   };
 
@@ -2803,12 +2813,13 @@ export function walkBehaviourRules(
         continue;
       }
       if (widening) return widening;
-      // When a decided assumption gives every number the field takes, there is no other value to stop at.
+      // When a decided assumption gives every number the field takes, there is no other value to stop at. A decided
+      // assumption that rules a number out, or gives the numbers, joined the walk's proof in `valueBranches`.
       const decided = fields.length === 1 ? decidedValues(part, fields[0]!) : undefined;
       return byValue
         ? {
             ...stopped,
-            ...(decided ? { assumptions: finding([proof]).assumptions } : {}),
+            assumptions: finding([proof]).assumptions,
             stop: {
               ...stopped.stop!,
               branches: decided ? byValue : [...byValue, otherValue(fields[0]!, producers, stopped)],
@@ -3577,17 +3588,9 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       if (rest) words.push(`Turns flag 0x${rest.toString(16)} of ${subject} drawing flags round.`);
       return words.join(" ");
     }
-    // An or sets bits and an and with a mask clears them, whatever the others were: say which.
-    const bitsOf = (expression: Expression): { set: number; clear: number } | undefined => {
-      if (expression.kind === "field" && expression.offset === write.offset) return { set: 0, clear: 0 };
-      if (expression.kind !== "binary" || expression.right.kind !== "constant") return undefined;
-      const inner = bitsOf(expression.left);
-      const mask = expression.right.value & 0xffff;
-      if (!inner) return undefined;
-      if (expression.operator === "|") return { set: inner.set | mask, clear: inner.clear & ~mask };
-      if (expression.operator === "&") return { set: inner.set & mask, clear: inner.clear | (~mask & 0xffff) };
-      return undefined;
-    };
+    // An or sets bits and an and with a mask clears them, whatever the others were: say which. Only of the same
+    // object's flags: another part's flags with a bit more replace every flag.
+    const bitsOf = (expression: Expression) => changedBits(expression, write);
     // The gear propagation a gear's run calls marks the gears it reaches with its visited bit, and changes no other.
     const propagation = (report.helpers ?? []).find(
       (helper) => (helper as { partGraph?: { propagation?: { fields: { flags: number } } } }).partGraph?.propagation,
@@ -3735,11 +3738,14 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
     if (expression.kind === "binary") {
       const name = nameOf(expression.left);
       const leftField = expression.left.kind === "field" ? expression.left : undefined;
-      if (name === "state" && expression.right.kind === "constant" && expression.right.value === 1)
+      // Only a step of one up or down has a name; any other calculation (a mask, a shift) is said as recorded.
+      const step = expression.operator === "+" || expression.operator === "-";
+      if (step && name === "state" && expression.right.kind === "constant" && expression.right.value === 1)
         return expression.operator === "+" ? "the incremented state" : "the decremented state";
-      if (name === "state" && nameOf(expression.right) === "stateDelta")
+      if (expression.operator === "+" && name === "state" && nameOf(expression.right) === "stateDelta")
         return "the state after applying the control value";
       if (
+        step &&
         (name === "contextCounter" ||
           (leftField && part.counters.some((counter) => counter.offset === leftField.offset))) &&
         expression.right.kind === "constant" &&
@@ -3804,7 +3810,8 @@ function inputConditionWords(predicate: Predicate, report: BehaviourReport, part
     ) {
       const operand = term.left.left.kind === "field" ? term.left.left : term.left.right;
       const mask = term.left.left.kind === "constant" ? term.left.left : term.left.right;
-      if (operand.kind === "field" && mask.kind === "constant") {
+      // Only the part's own flags: a linked part's flag reads as a linked object's value below.
+      if (operand.kind === "field" && operand.object === "part" && mask.kind === "constant") {
         const name = report.layout.fields
           .find((field) => field.offset === operand.offset)
           ?.masks?.find((field) => field.value === mask.value)?.name;
@@ -4036,6 +4043,7 @@ function effectsOf(report: BehaviourReport, part: PartBehaviour): DescribedEffec
     }
     prior.evidence = evidence(prior.evidence, effect.evidence);
     prior.confidence = confidence(prior.confidence, effect.confidence);
+    prior.assumptions = [...new Set([...prior.assumptions, ...effect.assumptions])];
     const conditions = prior.conditions ?? (prior.condition ? [prior.condition] : []);
     let texts = keptTexts.get(conditions);
     if (!texts) keptTexts.set(conditions, (texts = new Set(conditions.map((known) => JSON.stringify(known)))));

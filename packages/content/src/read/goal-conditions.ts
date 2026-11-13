@@ -635,6 +635,8 @@ function dnf(f: Formula, negated = false): Literal[][] {
           .map(tidy)
           .filter((w): w is Literal[] => !!w),
       );
+      // No part can pass tests that never all hold: "some" is never true then, and "none" always.
+      if (!inner.length) return negated ? [[]] : [];
       if (negated) return [[{ kind: "none", walk: f.walk, ways: inner }]];
       return [[{ kind: "some", walk: f.walk, ways: inner }]];
     }
@@ -827,7 +829,12 @@ class Sayer {
     )
       return `type ${t.op === "==" ? "is" : "isn't"} ${this.typeOf(t.right.value).name}`;
     const unsigned = !t.signed && t.op !== "==" && t.op !== "!=" ? " (unsigned)" : "";
-    return `${this.sym(t.left)} ${OPS[t.op]} ${this.sym(t.right)}${unsigned}`;
+    return `${this.sym(t.left)} ${OPS[t.op]} ${unsigned ? this.bound(t.right) : this.sym(t.right)}${unsigned}`;
+  }
+
+  /** A number an unsigned test compares with, as the test reads it: from 0x8000 up it stays positive. */
+  private bound(v: Sym): string {
+    return v.kind === "constant" ? String(v.value) : this.sym(v);
   }
 
   /** Says tests, with a lower and an upper bound of one field as one range. */
@@ -855,8 +862,9 @@ class Sayer {
       used.add(pair);
       const [lower, upper] = low ? [t, literals[pair]!] : [literals[pair]!, t];
       const unsigned = !t.signed ? " (unsigned)" : "";
+      const say = (v: Sym) => (t.signed ? this.sym(v) : this.bound(v));
       out.push(
-        `${this.sym(lower.right)} ${lower.op === ">=" ? "≤" : "<"} ${this.sym(t.left)} ${OPS[upper.op]} ${this.sym(upper.right)}${unsigned}`,
+        `${say(lower.right)} ${lower.op === ">=" ? "≤" : "<"} ${this.sym(t.left)} ${OPS[upper.op]} ${say(upper.right)}${unsigned}`,
       );
     });
     return out;

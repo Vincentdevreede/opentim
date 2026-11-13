@@ -11,7 +11,18 @@ const COUNT = 58;
  * comes first in the image.
  */
 function program(
-  options: { fallThrough?: boolean; writeCounter?: boolean; far?: boolean; writePointer?: number } = {},
+  options: {
+    fallThrough?: boolean;
+    writeCounter?: boolean;
+    far?: boolean;
+    writePointer?: number;
+    /** Type 43 gets a value the routine read from a local instead of the number. */
+    openFixed?: boolean;
+    /** The type number the loop starts at. */
+    start?: number;
+    /** The routine writes the counter again after the loop. */
+    writeAfter?: boolean;
+  } = {},
 ) {
   const origin = 0x10;
   const bytes: number[] = [];
@@ -34,7 +45,7 @@ function program(
   label("high");
   emit(0xb1, 0x04, 0xd3, 0x66, 0xf8); // mov cl,4; shl word [bp-8],cl
   label("scaled");
-  emit(0xc7, 0x46, 0xfe, 0, 0); // mov word [bp-2],0
+  emit(0xc7, 0x46, 0xfe, options.start ?? 0, 0); // mov word [bp-2],start
   jump(0xe9, "condition");
   label("head");
   emit(0x8b, 0x46, 0xfe, 0xba, 58, 0, 0xf7, 0xea, 0x05, TABLE_OFFSET & 0xff, TABLE_OFFSET >> 8);
@@ -48,7 +59,14 @@ function program(
   jump(0x75, "other");
   label("fixed");
   if (options.far) emit(0xc4, 0x5e, 0xf2, 0x26, 0xc7, 0x47, 0x0a, 0x00, 0x30);
-  else emit(0xc7, 0x45, 0x0a, 0x00, 0x30);
+  else if (options.openFixed) {
+    emit(0x83, 0x7e, 0xfe, 20);
+    jump(0x75, "open");
+    emit(0xc7, 0x45, 0x0a, 0x00, 0x30);
+    jump(0xeb, "step");
+    label("open");
+    emit(0x8b, 0x46, 0xfa, 0x89, 0x45, 0x0a); // mov ax,[bp-6]; mov [di+0x0a],ax
+  } else emit(0xc7, 0x45, 0x0a, 0x00, 0x30);
   if (!options.fallThrough) jump(0xeb, "step");
   label("other");
   if (options.far) emit(0xc4, 0x5e, 0xf2);
@@ -62,6 +80,7 @@ function program(
   jump(0x7d, "exit");
   jump(0xe9, "head");
   label("exit");
+  if (options.writeAfter) emit(0xc7, 0x46, 0xfe, 5, 0); // mov word [bp-2],5
   emit(0x5f, 0x5e, 0x8b, 0xe5, 0x5d, 0xcb);
   for (const patch of patches) {
     const next = origin + patch.at + patch.width;
@@ -87,7 +106,25 @@ describe("the speed limit routine", () => {
       { type: 43, limit: 0x3000 },
     ]);
     expect(setup?.base).toBe(0x2600);
+    expect(setup?.based).toEqual(Array.from({ length: COUNT }, (_, type) => type).filter((t) => t !== 20 && t !== 43));
     expect(setup?.assumptions[0]).toContain("0x10");
+  });
+
+  it("gives the air pressure's limits only to the types whose every way stores them", () => {
+    const setup = findSpeedLimitSetup(program({ openFixed: true }), table, DATA_SEGMENT);
+    expect(setup?.fixed).toEqual([{ type: 20, limit: 0x3000 }]);
+    expect(setup?.base).toBe(0x2600);
+    expect(setup?.based).not.toContain(20);
+    expect(setup?.based).not.toContain(43);
+    expect(setup?.based).toHaveLength(COUNT - 2);
+  });
+
+  it("reads nothing when the loop doesn't start at type 0", () => {
+    expect(findSpeedLimitSetup(program({ start: 1 }), table, DATA_SEGMENT)).toBeUndefined();
+  });
+
+  it("doesn't mind a write of the counter after the loop", () => {
+    expect(findSpeedLimitSetup(program({ writeAfter: true }), table, DATA_SEGMENT)?.base).toBe(0x2600);
   });
 
   it("reads how the air pressure becomes the value taken from the base", () => {

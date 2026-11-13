@@ -3307,13 +3307,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         // A listed member's field is never the owner's: the scan's summary lists every field it may write on the owner
         // as the owner's own (a query that may list the owner, or a global list), and otherwise the owner is not on the
         // list (the query's checked test against the part that asks, or the external list's contract).
-        if (s.fieldHavoc?.length && !["stack", "data", "buffer"].includes(effect.object))
-          s.fieldHavoc.push({
-            offset: effect.offset,
-            width: effect.width,
-            address: i.address,
-            exceptOwner: effect.object !== "part",
-          });
+        if (!["stack", "data", "buffer"].includes(effect.object))
+          s.fieldHavoc = [
+            ...(s.fieldHavoc ?? []),
+            { offset: effect.offset, width: effect.width, address: i.address, exceptOwner: effect.object !== "part" },
+          ];
         if (effect.object === "stack" && effect.operand) {
           if (
             list.possibleFields.indexOf(effect) !==
@@ -3672,13 +3670,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 if (!["part", "stack", "data"].includes(parts.join(":"))) s.memory.delete(key);
               }
             } else if (effect.object !== "data") {
-              if (s.fieldHavoc?.length)
-                s.fieldHavoc.push({
+              s.fieldHavoc = [
+                ...(s.fieldHavoc ?? []),
+                {
                   offset: effect.offset,
                   width: effect.width,
                   address: i.address,
                   exceptOwner: effect.preservesOwnerValue ?? false,
-                });
+                },
+              ];
               // Related-object aliases can change a field of the owner, but the invariant excludes the state.
               for (const [key] of s.memory) {
                 const parts = key.split(":");

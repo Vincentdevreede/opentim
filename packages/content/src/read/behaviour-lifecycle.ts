@@ -4,7 +4,7 @@ import type { BehaviourLayout, LayoutField } from "./behaviour-layout.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findDataSegment } from "./type-table.ts";
 import type { Instruction, Operand } from "./x86.ts";
-import { constant, evidenceOf, memoryOperand } from "./behaviour-terms.ts";
+import { constant, evidenceOf, memoryOperand, writesRegister } from "./behaviour-terms.ts";
 
 export interface ResetLifecycle extends Finding {
   fields: FieldWrite[];
@@ -94,8 +94,7 @@ function sameObjectUntil(code: RoutineCode, from: number, to: number, base: stri
     seen.add(at);
     const instruction = instructions.get(at);
     if (!instruction) return false;
-    if (register(instruction.operands[0]) === base && !["cmp", "test", "push"].includes(instruction.mnemonic))
-      return false;
+    if (writesRegister(instruction, base)) return false;
     pending.push(...(outgoing.get(at) ?? []));
   }
   return true;
@@ -128,7 +127,9 @@ function sourceOfStore(
     )
       return undefined;
     proof.unshift(instruction);
-    if (register(instruction.operands[0]) !== name || ["cmp", "test", "push"].includes(instruction.mnemonic)) continue;
+    if (!writesRegister(instruction, name)) continue;
+    // Only a whole word written as the first operand is followed; anything else that changes it gives up.
+    if (register(instruction.operands[0]) !== name) return undefined;
     const source = instruction.operands[1];
     if (instruction.mnemonic === "mov") {
       if (source?.kind === "immediate") return { value: constant(source.value, destination.width), proof };

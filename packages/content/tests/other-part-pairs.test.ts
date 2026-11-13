@@ -20,8 +20,11 @@ import {
   renderOtherPartPairs,
   SEARCH_UNREAD,
   SOURCE_VALUE,
+  UNCLASSIFIED,
+  unexplainedPairs,
   UNRESOLVED_PATH,
   UNKNOWN_VALUE,
+  type OtherPartPair,
 } from "../src/read/other-part-pairs.ts";
 
 const GLOVE = "overlap candidate at 0x19732";
@@ -318,6 +321,15 @@ describe("the pairs of other parts", () => {
     expect(pair("candle", "cat")).toMatchObject({ status: "ruled out", reasons: [LIGHTABLE_ASSUMPTION] });
     // The candle can light itself, another candle: the candle's own rules read the control value, so it is a walk.
     expect(pair("candle", "candle")).toMatchObject({ status: "described", walks: 1 });
+  });
+
+  it("counts a pair left out for a reason the check doesn't name as unexplained", () => {
+    expect(unexplainedPairs(pairs)).toEqual([]);
+    const left = (status: OtherPartPair["status"], reasons: string[]) => ({ ...pairs.pairs[0]!, status, reasons });
+    const unclassified = left("missing", [UNCLASSIFIED]);
+    const partly = left("partly described", [SOURCE_VALUE, UNCLASSIFIED]);
+    const named = left("missing", [SOURCE_VALUE]);
+    expect(unexplainedPairs({ ...pairs, pairs: [unclassified, partly, named] })).toEqual([unclassified, partly]);
   });
 
   it("says why a pair is missing", () => {

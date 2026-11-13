@@ -1060,6 +1060,9 @@ export function hitsFromOthers(
               ...(c.consumer === undefined ? {} : { consumer: c.consumer }),
             });
           hit.evidence = uniqueEvidence([...hit.evidence, ...evidence]);
+          // The walk is as sure as the least sure path it is made from.
+          const confidence = c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence;
+          if (confidence === "inferred" && hit.confidence === "checked") hit.confidence = confidence;
           // A walk for several paths starts from what they all need: the tests every one of them makes.
           prior.tests = prior.tests.filter((t) => kept.some((u) => JSON.stringify(u) === JSON.stringify(t)));
           hit.assumptions = [...new Set([...hit.assumptions, ...proof])];

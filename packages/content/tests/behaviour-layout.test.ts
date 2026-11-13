@@ -69,6 +69,16 @@ describe("object and callback layout discovery", () => {
     });
   });
 
+  it("names no callback roles when the six dispatched slots are not next to each other", () => {
+    const image = layoutImage();
+    // The last dispatch calls the far pointer at +0x24 instead of +0x36.
+    image[0x100 + 5 * 30 + 19] = 0x24;
+    const layout = discoverBehaviourLayout(image, 0x800);
+    expect(layout.callbacks.map((c) => c.field)).toEqual([0x22, 0x24, 0x26, 0x2a, 0x2e, 0x32]);
+    expect(layout.callbacks.some((c) => c.role === "bounce" || c.role === "rope")).toBe(false);
+    expect(layout.diagnostics.join(" ")).toContain("contiguous");
+  });
+
   it("recognizes a direct DS table call as well as an ES table call", () => {
     const image = layoutImage();
     image.set([0xb8, 0x40, 0, 0x8e, 0xd8], 5);
