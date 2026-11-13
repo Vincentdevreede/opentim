@@ -53,6 +53,8 @@ export function readToonsMemory(exe: Uint8Array): ToonsMemory {
   if (FBOV.every((b, i) => exe[end + i] === b)) {
     const table = u32(exe, end + 8);
     const count = u32(exe, end + 12);
+    if (table + 8 * count > exe.length)
+      throw new Error("TOONS.EXE's overlay segment table runs past the end of the file");
     const segments = Array.from({ length: count }, (_, i) => u16(exe, table + 8 * i));
     const base = end + 16;
     for (let i = 0; i < count; i++) {

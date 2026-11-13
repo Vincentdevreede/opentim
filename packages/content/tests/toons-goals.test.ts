@@ -111,6 +111,28 @@ describe("readGoalRoutines for Toons' byte counters, long loops and sums", () =>
     expect(sumBelowZero(5, -3)).toBe(false);
     expect(sumBelowZero(-5, 3)).toBe(true);
   });
+
+  it("doesn't read byte sums and shifts, or a signed branch after a byte, which words would get wrong", () => {
+    const reason = (code: string) => {
+      const routine = readGoalRoutines(image(0x40, [[0, `558bec83ec02${code}8be55dcb`]]), 0, 0).get(0);
+      return routine && "reason" in routine ? routine.reason : undefined;
+    };
+    // mov byte [bp-1], 0xff; add byte [bp-1], 1: the processor keeps 0, a word 0x100.
+    expect(reason("c646ffff" + "8046ff01")).toContain("a byte add");
+    // mov byte [bp-1], 0; sub byte [bp-1], 1
+    expect(reason("c646ff00" + "806eff01")).toContain("a byte sub");
+    // mov byte [bp-1], 0x80; shl byte [bp-1], 1, and sar byte [bp-1], 1
+    expect(reason("c646ff80" + "d066ff")).toContain("a byte shl");
+    expect(reason("c646ff80" + "d07eff")).toContain("a byte sar");
+    // mov byte [bp-1], 0x90; cmp byte [bp-1], 0x91; jl skip; mov word [0x14], 1: 0x90 is -112 to the processor.
+    expect(reason("c646ff90" + "807eff91" + "7c06c70614000100")).toContain("a signed branch after a byte");
+    // cmp byte [0x10], 0x90; jl skip; mov word [0x14], 1
+    expect(reason("803e100090" + "7c06c70614000100")).toContain("a signed branch after a byte");
+    // mov byte [bp-1], 0x7f; inc byte [bp-1]; js skip; mov word [0x14], 1: the byte is 0x80, below 0.
+    expect(reason("c646ff7f" + "fe46ff" + "7806c70614000100")).toContain("a signed branch after a byte");
+    // A byte shifted right and an unsigned branch after a byte stay read.
+    expect(reason("c646ff80" + "d06eff" + "807eff40" + "7206c70614000100")).toBeUndefined();
+  });
 });
 
 describe("runGoal for Toons", () => {
@@ -798,6 +820,20 @@ describe("toonsPuzzleStart", () => {
       { type: 46, x: 70, tunnel: 2 },
     ]);
     expect(start(l)).toEqual({ bin: [1], gone: [0] });
+  });
+
+  it("takes a rope end, a plug or a link to a part past the list as none", () => {
+    // A damaged level: the rope from #0 ends at #9, the drier and the switch are plugged into #9 and the pulley links
+    // to #9, and there are only five parts.
+    const l = level([
+      { type: 15, fixed: false },
+      { type: 14, fixed: false, tie: [0, 9] },
+      { type: 52, fixed: false, plug: 1, plugs: [9, null], plugPlace: 0 },
+      { type: 2, fixed: false, plug: 2, plugs: [9, null] },
+      { type: 17, fixed: false, links: [9, null] },
+    ]);
+    expect(start(l)).toEqual({ bin: [0, 1, 2, 3, 4], gone: [] });
+    expect(toonsPuzzleStart(l, none, none).unplugged).toEqual([]);
   });
 });
 

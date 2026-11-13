@@ -209,7 +209,7 @@ class Unreadable extends Error {
   }
 }
 
-type Flags =
+type Flags = (
   | { kind: "compare"; left: GoalValue; right: GoalValue }
   | { kind: "and"; left: GoalValue; right: GoalValue }
   /**
@@ -221,7 +221,11 @@ type Flags =
       value: GoalValue;
       logic: boolean;
       sum?: { op: "+" | "-"; left: GoalValue; right: GoalValue };
-    };
+    }
+) & {
+  /** Set by an instruction on a byte, whose sign is bit 7: the goal's tests read 16-bit signs. */
+  byte?: true;
+};
 
 /** The word register of each low byte register, for `mov al, byte; mov ah, 0`. */
 const BYTE_PAIRS: Record<string, string> = { al: "ax", bl: "bx", cl: "cx", dl: "dx" };
@@ -602,6 +606,7 @@ class RoutineReader {
     const flags = this.flags;
     if (!flags || this.flagsAt !== branch.address)
       throw new Unreadable(branch.address, "a branch on flags set further back than the instruction before");
+    if (flags.byte && condition.signed) throw new Unreadable(branch.address, "a signed branch after a byte");
     if (flags.kind === "compare") {
       if (branch.mnemonic === "js" || branch.mnemonic === "jns")
         throw new Unreadable(branch.address, "a sign branch after a compare");
@@ -624,7 +629,7 @@ class RoutineReader {
   }
 
   private setFlags(i: Instruction, flags: Flags) {
-    this.flags = flags;
+    this.flags = i.operands.some((o) => o.kind === "memory" && o.width === 8) ? { ...flags, byte: true } : flags;
     this.flagsAt = i.address + i.size;
   }
 
@@ -812,6 +817,8 @@ class RoutineReader {
           this.sp += (i.mnemonic === "add" ? 1 : -1) * this.count(b, at);
           return [];
         }
+        // The goal adds words, so a byte would carry into its high byte.
+        if (a?.kind === "memory" && a.width === 8) throw new Unreadable(at, `a byte ${i.mnemonic}`);
         const target = this.target(a, at);
         const source = this.value(b, at);
         const op = i.mnemonic === "add" ? "+" : "-";
@@ -837,6 +844,9 @@ class RoutineReader {
       case "shl":
       case "sar":
       case "shr": {
+        // A word shift left carries into the high byte, and one right takes its sign from bit 15, not 7.
+        if (a?.kind === "memory" && a.width === 8 && i.mnemonic !== "shr")
+          throw new Unreadable(at, `a byte ${i.mnemonic}`);
         const target = this.target(a, at);
         this.setFlags(i, { kind: "result", value: target, logic: false });
         const op = i.mnemonic === "shl" ? "<<" : i.mnemonic === "sar" ? ">>" : ">>>";

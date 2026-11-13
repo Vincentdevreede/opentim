@@ -58,4 +58,12 @@ describe("readToonsMemory", () => {
     expect(toons.fileOffset(0x202)).toBe(32 + 0x200 + 16 + 2);
     expect(toons.fileOffset(0x10)).toBe(32 + 0x10);
   });
+
+  it("rejects an overlay segment table that runs past the end of the file", () => {
+    const exe = program();
+    // The count of the table's entries, after `FBOV`, its size and where the table is: 0x1000 entries of 8 bytes.
+    const count = 32 + 0x200 + 12;
+    exe.set([0x00, 0x10, 0, 0], count);
+    expect(() => readToonsMemory(exe)).toThrow("runs past the end of the file");
+  });
 });
