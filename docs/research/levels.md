@@ -447,14 +447,17 @@ The Lab's Structure panel names them:
   - the message machine: the text it shows, a letter in every shipped level (`0x41` is "A");
   - the thumpulator: its number of sections in bits 4 to 7, and in other bits how its drawing code lays them out;
   - the pistol, the catapult and the hen: the shots left. Each shot takes one, and at 0 the part doesn't fire
-    (`0x6fa31`, `0x52816`, `0x56b39`). The editor's labels for these settings are in the data segment: "letter",
-    "time", "count", "ammo", "banana", "boulders" and "eggs".
-    The banana (0 or 1 in the shipped levels) and the other types: what their code does with it isn't read.
+    (`0x6fa31`, `0x52816`, `0x56b39`).
+
+  The editor's labels for these settings are in the data segment: "letter", "time", "count", "ammo", "banana",
+  "boulders" and "eggs". What the banana's code does with its setting (0 or 1 in the shipped levels) isn't read, nor
+  the other types'.
 
 **The play area** is the screen, 640 × 400, seen from -91, -8. When a puzzle starts, TOONS.EXE (file offset
 `0x228d0`) sets the view to -91 across and -8 down, and writes the same two numbers over the level's scroll words, as
 TIM.EXE does with its -8, -8; the redraw then covers the whole screen, 640 × 400 (`0x1ce09`). So the play area runs
-from -91 to 549 across and from -8 to 392 down, which is where the walls of the shipped levels end. The level files'
+from -91 to 549 across and from -8 to 392 down, which is where nearly all walls of the shipped levels end (a few run
+on to 581 and 424, off the screen). The level files'
 own scroll words (-91 in 40 levels, -8 in the others) are read and overwritten. Whether the parts bin or the controls
 cover some of the screen while a puzzle is set up isn't read. The Lab draws the play area there.
 
