@@ -515,10 +515,9 @@ by `list-goals` and `check-goals` on six builds):
 routine at `0x3b4a`), and follows each part's next word, counting the parts of the type. It gives the n-th one, or 0
 when the list ends before it. So a goal that looks for more parts than the level has keeps 0 for the others and then
 reads the data segment's own words at the field offsets: LOON18 looks for 6 fish and the level has 4. The Lab marks
-such a condition "not in this level". Which part of the level is the 1st on the list (file order, most likely) isn't
-read.
+such a condition "not in this level". Which part of the level is the 1st on the list isn't read yet.
 
-**As conditions.** 86 of the 100 goals show as conditions on the Levels page, said in game terms:
+**As conditions.** All 100 goals show as conditions on the Levels page, said in game terms:
 
 - the parts the goal finds in its first step are "the 1st al-e-cat on the moving list" and so on, for every step after
   (read from code: the setup runs only while the step count is 0, and nothing else writes those words);
@@ -527,6 +526,32 @@ read.
 - a goal that goes over its parts with a counter (CAKE1's five message machines, BRAN10's three Sids) gives a
   condition for each part, and parts that each pass one of several tests are one condition each: LOON17 is "the 1st,
   2nd and 3rd sid-mouse: action ≠ 45, one of: positionX > 640 or positionX < 0 or positionY > 400 or positionY < 0";
+- a word set to the step count when a test holds keeps the last step it held at: CAKE6, HARD12 and HARD13 are "last
+  held 30 steps ago, not at the first step, the 1st sid-mouse: action = 17 (SIDANVIL)" (the word is 0 until then, and
+  the goal tests it isn't, so a hit at the first step doesn't count);
+- a word that 1 is added to when a test holds counts the steps it held at: CAKE28 is "at exactly 2 steps so far, the
+  1st sid-mouse: action = 55 (SIDEGG), state = 484, control = 0";
+- a word of a few values is said by what happened in which order: BRAN8's switch word becomes 1 when the switch is on
+  and 2 when it is off while the word is 1, so 2 means "the switch is off now, and was on at some step before"; with
+  Al's word, which a test sets to 1, read as 0: "at no step so far, the 1st al-e-cat: action = 16 (CATSHOT)", and the
+  same for action 37;
+- a loop that finds the next part of a type until there is none fills a table with every such part: HARD18 and HARD21
+  to HARD25 are "every message-machine on the fixed list: state ≠ 0", however many the level has;
+- a field that holds a part is followed to it. Al's word at `0xb1` is his angel: at the end of action 16 (CATSHOT,
+  `0x2aac3`) TOONS.EXE makes a new al-e-cat at his place with action 17 (CATANGEL) and keeps it there (for a tunnel the
+  same word is the tunnel at the other end). BRAN16 keeps it when Al has action 16 and it is an al-e-cat, and is met
+  when it is off the top: "at some step so far, the 1st al-e-cat: action = 16 (CATSHOT), angel's type is al-e-cat" and
+  "the kept angel of the 1st al-e-cat: positionY + height < 0". LOON1 asks the same of four Als. The goal's test that the
+  kept part isn't 0 holds whenever it was kept: a type read through 0 is the word 0x6f42 from Borland's text (below),
+  not a type. The sum is said without overflow, as the reader's two tests (the height is -32768, else positionY < 0
+  less the height) work it out;
+- a search can stop early: LOON7 looks for the first balloon whose word at `0x6f` isn't 0, starting with n = 0. That
+  word is the part's first rope place: the level reader (`0x24e0a`) gives each rope a small record and puts it in the
+  word of both parts it ties, at their rope place (`0x6f` or `0x71`). So the goal finds the first balloon on the moving
+  list with a rope at its first place, and is met when it is out of play. When the first part on the moving list isn't
+  a balloon (n = 0 gives that part only when it is of the type) or no balloon has a rope, the goal keeps 0, and reading
+  through 0 finds the data segment's first words: Borland's copyright text, whose drawing flags word has bit 0x2000. The
+  goal is then met at once, which the conditions say as two more ways.
 - Al's and Sid's action is named by its sheet ("action = 50 (CATFISH)"), and a state by its frame in the sheet of the
   action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is a frame number counted over the
   sheets is inferred from the action table (each action's first frame and frame count), not seen in the goal code.
@@ -538,16 +563,4 @@ A Toons part's record is 0xb3 bytes: the level reader and two other places alloc
 
 ### Toons: still open
 
-- **Goals as conditions.** 14 goals show only as their routine ("program only"):
-  - CAKE6, HARD12 and HARD13 keep the step at which Sid last had action 17 and are met 30 steps later; CAKE28 counts
-    the steps at which Sid has action 55, state 484 and control 0, and is met at 2; BRAN8 keeps whether the electric
-    switch went on and then off again, with Al never at action 16 or 37. These words are more than a found part or a
-    sign that something happened.
-  - HARD18 and HARD21 to HARD25 (one routine) find every message machine on the fixed list, as many as there are, and
-    are met when all have a state other than 0: a loop whose rounds depend on the level.
-  - BRAN16 keeps the part Al's word at `0xb1` points to, when Al has action 16 and that part is an Al, and is met
-    when that part's positionY plus its height is below 0; LOON1 does the same for four Als and is met when it holds
-    for all four. A part reached through a field isn't something the conditions say.
-  - LOON7 looks for the first balloon whose word at `0x6f` isn't 0, starting with n = 0, which gives the first part on
-    the moving list when it is a balloon.
 - **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.

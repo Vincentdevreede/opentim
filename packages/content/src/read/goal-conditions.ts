@@ -45,6 +45,20 @@ export interface GoalCondition {
    * at some step before this one. A goal remembers it in a word it keeps.
    */
   once?: "so far" | "before";
+  /** With `once`: the tests held at no step of that time. */
+  never?: boolean;
+  /** With `once`: at how many steps of that time the tests held, against a number. A goal counts them in a word. */
+  steps?: { op: GoalComparison; value: number };
+  /**
+   * The last step at which the tests held was this many steps before this one (`afterFirst`: and it wasn't the first
+   * step). A goal keeps the step count of that step in a word.
+   */
+  ago?: { steps: number; afterFirst?: boolean };
+  /**
+   * For `nth`: the condition is about the part a field of the n-th part holds, like Al's angel, by the field's name.
+   * `kept`: the part the field held at the last step at which the condition before it held, which the goal keeps.
+   */
+  via?: { name: string; kept?: boolean };
   /** The lists the parts are on, like "the moving list". */
   lists?: string;
   /** The part types, by number and name; none means parts of any type. */
@@ -81,10 +95,11 @@ const MOST_RUNS = 64;
 
 type Routines = ReadonlyMap<number, GoalRoutine | GoalProblem>;
 
-/** A walk over lists of parts. */
+/** A walk over lists of parts; with `type`, over the parts of that type only, in their order on the lists. */
 interface Walked {
   id: number;
   lists: string;
+  type?: number;
 }
 
 type PartRef =
@@ -94,7 +109,12 @@ type PartRef =
   /** The last part of a walk where `where` holds. */
   | { kind: "last"; walk: Walked; where: Formula }
   /** The n-th part of a type on the lists, from the finder; the goal keeps it from its first step. */
-  | { kind: "nth"; type: number; nth: number; lists: string };
+  | { kind: "nth"; type: number; nth: number; lists: string }
+  /**
+   * The part a field of another part holds. With `at`, the part it held at the last step at which `at.item` held,
+   * which the goal keeps in a word.
+   */
+  | { kind: "via"; from: PartRef; offset: number; at?: { item: Formula; before: boolean } };
 
 type Sym =
   | { kind: "constant"; value: number }
@@ -108,12 +128,22 @@ type Sym =
   | { kind: "count"; walk: Walked; where: Formula }
   /** A word a walk changes, as it is when the walk comes to a part. */
   | { kind: "carried"; key: string }
-  | { kind: "unset"; why: string };
+  | { kind: "unset"; why: string }
+  /**
+   * The step count of the last step at which `item` held, or `first` when it never did: a word a goal sets to the
+   * step count whenever a test holds. `steps` is the step count word.
+   */
+  | { kind: "stamp"; item: Formula; before: boolean; first: number; steps: number }
+  /** `first` plus how many steps `item` held at: a word a goal adds 1 to whenever a test holds. */
+  | { kind: "tally"; item: Formula; before: boolean; first: number }
+  /** How many parts a walk over parts of one type has come to before this one: a counter that steps along a table. */
+  | { kind: "index"; walk: Walked };
 
 type Formula =
   | { kind: "true" }
   | { kind: "false" }
-  | { kind: "test"; op: GoalComparison; signed: boolean; left: Sym; right: Sym }
+  /** `exact`: the sum on the left is compared as a number, without the overflow of a word. */
+  | { kind: "test"; op: GoalComparison; signed: boolean; left: Sym; right: Sym; exact?: boolean }
   | { kind: "and"; items: Formula[] }
   | { kind: "or"; items: Formula[] }
   | { kind: "not"; item: Formula }
@@ -124,7 +154,11 @@ type Formula =
    * `item` held at some step: of the run so far, this step included, or (`before`) before this step. A word a goal
    * keeps, set to 0 in its first step and to 1 whenever a test holds, says this.
    */
-  | { kind: "ever"; item: Formula; before: boolean };
+  | { kind: "ever"; item: Formula; before: boolean; afterFirst?: boolean }
+  /** The last step at which `item` held, so far or before this one, was `steps` steps before this one. */
+  | { kind: "ago"; item: Formula; before: boolean; steps: number }
+  /** How many steps `item` held at, so far or before this one, against a number. */
+  | { kind: "times"; item: Formula; before: boolean; op: GoalComparison; value: number };
 
 class DoesntFit extends Error {}
 
@@ -170,6 +204,46 @@ const NEGATED: Record<GoalComparison, GoalComparison> = {
   ">": "<=",
   ">=": "<",
 };
+
+/** The comparison with its sides swapped. */
+const FLIPPED: Record<GoalComparison, GoalComparison> = {
+  "==": "==",
+  "!=": "!=",
+  "<": ">",
+  "<=": ">=",
+  ">": "<",
+  ">=": "<=",
+};
+
+/**
+ * A test of a word a goal keeps from step to step as what happened: the step it keeps against the step count ("30
+ * steps after it last held"), or against the value it starts with, and a count of steps against a number. Undefined
+ * when neither side is such a word.
+ */
+function history(op: GoalComparison, left: Sym, right: Sym): Formula | undefined {
+  const added = left.kind === "binary" && left.op === "+" && left.right.kind === "constant" ? left : undefined;
+  const stamp = left.kind === "stamp" ? left : added?.left.kind === "stamp" ? added.left : undefined;
+  if (stamp) {
+    const plus = added ? signed16((added.right as { value: number }).value) : 0;
+    if ((op === "==" || op === "!=") && right.kind === "word" && right.address === stamp.steps && plus >= 0) {
+      const ago: Formula = { kind: "ago", item: stamp.item, before: stamp.before, steps: plus };
+      return op === "==" ? ago : not(ago);
+    }
+    // The step it keeps is the first step's count, 0, until the test holds at a later step.
+    if ((op === "==" || op === "!=") && !added && right.kind === "constant" && right.value === stamp.first) {
+      if (stamp.first !== 0) throw new DoesntFit("it keeps a step and starts it at a step other than the first");
+      const ever: Formula = { kind: "ever", item: stamp.item, before: stamp.before, afterFirst: true };
+      return op === "!=" ? ever : not(ever);
+    }
+    throw new DoesntFit("it works with a step it keeps in a way the conditions can't say");
+  }
+  if (left.kind === "tally") {
+    if (right.kind !== "constant")
+      throw new DoesntFit("it compares a count of steps with something other than a number");
+    return { kind: "times", item: left.item, before: left.before, op, value: signed16(right.value) - left.first };
+  }
+  return undefined;
+}
 
 function not(f: Formula): Formula {
   switch (f.kind) {
@@ -251,8 +325,11 @@ function binary(op: GoalOperator, left: Sym, right: Sym): Sym {
 }
 
 function compare(op: GoalComparison, isSigned: boolean, l: number, r: number): boolean {
-  const a = isSigned ? signed16(l) : l;
-  const b = isSigned ? signed16(r) : r;
+  return compareNumbers(op, isSigned ? signed16(l) : l, isSigned ? signed16(r) : r);
+}
+
+/** Two numbers compared as numbers. */
+function compareNumbers(op: GoalComparison, a: number, b: number): boolean {
   return op === "=="
     ? a === b
     : op === "!="
@@ -273,18 +350,21 @@ function test(op: GoalComparison, isSigned: boolean, left: Sym, right: Sym): For
     return choose(right.when, test(op, isSigned, left, right.then), test(op, isSigned, left, right.else));
   if (left.kind === "constant" && right.kind === "constant")
     return compare(op, isSigned, left.value, right.value) ? TRUE : FALSE;
-  // A constant goes on the right, and a constant added on the left moves over for an equality.
-  if (left.kind === "constant") {
-    const flipped: Record<GoalComparison, GoalComparison> = {
-      "==": "==",
-      "!=": "!=",
-      "<": ">",
-      "<=": ">=",
-      ">": "<",
-      ">=": "<=",
-    };
-    return test(flipped[op], isSigned, right, left);
+  const remembered = history(op, left, right) ?? history(FLIPPED[op], right, left);
+  if (remembered) return remembered;
+  // How many parts of a walk pass a test against how many pass a test that takes in fewer: all or not all of them.
+  if ((op === "==" || op === "!=") && left.kind === "count" && right.kind === "count" && same(left.walk, right.walk)) {
+    const [a, b] = [left.where, right.where].map((w) => (w.kind === "and" ? w.items : [w])) as [Formula[], Formula[]];
+    const [base, more] = a.length <= b.length ? [a, b] : [b, a];
+    const extra = more.filter((m) => !base.some((x) => same(m, x)));
+    if (extra.length && extra.length === more.length - base.length) {
+      // Equal when no part that passes the shorter test fails the rest of the longer one.
+      const some: Formula = { kind: "some", walk: left.walk, where: and(...base, not(and(...extra))) };
+      return op === "==" ? not(some) : some;
+    }
   }
+  // A constant goes on the right, and a constant added on the left moves over for an equality.
+  if (left.kind === "constant") return test(FLIPPED[op], isSigned, right, left);
   if (
     (op === "==" || op === "!=") &&
     right.kind === "constant" &&
@@ -317,21 +397,33 @@ interface State {
  * where a test held).
  */
 interface Kept {
+  /** Words set to a part the finder found, or to something else worked out from the parts, and never written after. */
   parts: ReadonlyMap<number, Sym>;
-  /**
-   * Words set to `first` in the setup and to `value` when `when` holds: `end` is what they hold after every write of a
-   * step, with the word as the step left it as such.
-   */
+  /** Words that remember what happened, by address. */
   latches: ReadonlyMap<number, Latch>;
   /** Whether reading another word the first step set up doesn't fit: the last pass. */
   strict: boolean;
 }
 
+/**
+ * A word set to `first` in the first step's setup that the steps change as a sign of what happened. `end` is what it
+ * holds after every write of a step, with the word as the step left it as such.
+ *
+ * - `latch`: set to `value` when `when` holds;
+ * - `stamp`: set to the step count when `when` holds;
+ * - `tally`: 1 added when `when` holds;
+ * - `link`: set to the part `field` (a field of a found part) holds when `when` holds;
+ * - `state`: one of a few numbers by the tests of the step and what it held before; `after` is what it holds after
+ *   the step's writes, said by those tests and what happened before.
+ */
 interface Latch {
+  kind: "latch" | "stamp" | "tally" | "link" | "state";
   when: Formula;
   value: number;
   first: number;
   end: Sym;
+  field?: Extract<Sym, { kind: "field" }>;
+  after?: Sym;
 }
 
 /** A value with every part that is the same as `target` put `by` in its place. */
@@ -342,6 +434,80 @@ function replaced<T>(value: T, target: unknown, by: unknown): T {
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, replaced(v, target, by)])) as T;
 }
 
+/** A sym built again from its parts, so that tests and sums of numbers put in its place are worked out. */
+function rebuildSym(v: Sym): Sym {
+  switch (v.kind) {
+    case "binary":
+      return binary(v.op, rebuildSym(v.left), rebuildSym(v.right));
+    case "ite":
+      return ite(rebuild(v.when), rebuildSym(v.then), rebuildSym(v.else));
+    default:
+      return v;
+  }
+}
+
+/** A formula built again from its parts, so that tests of numbers put in its place are decided. */
+function rebuild(f: Formula): Formula {
+  switch (f.kind) {
+    case "test":
+      return f.exact ? f : test(f.op, f.signed, rebuildSym(f.left), rebuildSym(f.right));
+    case "and":
+      return and(...f.items.map(rebuild));
+    case "or":
+      return or(...f.items.map(rebuild));
+    case "not":
+      return not(rebuild(f.item));
+    case "choose":
+      return choose(rebuild(f.when), rebuild(f.then), rebuild(f.else));
+    case "some":
+      return { ...f, where: rebuild(f.where) };
+    case "ever":
+    case "ago":
+    case "times":
+      return { ...f, item: rebuild(f.item) };
+    default:
+      return f;
+  }
+}
+
+/** A formula with each test of whether the part `ref` is there (the part against 0) decided as `there` says. */
+function exists(f: Formula, ref: PartRef, there: boolean): Formula {
+  const part: Sym = { kind: "part", ref };
+  const swap = (x: unknown): unknown => {
+    if (!x || typeof x !== "object") return x;
+    if (Array.isArray(x)) return x.map(swap);
+    const node = x as Formula;
+    if (
+      node.kind === "test" &&
+      (node.op === "==" || node.op === "!=") &&
+      node.right.kind === "constant" &&
+      node.right.value === 0 &&
+      same(node.left, part)
+    )
+      return (node.op === "!=") === there ? TRUE : FALSE;
+    return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, swap(v)]));
+  };
+  return swap(f) as Formula;
+}
+
+/** A sym with each choice on a test already decided (by `known`, the test's text) taken that way. */
+function rebuildKnown(v: Sym, known: ReadonlyMap<string, boolean>): Sym {
+  if (v.kind === "ite") {
+    const was = known.get(JSON.stringify(v.when));
+    if (was !== undefined) return rebuildKnown(was ? v.then : v.else, known);
+    return ite(v.when, rebuildKnown(v.then, known), rebuildKnown(v.else, known));
+  }
+  if (v.kind === "binary") return binary(v.op, rebuildKnown(v.left, known), rebuildKnown(v.right, known));
+  return v;
+}
+
+/** Whether statements break out of the loop they are in, not counting loops inside them. */
+function breaksOut(body: readonly Shown[]): boolean {
+  return body.some(
+    (s) => s.kind === "break" || (s.kind === "if" && (breaksOut(s.then as Shown[]) || breaksOut(s.else as Shown[]))),
+  );
+}
+
 /** How many rounds a loop with a counter may run before it counts as never stopping. */
 const MOST_ROUNDS = 64;
 
@@ -349,6 +515,14 @@ const MOST_ROUNDS = 64;
 class Runner {
   private walks = 0;
   private frames = 0;
+  /** The walks over parts of one type that loops which find part after part make, numbered below 0. */
+  private enumerations = 0;
+  /** For each loop a round runs in, the states that break out of it; undefined where a break doesn't fit. */
+  private readonly breaks: (State[] | undefined)[] = [];
+  /** For each round of a loop, the parts it finds. */
+  private readonly finds: PartRef[][] = [];
+  /** Tables a loop filled with the parts of a type in order, by the address of their first word. */
+  private readonly arrays = new Map<number, Walked>();
   /** The routines running now, from the goal down to the one that runs, with how many times each is. */
   private readonly calling = new Map<number, number>();
   readonly met: Formula[] = [];
@@ -420,18 +594,161 @@ class Runner {
       if (key.startsWith("w:") && value !== state.env.get(key)) this.setup.set(Number(key.slice(2)), value);
   }
 
-  /** Runs a loop with a counter round by round: its test must be decided in every round. */
+  /**
+   * Runs a loop with a counter round by round: its test must be decided in every round. A loop whose rounds depend
+   * on the parts may still be one of two shapes: a loop that finds the next part of a type each round
+   * (`enumerate`), or a loop over a table such a loop filled (`overTable`).
+   */
   private unroll(s: Extract<Shown, { kind: "loop" }>, start: State, frame: number, returns: State[]): State {
+    if (breaksOut(s.before as Shown[]) || breaksOut(s.body as Shown[])) return this.enumerate(s, start, frame, returns);
     let state = start;
     for (let round = 0; round <= MOST_ROUNDS; round++) {
       state = this.run(s.before as Shown[], state, frame, returns);
       if (state.alive.kind === "false") return state;
       const go = this.condition(s.test, state.env, frame);
       if (go.kind === "false") return state;
-      if (go.kind !== "true") throw new DoesntFit("it has a loop whose rounds depend on the parts");
+      if (go.kind !== "true") {
+        if (round > 0) throw new DoesntFit("it has a loop whose rounds depend on the parts");
+        return this.overTable(s, start, frame) ?? this.enumerate(s, start, frame, returns);
+      }
       state = this.run(s.body as Shown[], state, frame, returns);
     }
     throw new DoesntFit(`it has a loop that runs more than ${MOST_ROUNDS} rounds`);
+  }
+
+  /**
+   * One round of a loop from a state, the parts it finds kept in `found`: the states that leave the loop in it (by its
+   * test or a break, each with when it does) and the state the next round starts from.
+   */
+  private round(s: Extract<Shown, { kind: "loop" }>, start: State, frame: number, returns: State[], found: PartRef[]) {
+    const breaks: State[] = [];
+    this.breaks.push(breaks);
+    this.finds.push(found);
+    try {
+      const before = this.run(s.before as Shown[], start, frame, returns);
+      const go = this.condition(s.test, before.env, frame);
+      const left = [{ env: before.env, alive: and(before.alive, not(go)) }];
+      const next = this.run(s.body as Shown[], { env: before.env, alive: and(before.alive, go) }, frame, returns);
+      return { left: [...left, ...breaks].filter((l) => l.alive.kind !== "false"), next };
+    } finally {
+      this.breaks.pop();
+      this.finds.pop();
+    }
+  }
+
+  /**
+   * A loop that finds the n-th part of a type in its first round, the next one in the next round and so on, and leaves
+   * when there is none or when a test of the part holds: like HARD18's "find every message machine" and LOON7's "find
+   * the first balloon with a rope". Its first two rounds are run and must do the same to their parts. After it, a word
+   * that holds the part the round found holds the first part of the type, in order on the lists, that passes the
+   * test (or 0 when none does); a word that counts the rounds by 1 holds how many parts of the type there are, when
+   * the loop only leaves at the end; a table the rounds fill holds the parts in order. A search from n = 0 starts with
+   * the first part on the list when it is of the type, which is the first of the type then.
+   */
+  private enumerate(s: Extract<Shown, { kind: "loop" }>, start: State, frame: number, returns: State[]): State {
+    const fail = () => new DoesntFit("it has a loop whose rounds depend on the parts");
+    if (!this.names.finder || start.alive.kind === "false") throw fail();
+    const found0: PartRef[] = [];
+    const found1: PartRef[] = [];
+    const r0 = this.round(s, { env: start.env, alive: TRUE }, frame, returns, found0);
+    const r1 = this.round(s, { env: r0.next.env, alive: TRUE }, frame, returns, found1);
+    const [p0, p1] = [found0, found1].map((f) => (f.length === 1 && f[0]!.kind === "nth" ? f[0] : undefined));
+    if (
+      p0?.kind !== "nth" ||
+      p1?.kind !== "nth" ||
+      p0.type !== p1.type ||
+      p0.lists !== p1.lists ||
+      p1.nth !== p0.nth + 1 ||
+      p0.nth > 1
+    )
+      throw fail();
+    const leave0 = rebuild(or(...r0.left.map((l) => l.alive)));
+    const leave1 = rebuild(or(...r1.left.map((l) => l.alive)));
+    if (!same(rebuild(replaced(leave0, p0, p1)), leave1)) throw fail();
+    // The loop leaves when the part isn't there, and else when `leaves` holds for it.
+    if (rebuild(exists(leave0, p0, false)).kind !== "true") throw fail();
+    const walked: Walked = { id: -++this.enumerations, lists: p0.lists, type: p0.type };
+    const each: PartRef = { kind: "each", walk: walked };
+    const typeIs = test("==", false, { kind: "field", ref: each, offset: TYPE }, constant(p0.type));
+    const leaves = rebuild(replaced(exists(leave0, p0, true), p0, each));
+    const where = and(typeIs, leaves);
+    const part0: Sym = { kind: "part", ref: p0 };
+    const firstFound: Sym =
+      leaves.kind === "false"
+        ? constant(0)
+        : ite(
+            { kind: "some", walk: walked, where },
+            { kind: "part", ref: { kind: "first", walk: walked, where } },
+            constant(0),
+          );
+    const env0 = merge(r0.left).env;
+    const env1 = merge(r1.left).env;
+    const env: Env = new Map(start.env);
+    for (const key of new Set([...env0.keys(), ...env1.keys()])) {
+      const v0 = env0.get(key);
+      const v1 = env1.get(key);
+      if (key.startsWith("r:") || key.startsWith("l:")) {
+        env.set(
+          key,
+          v0 && v1 && same(v0, v1) ? v0 : { kind: "unset", why: `${key.slice(2)} after a loop over the parts` },
+        );
+        continue;
+      }
+      if (v0 && v1 && same(v0, v1) && !holds(v0, (n) => same(n, p0))) {
+        env.set(key, v0);
+        continue;
+      }
+      if (v0 && v1 && same(v0, part0) && same(v1, { kind: "part", ref: p1 })) {
+        env.set(key, firstFound);
+        continue;
+      }
+      // A word the rounds count by 1 is how many parts there are, when the loop goes to the end of the list.
+      if (v0?.kind === "constant" && v1?.kind === "constant" && v1.value === v0.value + 1 && leaves.kind === "false") {
+        env.set(key, binary("+", v0, { kind: "count", walk: walked, where: typeIs }));
+        continue;
+      }
+      // A table the rounds fill, a word a part from its start: its first word holds the first part, and so on.
+      const address = Number(key.slice(2));
+      const table = (at: number, p: PartRef) => same(env0.get(`w:${at}`), { kind: "part", ref: p });
+      if (v1 && !v0 && same(v1, { kind: "part", ref: p1 }) && table(address - 2, p0) && p0.nth === 1) {
+        this.arrays.set(address - 2, walked);
+        continue;
+      }
+      if (v0 && same(v0, part0) && same(v1, part0) && env1.has(`w:${address + 2}`) && p0.nth === 1) continue;
+      throw fail();
+    }
+    // A search from n = 0: the finder gives the first part on the list when it is of the type, and else 0.
+    if (p0.nth === 0) {
+      const head: PartRef = { kind: "first", walk: this.walk(p0.lists), where: TRUE };
+      const headIs = test("==", false, { kind: "field", ref: head, offset: TYPE }, constant(p0.type));
+      for (const [key, value] of env)
+        if (value === firstFound)
+          env.set(key, ite(headIs, firstFound, rebuildSym(replaced(env0.get(key)!, part0, constant(0)))));
+    }
+    return { env, alive: start.alive };
+  }
+
+  /**
+   * A loop over a table a loop over the parts filled (`enumerate`), with a counter from 0 up to how many parts there
+   * are: a walk over those parts, with the table's word at the counter as the part.
+   */
+  private overTable(s: Extract<Shown, { kind: "loop" }>, start: State, frame: number): State | undefined {
+    if (s.before.length || s.test.left.kind !== "register" || (s.test.op !== "<" && s.test.op !== ">"))
+      return undefined;
+    const counter = s.test.left.name;
+    const bound = this.value(s.test.right, start.env, frame);
+    if (bound.kind !== "count" || !bound.walk.type || ![...this.arrays.values()].some((w) => same(w, bound.walk)))
+      return undefined;
+    const from = start.env.get(`r:${counter}`);
+    if (s.test.op !== "<" || from?.kind !== "constant" || from.value !== 0) return undefined;
+    return this.walkOver(
+      bound.walk,
+      `r:${counter}`,
+      { kind: "index", walk: bound.walk },
+      s.body as Shown[],
+      start,
+      frame,
+    );
   }
 
   private walk(lists: string): Walked {
@@ -457,9 +774,12 @@ class Runner {
       const returns: State[] = [];
       // Registers are the routine's own; words of memory are shared.
       const env: Env = new Map([...state.env].filter(([k]) => k.startsWith("w:")));
+      // A break inside the routine can't leave a loop of its caller.
+      this.breaks.push(undefined);
       const end = this.run(shape(withoutSaves(routine.body), this.names), { env, alive: state.alive }, frame, returns);
       return merge([...returns, end], this.missing);
     } finally {
+      this.breaks.pop();
       if (depth) this.calling.set(address, depth);
       else this.calling.delete(address);
     }
@@ -490,15 +810,31 @@ class Runner {
       const part = this.kept?.parts.get(address.value);
       if (part) return part;
       const latch = this.kept?.latches.get(address.value);
-      if (latch)
-        return ite({ kind: "ever", item: latch.when, before: true }, constant(latch.value), constant(latch.first));
+      if (latch) return this.remembered(latch, true);
       if (this.kept?.strict && this.setup?.has(address.value))
         throw new DoesntFit(
           "it keeps a word from step to step that is neither a part it found nor a sign of something that happened",
         );
+      const fixed = this.names.fixedWords?.get(address.value);
+      if (fixed !== undefined) return constant(fixed);
       return { kind: "word", address: address.value };
     }
     if (address.kind === "part") return { kind: "field", ref: address.ref, offset: 0 };
+    // A word of a table a loop filled with parts, at a counter that steps along it: the part the walk is at.
+    if (address.kind === "binary" && address.op === "+" && address.right.kind === "constant") {
+      const walked = this.arrays.get(address.right.value);
+      if (walked && same(address.left, binary("<<", { kind: "index", walk: walked }, constant(1))))
+        return { kind: "part", ref: { kind: "each", walk: walked } };
+    }
+    // A field that holds a part: the field of the part it holds.
+    if (this.names.linkName) {
+      const [holder, offset] =
+        address.kind === "binary" && address.op === "+" && address.right.kind === "constant"
+          ? [address.left, address.right.value]
+          : [address, 0];
+      if (holder.kind === "field" && offset < (this.names.partSize ?? PART_SIZE))
+        return { kind: "field", ref: { kind: "via", from: holder.ref, offset: holder.offset }, offset };
+    }
     if (
       address.kind === "binary" &&
       address.op === "+" &&
@@ -507,6 +843,9 @@ class Runner {
       address.right.value < (this.names.partSize ?? PART_SIZE)
     )
       return { kind: "field", ref: address.left.ref, offset: address.right.value };
+    // The pass that looks for the words a goal keeps reads them as words; a part one holds is known only after it.
+    if (this.kept && !this.kept.strict && holds(address, (n) => n.kind === "word"))
+      return { kind: "unset", why: "the part a word it keeps holds" };
     throw new DoesntFit("it reads memory at a computed place");
   }
 
@@ -528,8 +867,14 @@ class Runner {
           // at some step so far.
           const latch = this.kept?.latches.get(address.value);
           if (!latch) return found;
-          if (same(found, latch.end))
-            return ite({ kind: "ever", item: latch.when, before: false }, constant(latch.value), constant(latch.first));
+          if (same(found, latch.end)) return this.remembered(latch, false);
+          // A write that reads the word first, like a count's `+= 1`, read it as it was before this step.
+          const self: Sym = { kind: "word", address: address.value };
+          if (latch.kind !== "state" && same(replaced(found, this.remembered(latch, true), self), latch.end))
+            return this.remembered(latch, false);
+          // A word of several values, partway through the step's writes: only its own writes read it so, and the
+          // goal may not test it (checked at the end).
+          if (latch.kind === "state") return found;
           return replaced(found, { kind: "word", address: address.value }, this.read(address));
         }
         return this.read(address);
@@ -540,7 +885,145 @@ class Runner {
   }
 
   condition(t: GoalTest, env: Env, frame: number): Formula {
-    return test(t.op, t.signed, this.value(t.left, env, frame), this.value(t.right, env, frame));
+    const tested = test(t.op, t.signed, this.value(t.left, env, frame), this.value(t.right, env, frame));
+    // The part a goal keeps from a field, taken when the field's part was of a type: a part then, not 0. A read
+    // through 0 finds the data segment's first words, whose type word isn't a type (`fixedWords`).
+    const decide = (x: unknown): unknown => {
+      if (!x || typeof x !== "object") return x;
+      if (Array.isArray(x)) return x.map(decide);
+      const f = x as Formula;
+      if (
+        f.kind === "test" &&
+        (f.op === "==" || f.op === "!=") &&
+        f.right.kind === "constant" &&
+        f.right.value === 0 &&
+        f.left.kind === "part" &&
+        f.left.ref.kind === "via" &&
+        f.left.ref.at &&
+        this.isPart(f.left.ref)
+      )
+        return f.op === "!=" ? TRUE : FALSE;
+      return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, decide(v)]));
+    };
+    return holds(tested, (n) => (n as { ref?: PartRef }).ref?.kind === "via")
+      ? rebuild(decide(tested) as Formula)
+      : tested;
+  }
+
+  /**
+   * Whether the part a goal keeps from a field (`via` with `at`) is a part for sure: it was kept only when a test of
+   * its type held, and a read through 0 never gives a type.
+   */
+  private isPart(ref: Extract<PartRef, { kind: "via" }>): boolean {
+    const now: PartRef = { kind: "via", from: ref.from, offset: ref.offset };
+    const nullType = this.names.fixedWords?.get(TYPE);
+    if (nullType === undefined) return false;
+    // Every way the part was kept tests its type.
+    const ways = waysOf(ref.at!.item);
+    return (
+      ways.length > 0 &&
+      ways.every((way) =>
+        way.some(
+          (f) =>
+            f.kind === "test" &&
+            f.op === "==" &&
+            same(f.left, { kind: "field", ref: now, offset: TYPE }) &&
+            f.right.kind === "constant" &&
+            f.right.value !== nullType &&
+            f.right.value < 0x100,
+        ),
+      )
+    );
+  }
+
+  /**
+   * A test of a sum's sign as the reader gives it: first whether the second number is -32768, whose negation isn't a
+   * word, and then the first number against 0 less the second. Both ways do the same as the sum, worked out without
+   * the overflow of a word, against 0: "positionY + height < 0". Undefined when the if isn't of that shape.
+   */
+  private exactSum(s: Extract<Shown, { kind: "if" }>, env: Env, frame: number) {
+    const inner = s.else.length === 1 ? s.else[0] : undefined;
+    const guard = s.test;
+    if (
+      inner?.kind !== "if" ||
+      guard.op !== "==" ||
+      guard.right.kind !== "constant" ||
+      guard.right.value !== 0x8000 ||
+      !inner.test.signed ||
+      inner.test.op === "==" ||
+      inner.test.op === "!=" ||
+      inner.test.right.kind !== "binary" ||
+      inner.test.right.op !== "-" ||
+      !same(inner.test.right.left, { kind: "constant", value: 0 }) ||
+      !same(inner.test.right.right, guard.left)
+    )
+      return undefined;
+    const below = inner.test.op === "<" || inner.test.op === "<=";
+    if (!same(s.then, below ? inner.then : inner.else)) return undefined;
+    const op = inner.test.op;
+    // The cases of the two numbers, each test taken one way only once.
+    const exact = (first: Sym, second: Sym, known: ReadonlyMap<string, boolean> = new Map()): Formula => {
+      const split = (when: Formula, then: () => [Sym, Sym], otherwise: () => [Sym, Sym]): Formula => {
+        const key = JSON.stringify(when);
+        const was = known.get(key);
+        if (was !== undefined) return exact(...(was ? then() : otherwise()), known);
+        const yes = new Map(known).set(key, true);
+        const no = new Map(known).set(key, false);
+        return choose(when, exact(...then(), yes), exact(...otherwise(), no));
+      };
+      if (first.kind === "ite") {
+        const f = first;
+        return split(
+          f.when,
+          () => [f.then, second],
+          () => [f.else, second],
+        );
+      }
+      if (second.kind === "ite") {
+        const g = second;
+        return split(
+          g.when,
+          () => [first, g.then],
+          () => [first, g.else],
+        );
+      }
+      first = rebuildKnown(first, known);
+      // The first number is often the sum less the second, as the reader works it out from the register after the add.
+      if (
+        first.kind === "binary" &&
+        first.op === "-" &&
+        same(first.right, second) &&
+        first.left.kind === "binary" &&
+        first.left.op === "+" &&
+        same(first.left.right, second)
+      )
+        first = first.left.left;
+      if (first.kind === "constant" && second.kind === "constant")
+        return compareNumbers(op, signed16(first.value) + signed16(second.value), 0) ? TRUE : FALSE;
+      return { kind: "test", op, signed: true, left: binary("+", first, second), right: constant(0), exact: true };
+    };
+    const when = exact(this.value(inner.test.left, env, frame), this.value(guard.left, env, frame));
+    return { when, then: inner.then, else: inner.else };
+  }
+
+  /** A word that remembers what happened, as it is before this step's writes or after them. */
+  private remembered(latch: Latch, before: boolean): Sym {
+    switch (latch.kind) {
+      case "latch":
+        return ite({ kind: "ever", item: latch.when, before }, constant(latch.value), constant(latch.first));
+      case "stamp":
+        return { kind: "stamp", item: latch.when, before, first: latch.first, steps: this.names.firstStep! };
+      case "tally":
+        return { kind: "tally", item: latch.when, before, first: latch.first };
+      case "link": {
+        const field = latch.field!;
+        const ref: PartRef = { kind: "via", from: field.ref, offset: field.offset, at: { item: latch.when, before } };
+        return ite({ kind: "ever", item: latch.when, before }, { kind: "part", ref }, constant(latch.first));
+      }
+      case "state":
+        if (before) throw new DoesntFit("it reads a word it keeps before this step changes it");
+        return latch.after!;
+    }
   }
 
   /** Runs statements; a return adds its state to `returns` and ends the way it was on. */
@@ -583,6 +1066,7 @@ class Runner {
               lists: masked(value(s.mask, "list")),
             },
           };
+          this.finds.at(-1)?.push(part.ref);
           const key = this.key(s.target, state.env, frame);
           state.env.delete("r:dx");
           state.env.set("r:ax", part);
@@ -599,10 +1083,16 @@ class Runner {
             this.runSetup(setup, state, frame);
             break;
           }
-          const when = this.condition(s.test, state.env, frame);
-          const then = this.run(s.then as Shown[], { env: state.env, alive: and(state.alive, when) }, frame, returns);
+          const sum = this.names.exactSums ? this.exactSum(s, state.env, frame) : undefined;
+          const when = sum?.when ?? this.condition(s.test, state.env, frame);
+          const then = this.run(
+            (sum?.then ?? s.then) as Shown[],
+            { env: state.env, alive: and(state.alive, when) },
+            frame,
+            returns,
+          );
           const otherwise = this.run(
-            s.else as Shown[],
+            (sum?.else ?? s.else) as Shown[],
             { env: state.env, alive: and(state.alive, not(when)) },
             frame,
             returns,
@@ -610,9 +1100,12 @@ class Runner {
           state = mergeIf(when, state, then, otherwise, this.missing, this.names.countedLoops);
           break;
         }
-        case "walk":
-          state = this.walkOver(s.lists, s.part, s.body as Shown[], state, frame);
+        case "walk": {
+          const walked = this.walk(s.lists);
+          const each: Sym = { kind: "part", ref: { kind: "each", walk: walked } };
+          state = this.walkOver(walked, `r:${s.part}`, each, s.body as Shown[], state, frame);
           break;
+        }
         case "search": {
           const walked = this.walk(s.list);
           const inside = new Map(state.env);
@@ -643,8 +1136,13 @@ class Runner {
           returns.push(state);
           state = { env: state.env, alive: FALSE };
           break;
-        case "break":
-          throw new DoesntFit("it stops a loop early");
+        case "break": {
+          const target = this.breaks.at(-1);
+          if (!target) throw new DoesntFit("it stops a loop early");
+          target.push(state);
+          state = { env: state.env, alive: FALSE };
+          break;
+        }
         case "loop":
           if (!this.names.countedLoops) throw new DoesntFit("it has a loop that isn't a walk over the parts");
           state = this.unroll(s, state, frame, returns);
@@ -658,10 +1156,18 @@ class Runner {
    * A walk over the parts of lists. The body runs once for a part of the walk, with each word it changes as it was
    * when the walk came to that part. A word the body sets to one value when a test holds is that value after the walk
    * when some part passed the test; a word it adds 1 to counts the parts that pass; a register it sets to the part is
-   * the last part that passes. Anything else the body does with a word it changes is beyond these shapes.
+   * the last part that passes. Anything else the body does with a word it changes is beyond these shapes. `bound` holds
+   * `boundTo` in the body: the part, or the counter of a loop over a table of parts. A walk over the parts of one type
+   * counts and looks at only those.
    */
-  private walkOver(lists: string, part: string, body: readonly Shown[], state: State, frame: number): State {
-    const walked = this.walk(lists);
+  private walkOver(
+    walked: Walked,
+    bound: string,
+    boundTo: Sym,
+    body: readonly Shown[],
+    state: State,
+    frame: number,
+  ): State {
     const keys = new Set<string>();
     const collect = (statements: readonly Shown[]) => {
       for (const s of statements) {
@@ -678,11 +1184,21 @@ class Runner {
     collect(body);
     const inside: Env = new Map(state.env);
     for (const key of keys) inside.set(key, { kind: "carried", key });
-    inside.set(`r:${part}`, { kind: "part", ref: { kind: "each", walk: walked } });
+    inside.set(bound, boundTo);
     const met = this.met.length;
-    const end = this.run(body, { env: inside, alive: TRUE }, frame, []);
+    this.breaks.push(undefined);
+    let end: State;
+    try {
+      end = this.run(body, { env: inside, alive: TRUE }, frame, []);
+    } finally {
+      this.breaks.pop();
+    }
     const metInside = this.met.splice(met);
     const each: Sym = { kind: "part", ref: { kind: "each", walk: walked } };
+    const typed = (f: Formula) =>
+      walked.type === undefined
+        ? f
+        : and(test("==", false, { kind: "field", ref: each.ref, offset: TYPE }, constant(walked.type)), f);
     const env = new Map(state.env);
     for (const key of keys) {
       const before =
@@ -698,7 +1214,7 @@ class Runner {
         continue;
       }
       if (changed.some((c) => carries(c.when))) throw new DoesntFit("a walk's tests look at what it found before");
-      const when = or(...changed.map((c) => c.when));
+      const when = typed(or(...changed.map((c) => c.when)));
       const value = changed[0]!.value;
       const counts = (v: Sym) =>
         v.kind === "binary" && v.op === "+" && same(v.left, carried) && same(v.right, constant(1));
@@ -722,10 +1238,10 @@ class Runner {
         env.set(key, ite({ kind: "some", walk: walked, where: when }, value, before));
       else env.set(key, { kind: "unset", why: `what a walk leaves in ${key.slice(2)}` });
     }
-    env.set(`r:${part}`, { kind: "unset", why: "the part a walk ended on" });
+    env.set(bound, { kind: "unset", why: "the part a walk ended on" });
     for (const m of metInside) {
       if (carries(m)) throw new DoesntFit("a walk's tests look at what it found before");
-      this.met.push(and(state.alive, { kind: "some", walk: walked, where: m }));
+      this.met.push(and(state.alive, { kind: "some", walk: walked, where: typed(m) }));
     }
     return { env, alive: state.alive };
   }
@@ -825,7 +1341,11 @@ type Literal =
   | Extract<Formula, { kind: "test" }>
   | { kind: "some"; walk: Walked; ways: Literal[][] }
   | { kind: "none"; walk: Walked; ways: Literal[][] }
-  | Extract<Formula, { kind: "ever" }>;
+  | Extract<Formula, { kind: "ever" }>
+  | Extract<Formula, { kind: "ago" }>
+  | Extract<Formula, { kind: "times" }>
+  /** `item` held at no step so far, or before this one. */
+  | { kind: "never"; item: Formula; before: boolean };
 
 function dnf(f: Formula, negated = false): Literal[][] {
   switch (f.kind) {
@@ -867,8 +1387,14 @@ function dnf(f: Formula, negated = false): Literal[][] {
       return [[{ kind: "some", walk: f.walk, ways: inner }]];
     }
     case "ever":
-      if (negated) throw new DoesntFit("it needs something never to have happened");
+      if (!negated) return [[f]];
+      if (f.afterFirst) throw new DoesntFit("it needs something not to have happened after the first step");
+      return [[{ kind: "never", item: f.item, before: f.before }]];
+    case "ago":
+      if (negated) throw new DoesntFit("it needs something not to have last happened a number of steps ago");
       return [[f]];
+    case "times":
+      return [[negated ? { ...f, op: NEGATED[f.op] } : f]];
   }
 }
 
@@ -886,7 +1412,15 @@ const waysOf = (f: Formula) =>
 function withHistory(ways: Literal[][]): Literal[][] {
   return ways.flatMap((way) => {
     const ever = way.filter((l) => l.kind === "ever");
-    let split: Literal[][] = [way.filter((l) => l.kind !== "ever")];
+    // "Never A or B" is "never A and never B"; a count of steps or the last step is of one thing.
+    const rest = way.flatMap((l): Literal[] => {
+      if (l.kind === "never") return waysOf(l.item).map((i) => ({ ...l, item: and(...(i as Formula[])) }));
+      if (l.kind !== "ago" && l.kind !== "times") return l.kind === "ever" ? [] : [l];
+      const inner = waysOf(l.item);
+      if (inner.length !== 1) throw new DoesntFit("it remembers when one of several things held");
+      return [{ ...l, item: and(...(inner[0] as Formula[])) }];
+    });
+    let split: Literal[][] = [rest];
     for (const e of ever) {
       const inner = waysOf(e.item);
       if (split.length * inner.length > 64) throw new DoesntFit("it has too many ways to be met");
@@ -938,6 +1472,7 @@ function range(t: Test): [number, number] | undefined {
 /** Whether `a` holding means `b` holds: both test one word against a number, and `a` lets through less. */
 function implies(a: Test, b: Test): boolean {
   if (same(a, b) || !same(a.left, b.left) || a.signed !== b.signed || b.right.kind !== "constant") return false;
+  if (!!a.exact !== !!b.exact) return false;
   const ra = range(a);
   if (!ra) return false;
   if (b.op === "!=") {
@@ -994,6 +1529,13 @@ function tidy(way: Literal[]): Literal[] | undefined {
     const l = out[k]!;
     if (l.kind === "test" && out.some((o, j) => j !== k && o.kind === "test" && implies(o, l))) out.splice(k, 1);
   }
+  // Something that held at some step and at no step can't both be.
+  for (const l of out)
+    if (
+      l.kind === "never" &&
+      out.some((o) => o.kind === "ever" && same(o.item, l.item) && (o.before === l.before || !l.before))
+    )
+      return undefined;
   // "No part where A" and "some part where A" of one walk can't both hold.
   for (const l of out)
     if (
@@ -1041,8 +1583,10 @@ class Sayer {
     switch (v.kind) {
       case "constant":
         return mask ? hex(v.value) : String(signed16(v.value));
-      case "field":
-        return this.names.fields.get(v.offset) ?? `field ${hex(v.offset)}`;
+      case "field": {
+        const name = this.names.fields.get(v.offset) ?? `field ${hex(v.offset)}`;
+        return v.ref.kind === "via" && !v.ref.at ? `${this.linkName(v.ref)}'s ${name}` : name;
+      }
       case "word": {
         const name = this.names.words.get(v.address) ?? `word ${hex(v.address)}`;
         return this.written.has(v.address) ? `${name} from the step before` : name;
@@ -1062,7 +1606,18 @@ class Sayer {
         return "a value that depends on the parts";
       case "unset":
         return `an unset value (${v.why})`;
+      case "stamp":
+      case "tally":
+      case "index":
+        throw new DoesntFit("it works with a word it keeps in a way the conditions can't say");
     }
+  }
+
+  /** The name of the part a field holds, like Al's angel, by the type of the part that holds it. */
+  linkName(ref: Extract<PartRef, { kind: "via" }>): string {
+    const type = ref.from.kind === "nth" ? ref.from.type : undefined;
+    const own = type === undefined ? undefined : this.names.linkName?.(type, ref.offset);
+    return own ?? `the part at ${this.names.fields.get(ref.offset) ?? `field ${hex(ref.offset)}`}`;
   }
 
   test(t: Extract<Literal, { kind: "test" }>, type?: number, part: ReadonlyMap<number, number> = new Map()): string {
@@ -1080,7 +1635,7 @@ class Sayer {
       t.right.kind === "constant" &&
       (t.op === "==" || t.op === "!=")
     )
-      return `type ${t.op === "==" ? "is" : "isn't"} ${this.typeOf(t.right.value).name}`;
+      return `${t.left.ref.kind === "via" && !t.left.ref.at ? `${this.linkName(t.left.ref)}'s type` : "type"} ${t.op === "==" ? "is" : "isn't"} ${this.typeOf(t.right.value).name}`;
     const unsigned = !t.signed && t.op !== "==" && t.op !== "!=" ? " (unsigned)" : "";
     const named =
       type !== undefined && t.left.kind === "field" && t.right.kind === "constant" && (t.op === "==" || t.op === "!=")
@@ -1201,10 +1756,24 @@ function conditions(way: Literal[], say: Sayer): GoalCondition[] {
   };
   const byRef = new Map<string, { ref: PartRef; tests: Extract<Literal, { kind: "test" }>[] }>();
   for (const l of way) {
-    if (l.kind === "ever") {
+    if (l.kind === "ever" || l.kind === "never" || l.kind === "ago" || l.kind === "times") {
+      // A step kept as the last step something held is not 0 when it held after the first: the "ago" says it.
+      const sameItem = (o: Literal) => o.kind === "ago" && same(o.item, l.item) && o.before === l.before;
+      if (l.kind === "ever" && l.afterFirst && way.some(sameItem)) continue;
+      if (l.kind === "ever" && l.afterFirst)
+        throw new DoesntFit("it needs something to have happened after the first step");
       const inner = conditions(waysOf(l.item)[0] ?? [], say);
       if (inner.length !== 1) throw new DoesntFit("it remembers that several things held at one step");
-      out.push({ ...inner[0]!, once: l.before ? "before" : "so far" });
+      const c: GoalCondition = { ...inner[0]!, once: l.before ? "before" : "so far" };
+      if (l.kind === "never") c.never = true;
+      if (l.kind === "times") c.steps = { op: l.op, value: l.value };
+      if (l.kind === "ago") {
+        const afterFirst = way.some(
+          (o) => o.kind === "ever" && o.afterFirst && same(o.item, l.item) && o.before === l.before,
+        );
+        c.ago = { steps: l.steps, ...(afterFirst ? { afterFirst } : {}) };
+      }
+      out.push(c);
       continue;
     }
     if (l.kind === "some") {
@@ -1276,11 +1845,26 @@ function conditions(way: Literal[], say: Sayer): GoalCondition[] {
       continue;
     }
     if (ref.kind === "each") throw new DoesntFit("it looks at a walk's part after the walk");
-    const key = JSON.stringify(ref);
-    byRef.set(key, { ref, tests: [...(byRef.get(key)?.tests ?? []), l] });
+    // A test of the part a field holds now goes with the part that holds it, like "angel's type is al-e-cat".
+    const owner = ref.kind === "via" && !ref.at ? ref.from : ref;
+    const key = JSON.stringify(owner);
+    byRef.set(key, { ref: owner, tests: [...(byRef.get(key)?.tests ?? []), l] });
   }
   for (const { ref, tests } of byRef.values()) {
     if (ref.kind === "each") continue;
+    if (ref.kind === "via") {
+      // The part a field held at the last step a test held, which the goal keeps.
+      if (ref.from.kind !== "nth" || !ref.at) throw new DoesntFit("it follows a field of a part it didn't find");
+      out.push({
+        kind: "nth",
+        nth: ref.from.nth,
+        lists: ref.from.lists,
+        types: [say.typeOf(ref.from.type)],
+        via: { name: say.linkName({ ...ref, at: undefined }), kept: true },
+        tests: say.tests(tests),
+      });
+      continue;
+    }
     if (ref.kind === "nth") {
       const area = say.area(tests);
       out.push({
@@ -1426,19 +2010,41 @@ export function conditionText(c: GoalCondition): string {
       return tests;
     case "part":
       return `${types} #${c.part}${tests ? `: ${tests}` : ""}`;
-    case "nth":
-      return `${once(c)}the ${ordinal(c.nth!)} ${types}${on}${tests ? `: ${tests}` : ""}`;
+    case "nth": {
+      const part = `the ${ordinal(c.nth!)} ${types}${on}`;
+      const what = c.via ? `the ${c.via.kept ? "kept " : ""}${c.via.name} of ${part}` : part;
+      return `${once(c)}${what}${tests ? `: ${tests}` : ""}`;
+    }
   }
 }
 
-const once = (c: GoalCondition) =>
-  c.once === "so far" ? "at some step so far, " : c.once === "before" ? "at some step before this one, " : "";
+/** A count of steps in words: "exactly", "at least" and so on before the number. */
+const STEP_COUNTS: Record<GoalComparison, string> = {
+  "==": "exactly",
+  "!=": "other than",
+  "<": "fewer than",
+  "<=": "at most",
+  ">": "more than",
+  ">=": "at least",
+};
+
+/** When a condition's tests held, as words before it: "at some step so far, ", "last held 30 steps ago, ". */
+function once(c: GoalCondition): string {
+  const time = c.once === "before" ? "before this one" : "so far";
+  if (c.ago)
+    return `last held ${c.ago.steps} steps ago${c.once === "before" ? ", this step not counted" : ""}${c.ago.afterFirst ? ", not at the first step" : ""}, `;
+  if (!c.once) return "";
+  if (c.steps) return `at ${STEP_COUNTS[c.steps.op]} ${c.steps.value} step${c.steps.value === 1 ? "" : "s"} ${time}, `;
+  return c.never ? `at no step ${time}, ` : `at some step ${time}, `;
+}
 
 /**
  * What a goal that sets up its words in its first step keeps in them. A first pass runs the setup to see what it sets;
- * a word set to a part the finder found, and not written in the steps, keeps that part. A second pass runs the steps
- * with those parts: a word set to a number in the setup and to one other number when a test holds, and never to
- * anything else, remembers that the test held at some step. Without a setup, nothing is kept.
+ * a word set to a part the finder found (or to something else worked out from the parts, like how many there are),
+ * and not written in the steps, keeps that. A second pass runs the steps with those parts: a word set to a number in
+ * the setup and changed in the steps only when tests hold remembers what happened (`Latch`): that a test held at some
+ * step, the last step it held at, at how many steps it held, the part a field held then, or one of a few numbers by
+ * what happened in which order. Without a setup, nothing is kept.
  */
 function keptWords(routines: Routines, start: number, names: GoalNames): Kept | undefined {
   const first = new Runner(routines, names);
@@ -1450,7 +2056,10 @@ function keptWords(routines: Routines, start: number, names: GoalNames): Kept | 
   }
   const setup = first.setup;
   if (!setup) return undefined;
-  const parts = new Map([...setup].filter(([, value]) => value.kind === "part" && value.ref.kind === "nth"));
+  const fromParts = (value: Sym) =>
+    value.kind !== "constant" &&
+    !holds(value, (n) => ["word", "unset", "carried", "index", "stamp", "tally"].includes(n.kind ?? ""));
+  const parts = new Map([...setup].filter(([, value]) => fromParts(value)));
   const second = new Runner(routines, names, { parts, latches: new Map(), strict: false });
   const end = second.routine(start, { env: new Map(), alive: TRUE });
   if ([...parts.keys()].some((address) => second.stepWrites.has(address)))
@@ -1459,24 +2068,98 @@ function keptWords(routines: Routines, start: number, names: GoalNames): Kept | 
   for (const [address, value] of setup) {
     if (value.kind !== "constant" || !second.stepWrites.has(address)) continue;
     const before: Sym = { kind: "word", address };
-    const found = cases(end.env.get(`w:${address}`) ?? before);
+    const last = end.env.get(`w:${address}`) ?? before;
+    const found = cases(last);
     const changed = found.filter((c) => !same(c.value, before));
     const to = changed[0]?.value;
-    if (
-      !to ||
-      to.kind !== "constant" ||
-      to.value === value.value ||
-      changed.length === found.length ||
-      !changed.every((c) => same(c.value, to))
-    )
-      continue;
+    if (!to) continue;
+    const steady = changed.every((c) => same(c.value, to));
     const when = or(...changed.map((c) => c.when));
     // A test of a word the goal keeps itself, or of a value it never set, isn't something that happened.
-    if (holds(when, (n) => n.kind === "unset" || (n.kind === "word" && setup.has((n as { address: number }).address))))
-      continue;
-    latches.set(address, { when, value: to.value, first: value.value, end: end.env.get(`w:${address}`)! });
+    const ownTests = holds(
+      when,
+      (n) => n.kind === "unset" || (n.kind === "word" && setup.has((n as { address: number }).address)),
+    );
+    const latch = { when, value: 0, first: value.value, end: last };
+    if (to.kind === "constant" && to.value !== value.value && changed.length < found.length && steady) {
+      if (!ownTests) latches.set(address, { ...latch, kind: "latch", value: to.value });
+    } else if (steady && names.firstStep !== undefined && same(to, { kind: "word", address: names.firstStep })) {
+      if (!ownTests) latches.set(address, { ...latch, kind: "stamp" });
+    } else if (steady && same(to, binary("+", before, constant(1)))) {
+      if (!ownTests) latches.set(address, { ...latch, kind: "tally" });
+    } else if (steady && to.kind === "field" && to.ref.kind === "nth" && value.value === 0 && names.linkName) {
+      if (!ownTests) latches.set(address, { ...latch, kind: "link", field: to });
+    } else if (found.every((c) => c.value.kind === "constant" || same(c.value, before))) {
+      const after = stateAfter(last, address, value.value);
+      if (after) latches.set(address, { ...latch, kind: "state", after });
+    }
   }
   return { parts, latches, strict: true };
+}
+
+/** A formula in one written form for what it says: its ways in order, so two that say the same are the same. */
+function normal(f: Formula): Formula {
+  const ways = waysOf(f);
+  if (ways.some((w) => !w.length)) return TRUE;
+  const sorted = ways
+    .map((w) => and(...(w as Formula[])))
+    .sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1));
+  return or(...sorted);
+}
+
+/**
+ * A word that holds one of a few numbers, set to `first` in the setup and to one number or another by the tests of
+ * each step and what it held before (`last`, with `word` for that): what it holds after a step, as tests of the step
+ * and of what happened before. For each number it may hold, the tests that lead to it must be the same from each value
+ * they lead from, and the values they lead from must be ones the word holds exactly when a test held at some step
+ * before (or never did). So BRAN8's word that becomes 1 when the switch is on and 2 when it is off after being 1 holds
+ * 2 when the switch is off and was on at some step before. Undefined when the word isn't of that shape.
+ */
+function stateAfter(last: Sym, address: number, first: number): Sym | undefined {
+  const self: Sym = { kind: "word", address };
+  const values = [
+    ...new Set([first, ...cases(last).flatMap((c) => (c.value.kind === "constant" ? [c.value.value] : []))]),
+  ].sort((a, b) => a - b);
+  if (values.length > 4) return undefined;
+  /** The tests under which the word becomes one of `targets` from `from`. */
+  const into = (targets: number[], from: number) =>
+    normal(
+      or(
+        ...cases(rebuildSym(replaced(last, self, constant(from))))
+          .filter((c) => c.value.kind === "constant" && targets.includes(c.value.value))
+          .map((c) => rebuild(c.when)),
+      ),
+    );
+  /** The test that held at some step exactly when the word holds one of `set`, or undefined. */
+  const everIn = (set: number[]): Formula | undefined => {
+    if (set.includes(first) || !set.length) return undefined;
+    if (!set.every((v) => into(set, v).kind === "true")) return undefined;
+    const outside = values.filter((v) => !set.includes(v)).map((v) => into(set, v));
+    return outside.every((f) => same(f, outside[0])) ? outside[0] : undefined;
+  };
+  /** That the word held one of `set` before this step, as what happened. */
+  const before = (set: number[]): Formula | undefined => {
+    if (set.length === values.length) return TRUE;
+    const ever = everIn(set);
+    if (ever) return { kind: "ever", item: ever, before: true };
+    const never = everIn(values.filter((v) => !set.includes(v)));
+    return never ? not({ kind: "ever", item: never, before: true }) : undefined;
+  };
+  const ways: { value: number; when: Formula }[] = [];
+  for (const target of values) {
+    const from = values.map((v) => into([target], v));
+    const reached = values.filter((_, k) => from[k]!.kind !== "false");
+    if (!reached.length) continue;
+    const test = from[values.indexOf(reached[0]!)]!;
+    if (!reached.every((v) => same(from[values.indexOf(v)], test))) return undefined;
+    const held = before(reached);
+    if (!held) return undefined;
+    ways.push({ value: target, when: and(test, held) });
+  }
+  if (!ways.length) return undefined;
+  return ways
+    .slice(0, -1)
+    .reduceRight((rest: Sym, w) => ite(w.when, constant(w.value), rest), constant(ways.at(-1)!.value));
 }
 
 /** Conditions on parts the finder found in the order of their types' first condition, then by their place. */
@@ -1546,6 +2229,9 @@ export function summariseGoal(routines: Routines, start: number, names: GoalName
     const end = runner.routine(start, { env: new Map(), alive: TRUE });
     const say = new Sayer(names, runner.written);
     const met = or(...runner.met);
+    const state = (n: { kind?: string }) =>
+      n.kind === "word" && kept?.latches.get((n as { address: number }).address)?.kind === "state";
+    if (holds(met, state)) throw new DoesntFit("it tests a word it keeps partway through the step's writes");
     let ways: Literal[][];
     try {
       ways = withHistory(

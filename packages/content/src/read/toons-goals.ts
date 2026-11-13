@@ -94,14 +94,43 @@ const TOONS_FIELDS: [number, string][] = [
   [0x65, "link2"],
   [0x6b, "plug1"],
   [0x6d, "plug2"],
+  [0x6f, "rope1"],
+  [0x71, "rope2"],
   [0x95, "savedPositionX"],
   [0x97, "savedPositionY"],
   [0x99, "savedState"],
   [0x9f, "extra"],
   [0xad, "savedSetting"],
   [0xaf, "setting"],
-  [0xb1, "tunnel"],
+  [0xb1, "linkedPart"],
 ];
+
+const AL = 36;
+const TUNNEL = 46;
+const LINKED_PART = 0xb1;
+
+/**
+ * What the part a field holds is, by the type that holds it. The word at 0xb1 is the tunnel at the other end for a
+ * tunnel (the level reader ties the two, file offset `0x24f45`), and for Al the angel he leaves when shot: at the end
+ * of action 16 (CATSHOT, file offset `0x2aac3`) TOONS.EXE makes a new al-e-cat at his place with action 17
+ * (CATANGEL) and keeps it there.
+ */
+function linkName(type: number, offset: number): string | undefined {
+  if (offset !== LINKED_PART) return undefined;
+  return type === AL ? "angel" : type === TUNNEL ? "tunnel at the other end" : undefined;
+}
+
+/**
+ * The words at the start of the data segment, which a read through a 0 part finds: Borland's copyright text, which
+ * the program never writes (its runtime reports "Null pointer assignment" at exit if anything did).
+ */
+function fixedWords(toons: ToonsMemory): Map<number, number> {
+  const data = toons.dataSegment * 16;
+  const text = "Borland C++ - Copyright 1991 Borland Intl.";
+  const found = String.fromCharCode(...toons.memory.subarray(data + 4, data + 4 + text.length));
+  if (found !== text) return new Map();
+  return new Map(Array.from({ length: 4 + text.length - 1 }, (_, k) => [k, u16(toons.memory, data + k)]));
+}
 
 export interface ToonsGoalTable {
   /** Where the dispatcher is, as a file offset of TOONS.EXE. */
@@ -246,6 +275,9 @@ export function readToonsGoals(
     fields: new Map(TOONS_FIELDS),
     partSize: TOONS_PART_SIZE,
     countedLoops: true,
+    exactSums: true,
+    linkName,
+    fixedWords: fixedWords(toons),
     ...(steps !== undefined ? { firstStep: steps } : {}),
     ...(valueName ? { valueName } : {}),
     types,

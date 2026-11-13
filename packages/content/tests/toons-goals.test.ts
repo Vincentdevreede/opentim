@@ -271,8 +271,9 @@ describe("summariseGoal for Toons", () => {
           ? `CATFISH frame ${value - 401} of 16`
           : undefined,
   };
-  const summary = (body: GoalStatement[]) =>
-    summariseGoal(new Map([[0, { address: 0, segment: 0, offset: 0, body }]]), 0, toons);
+  const summarise = (body: GoalStatement[], more: Partial<GoalNames> = {}) =>
+    summariseGoal(new Map([[0, { address: 0, segment: 0, offset: 0, body }]]), 0, { ...toons, ...more });
+  const summary = (body: GoalStatement[]) => summarise(body);
   const al = word(KEPT + 0x7470);
 
   it("reads a word set to the part the finder found in the first step as that part in every step", () => {
@@ -305,7 +306,7 @@ describe("summariseGoal for Toons", () => {
     expect(s.ways[0]![0]!.once).toBe("so far");
   });
 
-  it("doesn't read a word the goal counts with from step to step", () => {
+  it("reads a word the goal adds 1 to when a test holds as how many steps the test held at", () => {
     const count = word(0x4c7a);
     const s = summary([
       when(test(word(STEPS), "==", c(0)), [...find(36, c(1), 0x1000, al), set(count, c(0))]),
@@ -313,7 +314,168 @@ describe("summariseGoal for Toons", () => {
       when(test(field(r("bx"), 0x0c), "==", c(50)), [set(count, plus(count, c(1)))]),
       when(test(count, "==", c(2)), [met]),
     ]);
-    expect(s.problem).toMatch(/keeps a word from step to step/);
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      ["at exactly 2 steps so far, the 1st al-e-cat on the moving list: action = 50 (CATFISH)"],
+    ]);
+    expect(s.ways[0]![0]!.steps).toEqual({ op: "==", value: 2 });
+  });
+
+  it("reads a word set to the step count when a test holds as the last step the test held at", () => {
+    const at = word(KEPT + 0x7552);
+    const s = summary([
+      when(test(word(STEPS), "==", c(0)), [...find(36, c(1), 0x1000, al), set(at, c(0))]),
+      set(r("bx"), al),
+      when(test(field(r("bx"), 0x0c), "==", c(50)), [set(r("dx"), word(STEPS)), set(at, r("dx"))]),
+      when(test(at, "!=", c(0)), [
+        set(r("ax"), at),
+        set(r("ax"), plus(r("ax"), c(30))),
+        when(test(r("ax"), "==", word(STEPS)), [met]),
+      ]),
+    ]);
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      ["last held 30 steps ago, not at the first step, the 1st al-e-cat on the moving list: action = 50 (CATFISH)"],
+    ]);
+  });
+
+  it("reads a word of a few values by what happened in which order, and a test that never held", () => {
+    // BRAN8: the switch's word becomes 1 when it is on, and 2 when it is off after being 1; Al's flag stays 0.
+    const sw = word(KEPT + 0x74fa);
+    const state = word(KEPT + 0x74fc);
+    const flag = word(KEPT + 0x74fe);
+    const on = (bx: GoalValue) => field(bx, 0x0e);
+    const s = summary([
+      when(test(word(STEPS), "==", c(0)), [
+        ...find(36, c(1), 0x1000, al),
+        ...find(23, c(1), 0x2000, sw),
+        set(state, c(0)),
+        set(flag, c(0)),
+      ]),
+      set(r("bx"), sw),
+      when(test(on(r("bx")), "!=", c(0)), [set(state, c(1))]),
+      set(r("bx"), sw),
+      when(test(on(r("bx")), "==", c(0)), [when(test(state, "==", c(1)), [set(state, c(2))])]),
+      set(r("bx"), al),
+      when(test(field(r("bx"), 0x0c), "==", c(16)), [set(flag, c(1))]),
+      when(test(flag, "==", c(0)), [when(test(state, "==", c(2)), [met])]),
+    ]);
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      [
+        "at no step so far, the 1st al-e-cat on the moving list: action = 16",
+        "at some step before this one, the 1st balloon on the fixed list: state ≠ 0",
+        "the 1st balloon on the fixed list: state = 0",
+      ],
+    ]);
+  });
+
+  it("reads a loop that finds every part of a type, and a loop over the table it fills, as every part", () => {
+    // HARD18: find the next message machine until there is none, then count those whose state isn't 0.
+    const count = word(0x4c9a);
+    const table = (index: GoalValue) => word(plus(index, c(0x4c86)));
+    const s = summary([
+      when(test(word(STEPS), "==", c(0)), [
+        set(count, c(0)),
+        {
+          kind: "loop",
+          before: [
+            ...find(36, plus(count, c(1)), 0x2000, r("ax")).slice(0, 4),
+            set(r("bx"), count),
+            set(r("bx"), { kind: "binary", op: "<<", left: r("bx"), right: c(1) }),
+            set(table(r("bx")), r("ax")),
+          ],
+          test: test(r("ax"), "!=", c(0)),
+          body: [set(count, plus(count, c(1)))],
+        },
+      ]),
+      set(r("di"), c(0)),
+      set(r("si"), c(0)),
+      {
+        kind: "loop",
+        before: [],
+        test: test(r("si"), "<", count),
+        body: [
+          set(r("bx"), r("si")),
+          set(r("bx"), { kind: "binary", op: "<<", left: r("bx"), right: c(1) }),
+          set(r("bx"), table(r("bx"))),
+          when(test(field(r("bx"), 0x0e), "!=", c(0)), [set(r("di"), plus(r("di"), c(1)))]),
+          set(r("si"), plus(r("si"), c(1))),
+        ],
+      },
+      when(test(r("di"), "==", count), [met]),
+    ]);
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([["every al-e-cat on the fixed list: state ≠ 0"]]);
+  });
+
+  it("reads a search from n = 0 that stops at the first part passing a test, with what a read through 0 finds", () => {
+    // LOON7: the first balloon whose word at 0x6f isn't 0; through 0 the drawing flags are the copyright text's.
+    const found = word(KEPT + 0x7474);
+    const s = summarise(
+      [
+        when(test(word(STEPS), "==", c(0)), [
+          set(r("si"), c(0)),
+          {
+            kind: "loop",
+            before: [
+              ...find(23, r("si"), 0x1000, found),
+              when(test(r("ax"), "==", c(0)), [{ kind: "break" }], [set(r("bx"), found)]),
+            ],
+            test: test(field(r("bx"), 0x6f), "==", c(0)),
+            body: [set(r("si"), plus(r("si"), c(1)))],
+          },
+        ]),
+        set(r("bx"), found),
+        when(test({ kind: "binary", op: "&", left: field(r("bx"), 0x08), right: c(0x2000) }, "!=", c(0)), [met]),
+      ],
+      { fixedWords: new Map([[0x08, 0x6e61]]) },
+    );
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      ["the first part on the moving list: type isn't balloon"],
+      ["every balloon on the moving list: field 0x6f = 0"],
+      ["the first balloon on the moving list where field 0x6f ≠ 0: drawingFlags has the bits 0x2000"],
+    ]);
+  });
+
+  it("follows a field to the part it holds, and keeps the part it held when a test held", () => {
+    // BRAN16: Al's angel, kept when he is shot, and met when it is off the top: its positionY + height below 0.
+    const angel = word(KEPT + 0x7502);
+    const height = (bx: GoalValue) => field(bx, 0x4f);
+    const minus = (left: GoalValue, right: GoalValue): GoalValue => ({ kind: "binary", op: "-", left, right });
+    const s = summarise(
+      [
+        when(test(word(STEPS), "==", c(0)), [...find(36, c(1), 0x1000, al), set(angel, c(0))]),
+        set(r("bx"), al),
+        when(test(field(r("bx"), 0x0c), "==", c(16)), [
+          set(r("bx"), al),
+          set(r("bx"), field(r("bx"), 0xb1)),
+          when(test(field(r("bx"), 0x04), "==", c(36)), [
+            set(r("bx"), al),
+            set(r("ax"), field(r("bx"), 0xb1)),
+            set(angel, r("ax")),
+          ]),
+        ]),
+        when(test(angel, "!=", c(0)), [
+          set(r("bx"), angel),
+          set(r("ax"), field(r("bx"), 0x21)),
+          set(r("ax"), plus(r("ax"), height(r("bx")))),
+          when(
+            { op: "==", signed: false, left: height(r("bx")), right: c(0x8000) },
+            [met],
+            [when(test(minus(r("ax"), height(r("bx"))), "<", minus(c(0), height(r("bx")))), [met])],
+          ),
+        ]),
+      ],
+      {
+        fields: new Map([...toons.fields, [0x21, "positionY"], [0x4f, "height"], [0xb1, "linkedPart"]]),
+        linkName: (type, offset) => (type === 36 && offset === 0xb1 ? "angel" : undefined),
+        fixedWords: new Map([[0x04, 0x6f42]]),
+        exactSums: true,
+      },
+    );
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      [
+        "at some step so far, the 1st al-e-cat on the moving list: action = 16, angel's type is al-e-cat",
+        "the kept angel of the 1st al-e-cat on the moving list: positionY + height < 0",
+      ],
+    ]);
   });
 
   // si = 0; while si < 3: bx = si << 1; bx = word 0x340f:7584[bx]; if <test of bx>: di += 1; si += 1

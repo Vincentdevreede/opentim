@@ -96,19 +96,40 @@ const seconds = (ms: number) => {
 };
 const typeNumbers = (c: GoalCondition) => c.types?.map((t) => t.type) ?? goalTypes.value;
 
-/** A condition's parts in words: the types, or any part. */
-const typesOf = (c: GoalCondition) =>
-  (c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part") + (c.part === undefined ? "" : ` #${c.part}`);
+/** A condition's parts in words: the types, or any part, and the part a field of it holds. */
+const typesOf = (c: GoalCondition) => {
+  const types = c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part";
+  const own = types + (c.part === undefined ? "" : ` #${c.part}`);
+  return c.via ? `${c.via.kept ? "kept " : ""}${c.via.name} of ${own}` : own;
+};
 /** "1st", "2nd", "3rd", "4th": which part of its type a condition is about. */
 const ordinal = (n: number) =>
   `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
 /** Whether the level has fewer parts of the type than the one the condition is about: the goal finds none then. */
 const missing = (c: GoalCondition) =>
   c.kind === "nth" && !!props.typeCounts && (props.typeCounts.get(c.types?.[0]?.type ?? -1) ?? 0) < c.nth!;
-const ONCE = {
-  "so far": "The tests held at some step of the run so far, this one included: the goal keeps a word for it",
-  before: "The tests held at some step before this one: the goal keeps a word for it",
-} as const;
+const TIME = { "so far": "of the run so far, this one included", before: "before this one" } as const;
+/** When a condition's tests held, said in a chip, with what the goal keeps for it in the chip's tip. */
+const history = (c: GoalCondition) => {
+  if (c.ago) {
+    const first = c.ago.afterFirst ? ", and that wasn't the first step" : "";
+    return {
+      label: `${c.ago.steps} steps ago`,
+      title: `The last step ${TIME[c.once ?? "so far"]} at which the tests held was ${c.ago.steps} steps before this one${first}: the goal keeps that step's count`,
+    };
+  }
+  if (!c.once) return undefined;
+  if (c.steps) {
+    const op = { "==": "", "!=": "≠ ", "<": "< ", "<=": "≤ ", ">": "> ", ">=": "≥ " }[c.steps.op];
+    return {
+      label: `${op}${c.steps.value} step${c.steps.value === 1 ? "" : "s"}`,
+      title: `How many steps ${TIME[c.once]} the tests held at: the goal counts them in a word`,
+    };
+  }
+  if (c.never)
+    return { label: "never", title: `The tests held at no step ${TIME[c.once]}: the goal keeps a word for it` };
+  return { label: "once", title: `The tests held at some step ${TIME[c.once]}: the goal keeps a word for it` };
+};
 const countOf = (c: GoalCondition) => {
   const op = { "==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥" }[c.count!.op];
   return `${op} ${c.count!.value}`;
@@ -137,10 +158,10 @@ const countOf = (c: GoalCondition) => {
                   >{{ areaNumbers.get(c) }}</span
                 >
                 <LabChip>{{ c.kind === "nth" ? ordinal(c.nth!) : c.kind }}</LabChip>
-                <LabChip v-if="c.once" tone="accent" :title="ONCE[c.once]">once</LabChip>
+                <LabChip v-if="history(c)" tone="accent" :title="history(c)!.title">{{ history(c)!.label }}</LabChip>
                 <template v-if="c.kind !== 'word'">
                   <span class="min-w-0 truncate font-mono text-meta text-ink">{{ typesOf(c) }}</span>
-                  <span v-if="c.lists" class="shrink-0 text-meta text-faint">on {{ c.lists }}</span>
+                  <span v-if="c.lists" class="min-w-0 truncate text-meta text-faint">on {{ c.lists }}</span>
                   <LabChip v-if="missing(c)" tone="error" title="The level has fewer parts of this type, bin included"
                     >not in this level</LabChip
                   >

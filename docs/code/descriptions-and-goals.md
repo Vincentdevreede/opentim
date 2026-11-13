@@ -122,6 +122,28 @@ don't change:
 - `countedLoops`: a loop whose test is decided in every round is run round by round (`unroll`, at most 64 rounds),
   and where branches meet, a count that is the same on several ways becomes one test (`joinIte`).
 - `partSize` (Toons' 0xb3) for which offsets are fields, and `valueName` for Al's and Sid's actions and frames.
+- `linkName`: a field that holds a part (Al's angel at 0xb1) is followed to that part, a `via` part; its tests go
+  with the part that holds it ("angel's type is al-e-cat"). Without it a read through a field doesn't fit.
+- `fixedWords`: the data segment's first words (Borland's copyright text), which a read through a 0 part finds, as
+  numbers. With them a search that may end with 0 (LOON7) still reads.
+- `exactSums`: the reader's test of a sum's sign with its own test for -32768 is one test of the sum without
+  overflow (`exactSum`, a test with `exact`): "positionY + height < 0".
+
+`keptWords` sorts the words the setup sets to a number and the steps change into `Latch` kinds: a `latch` (set to one
+number when a test holds: "at some step so far"), a `stamp` (set to the step count: "last held 30 steps ago"), a
+`tally` (1 added: "at exactly 2 steps so far"), a `link` (set to the part a field holds: "the kept angel of …", true
+only when the test that kept it tested the part's type, `isPart`) and a `state` (a few numbers by what happened in
+which order, `stateAfter`: BRAN8's switch word is 2 when the switch is off and was on at some step before). A word set
+to something worked out from the parts and never written after is kept as it is, like a count of the parts. "Never"
+(an `ever` turned round) is its own literal, and a way that needs something both to have held and not is dropped.
+
+Two loop shapes whose rounds depend on the parts: `enumerate`, a loop that finds the next part of a type each round
+and leaves at the end of the list or when a test of the part holds (HARD18's message machines, LOON7's balloon with a
+rope), run for two rounds and checked to do the same to each part; after it a word that held the part holds the first
+part of the type that passes the test (a `first` part of a walk over the parts of that type), a word counted by 1
+holds how many there are, and a table the rounds filled is known. `overTable` is a loop over such a table from 0 up to
+that count, said as a walk (`walkOver` with a counter, `index`), so "all of them pass" becomes "every message machine".
+A break leaves the loop a round runs in (`breaks`); elsewhere it still doesn't fit.
 
 `readGoalRoutines` also takes shapes only Toons' goals have (TIM's read the same): byte locals and bytes in memory
 (`setByte`, `byteLocals`), `mov al, byte; mov ah, 0` as one load (`skip`), loops whose test leaves them with a `jmp`
@@ -129,7 +151,9 @@ back after it or calls a routine (`loopAt`), and an ordered branch after `add` o
 overflow (`branchTest`, with a first test for -32768).
 
 When a Toons goal has too many ways, `byPart` tries it as one way with a condition per found part, the tests all its
-ways share and then "one of: …". A condition with `once` says the tests held at some step ("so far" or "before").
+ways share and then "one of: …". A condition with `once` says the tests held at some step ("so far" or "before"),
+with `never` at no step, with `steps` at how many steps, and `ago` says the last step they held at. `via` says the
+condition is about the part a field of the n-th part holds.
 
 ## Level files
 

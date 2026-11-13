@@ -51,6 +51,15 @@ export interface GoalNames {
    * has the values the other tests fix the part's fields to, by offset.
    */
   valueName?: (type: number, offset: number, value: number, part: ReadonlyMap<number, number>) => string | undefined;
+  /**
+   * A field of a part of a type that holds another part, in words, like Al's angel. With it the conditions follow a
+   * field to the part it holds; without it, reading memory through a field doesn't fit them.
+   */
+  linkName?: (type: number, offset: number) => string | undefined;
+  /** Words of the data segment that hold the same value all the time, which a read through a 0 part finds. */
+  fixedWords?: ReadonlyMap<number, number>;
+  /** Whether a test of a sum's sign with its own test for -32768 is said as the sum against 0, as Toons' goals have. */
+  exactSums?: boolean;
 }
 
 const TYPE = 0x04;
