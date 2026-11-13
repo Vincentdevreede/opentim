@@ -74,6 +74,20 @@ describe("routine control flow", () => {
     expect(result.instructions.filter((instruction) => instruction.mnemonic === "mov")).toHaveLength(2);
   });
 
+  it("does not trust a range check when the routine starts after it, on the branch", () => {
+    // cmp bx, 1; ja default; shl bx, 1; jmp cs:[bx+0x30]; default: jmp back to the cmp. Read from the ja, so the
+    // first pass through the shift has no comparison before it.
+    const image = new Uint8Array(0x60).fill(0x66);
+    image.set([0x83, 0xfb, 1, 0x77, 11, 0xd1, 0xe3, 0x2e, 0xff, 0xa7, 0x30, 0], 0);
+    image.set([0xeb, 0xee], 0x10);
+    image.set([0x40, 0, 0x50, 0], 0x30);
+    image.set([0xcb], 0x40);
+    image.set([0xcb], 0x50);
+    const result = readRoutineCode(image, { segment: 0, offset: 3, address: 3 }, 0);
+    expect(result.status).toBe("partial");
+    expect(result.edges.filter((edge) => edge.kind === "jump-table")).toEqual([]);
+  });
+
   it("does not trust a range check that another way into the shift goes around", () => {
     // mov bx, [bp+6]; or bx, bx; js shift; cmp bx, 1; ja default; shift: shl bx, 1; jmp cs:[bx+0x13]; default: retf
     // prettier-ignore

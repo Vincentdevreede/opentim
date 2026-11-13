@@ -220,6 +220,7 @@ function jumpTable(
   jump: Instruction,
   instructions: Instruction[],
   edges: RoutineEdge[],
+  entry: number,
 ): JumpTable | undefined {
   const operand = jump.operands[0];
   if (operand?.kind !== "memory" || operand.segment !== "cs" || operand.width !== 16 || operand.base.length !== 1)
@@ -274,7 +275,9 @@ function jumpTable(
         fallback.target.address !== shift.address &&
         fallback.target.address !== jump.address;
     } else continue;
-    const onlyWayIn = (to: number, from: number) => edges.every((edge) => edge.to !== to || edge.from === from);
+    // The routine's entry is a way in too, though no edge leads to it.
+    const onlyWayIn = (to: number, from: number) =>
+      to !== entry && edges.every((edge) => edge.to !== to || edge.from === from);
     // The range check holds only when every way to the shift goes through the comparison and then the branch.
     if (
       !onlyWayIn(branch.address, compare.address) ||
@@ -340,7 +343,7 @@ export function readRoutineCode(image: Uint8Array, entry: CodeAddress, dataSegme
     if (!pending.length) {
       let resolved = false;
       for (const [address, instruction] of unresolvedJumps) {
-        const guarded = jumpTable(image, instruction, result.instructions, result.edges);
+        const guarded = jumpTable(image, instruction, result.instructions, result.edges, entry.address);
         const table = guarded ?? sparseJumpTable(image, instruction, result.instructions);
         if (!table) continue;
         if (guarded) guardedJumps.push(instruction);
@@ -464,7 +467,7 @@ export function readRoutineCode(image: Uint8Array, entry: CodeAddress, dataSegme
   }
   // Code read after a table was accepted may have found another way into its shift or jump.
   for (const jump of guardedJumps)
-    if (!jumpTable(image, jump, result.instructions, result.edges))
+    if (!jumpTable(image, jump, result.instructions, result.edges, entry.address))
       uncertain(`The range check before the jump table at ${location(jump.address)} can be bypassed`);
   result.instructions.sort((a, b) => a.address - b.address);
   const addresses = [...occupied.keys()].sort((a, b) => a - b);
