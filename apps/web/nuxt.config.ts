@@ -5,7 +5,7 @@ export default defineNuxtConfig({
   compatibilityDate: "2026-10-01",
   devtools: { enabled: true },
   devServer: { port: 3000 },
-  css: ["@fontsource/silkscreen/400.css", "~/assets/css/main.css"],
+  css: ["@fontsource/silkscreen/400.css", "@fontsource/handjet/500.css", "~/assets/css/main.css"],
   vite: {
     plugins: [tailwindcss()],
   },

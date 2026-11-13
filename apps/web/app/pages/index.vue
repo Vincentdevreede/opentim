@@ -28,20 +28,23 @@ const FEATURES = [
   <div class="flex min-h-screen flex-col">
     <main class="flex-1">
       <section class="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 pt-16 pb-12 text-center sm:pt-24">
-        <img :src="icon" alt="" width="64" height="64" class="size-16" />
-        <img
-          :src="logo"
-          alt="OpenTIM"
-          width="520"
-          height="390"
-          class="w-full max-w-[420px] rounded-xl border border-line-strong"
-        />
-        <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+        <div class="flex items-center gap-3">
+          <img :src="icon" alt="" width="64" height="64" class="size-16" />
+          <span class="font-['Handjet',monospace] text-5xl font-medium sm:text-6xl">OpenTIM</span>
+        </div>
+        <h1 class="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
           The Incredible Machine, rebuilt for the web
         </h1>
         <p class="max-w-xl text-lg text-balance text-soft">
           Build contraptions, solve puzzles and play in your browser, or install it as an app.
         </p>
+        <img
+          :src="logo"
+          alt="The Incredible Machine"
+          width="520"
+          height="390"
+          class="w-full max-w-[420px] rounded-xl border border-line-strong"
+        />
       </section>
 
       <section class="mx-auto max-w-5xl px-4 pb-12">

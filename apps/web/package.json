@@ -12,6 +12,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@fontsource/handjet": "^5.3.1",
     "@fontsource/silkscreen": "^5.3.0",
     "@opentim/theme": "workspace:*",
     "nuxt": "^4.6.4",
