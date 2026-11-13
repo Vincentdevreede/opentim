@@ -105,13 +105,19 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
 
 - `level.ts`: `readLevel(data, { layout, name })` reads TIM 1, Even More and Toons `.LEV`/`.GKC` files. Puzzle or
   freeform isn't stored, so both are tried. A `Level` has the header and the parts (static, moving, bin), and every
-  value also as `fields` (key, offset, size) for byte views. TIM 2 levels aren't read.
+  value also as `fields` (key, offset, size) for byte views. A TIM 2 level (magic `0xACEF`) is read in its own layout
+  (`readTim2`) whatever the layout says, with its notes and goal entries in `level.tim2`.
 - `level-loader.ts`: where the game's loader puts each field of a placed part in its record (`LOADED_FIELDS`) and
   each header value in the data segment (`LOADED_HEADERS`, by program hash). Found with the emulator by
   `check-level-fields`; TIM 1 and Even More only.
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).
-- `tim2.ts`: TIM 2's part names and animation sheets, for the part lists only.
+- `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
+  `part` for an entry about one part.
+- `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
+  draws as walls or tile patterns.
+- `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
+  lists.
 
 ## The emulator: `src/run`
 

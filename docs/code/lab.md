@@ -74,7 +74,10 @@ The biggest file of the Lab. In order:
   Behaviour (`BehaviourPanel`, three layouts), Interactions (`InteractionLists`) and Type (`RecordPanel`, the 58-byte
   type record).
 - **Levels**: `LevelCanvas` (the level drawn, goal areas), `LevelGoal` (conditions and the goal routine),
-  `LevelStructure` (every field, where the loader keeps it, flag words).
+  `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
+  the play area (`PLAY_AREAS`), which parts are tiles, the parts bin (`groupOf`), and for TIM 2 the frame a state picks
+  (`Part.states`) and the wall and tile pattern routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`), when it is
+  loaded.
 - **Audio**: banks and samples, played as samples or as music through emulated Sound Blaster Pro or AdLib FM, in a
   worker.
 - **Sandbox**: the engine package's `World` in PixiJS.

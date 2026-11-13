@@ -20,10 +20,28 @@ import LevelStructure from "../components/levels/LevelStructure.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
-import { MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
-import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
+import {
+  LAYOUT_NAMES,
+  MARGIN,
+  PLAY_AREA,
+  goalPartsOf,
+  layoutOf,
+  layoutScene,
+  readLevels,
+  type LevelEntry,
+} from "../levels.ts";
+import {
+  LOADED_HEADERS,
+  hasWallLimits,
+  readTim2Types,
+  summariseTim2Goal,
+  tim2Drawing as drawingOf,
+  type GoalCondition,
+  type SpriteOf,
+  type Tim2Drawing,
+} from "@opentim/content";
 import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
-import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
+import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
 import LabNoMatch from "../components/LabNoMatch.vue";
@@ -50,13 +68,16 @@ const observer = new ResizeObserver(([entry]) => {
 /** The zoom: fitted to the space, or a fixed one. Before the space is measured, the fit is 1. */
 const zoom = computed(() => {
   if (zoomSetting.value !== "fit") return Number(zoomSetting.value);
+  const area = scene.value?.area ?? PLAY_AREA;
   const fit = Math.min(
-    (room.value.width - PADDING) / (PLAY_AREA.width + 2 * MARGIN),
-    (room.value.height - PADDING) / (PLAY_AREA.height + 2 * MARGIN),
+    (room.value.width - PADDING) / (area.width + 2 * MARGIN),
+    (room.value.height - PADDING) / (area.height + 2 * MARGIN),
   );
   return fit > 0 ? fit : 1;
 });
 const showBounds = ref(true);
+/** For TIM 2: the puzzle as the game shows its designer's solution, with the solution's parts out of the bin. */
+const showSolution = ref(false);
 const showGoal = ref(true);
 const selectedPart = ref<number>();
 
@@ -139,6 +160,13 @@ const puzzle = computed(() => {
 /** The goal of the level shown, or why there is none. */
 const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefined>(() => {
   if (current.value?.kind !== "level") return undefined;
+  if (level.value?.layout === "tim2") {
+    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p).name]));
+    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`);
+    return read
+      ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
+      : { status: "none", why: "This level has no goal entries." };
+  }
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
   if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
@@ -161,13 +189,14 @@ const goalAreas = computed(() => {
     number: number;
     box: { x: number; y: number; width: number; height: number };
   }[] = [];
-  const edge = { left: -MARGIN, top: -MARGIN, right: PLAY_AREA.width + MARGIN, bottom: PLAY_AREA.height + MARGIN };
+  const edge = { left: -MARGIN, top: -MARGIN, right: s.area.width + MARGIN, bottom: s.area.height + MARGIN };
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
-    // position is in range, from a part of the same type in the level. Without one it is the range of positions.
-    const types = new Set(c.types?.map((t) => t.type));
-    const like = s.parts.find((d) => (!types.size || types.has(d.part.type)) && d.box.width && d.box.height);
+    // position is in range, from the part the condition names or one of the same type in the level. Without one it is
+    // the range of positions.
+    const looked = c.part !== undefined || c.types?.length ? goalPartsOf(c, s.parts) : s.parts;
+    const like = looked.find((d) => d.box.width && d.box.height);
     const at = like
       ? {
           x: like.box.x - like.part.position.x,
@@ -190,11 +219,12 @@ const goalAreas = computed(() => {
   return out;
 });
 const areaNumbers = computed(() => new Map(goalAreas.value.map((a) => [a.condition, a.number])));
-/** The types of the parts the goal's conditions look at. */
-const goalTypes = computed(() => {
+/** The parts the goal's conditions look at, by their index in the level. */
+const goalParts = computed(() => {
   const g = goal.value;
-  if (g?.status !== "done") return new Set<number>();
-  return new Set(g.goal.summary.ways.flat().flatMap((c) => c.types?.map((t) => t.type) ?? []));
+  const s = scene.value;
+  if (g?.status !== "done" || !s) return new Set<number>();
+  return new Set(g.goal.summary.ways.flat().flatMap((c) => goalPartsOf(c, s.parts).map((d) => d.part.index)));
 });
 
 /** The decoded sprites of each sheet, as the Sprites page reads them. */
@@ -215,19 +245,44 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 const { colorsOf, choose } = usePalettes();
 const paletteOf = (sheet: string) => colorsOf(choose(sheetFile(sheet), AUTO)?.name);
 
-const scene = computed(() => (level.value ? layoutScene(level.value, list.value, spriteOf.value) : undefined));
+/**
+ * How TIM2.EXE draws each type, when it is loaded: walls and tile patterns have routines of their own. Without it, the
+ * types whose `.PAR` file has the walls' size limits stand in for the wall routine's.
+ */
+const tim2Drawing = computed((): { how: Map<number, Tim2Drawing>; from: string } | undefined => {
+  if (program.value?.name === "TIM2.EXE")
+    try {
+      return { how: drawingOf(readTim2Types(program.value.data)), from: "TIM2.EXE’s" };
+    } catch {
+      // Falls back to the files below.
+    }
+  const walls = resources.value.flatMap((r): [number, Tim2Drawing][] => {
+    const type = /^PART(\d+)\.PAR$/.exec(r.name)?.[1];
+    return type !== undefined && hasWallLimits(r.data) ? [[Number(type), "wall"]] : [];
+  });
+  return walls.length ? { how: new Map(walls), from: "the .PAR files’" } : undefined;
+});
+const scene = computed(() =>
+  level.value
+    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value?.how, {
+        solution: showSolution.value,
+        drawingFrom: tim2Drawing.value?.from,
+      })
+    : undefined,
+);
 
 const stats = computed(() => {
   const s = scene.value;
   if (!s) return [];
   const count = (how: string[]) => s.parts.filter((p) => how.includes(p.how)).length;
   return [
-    { label: "Layout", value: level.value!.layout === "toons" ? "Toons" : "TIM 1, Even More" },
+    { label: "Layout", value: LAYOUT_NAMES[level.value!.layout] },
     { label: "Version", value: `0x${level.value!.version.toString(16)}` },
-    { label: "Play area", value: `${PLAY_AREA.width} × ${PLAY_AREA.height}` },
+    { label: "Play area", value: `${s.area.width} × ${s.area.height}` },
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },
+    ...(count(["block"]) ? [{ label: "Colour blocks", value: String(count(["block"])) }] : []),
     { label: "Drawn as a box", value: String(count(["outline"])) },
     { label: "Ropes and belts", value: String(s.lines.length) },
     { label: "In the parts bin", value: `${s.bin.length}, not drawn` },
@@ -327,6 +382,7 @@ onBeforeUnmount(() => {
           <LabBadge v-bind="status" />
           <div class="flex-1"></div>
           <LabCheckbox v-model="showBounds">Part boxes</LabCheckbox>
+          <LabCheckbox v-if="level?.layout === 'tim2'" v-model="showSolution">Solution</LabCheckbox>
           <LabCheckbox v-if="goal?.status === 'done'" v-model="showGoal">Goal</LabCheckbox>
           <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
           <LabSegmented v-model="zoomSetting" label="Zoom" :options="ZOOMS" />
@@ -348,7 +404,7 @@ onBeforeUnmount(() => {
                 :bounds="showBounds"
                 :selected="selectedPart"
                 :goal-areas="showGoal ? goalAreas : undefined"
-                :goal-types="showGoal ? goalTypes : undefined"
+                :goal-parts="showGoal ? goalParts : undefined"
                 @select="selectedPart = $event"
               />
             </div>

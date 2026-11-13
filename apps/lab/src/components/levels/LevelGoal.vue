@@ -16,7 +16,7 @@ import ReadProgress from "../ReadProgress.vue";
  */
 const props = defineProps<{
   /** The goal as read, or why there is none to show. */
-  goal: { status: "done"; goal: PuzzleGoal } | { status: "reading" } | { status: "none"; why: string };
+  goal: { status: "done"; goal: PuzzleGoal; from?: "level" } | { status: "reading" } | { status: "none"; why: string };
   /** The goal text the level shows the player. */
   says?: string;
   /** The number each condition's area has on the drawing, by way and condition. */
@@ -28,6 +28,8 @@ const props = defineProps<{
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
+/** TIM 2 keeps its goal in the level file, as entries one routine of TIM2.EXE tests. */
+const fromLevel = computed(() => props.goal.status === "done" && props.goal.from === "level");
 const badge = computed(() => {
   const s = summary.value;
   if (!s) return undefined;
@@ -40,7 +42,9 @@ const badge = computed(() => {
   return {
     status: "decoded" as const,
     label: "read",
-    title: "Read from the goal routine, which the emulator check runs too",
+    title: fromLevel.value
+      ? "Read from the level file's goal entries, as TIM2.EXE's goal routine tests them"
+      : "Read from the goal routine, which the emulator check runs too",
   };
 });
 
@@ -90,7 +94,8 @@ const seconds = (ms: number) => {
 const typeNumbers = (c: GoalCondition) => c.types?.map((t) => t.type) ?? goalTypes.value;
 
 /** A condition's parts in words: the types, or any part. */
-const typesOf = (c: GoalCondition) => (c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part");
+const typesOf = (c: GoalCondition) =>
+  (c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part") + (c.part === undefined ? "" : ` #${c.part}`);
 const countOf = (c: GoalCondition) => {
   const op = { "==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥" }[c.count!.op];
   return `${op} ${c.count!.value}`;
@@ -129,7 +134,7 @@ const countOf = (c: GoalCondition) => {
                 ><span class="font-sans">where</span> {{ say(c.where.join(", "), typeNumbers(c)) }}</span
               >
               <span v-if="c.kind === 'count'" class="font-mono text-meta text-soft">{{ countOf(c) }}</span>
-              <span v-else-if="c.tests.length" class="font-mono text-meta break-words text-soft">{{
+              <span v-if="c.tests.length" class="font-mono text-meta break-words text-soft">{{
                 say(c.tests.join(" · "), typeNumbers(c))
               }}</span>
             </span>
@@ -155,7 +160,10 @@ const countOf = (c: GoalCondition) => {
           </span>
         </LabListRow>
         <div v-if="goal.status === 'done'" class="p-2">
-          <LabDisclosure :title="`Goal routine, ${goal.goal.lines.length} lines`" :open="!!summary.problem">
+          <LabDisclosure
+            :title="fromLevel ? 'Goal entries as stored' : `Goal routine, ${goal.goal.lines.length} lines`"
+            :open="!!summary.problem"
+          >
             <pre class="overflow-x-auto px-3 py-2 font-mono text-meta leading-5 text-soft">{{
               goal.goal.lines.map((line) => say(line)).join("\n")
             }}</pre>

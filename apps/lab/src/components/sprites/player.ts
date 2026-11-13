@@ -6,7 +6,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } 
 export const FPS = 8;
 export const ZOOMS = [1, 2, 3, 4, 6];
 
-export function usePlayer(count: Ref<number>, start = 0) {
+/** Steps through `count` items; `interval` is the time between them in milliseconds, 1000 / FPS when not given. */
+export function usePlayer(count: Ref<number>, start = 0, interval: Ref<number | undefined> = ref(undefined)) {
   const index = ref(start);
   const playing = ref(false);
   /** The index, kept within the items there are. */
@@ -21,9 +22,9 @@ export function usePlayer(count: Ref<number>, start = 0) {
   }
 
   let timer: ReturnType<typeof setInterval> | undefined;
-  watch(playing, (on) => {
+  watch([playing, interval], ([on, ms]) => {
     clearInterval(timer);
-    if (on) timer = setInterval(() => move(1), 1000 / FPS);
+    if (on) timer = setInterval(() => move(1), ms ?? 1000 / FPS);
   });
   watch(count, (n) => {
     if (n < 2) playing.value = false;

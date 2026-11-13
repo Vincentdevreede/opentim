@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { compose, coverSprites, type SpriteOf } from "@opentim/content";
+import { compose, composeFrame, coverSprites, type SpriteOf } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
@@ -100,7 +100,15 @@ const differs = computed(() => new Set(loaded.value?.differs ?? []));
 const currentPart = computed(
   () => list.value?.parts.find((p) => p.id === selectedPart.value) ?? parts.value[0] ?? list.value?.parts[0],
 );
-const covers = computed(() => new Map(parts.value.map((p) => [p.id, compose(coverSprites(p), spriteOf.value)])));
+const covers = computed(
+  () =>
+    new Map(
+      parts.value.map((p) => [
+        p.id,
+        p.frames[0] ? composeFrame(p.frames[0], spriteOf.value) : compose(coverSprites(p), spriteOf.value),
+      ]),
+    ),
+);
 
 /** The cards use the palette with the image's name, or else the game's main palette. */
 const galleryColors = (image: string) => colorsOf(choose(image, AUTO)?.name);

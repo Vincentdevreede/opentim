@@ -1,13 +1,16 @@
 import evenmore from "./lists/evenmore.json" with { type: "json" };
+import names from "./lists/names.json" with { type: "json" };
 import tim1 from "./lists/tim1.json" with { type: "json" };
 import tim2 from "./lists/tim2.json" with { type: "json" };
 import type { PartList } from "./model.ts";
 
-export type { Frame, Part, PartList, Placement } from "./model.ts";
+export type { Frame, Part, PartList, Placement, Shape } from "./model.ts";
 export {
   compose,
+  composeFrame,
   coverSprites,
   drawOrder,
+  partSequences,
   type Bounds,
   type Composition,
   type Placed,
@@ -29,6 +32,12 @@ export { RECORD_FIELDS, RECORD_SIZE, type RecordField } from "./read/type-table.
 export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
   ([tim1, evenmore, tim2] as PartList[]).map((list) => [list.id, list]),
 );
+
+/**
+ * The English name of each part, by id. The names are the game's own, from TIM 2's `INFO.RES`; the same object has the
+ * same id in every list, so a TIM 1 part gets the name of the same object in TIM 2. A part TIM 2 doesn't have has none.
+ */
+export const PART_NAMES: ReadonlyMap<string, string> = new Map(names.names.map((n) => [n.id, n.name]));
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);
@@ -127,12 +136,15 @@ export type { ContactResponse } from "./read/behaviour-contact-response.ts";
 export {
   LEVEL_MAGIC,
   LevelError,
+  PULLEY,
   TIM2_LEVEL_MAGIC,
   readLevel,
   type Level,
   type LevelField,
+  type LevelGoalEntry,
   type LevelKind,
   type LevelLayout,
+  type LevelNote,
   type LevelPart,
   type PartGroup,
   type RopeSlot,
@@ -158,6 +170,8 @@ export type {
   PairCentreAngle,
 } from "./read/behaviour-contact-response-pair.ts";
 export { readProgramGoals, type ProgramGoals, type PuzzleGoal } from "./read/program-goals.ts";
+export { TIM2_SCREEN, summariseTim2Goal, type Tim2Goal } from "./read/tim2-goal.ts";
+export { hasWallLimits, readTim2Types, tim2Drawing, type Tim2Drawing, type Tim2Types } from "./read/tim2-program.ts";
 export {
   conditionText,
   summariseGoal,
@@ -165,3 +179,4 @@ export {
   type GoalCondition,
   type GoalSummary,
 } from "./read/goal-conditions.ts";
+export { TIM2_STEP_MS } from "./read/tim2.ts";

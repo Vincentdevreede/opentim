@@ -4,17 +4,22 @@
  */
 
 import {
+  PULLEY,
+  TIM2_SCREEN,
   readLevel,
+  type GoalCondition,
   type Level,
   type LevelLayout,
   type LevelPart,
   type Part,
   type PartList,
   type Placement,
+  type Shape,
   compose,
   type Bounds,
   type Composition,
   type SpriteOf,
+  type Tim2Drawing,
 } from "@opentim/content";
 import type { Edition } from "./edition.ts";
 import type { Resource } from "./importer.ts";
@@ -33,6 +38,18 @@ export interface LevelEntry {
  * in it, and the ones outside stand just off its edge. TIM.EXE starts the view at -8, -8.
  */
 export const PLAY_AREA = { width: 576, height: 368 };
+/**
+ * The play area by layout. TIM 2's is its screen, 640 × 400: TIM2.EXE's goal routine counts a part off the screen when
+ * its middle is outside it, and its panels are drawn in a frame of that size. While a puzzle is set up, the control
+ * panel covers the left 48 pixels and the parts bin the right 80.
+ */
+export const PLAY_AREAS: Record<LevelLayout, { width: number; height: number }> = {
+  tim: PLAY_AREA,
+  toons: PLAY_AREA,
+  tim2: TIM2_SCREEN,
+};
+/** The games of each level layout, for display. */
+export const LAYOUT_NAMES: Record<LevelLayout, string> = { tim: "TIM 1, Even More", toons: "Toons", tim2: "TIM 2" };
 /** How far around the play area the page draws, to show the parts placed outside it. */
 export const MARGIN = 48;
 
@@ -75,9 +92,10 @@ export function readLevels(resources: readonly Resource[], layout: LevelLayout):
  *   types without a table of offsets per state to this, and for those TIM.EXE adds no offset.
  * - `tiles`: 16 × 16 tiles, for parts with bit 0x40 in the first flag word, like walls.
  * - `line`: a rope or a belt, drawn as lines between the parts it ties.
+ * - `block`: TIM 2's colour block, a box filled with one colour.
  * - `outline`: nothing to draw it with, so only its box is shown.
  */
-export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "outline";
+export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "block" | "outline";
 
 export interface DrawnPart {
   part: LevelPart;
@@ -91,6 +109,8 @@ export interface DrawnPart {
   mirrored: { x: boolean; y: boolean };
   /** The box the part takes in the level. */
   box: Bounds;
+  /** Where the picture is cut off, in pixels of the level, when the program cuts it off. */
+  clip?: Bounds;
 }
 
 export interface Point {
@@ -119,6 +139,8 @@ export interface Note {
 }
 
 export interface Scene {
+  /** The play area of the level's game. */
+  area: { width: number; height: number };
   /** The static and moving parts, in the order the file stores them, which is also the drawing order. */
   parts: DrawnPart[];
   lines: Line[];
@@ -129,8 +151,44 @@ export interface Scene {
   knot: Composition;
 }
 
+/** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
+const TIM2_FIXED = 0x40;
+/** Bit 0x100 of TIM 2's third flag word: the part stays in the bin when the game shows the puzzle's solution. */
+const TIM2_NOT_IN_SOLUTION = 0x100;
+/**
+ * The list a part is on when the puzzle starts. TIM 1 keeps its parts bin as a third list in the file. TIM 2 keeps
+ * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
+ * third flag word into the parts bin, so those are the bin. When the player asks for the designer's solution, it loads
+ * the level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
+ */
+export const groupOf = (level: Level, part: LevelPart, solution = false): LevelPart["group"] => {
+  const third = part.flags[2] ?? 0;
+  if (level.layout !== "tim2" || third & TIM2_FIXED) return part.group;
+  return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
+};
+
 /** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
 const TILED = 0x40;
+/**
+ * How TIM 2 draws a part without TIM2.EXE's type table. The levels keep the flag bits of the part's type: every type
+ * TIM2.EXE draws with its wall routine has bit 0x2000 of the third word except the large pipes, every type it
+ * draws with its tile pattern routine has bits 0x1080 and not 0x0400, and only the colour block has all of 0x1480.
+ */
+function tim2DrawingFromFlags(part: LevelPart): Tim2Drawing {
+  const third = part.flags[2] ?? 0;
+  if (third & 0x2000) return "wall";
+  if ((third & 0x1480) === 0x1480) return "block";
+  return (third & 0x1480) === 0x1080 ? "pattern" : "frame";
+}
+
+/**
+ * TIM2.EXE's colour block routine: a box the part's size, filled and outlined in the palette colour of the low byte
+ * of the part's extra word, colour 5 when that is 0.
+ */
+function blockShape(part: LevelPart): Shape {
+  const colour = part.extra & 0xff || 5;
+  return { kind: "box", x: 0, y: 0, width: part.size.width, height: part.size.height, colour, fill: colour, after: 0 };
+}
 /** Bits of the second flag word that mirror a part, left to right and upside down. */
 const MIRROR_X = 0x10;
 const MIRROR_Y = 0x20;
@@ -138,7 +196,6 @@ const MIRROR_Y = 0x20;
 const VIEW = -8;
 const TILE = 16;
 const LINE_PARTS = new Set(["rope", "belt"]);
-const PULLEY = { tim: 7, toons: 17 } as const;
 const ROPE_COLOR = 6;
 const ROPE_END = 49;
 const KNOT: Placement = { sheet: "GP_BORD", sprite: 36, x: -5, y: -2, layer: 0 };
@@ -193,7 +250,118 @@ function mirror(
   });
 }
 
-function drawPart(part: LevelPart, list: PartList | undefined, spriteOf: SpriteOf): DrawnPart {
+/** The frame a state of a part shows: in TIM 2 the animation's list of states picks it. */
+const frameOf = (part: Part, state: number) => part.frames.find((f) => f.id === (part.states?.[state] ?? state));
+
+/**
+ * The states of the run TIM2.EXE's wall routine draws from. A part as wide as tall or wider uses the states from 0 up
+ * to where the next sequence starts; a taller one uses the first sequence that starts after state 0, up to the next.
+ */
+function wallRun(part: Part, standing: boolean): number[] | undefined {
+  const starts = new Set(part.sequences?.map((s) => s.state));
+  const last = Math.max(part.states?.length ?? part.frames.length, ...starts);
+  const next = (from: number) => {
+    for (let s = from + 1; s <= last; s++) if (starts.has(s)) return s;
+    return undefined;
+  };
+  const start = standing ? next(0) : 0;
+  const end = start === undefined ? undefined : (next(start) ?? last);
+  return start === undefined || end === undefined || end <= start
+    ? undefined
+    : Array.from({ length: end - start }, (_, i) => start + i);
+}
+
+/**
+ * A TIM 2 wall as TIM2.EXE's wall routine draws it: pieces as wide (or, standing, as tall) as the run's first frame,
+ * the run's first state at one end, its last at the other and the ones between in turn in the middle.
+ */
+function wallPieces(part: LevelPart, listPart: Part, spriteOf: SpriteOf): Placement[] | undefined {
+  const standing = part.size.width < part.size.height;
+  // Either mirror bit turns a wall over its long side: one lying down upside down, a standing one left to right.
+  const mirrored = ((part.flags[1] ?? 0) & (MIRROR_X | MIRROR_Y)) !== 0;
+  const turn = (p: Placement): Placement => {
+    const image = spriteOf(p.sheet, p.sprite);
+    const box = listPart.mirrorBox;
+    if (!mirrored || !image || !box) return p;
+    const h = (p.flip?.includes("h") ?? false) !== standing;
+    const v = (p.flip?.includes("v") ?? false) !== !standing;
+    const flip = `${h ? "h" : ""}${v ? "v" : ""}` as Placement["flip"] | "";
+    const turned: Placement = {
+      sheet: p.sheet,
+      sprite: p.sprite,
+      x: standing ? box.width - p.x - image.width + shift : p.x,
+      y: standing ? p.y : box.height - p.y - image.height,
+      layer: p.layer,
+    };
+    return flip ? { ...turned, flip } : turned;
+  };
+  const run = wallRun(listPart, standing);
+  const first = run && frameOf(listPart, run[0]!);
+  if (!run || !first) return undefined;
+  const box = compose(first.sprites, spriteOf).bounds;
+  const size = standing ? box.height : box.width;
+  // The pool table wall standing mirrored moves right by its piece's width less 16, as TIM2.EXE does.
+  const shift = standing && listPart.id === "pool-table-wall" ? box.width - 16 : 0;
+  if (!size) return undefined;
+  const count = Math.trunc((standing ? part.size.height : part.size.width) / size);
+  const middles = run.length - 2;
+  return Array.from({ length: count }, (_, k) => {
+    const state = k === 0 ? run[0]! : k === count - 1 ? run.at(-1)! : run[1 + ((k - 1) % Math.max(middles, 1))]!;
+    const frame = frameOf(listPart, state);
+    return (frame?.sprites ?? []).map(turn).map((p) => ({
+      ...p,
+      x: p.x + (standing ? 0 : k * size),
+      y: p.y + (standing ? k * size : 0),
+    }));
+  }).flat();
+}
+
+/**
+ * A TIM 2 tile pattern as TIM2.EXE draws it: the frame of state 0 over and over on a grid of its size that starts at
+ * 0, 0 of the screen, cut off at the part's box, which the program widens to whole groups of 8 pixels across.
+ */
+function patternPieces(part: LevelPart, listPart: Part, spriteOf: SpriteOf): { pieces: Placement[]; clip: Bounds } {
+  const frame = frameOf(listPart, 0);
+  const box = frame ? compose(frame.sprites, spriteOf).bounds : { x: 0, y: 0, width: 0, height: 0 };
+  const left = part.position.x & ~7;
+  const right = (part.position.x + part.size.width - 1) | 7;
+  const top = part.position.y;
+  const bottom = part.position.y + part.size.height - 1;
+  const clip = { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+  if (!frame || !box.width || !box.height) return { pieces: [], clip };
+  const pieces: Placement[] = [];
+  // Relative to the part's position, like every other picture of a part.
+  for (let x = Math.trunc(left / box.width) * box.width; x <= right; x += box.width)
+    for (let y = Math.trunc(top / box.height) * box.height; y <= bottom; y += box.height)
+      for (const p of frame.sprites) pieces.push({ ...p, x: p.x + x - part.position.x, y: p.y + y - part.position.y });
+  return { pieces, clip };
+}
+
+/** Mirrors boxes and lines inside the part's size, as `mirror` does with sprites. */
+function mirrorShapes(shapes: readonly Shape[], part: LevelPart, x: boolean, y: boolean): Shape[] {
+  const w = part.size.width;
+  const h = part.size.height;
+  return shapes.map((s) =>
+    s.kind === "box"
+      ? { ...s, x: x ? w - s.x - s.width : s.x, y: y ? h - s.y - s.height : s.y }
+      : {
+          ...s,
+          x1: x ? w - 1 - s.x1 : s.x1,
+          x2: x ? w - 1 - s.x2 : s.x2,
+          y1: y ? h - 1 - s.y1 : s.y1,
+          y2: y ? h - 1 - s.y2 : s.y2,
+        },
+  );
+}
+
+function drawPart(
+  part: LevelPart,
+  layout: LevelLayout,
+  list: PartList | undefined,
+  spriteOf: SpriteOf,
+  drawing?: ReadonlyMap<number, Tim2Drawing>,
+  drawingFrom = "TIM2.EXE’s",
+): DrawnPart {
   const listPart = list?.parts.find((p) => p.type === part.type);
   const flags2 = part.flags[1] ?? 0;
   const mirrored = { x: (flags2 & MIRROR_X) !== 0, y: (flags2 & MIRROR_Y) !== 0 };
@@ -217,15 +385,38 @@ function drawPart(part: LevelPart, list: PartList | undefined, spriteOf: SpriteO
     };
   }
   const sheet = listPart.sheets[0];
-  if ((part.flags[0] ?? 0) & TILED && sheet) {
+  if (layout === "tim2") {
+    const how = drawing?.get(part.type) ?? tim2DrawingFromFlags(part);
+    const by = drawing?.has(part.type) ? drawingFrom : "the flags’";
+    if (how === "block") {
+      const shape = blockShape(part);
+      const composition = compose([], spriteOf, { shapes: [shape] });
+      return { ...base, how: "block", detail: `a box in colour ${shape.colour}, by ${by} block rule`, composition };
+    }
+    if (how === "wall") {
+      const pieces = wallPieces(part, listPart, spriteOf);
+      const composition = pieces && compose(pieces, spriteOf);
+      if (composition?.placed.length)
+        return { ...base, how: "tiles", detail: `pieces of a wall, by ${by} wall rule`, composition };
+    } else if (how === "pattern") {
+      const { pieces, clip } = patternPieces(part, listPart, spriteOf);
+      const composition = compose(pieces, spriteOf);
+      if (composition.placed.length)
+        return { ...base, how: "tiles", detail: `a pattern of tiles, by ${by} pattern rule`, composition, clip };
+    }
+  } else if ((part.flags[0] ?? 0) & TILED && sheet) {
     const composition = compose(tiles(part, sheet), spriteOf);
     if (composition.missing.length) return { ...base, how: "outline", detail: `tiles of ${sheet} are missing` };
     return { ...base, how: "tiles", detail: `tiles of ${sheet} from sprite ${state}`, composition };
   }
-  const frame = listPart.frames.find((f) => f.id === state);
+  // In TIM 2 the state picks a frame from the animation's list of states.
+  const shown = listPart.states?.[state] ?? state;
+  const frame = frameOf(listPart, state);
   if (frame) {
-    const composition = compose(mirror(frame.sprites, part, spriteOf, mirrored.x, mirrored.y), spriteOf);
-    if (composition.placed.length) return { ...base, how: "frame", detail: `frame ${state}`, composition };
+    const shapes = mirrorShapes(frame.shapes ?? [], part, mirrored.x, mirrored.y);
+    const composition = compose(mirror(frame.sprites, part, spriteOf, mirrored.x, mirrored.y), spriteOf, { shapes });
+    const detail = shown === state ? `frame ${state}` : `frame ${shown} for state ${state}`;
+    if (composition.placed.length) return { ...base, how: "frame", detail, composition };
   }
   if (!sheet) return { ...base, how: "outline", detail: "no sprite sheet" };
   if (!spriteOf(sheet, state)) return { ...base, how: "outline", detail: `${sheet} has no sprite ${state}` };
@@ -308,9 +499,15 @@ const plural = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? o
 const numbers = (parts: { part: LevelPart }[]) => parts.map((p) => `#${p.part.index}`).join(", ");
 
 /** Lays out a level for drawing, and lists what the drawing leaves out or guesses. */
-export function layoutScene(level: Level, list: PartList | undefined, spriteOf: SpriteOf): Scene {
-  const board = level.parts.filter((p) => p.group !== "bin");
-  const parts = board.map((p) => drawPart(p, list, spriteOf));
+export function layoutScene(
+  level: Level,
+  list: PartList | undefined,
+  spriteOf: SpriteOf,
+  drawing?: ReadonlyMap<number, Tim2Drawing>,
+  { solution = false, drawingFrom = "TIM2.EXE’s" }: { solution?: boolean; drawingFrom?: string } = {},
+): Scene {
+  const board = level.parts.filter((p) => groupOf(level, p, solution) !== "bin");
+  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {
@@ -341,8 +538,21 @@ export function layoutScene(level: Level, list: PartList | undefined, spriteOf: 
       detail: `${broken.map((l) => `#${l.part}`).join(", ")}: the links lead to a part that isn’t a pulley, so the last piece is drawn straight.`,
     });
   const knot = compose([KNOT], spriteOf);
-  return { parts, lines, bin: level.parts.filter((p) => p.group === "bin"), notes, knot };
+  return {
+    area: PLAY_AREAS[level.layout],
+    parts,
+    lines,
+    bin: level.parts.filter((p) => groupOf(level, p, solution) === "bin"),
+    notes,
+    knot,
+  };
 }
+
+/** The parts a goal's condition looks at: the one part it names, or else every part of its types. */
+export const goalPartsOf = (condition: GoalCondition, parts: readonly DrawnPart[]): DrawnPart[] =>
+  condition.part !== undefined
+    ? parts.filter((d) => d.part.index === condition.part)
+    : parts.filter((d) => condition.types?.some((t) => t.type === d.part.type));
 
 /** The topmost part at a point of the level, for clicks. Lines can't be picked; their part shows in the structure. */
 export function partAt(scene: Scene, point: Point): DrawnPart | undefined {

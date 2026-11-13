@@ -13,6 +13,7 @@ import {
 import { computed, nextTick, ref, watch } from "vue";
 import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
+import { groupOf } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -54,6 +55,24 @@ const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
     label: "Parts bin",
     hint: "Parts the player can place, not on the board. The loader puts them on the third list, in this order.",
   },
+];
+
+/** TIM 2 stores no bin: the puzzle start puts the parts without bit 0x40 of the third flag word there. */
+const TIM2_HINTS: Partial<Record<PartGroup, string>> = {
+  bin: "Parts without bit 0x40 of the third flag word. The file keeps them where the designer left them; TIM2.EXE drops them into the bin when the puzzle starts.",
+};
+
+/** The bits of TIM 2's flag words that are known, by word: the game keeps only these from the file. */
+const TIM2_FLAGS: [number, string][][] = [
+  [],
+  [
+    [0x10, "mirrored"],
+    [0x20, "upside down"],
+  ],
+  [
+    [0x40, "fixed on the board"],
+    [0x100, "not in the solution"],
+  ],
 ];
 
 /** What each header field means, and how sure that is. TIM.EXE is the program of TIM 1. */
@@ -152,6 +171,10 @@ const FLAG_WORDS = [0x06, 0x08, 0x0a];
 /** A part's flags in words, by the names of their bits, with how many bits the program never uses are set. */
 function flagsShown(p: LevelPart): { value: string; note?: string } {
   // The bits' meanings come from the TIM loader and record; other layouts keep their words in hex.
+  if (props.level.layout === "tim2") {
+    const names = p.flags.flatMap((f, k) => (TIM2_FLAGS[k] ?? []).filter(([bit]) => f & bit).map(([, n]) => n));
+    return { value: [...names, p.flags.map(word).join(" ")].join(" · ") };
+  }
   if (props.level.layout !== "tim") return { value: p.flags.map(word).join(" ") };
   const read = p.flags.map((f, k) => flagWords(FLAG_WORDS[k]!, f, props.record));
   const words = read.flatMap((r) => r.words);
@@ -325,11 +348,15 @@ function rows(p: LevelPart): Row[] {
       <template v-for="g in GROUPS" :key="g.group">
         <LabListHeading
           :title="g.label"
-          :meta="String(level.parts.filter((p) => p.group === g.group).length)"
-          :hint="g.hint"
+          :meta="String(level.parts.filter((p) => groupOf(level, p) === g.group).length)"
+          :hint="level.layout === 'tim2' ? (TIM2_HINTS[g.group] ?? g.hint) : g.hint"
           class="font-sans"
         />
-        <div v-for="p in level.parts.filter((p) => p.group === g.group)" :key="p.index" :data-structure-part="p.index">
+        <div
+          v-for="p in level.parts.filter((p) => groupOf(level, p) === g.group)"
+          :key="p.index"
+          :data-structure-part="p.index"
+        >
           <LabListRow
             :name="`#${p.index}`"
             name-width="2rem"

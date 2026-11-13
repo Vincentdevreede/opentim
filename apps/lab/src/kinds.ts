@@ -54,7 +54,7 @@ export const SUPPORT: Record<KindGroup, { status: Confidence; note: string }> = 
   palette: { status: "decoded", note: "Decoded. Sprites uses it to colour the images." },
   level: {
     status: "decoded",
-    note: "Read to the last byte, except TIM 2 levels. View it in Levels.",
+    note: "Read to the last byte. View it in Levels.",
   },
   scene: {
     status: "decoded",

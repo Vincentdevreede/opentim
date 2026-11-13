@@ -78,7 +78,18 @@ the language packages). Unpacked, a sound is a Sierra SCI sound patch:
 A track is a MIDI channel (its first byte has the channel in its low 4 bits), or a digitized sample when its first
 byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, followed by unsigned 8-bit mono PCM.
 
-`.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header; the Lab plays them at 11,025 Hz, a guess.
+`.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header. TIM 2 plays them at 11,025 Hz:
+TIM2.EXE names a file `SX_` and four digits, like the number an animation's sound command gives, and before it plays
+one it calls its digital sound driver's rate function (function 6) with a word that holds 11,025 and that nothing else
+writes. The digital drivers are the `aud` files in `SX.OVL` (`ASB` for the Sound Blaster, `APS`, `APA`); the Sound
+Blaster one turns the rate into the card's time constant, 256 − 1,000,000 ÷ rate, and also starts at 11,025 Hz. For
+Toons the rate is still a guess; the Lab plays its files at the same rate.
+
+**TIM 2's music** is in `TIM2.SX`, the same format as TIM 1's bank: 38 sounds, the same in the floppy, the CD and the
+demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number of its song (the levels use 1000 to
+1021 and 1023). The other 14 are part sounds numbered like their part, such as 5 for the conveyor belt. `MUSIC.RES`
+lists the songs by number with the name the game shows, like `1002 New Age`; `MUSIC2.RES` is a shorter list of the
+same kind, and `SOUND.RES` names some of the `.RAW` sounds, like `3001 Yeee Haaa!!`.
 
 ## The sound drivers (SX.OVL)
 
@@ -92,7 +103,8 @@ floppy, demo and French builds and the Add On Disk have one that is 50 bytes lon
 start of the voice allocator (`0x1ad7` in the longer file): it takes a free voice that already has the channel's
 instrument before any other free voice. Apart from that loop and the addresses it moves, the two files are the same.
 `prefersSameInstrument` (`adlib.ts`) finds the loop, and the Lab plays each build's music with its own version. The
-`SBP` driver is the same 9,701 byte file in every build and has no such loop.
+`SBP` driver is the same 9,701 byte file in every build and has no such loop. Since TIM 2's `ADL` is TIM 1's file,
+`packages/sound` plays TIM 2's songs as the game does, with TIM 2's own instruments from its patch `003`.
 
 ## Language packages (FRENCH.RES, GERMAN.RES)
 
@@ -105,8 +117,8 @@ copies the usual names (`RESOURCE.F03` becomes `RESOURCE.003`, `RESOURCE.FAP` be
 
 ## Level files (.LEV, .TIM, .GKC)
 
-`readLevel` (`packages/content/src/read/level.ts`). TIM 1, Even More and Toons; TIM 2 levels (magic `0xACEF`) aren't
-read yet. Nothing says whether a file is a puzzle or freeform, so the reader tries both and keeps the one that ends at
+`readLevel` (`packages/content/src/read/level.ts`). TIM 1, Even More and Toons here; TIM 2 has
+[its own layout](#tim-2-levels). Nothing says whether a file is a puzzle or freeform, so the reader tries both and keeps the one that ends at
 the last byte. Texts are NUL-terminated.
 
 **Header**
@@ -145,6 +157,29 @@ A part link is the index of a part in the file, `0xFFFF` for none. Toons parts h
 unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
 [the levels](levels.md#what-the-loader-keeps).
 
+### TIM 2 levels
+
+`readLevel` reads a file with magic `0xACEF` in TIM 2's layout (`readTim2` in `level.ts`), as TIM2.EXE's loader does.
+All numbers are words unless said otherwise.
+
+| Field                | Size                 | Notes                                                                                                               |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| magic, version       | 2 each               | `0xACEF`; the version is `0x111` to `0x113` in the shipped levels.                                                  |
+| two bytes            | 1 each               | From version `0x113`. Not known yet.                                                                                |
+| title, goal          | text                 | Always there.                                                                                                       |
+| notes                | 2, then 8 notes      | From version `0x110`. A note: x, y, from version `0x112` a third word, and text.                                    |
+| airPressure, gravity | 2 each               |                                                                                                                     |
+| two words            | 2 each               | Where TIM 1 has the scroll limits. The game reads them and sets them to 0.                                          |
+| music                | 2                    |                                                                                                                     |
+| static, moving       | 2 each               | Part counts.                                                                                                        |
+| a third count        | 2                    | Read and not kept; 0 in every shipped level.                                                                        |
+| parts                |                      | The static parts, then the moving parts.                                                                            |
+| goal                 | 2, 8 × 16 (or 14), 2 | From version `0x107`: a word, eight entries of a part link and seven words (six up to version `0x109`), and a word. |
+
+A part is laid out as in TIM 1 from version `0x102`, with signed sizes, and the programmable ball (87) adds six words
+from version `0x111`. Versions `0x108` and `0x109` keep the notes after the goal instead of in the header. What the
+game does with the fields is in [the levels](levels.md#tim-2-levels).
+
 ## TIM.EXE
 
 - **Packing**: LZEXE 0.91. `unpackLzexe` (`packages/content/src/read/lzexe.ts`) gives the load image; `src/run/program.ts`
@@ -158,4 +193,58 @@ unknown word (and from version `0x106` a byte before it). What the game's loader
   (`apps/lab/src/behaviour.ts`), its flag bits in [flag bits](behaviour/in-the-lab.md#flag-bits).
 - **Goals**: each puzzle's goal is a routine in TIM.EXE, not in the level file; see [the levels](levels.md).
 
-TIM 2 keeps its part names in `INFO.RES` and its animation sheets in `.ANM` files (`tim2.ts`).
+## TIM 2
+
+TIM 2 has one archive, `RESOURCE.001`. Its sheets and screens are read like those of TIM 1, and it draws them with
+`TIM.PAL` (TIM2.EXE loads `tim.pal`; `TIM2.PAL` has the same colours). Its part names are in `INFO.RES`, one line per
+part: the number with a dot, a tab, the name, a tab and the help text.
+
+### Animations (.ANM)
+
+`readAnimation` (`packages/content/src/read/tim2.ts`). Every part has one, `PART<n>.ANM`, and so do the screens and the
+help pictures. An animation is an `ANM:` chunk and a `TAG:` chunk. The `TAG:` chunk names the sheets: a u16 count, then
+per sheet its u16 number and its NUL-terminated file name, like `1` and `part18x.BMP`.
+
+The `ANM:` chunk, as TIM2.EXE's loader reads it:
+
+| Bytes          | What                                                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 2              | `TB`.                                                                                                                                     |
+| 2              | Version: 1000 or 1001. The game refuses a higher one.                                                                                     |
+| 2 × 4          | The number of steps, frames and sequences, and the size of the commands in bytes.                                                         |
+| 2 × 2          | Width and height: the box the game mirrors a whole frame in.                                                                              |
+| 2 per step     | The frame the step shows. Without steps, step N shows frame N.                                                                            |
+| 10 per frame   | The frame's box (x, y, width, height, signed, from the animation's origin) and where its commands start, in words from the first command. |
+| 4 per sequence | The step the sequence starts at and its number. The game finds a sequence by its number and the other way round.                          |
+| size           | The commands.                                                                                                                             |
+
+A frame is commands, each a u16 number followed by its words, and ends with a 0. TIM2.EXE keeps the length of each in a
+table and draws a frame by running them in order. Positions are from the frame's top left corner.
+
+| Command | Words | What                                                                                                                                                                                                                                               |
+| ------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0       | 1     | The end of the frame.                                                                                                                                                                                                                              |
+| 1       | 1     | Nothing. The shipped files end their commands with one.                                                                                                                                                                                            |
+| 2       | 6     | A sprite: sheet number, sprite, x, y, flags. Flag 2 mirrors it left to right, flag 1 top to bottom.                                                                                                                                                |
+| 3       | 7     | A box: x, y, width, height, an outline colour and a fill word. When bit 15 of the fill word is set, the game fills the box with the fill word's low byte, and draws the outline unless it has the same colour. Screens use it, and the coffee pot. |
+| 4       | 6     | A line: x1, y1, x2, y2 and its colour, a palette index in the low byte.                                                                                                                                                                            |
+| 5       | 2     | Plays a sound, like 3019 for `SX_3019.RAW`.                                                                                                                                                                                                        |
+| 6       | 2     | Calls the sound code like command 5 does, with its word. No shipped file uses it.                                                                                                                                                                  |
+
+The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
+palette; it draws a line as a straight run of pixels from end to end, not by the game's own line routine.
+
+**Still open.** What a sequence's number stands for (the program asks for a sequence by it); what command 6 does
+(it calls the sound code with its word, and no file uses it); and the `.PAR` files' words besides the type and the
+largest size (`PROPI`, a byte 1, the type, then properties that look like TIM 1's physics and size limits, and an
+outline). The Lab draws a line as a straight run of pixels, not by the game's own line routine.
+
+**Speed.** TIM2.EXE sets the PC's timer to 65,535 ÷ 13 = 5,041 counts, 236.7 ticks a second, and has the timer count
+a step timer down every 4 ticks, 59.2 times a second. Its run loop waits until the step timer is 0 and sets it to 2
+before each step of the machine, so a step takes at least 33.8 ms: at most 29.6 steps a second. The steps of an
+animation repeat a frame to hold it (the cannon's step list shows frame 12 five times in a row), which only makes sense if
+a part moves one state a step; that each part's run routine does so is read from the step lists, not from every run
+routine. The Parts page plays a sequence at that speed (`TIM2_STEP_MS`).
+
+To mirror a whole frame, the game flips each sprite's flags and measures its position from the other side of the
+animation's width or height. All 433 animations of the floppy, CD and demo read to their last byte this way.

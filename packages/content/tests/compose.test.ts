@@ -1,6 +1,6 @@
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
-import { compose, coverSprites, drawOrder } from "../src/compose.ts";
+import { compose, composeFrame, coverSprites, drawOrder, partSequences } from "../src/compose.ts";
 import type { Part, Placement } from "../src/model.ts";
 
 const bitmap = (width: number, height: number): Bitmap => ({
@@ -57,5 +57,41 @@ describe("coverSprites", () => {
     expect(coverSprites(part("cat", 1, { frames: [{ id: 0, sprites }] }))).toBe(sprites);
     expect(coverSprites(part("wall", 1))).toEqual([{ sheet: "PART1", sprite: 0, x: 0, y: 0, layer: 0 }]);
     expect(coverSprites(part("belt", 8, { sheets: [] }))).toEqual([]);
+  });
+});
+
+describe("partSequences", () => {
+  it("runs each sequence from its state to where the next starts, with the frame each state shows", () => {
+    const part = {
+      id: "cat",
+      type: 12,
+      sheets: ["PART12"],
+      frames: [0, 1, 2, 3].map((id) => ({ id, sprites: [] })),
+      states: [0, 1, 1, 2, 3, 3],
+      sequences: [
+        { sequence: 8, state: 1 },
+        { sequence: 1, state: 0 },
+        { sequence: 4, state: 4 },
+      ],
+    };
+    expect(partSequences(part)).toEqual([
+      { sequence: 1, states: [0], frames: [0] },
+      { sequence: 8, states: [1, 2, 3], frames: [1, 1, 2] },
+      { sequence: 4, states: [4, 5], frames: [3, 3] },
+    ]);
+    expect(partSequences({ ...part, sequences: undefined })).toEqual([]);
+  });
+});
+
+describe("composeFrame", () => {
+  it("counts a frame's boxes and lines in its bounds", () => {
+    const frame = {
+      id: 0,
+      sprites: [],
+      shapes: [{ kind: "line" as const, x1: 4, y1: 18, x2: 4, y2: 33, colour: 8, after: 0 }],
+    };
+    const composition = composeFrame(frame, () => undefined);
+    expect(composition.bounds).toEqual({ x: 4, y: 18, width: 1, height: 16 });
+    expect(composition.shapes).toEqual(frame.shapes);
   });
 });

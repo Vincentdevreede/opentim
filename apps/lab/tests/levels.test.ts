@@ -2,7 +2,7 @@ import type { PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { layoutScene, partAt, readLevels } from "../src/levels.ts";
+import { goalPartsOf, layoutScene, partAt, readLevels, type DrawnPart } from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -27,6 +27,7 @@ interface PartSpec {
   state?: number;
   flags1?: number;
   flags2?: number;
+  flags3?: number;
   belt?: { at?: [number, number]; width?: number; parts?: [number, number] };
   ropes?: { at?: [number, number]; parts?: [number, number] }[];
   links?: [number, number];
@@ -34,7 +35,7 @@ interface PartSpec {
 
 /** A part of version 0x102. */
 function part(p: PartSpec): Item[] {
-  const { x = 0, y = 0, width = 16, height = 16, state = 0, flags1 = 0xe000, flags2 = 0 } = p;
+  const { x = 0, y = 0, width = 16, height = 16, state = 0, flags1 = 0xe000, flags2 = 0, flags3 = 0 } = p;
   const belt = p.belt ?? {};
   const rope = (i: number): Item[] => {
     const r = p.ropes?.[i];
@@ -45,7 +46,7 @@ function part(p: PartSpec): Item[] {
     p.type,
     flags1,
     flags2,
-    0,
+    flags3,
     state,
     0,
     width,
@@ -120,6 +121,7 @@ const LIST: PartList = {
     { id: "pulley", type: 7, sheets: [], frames: [] },
     { id: "belt", type: 8, sheets: [], frames: [] },
     { id: "rope", type: 10, sheets: [], frames: [] },
+    { id: "color-block", type: 127, sheets: [], frames: [] },
   ],
 };
 
@@ -143,7 +145,7 @@ describe("readLevels", () => {
       "tim",
     );
     expect(entries.map((e) => [e.resource.name, e.kind, e.level?.title ?? e.error])).toEqual([
-      ["ELEV1.LEV", "level", "TIM 2 levels have their own layout, which isn’t read yet"],
+      ["ELEV1.LEV", "level", "The file ends too early (at byte 4)"],
       ["L2.LEV", "level", "Two"],
       ["L10.LEV", "level", "Ten"],
       ["TITLE.GKC", "scene", undefined],
@@ -178,6 +180,126 @@ describe("layoutScene", () => {
     expect(scene.notes.map((n) => n.status)).toEqual(["partial"]);
     expect(partAt(scene, { x: 210, y: 60 })?.part.index).toBe(2);
     expect(partAt(scene, { x: 500, y: 300 })).toBeUndefined();
+  });
+
+  it("draws TIM 2 walls and tile patterns as TIM2.EXE's routines do, and other parts by the frame of their state", () => {
+    const tim2 = (...parts: PartSpec[]) =>
+      bytes(0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, parts.length, 0, 0, ...parts.flatMap(part));
+    const data = tim2(
+      // Bit 0x40 of the first word means something else in TIM 2, so this ball isn't tiled.
+      { type: 0, flags1: 0x1040, flags3: 0x40, state: 1 },
+      { type: 1, width: 64, flags3: 0x40 },
+      { type: 47, x: 4, y: 0, width: 40, height: 16, flags3: 0x40 },
+      // The colour block: TIM2.EXE's flags for it are 0x1480 in the third word.
+      { type: 127, width: 20, height: 10, flags3: 0x14c0 },
+      // Without bit 0x40 of the third word the part starts in the bin.
+      { type: 0 },
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const tile = (id: number, sprite = id) => ({ id, sprites: [{ sheet: "PART1", sprite, x: 0, y: 0, layer: 0 }] });
+    const list: PartList = {
+      ...LIST,
+      parts: LIST.parts.map((p) =>
+        p.type === 0
+          ? { ...p, states: [0, 0] }
+          : p.type === 1
+            ? {
+                ...p,
+                // A run of four across from state 0, then one of four down from state 4.
+                frames: Array.from({ length: 8 }, (_, i) => tile(i)),
+                sequences: [
+                  { sequence: 2, state: 4 },
+                  { sequence: 1, state: 8 },
+                ],
+              }
+            : p.type === 47
+              ? { ...p, frames: [{ id: 0, sprites: [{ sheet: "PART1", sprite: 0, x: 0, y: 0, layer: 0 }] }] }
+              : p,
+      ),
+    };
+    const drawing = new Map([
+      [1, "wall" as const],
+      [47, "pattern" as const],
+    ]);
+    const scene = layoutScene(level, list, spriteOf, drawing);
+    expect(scene.area).toEqual({ width: 640, height: 400 });
+    expect(scene.bin.map((p) => p.index)).toEqual([4]);
+    expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
+      ["frame", "frame 0 for state 1"],
+      ["tiles", "pieces of a wall, by TIM2.EXE’s wall rule"],
+      ["tiles", "a pattern of tiles, by TIM2.EXE’s pattern rule"],
+      ["block", "a box in colour 5, by the flags’ block rule"],
+    ]);
+    expect(scene.parts[3]!.composition!.shapes).toEqual([
+      { kind: "box", x: 0, y: 0, width: 20, height: 10, colour: 5, fill: 5, after: 0 },
+    ]);
+    // The first and last state of the run at the ends, the ones between in turn.
+    expect(scene.parts[1]!.composition!.placed.map((p) => [p.placement.sprite, p.placement.x])).toEqual([
+      [0, 0],
+      [1, 16],
+      [2, 32],
+      [3, 48],
+    ]);
+    // A grid from 0, 0 of the screen, cut off at the box widened to groups of 8 across.
+    expect(scene.parts[2]!.composition!.placed.map((p) => p.x)).toEqual([-4, 12, 28]);
+    expect(scene.parts[2]!.clip).toEqual({ x: 0, y: 0, width: 48, height: 16 });
+  });
+
+  it("leaves TIM 2's solution parts on the board when the solution is shown", () => {
+    const data = bytes(
+      ...[0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, 3, 0, 0],
+      ...part({ type: 0, flags3: 0x40 }),
+      ...part({ type: 0, flags3: 0x100 }),
+      ...part({ type: 0 }),
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const board = (solution: boolean) =>
+      layoutScene(level, LIST, spriteOf, undefined, { solution }).parts.map((p) => p.part.index);
+    expect(board(false)).toEqual([0]);
+    // Bit 0x100 keeps a part in the bin even then.
+    expect(board(true)).toEqual([0, 2]);
+  });
+
+  it("turns a mirrored TIM 2 wall over its long side, as TIM2.EXE's wall routine does", () => {
+    const data = bytes(
+      0xacef,
+      0x106,
+      "T",
+      "G",
+      67,
+      272,
+      0,
+      0,
+      1000,
+      2,
+      0,
+      0,
+      ...part({ type: 1, width: 32, height: 16, flags2: 0x20, flags3: 0x40 }),
+      ...part({ type: 1, width: 16, height: 32, flags2: 0x10, flags3: 0x40 }),
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const tile = (id: number) => ({ id, sprites: [{ sheet: "PART47", sprite: 0, x: 0, y: 0, layer: 0 }] });
+    const list: PartList = {
+      ...LIST,
+      parts: LIST.parts.map((p) =>
+        p.type === 1
+          ? {
+              ...p,
+              frames: Array.from({ length: 4 }, (_, i) => tile(i)),
+              sequences: [{ sequence: 2, state: 2 }],
+              mirrorBox: { width: 40, height: 36 },
+            }
+          : p,
+      ),
+    };
+    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]]), {
+      drawingFrom: "the .PAR files’",
+    }).parts;
+    expect(lying!.detail).toBe("pieces of a wall, by the .PAR files’ wall rule");
+    // PART47's sprites are 32 × 32: lying, each piece moves to 36 - 0 - 32 and turns upside down.
+    expect(lying!.composition!.placed.map((p) => [p.placement.y, p.placement.flip])).toEqual([[4, "v"]]);
+    // Standing, it moves to 40 - 0 - 32 across and turns left to right.
+    expect(standing!.composition!.placed.map((p) => [p.placement.x, p.placement.flip])).toEqual([[8, "h"]]);
   });
 
   it("tiles a standing wall from state + 4 to state + 7", () => {
@@ -258,5 +380,17 @@ describe("layoutScene", () => {
     const scene = layoutScene(level, undefined, spriteOf);
     expect(scene.parts[0]!.how).toBe("outline");
     expect(scene.notes[0]!.title).toBe("No part list for this game.");
+  });
+});
+
+describe("goalPartsOf", () => {
+  it("rings only the part a condition names, and every part of the types otherwise", () => {
+    const drawn = (index: number, type: number) => ({ part: { index, type } }) as DrawnPart;
+    const parts = [drawn(0, 13), drawn(1, 13), drawn(2, 9)];
+    const lamp = { type: 13, name: "Lava Lamp" };
+    const indexes = (c: Parameters<typeof goalPartsOf>[0]) => goalPartsOf(c, parts).map((d) => d.part.index);
+    expect(indexes({ kind: "part", part: 1, types: [lamp], tests: [] })).toEqual([1]);
+    expect(indexes({ kind: "count", types: [lamp], tests: [] })).toEqual([0, 1]);
+    expect(indexes({ kind: "word", tests: [] })).toEqual([]);
   });
 });

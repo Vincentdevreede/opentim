@@ -7,6 +7,7 @@ import {
   RATES,
   DRIVERS,
   RAW_RATE,
+  rawRateKnown,
   adlibPatch,
   audioSections,
   decodeEntry,
@@ -36,12 +37,15 @@ import PageHeader from "../components/PageHeader.vue";
 import PanelTitle from "../components/PanelTitle.vue";
 import { saveFile } from "../export.ts";
 import type { Confidence } from "../kinds.ts";
-import { resources, selected } from "../library.ts";
+import { edition, resources, selected } from "../library.ts";
+import { listIdOf } from "../parts.ts";
 import { crumb, fmCard, formatBytes, hex, openAt, selectedSound } from "../ui.ts";
 
 const router = useRouter();
 const query = ref("");
 const rate = ref(RAW_RATE);
+/** TIM 2's program says the rate of its samples; for other games it is a guess. */
+const rateKnown = computed(() => rawRateKnown(listIdOf(edition.value)) && rate.value === RAW_RATE);
 const rateOptions = RATES.map((r) => ({ value: r, label: `${r / 1000} kHz` }));
 
 const sections = computed(() => audioSections(resources.value));
@@ -118,7 +122,10 @@ const rowMeta = (item: AudioItem) =>
 
 /** How the lab plays an item: its sample as it is, its MIDI on the emulated AdLib, or not at all. */
 function statusOf(item: AudioItem): { status: Confidence; label: string } {
-  if (item.type === "raw") return { status: "hypothesis", label: "sample · rate guessed" };
+  if (item.type === "raw")
+    return rawRateKnown(listIdOf(edition.value))
+      ? { status: "decoded", label: "sample" }
+      : { status: "hypothesis", label: "sample · rate guessed" };
   const d = decodeEntry(item.entry);
   if (d.status === "error") return { status: "error", label: "decode error" };
   if (!d.adlib)
@@ -293,6 +300,13 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             <template v-if="current.type === 'raw'">
               <LabSegmented v-model="rate" label="Playback rate" :options="rateOptions" />
               <LabBadge
+                v-if="rateKnown"
+                status="decoded"
+                label="game’s rate"
+                title="TIM2.EXE sets 11,025 Hz with its sound driver’s rate call before it plays a .RAW file."
+              />
+              <LabBadge
+                v-else
                 status="hypothesis"
                 label="rate guessed"
                 title="The .RAW files have no header with their rate. 11 kHz is the rate of most samples in the sound banks."

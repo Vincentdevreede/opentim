@@ -2,6 +2,7 @@
 
 import {
   PART_LISTS,
+  PART_NAMES,
   readProgramParts,
   readTim2Parts,
   type Part,
@@ -41,11 +42,20 @@ function newParts(list: PartList, committed: PartList): number[] {
     .sort((a, b) => a - b);
 }
 
-/** The numbers of the parts that aren't the same in both lists. */
+/**
+ * The numbers of the parts that aren't the same in both lists. A name read from the files is compared with the names
+ * list, as the committed lists leave names out.
+ */
 function differences(list: PartList, committed: PartList): number[] {
   const types = new Set([...list.parts, ...committed.parts].map((p) => p.type));
-  const find = (l: PartList, type: number) => JSON.stringify(l.parts.find((p) => p.type === type));
-  return [...types].filter((t) => find(list, t) !== find(committed, t)).sort((a, b) => a - b);
+  return [...types]
+    .filter((type) => {
+      const mine = list.parts.find((p) => p.type === type);
+      const ours = committed.parts.find((p) => p.type === type);
+      if (mine?.name !== undefined && mine.name !== PART_NAMES.get(mine.id)) return true;
+      return JSON.stringify(mine && { ...mine, name: undefined }) !== JSON.stringify(ours);
+    })
+    .sort((a, b) => a - b);
 }
 
 /**
@@ -104,13 +114,10 @@ export function readLoadedParts(
   return fallback("The lab can’t read the parts of this game from its files yet.");
 }
 
-/** TIM 2 names its parts; the same object has the same id in the other lists. */
-const GAME_NAMES = new Map((PART_LISTS.tim2?.parts ?? []).flatMap((p) => (p.name ? [[p.id, p.name] as const] : [])));
-
 /** The name to show for a part: the game's own when it has one, else its id in words. */
 export function partName(part: Part): { name: string; source: "game" | "id" } {
   const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const name = part.name ?? GAME_NAMES.get(part.id);
+  const name = part.name ?? PART_NAMES.get(part.id);
   return name ? { name: capital(name), source: "game" } : { name: capital(part.id.replace(/-/g, " ")), source: "id" };
 }
 
@@ -131,13 +138,13 @@ export function findParts(parts: readonly Part[], query: string, order: PartOrde
 export const sheetFile = (sheet: string) => `${sheet}.BMP`;
 
 /**
- * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. TIM 2 keeps
- * its frames in `.ANM` files the lab doesn't read yet; in TIM 1 and Even More, a part without frames has a record in
- * `TIM.EXE` that doesn't place its sprites, so the program draws it in its own code.
+ * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. In TIM 2 the
+ * part's `.ANM` file then draws no sprites; in TIM 1 and Even More, a part without frames has a record in `TIM.EXE`
+ * that doesn't place its sprites, so the program draws it in its own code.
  */
 export function whyNoFrames(listId: string, part: Part): string | undefined {
   if (part.frames.length) return undefined;
   if (!part.sheets.length) return "It has no sprite sheet: the game draws it without sprites, so there are no frames.";
-  if (listId === "tim2") return "TIM 2 keeps its frames in the part’s .ANM file, which the lab doesn’t read yet.";
+  if (listId === "tim2") return "Its .ANM file has no frames with sprites: the game draws it another way.";
   return "Its record in TIM.EXE doesn’t place its sprites: the game draws it in its own code, like walls from tiles. Not worked out yet.";
 }

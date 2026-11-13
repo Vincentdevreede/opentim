@@ -283,3 +283,121 @@ any other flag bit reads by its name ([flag bits](behaviour/in-the-lab.md#flag-b
 (English floppy) the goals of the 161 levels show no number in hex, down from 166. A test of a step count says the least time those
 steps take, from the timer ticks the run loop waits for each step: Even More puzzle 70 reads "the second step count ≥
 308 (10 s)".
+
+## TIM 2 levels
+
+TIM 2's levels (magic `0xACEF`) are read by `readLevel` in their own layout, as TIM2.EXE's loader reads them (in its
+overlays; the loader checks the magic and the version, `0x113` in nearly all shipped files). All 206 levels of the
+floppy and the CD and the 8 of the demo read to their last byte. The byte layout is in
+[the file formats](file-formats.md#tim-2-levels).
+
+What the loader does with the fields, from TIM2.EXE:
+
+- **Every level is a puzzle**: title and goal text are always there. When the game runs in another language, it reads
+  the title, the goal and the notes again from a language file, so the level file keeps the English ones.
+- **Notes**: eight places for a text the puzzle shows, each with an x, a y, from version `0x112` a third word, and the
+  text. The game shows a note for each place with a text. The word before them is read and not kept.
+- **Flags**: of the three flag words of a part the game keeps only bit `0x8000` of the first, bits `0x32` of the
+  second (`0x10` and `0x20` mirror the part, as in TIM 1) and bits `0x140` of the third; the other bits come from the
+  part's type. The files still have the type's bits, because the editor saved the whole words.
+- **The part's state** is a step of its animation, not a frame: the step picks the frame. No saved state is past the
+  animation's last step, and 255 are past its last frame.
+- **The two words where TIM 1 has the scroll limits** are read and set to 0. **The third part count** is read and not
+  kept; it is 0 in every shipped level, so TIM 2 levels have no bin list in the file.
+- **The programmable ball** (87) stores six words more from version `0x111`. The lasers and the laser mixer have a
+  read routine of their own in their type, but it reads nothing from the file.
+- **After the parts**, from version `0x107`: the goal, as a word, eight entries and a word. In TIM 1 the goal is a
+  routine per puzzle in TIM.EXE instead; TIM 2 has one routine that tests the entries (see below).
+
+### TIM 2 goals
+
+The loader keeps the goal in the data segment: the first word, eight entries of 18 bytes (a part pointer and seven
+words) and the last word. One routine of TIM2.EXE tests them for every puzzle (in its first overlay; in the floppy
+build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) says it as conditions. What it does:
+
+- When the first word is 0 the goal is never met. It is 1 in every shipped level.
+- The goal isn't met while one of its parts is in the parts bin.
+- Every entry with a part must hold. Its words are a low and a high state, a count and an area: x, y, width, height.
+  Up to version `0x109` an entry has no high state: the loader (floppy build, file offset `0x61853`) reads the low one
+  and copies it into the high one. No shipped level is that old: they are `0x111` to `0x113`.
+- For a moving part whose area width isn't 0, the entry tests the part's middle, its position plus half its base
+  size: strictly inside the area, or, when the width is -1, off the screen, outside 0 to 640 across or 0 to 400 down.
+  For a static part, or a width of 0, it tests the part's state, from the low to the high one.
+- With a count of 0 the entry is about its own part. With a count of N, the routine walks the list its part is on
+  again and needs N parts of the part's type that pass.
+- The last word holds the goal back: the routine counts its own checks and says the goal isn't met before that many.
+  The run loop (the routine at file offset `0x53240` in the floppy build) sets that count back to 0 when the machine
+  starts and runs the goal routine once a step, right after the step, so the last word is a number of steps. Four
+  levels use it, like 108 steps for the message computers.
+- When the routine first says the goal is met, the run loop goes on for 30 more steps and then ends the puzzle as
+  solved, whatever the routine says in those steps. The run loop waits for its step timer before each step (see
+  [the animation speed](file-formats.md#animations-anm)), so a step takes at least 33.8 ms.
+
+The Levels page shows these conditions, with the area of an inside test drawn on the level.
+
+**The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
+(the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving
+parts. A part with bit `0x40` of the third flag word stays on the board: it is a fixed part of the puzzle. Every other
+part gets its state back to its start and is dropped into the parts bin, by the same code the editor uses when a part
+is dropped on the bin; that code clears bit `0x40` and bit `0x8000` of the first word. So the bin of a TIM 2 puzzle is
+its parts without bit `0x40`, and the positions the file keeps for them are where the designer left them.
+
+**The solution and bit `0x100`.** The level loader takes a mode, which it keeps in the game's mode word. In mode 9 a
+part with neither `0x40` nor `0x100` stays on the board instead of going to the bin. Mode 9 is the puzzle's solution:
+the only load in mode 9 is command 10012, which reloads the current level after a question, and `HELP.RES` says of
+10012 "Click here to see my very own solution to this puzzle." So the bin parts without `0x100` are where the
+designer's solution puts them, and `0x100` marks the bin parts the solution doesn't use. The Levels page puts the parts
+without `0x40` in the bin, and its Solution box shows the level as the solution does.
+
+The two bytes after the version: a new level starts with 0 and 3 (TIM2.EXE sets them so when it clears a level). The
+second goes from 1 to 15 in the shipped levels and may pick the background; not read further.
+
+### Drawing TIM 2 levels
+
+TIM2.EXE's type table has a far pointer per type to the routine that draws a part (record offset `0x18`;
+`readTim2Types` in `src/read/tim2-program.ts` finds the table). Most types share one routine that draws the frame of
+the part's state. Two others draw from the part's size:
+
+- **Walls**: the brick wall (1) and every type with the same routine: 1, 46, 48, 56, 60, 82 to 85, 97, 118 and 125
+  in all three builds. For a part as wide as tall or wider, the routine takes the states from 0 up to where the
+  animation's next sequence starts; for a taller one, the first sequence that starts after state 0, up to the next.
+  It draws pieces as wide (or tall) as the first of those frames: the first state at one end, the last at the other,
+  and the ones between in turn. When either mirror bit (`0x10` or `0x20` of the second flag word) is set, the routine
+  turns every piece over the wall's long side: a lying wall upside down, a standing one left to right, each piece
+  measured from the far side of the animation's size (the size in the `.ANM` header), and a standing pool table wall
+  (118) moves right by its piece's width less 16. Only pool table walls are mirrored in the shipped levels. The Lab
+  follows all of it; the animation's size is kept as the part's `mirrorBox`.
+- **Tile patterns**: the tile (122) and the types sharing its routine: 121 to 124, 203, 205, 271 and 280. The
+  routine repeats the frame of state 0 on a grid of that frame's size, starting at 0, 0 of the screen, and cuts it
+  off at the part's box, widened across to whole groups of 8 pixels.
+
+Without TIM2.EXE nothing in the files names a type's draw routine; the level files, the `.ANM` and the `.PAR` files
+were checked. The Lab then goes by two matches in the files. A part's `.PAR` file (`PROPI`, the type, then its
+properties) has 576 × 416 in the two words that look like its largest size exactly for the types drawn by the wall
+routine, the large pipes (97) included, in the floppy and CD builds (`hasWallLimits`). And the type's flag bits the
+levels keep: bit `0x2000` of the third word for walls (every wall type but the large pipes has it) and bits `0x1080`
+without `0x0400` for tile patterns. Neither is a rule of the program, so the Lab says which one it used; the demo
+ships few `.PAR` files, so there only TIM2.EXE gets every wall right.
+
+- **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
+  in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
+  has all of bits `0x1480` in its type's third flag word, which is how the Lab knows it without TIM2.EXE.
+
+The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
+and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
+puzzle is set up, the control panel covers x 0 to 48 and the parts bin x 560 to 640, both 377 high; that is why most
+levels keep their parts between 0 and 568 across and above 377.
+
+### TIM 2: still open
+
+What isn't worked out yet, and what the Lab does meanwhile:
+
+- **Mirroring other parts.** TIM2.EXE's usual draw routine mirrors a part by two words of its record (offsets `0x44`
+  and `0x46`, not read yet) less its first frame's box, and then mirrors the frame in the animation's size. The Lab
+  mirrors such parts inside their size, as for TIM 1, which may put them a few pixels off. Walls follow the program.
+- **The two bytes after the version.** A new level gets 0 and 3; the second goes from 1 to 15 and may pick the
+  background. Not read further.
+- **The notes' third word** (from version `0x112`): 0 to 3 in the shipped levels; what it changes isn't read.
+- **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
+  with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
+- **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
-import { MARGIN, PLAY_AREA, partAt, type DrawnPart, type Scene } from "../../levels.ts";
+import { MARGIN, partAt, type DrawnPart, type Scene } from "../../levels.ts";
 import { compositionCanvas } from "../pixels.ts";
 
 /**
@@ -19,25 +19,29 @@ const props = defineProps<{
   selected?: number;
   /** The places the puzzle's goal tests, numbered as its conditions show them, in pixels of the level. */
   goalAreas?: readonly { number: number; box: { x: number; y: number; width: number; height: number } }[];
-  /** The types of the parts the goal looks at, which get a ring. */
-  goalTypes?: ReadonlySet<number>;
+  /** The parts the goal looks at, by their index in the level, which get a ring. */
+  goalParts?: ReadonlySet<number>;
 }>();
 const emit = defineEmits<{ select: [index: number | undefined] }>();
 
 const canvas = useTemplateRef<HTMLCanvasElement>("canvas");
-const width = PLAY_AREA.width + 2 * MARGIN;
-const height = PLAY_AREA.height + 2 * MARGIN;
+const area = computed(() => props.scene.area);
+const width = computed(() => area.value.width + 2 * MARGIN);
+const height = computed(() => area.value.height + 2 * MARGIN);
 
 /** The picture of each part, drawn once per scene and palette. */
 const pictures = computed(
   () =>
     new Map(
       props.scene.parts.flatMap((d) =>
-        d.composition?.placed.length
+        d.composition?.placed.length || d.composition?.shapes?.length
           ? [
               [
                 d.part.index,
-                compositionCanvas(d.composition, props.paletteOf(d.composition.placed[0]!.placement.sheet)),
+                compositionCanvas(
+                  d.composition,
+                  props.paletteOf(d.composition.placed[0]?.placement.sheet ?? `PART${d.part.type}`),
+                ),
               ],
             ]
           : [],
@@ -65,7 +69,14 @@ const token = (name: string) => getComputedStyle(document.documentElement).getPr
 
 function drawPicture(context: CanvasRenderingContext2D, d: DrawnPart, picture: HTMLCanvasElement) {
   const b = d.composition!.bounds;
+  context.save();
+  if (d.clip) {
+    context.beginPath();
+    context.rect(d.clip.x, d.clip.y, d.clip.width, d.clip.height);
+    context.clip();
+  }
   context.drawImage(picture, d.part.position.x + b.x, d.part.position.y + b.y);
+  context.restore();
 }
 
 /** A colour of the game's palette as CSS, or undefined without a palette. */
@@ -94,23 +105,23 @@ watchEffect(() => {
     ink: token("ink"),
     goal: token("decoded"),
   };
-  el.width = width * zoom;
-  el.height = height * zoom;
+  el.width = width.value * zoom;
+  el.height = height.value * zoom;
   context.imageSmoothingEnabled = false;
   context.setTransform(zoom, 0, 0, zoom, MARGIN * zoom, MARGIN * zoom);
 
   // Levels have no background picture: the canvas stays transparent over the background the page chooses, as sprites
   // do on the Sprites page. Everything outside the play area is darkened, in the canvas's margin and, by a shadow on the
   // canvas, up to the edges of the page, so parts placed outside the play area stand out.
-  context.clearRect(-MARGIN, -MARGIN, width, height);
+  context.clearRect(-MARGIN, -MARGIN, width.value, height.value);
   context.fillStyle = "rgb(0 0 0 / 0.3)";
-  context.fillRect(-MARGIN, -MARGIN, width, MARGIN);
-  context.fillRect(-MARGIN, PLAY_AREA.height, width, MARGIN);
-  context.fillRect(-MARGIN, 0, MARGIN, PLAY_AREA.height);
-  context.fillRect(PLAY_AREA.width, 0, MARGIN, PLAY_AREA.height);
+  context.fillRect(-MARGIN, -MARGIN, width.value, MARGIN);
+  context.fillRect(-MARGIN, area.value.height, width.value, MARGIN);
+  context.fillRect(-MARGIN, 0, MARGIN, area.value.height);
+  context.fillRect(area.value.width, 0, MARGIN, area.value.height);
   context.strokeStyle = colors.line;
   context.lineWidth = px;
-  context.strokeRect(0, 0, PLAY_AREA.width, PLAY_AREA.height);
+  context.strokeRect(0, 0, area.value.width, area.value.height);
 
   for (const d of scene.parts) {
     const picture = pictures.value.get(d.part.index);
@@ -148,7 +159,7 @@ watchEffect(() => {
 
   // The goal over the parts: the parts it looks at ringed, and the places it tests as numbered areas.
   for (const d of scene.parts) {
-    if (!props.goalTypes?.has(d.part.type) || !d.box.width || !d.box.height) continue;
+    if (!props.goalParts?.has(d.part.index) || !d.box.width || !d.box.height) continue;
     context.save();
     context.strokeStyle = colors.goal;
     context.lineWidth = 2 * px;
@@ -199,8 +210,8 @@ function onClick(e: MouseEvent) {
   const el = canvas.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * width - MARGIN;
-  const y = ((e.clientY - rect.top) / rect.height) * height - MARGIN;
+  const x = ((e.clientX - rect.left) / rect.width) * width.value - MARGIN;
+  const y = ((e.clientY - rect.top) / rect.height) * height.value - MARGIN;
   emit("select", partAt(props.scene, { x, y })?.part.index);
 }
 </script>

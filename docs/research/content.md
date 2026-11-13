@@ -41,7 +41,7 @@ interface PartList {
 interface Part {
   id: string; // "bowling-ball": stable, other data will refer to it
   type: number; // the number the original game uses, as in PART18.BMP
-  name?: string; // the game's own English name, when it has one: "Bowling Ball" in TIM 2
+  name?: string; // the game's own name, only when read from files that have one; the lists keep it in names.json
   sheets: string[]; // the sprite sheets its sprites come from, like "PART18"; empty for parts drawn as lines
   frames: Frame[]; // empty when the program draws the part another way, or the list doesn't know yet
   /** Values from the original program whose meaning isn't known yet. Never used for drawing. */
@@ -113,16 +113,25 @@ loads, `TIM.EXE` included, and compares them with the committed list.
 - A type without pieces shows sprite N as frame N on its one layer. Its record then points at `0x18` to a position
   per frame, or the sheet has a single sprite at the origin. The program draws the remaining types its own way, like
   walls and pipes from tiles and the gear and pulley in code, so they have no frames yet.
-- **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers and names from there and doesn't need
-  the program. Each part's `.ANM` animation names its sheets. The frames are left out for now: the `.ANM` frames and
-  sequences become frames and animations together with the animation work.
+- **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers from there and doesn't need the
+  program. The names go into `names.json`, a list of names by id that every game shares: a TIM 1 part shows the name
+  of the same object in TIM 2, and a part TIM 2 doesn't have shows its id. Each part's `.ANM` animation names its sheets and holds its frames: frame N is frame N of the
+  animation, its sprites in the order the game draws them, all on layer 0, and its boxes and lines as `shapes` (the
+  fish tank, the hedge trimmers and the coffee pot draw some), each with how many sprites come before it. Sounds in a
+  frame are left out. The script checks the frames across the
+  builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists
+  (about 790 KB). A part also keeps the animation's steps as `states` (the frame each state shows; a level saves a
+  state) and its sequences as `sequences` (each starts at a state and runs until the next starts); `partSequences`
+  gives each sequence's states and frames, and the Parts page plays them in that order. `mirrorBox` is the animation's
+  size, which the game mirrors a whole frame in.
+  [The file formats](file-formats.md#animations-anm) have the layout.
 
 | Version                       | List       | Status                                                            |
 | ----------------------------- | ---------- | ----------------------------------------------------------------- |
 | TIM 1 English, French, German | `tim1`     | Checked: the same 51 parts in all four builds                     |
 | Even More, all five builds    | `evenmore` | Checked: the same 63 parts in every build, the demo included      |
 | The Add-On Disk               | `evenmore` | Assumed: same sheets as Even More; its program isn't LZEXE-packed |
-| TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts; frames not yet                       |
+| TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts and frames in both builds             |
 | TIM 2 demo                    | `tim2`     | Same numbers and names, but most sheets are missing               |
 | TIM 1 demo                    | none yet   | Different table layout, not checked                               |
 
@@ -131,8 +140,8 @@ games, sheets 55–57 are title and credits pictures, not parts. TIM 2 continues
 same slots, and 66–148 are new. Its sheets `PART149` to `PART294` have no entry in `INFO.RES`: scenery like
 mountains, planets and paintings.
 
-What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast, and for
-TIM 2 the meaning of the flip flags and sequence numbers.
+What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast in TIM 1
+and Even More, and in TIM 2 what a sequence number stands for. TIM 2's speed is its machine's step, about 29.6 a second.
 
 ## Not decided yet
 
@@ -140,4 +149,5 @@ TIM 2 the meaning of the flip flags and sequence numbers.
 - Mixing a pack with imported files, and scaling.
 - Where physics lives. It differs per game, so it likely belongs to each game's list as a ruleset that the level
   chooses, apart from the pack that the player chooses.
-- Whether TIM 2's scenery sheets become parts.
+- Whether TIM 2's scenery sheets become parts. The levels place them as types 150 to 280, each with its own
+  `PART<n>.ANM`, and the lab draws them as types the list doesn't have.

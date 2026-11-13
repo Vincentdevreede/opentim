@@ -172,8 +172,40 @@ describe("level files", () => {
     expect(level.parts[0]).toMatchObject({ type: 46, tunnel: 4, toons: { byte: 7, word: 0x55 } });
   });
 
+  it("reads a TIM 2 level: notes in the header, a programmable ball and the entries after the parts", () => {
+    const empty = [0, 0, 0, ""];
+    const notes = [1, 300, 40, 1, "A hint.", ...Array.from({ length: 7 }, () => empty).flat()];
+    const ball = [87, 0x1000, 0, 0x8048, 0, 0, 16, 16, 16, 16, 100, 50, 0, ...noTies, NONE, NONE, 1, 2, 3, 4, 5, -6];
+    const wall = [1, 0x6000, 0x180, 0x2040, 0, 0, 64, 16, 64, 16, 0, 360, 0, ...noTies, NONE, NONE];
+    const entries = Array.from({ length: 7 }, () => [NONE, 0, 0, 0, 0, 0, 0, 0]).flat();
+    const data = bytes(
+      ...[0xacef, 0x113, b(0), b(3), "Balls", "Knock the ball off.", ...notes],
+      ...[67, 272, 0, 0, 1001, 1, 1, 0],
+      ...wall,
+      ...ball,
+      ...[1, 1, 0, 0, 0, NONE, NONE, NONE, NONE, ...entries, 0],
+    );
+    const level = readLevel(data, { name: "TLEV1.LEV" });
+    expect(level).toMatchObject({
+      layout: "tim2",
+      kind: "puzzle",
+      title: "Balls",
+      goal: "Knock the ball off.",
+      airPressure: 67,
+      gravity: 272,
+      music: 1001,
+    });
+    expect(level.tim2).toMatchObject({ bytes: [0, 3], notes: [{ x: 300, y: 40, z: 1, text: "A hint." }], spare: 0 });
+    expect(level.tim2!.goal!.entries[0]).toEqual({ part: 1, values: [0, 0, 0, -1, -1, -1, -1] });
+    expect(level.parts.map((p) => [p.group, p.type])).toEqual([
+      ["static", 1],
+      ["moving", 87],
+    ]);
+    expect(level.parts[1]!.program).toEqual([1, 2, 3, 4, 5, -6]);
+  });
+
   it("says why a file can't be read", () => {
-    expect(() => readLevel(bytes(0xacef, 0x113))).toThrow(/TIM 2/);
+    expect(() => readLevel(bytes(0xacef, 0x113))).toThrow(/ends too early/);
     expect(() => readLevel(bytes(0x1234, 0x102))).toThrow(/Not a level file/);
     const short = bytes(0xaced, 0x102, "T", "G", 0, 0, 67, 272, 0, 0, 0, 1, 0, 0, 7);
     expect(() => readLevel(short)).toThrow(LevelError);
