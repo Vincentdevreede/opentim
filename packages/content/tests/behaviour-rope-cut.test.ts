@@ -67,13 +67,15 @@ function routine(releaseWritesMore = false) {
   );
 }
 const pattern = ["push bp", "mov bp,sp", ...CALLEES.map((name) => "callf $" + name), "pop bp", "retf"].join("\n");
+/** What the proof of the rope end's constructor rests on. */
+const END_ASSUMPTION = "The rope end's constructor proof rests on this.";
 /** A part factory whose rope end (type 49) has a proved constructor, unless `ends` is false. */
 function factory(ends = true): EngineSummary["factory"] {
   return {
     typeArgument: 6,
     constructorTable: { segment: 0, offset: 0, stride: 4, typeCount: 64 },
     noConstructorTypes: [],
-    alwaysSuccessfulConstructors: ends ? [{ ...fact, type: 49, address: 0x1000 }] : [],
+    alwaysSuccessfulConstructors: ends ? [{ ...fact, type: 49, address: 0x1000, assumptions: [END_ASSUMPTION] }] : [],
     noConstructor: {
       ...fact,
       purpose: "Synthetic.",
@@ -128,7 +130,7 @@ describe("the scissors' rope cut", () => {
         { offset: 0x14, width: 16 },
       ]),
     );
-    expect(summary.assumptions).toEqual(expect.arrayContaining(ROPE_CUT_ASSUMPTIONS));
+    expect(summary.assumptions).toEqual(expect.arrayContaining([...ROPE_CUT_ASSUMPTIONS, END_ASSUMPTION]));
   });
 
   it("is not summarised when a callee isn't what the proof needs", () => {

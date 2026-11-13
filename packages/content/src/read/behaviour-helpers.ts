@@ -161,8 +161,6 @@ export interface EngineSummary extends Finding {
   returnPointerClass?: "nullable-fresh";
   returnConvention?: { kind: "near" | "far"; stackBytes: number };
   allocationSize?: number;
-  /** An allocator that clears the block it returns, itself or through the allocator it forwards to. */
-  clearsAllocation?: true;
   factory?: {
     typeArgument: number;
     constructorTable: { segment: number; offset: number; stride: number; typeCount: number };
@@ -2502,8 +2500,7 @@ export function discoverEngineSummaries(
         !code.instructions.some((i) => explicitWrite(i) && !stackMemory(i.operands[0]));
       if (!zeroed && !forwarding) continue;
       allocators.add(code.address);
-      const clears = zeroed || calls.some((c) => cleared.has(c.address));
-      if (clears) cleared.add(code.address);
+      if (zeroed || calls.some((c) => cleared.has(c.address))) cleared.add(code.address);
       const summary = allocationSummary(
         code,
         "nullable-allocation",
@@ -2512,7 +2509,6 @@ export function discoverEngineSummaries(
           : "Forwards the caller's allocation arguments and returns the allocation payload or zero.",
         calls.filter((c) => fillsBytes(c) || allocators.has(c.address)).flatMap((c) => c.instructions),
       );
-      if (clears) summary.clearsAllocation = true;
       summaries.set(code.address, summary);
       changed = true;
     }

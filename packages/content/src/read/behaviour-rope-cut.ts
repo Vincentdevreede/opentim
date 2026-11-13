@@ -84,7 +84,14 @@ export function addRopeCutSummary(
       ...(ends?.evidence ?? []),
       ...cleanup.evidence,
     ];
-    const assumptions = [...new Set([...ROPE_CUT_ASSUMPTIONS, ...geometry.assumptions, ...insert.assumptions])];
+    const assumptions = [
+      ...new Set([
+        ...ROPE_CUT_ASSUMPTIONS,
+        ...geometry.assumptions,
+        ...insert.assumptions,
+        ...(ends?.assumptions ?? []),
+      ]),
+    ];
     const note = "The cut saves and restores a global word, and the list insertion can change a global list head.";
     const unknownWrites: EngineWrite[] = [...partFields, ...recordFields].map((field) => ({
       confidence: "inferred",
