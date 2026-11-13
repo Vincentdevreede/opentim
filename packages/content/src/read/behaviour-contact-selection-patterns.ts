@@ -1,6 +1,16 @@
 /** Complete contact candidate scans with structurally bound context words and direct calls. */
-export const selectionPatterns = [
-  `push bp
+export interface SelectionPattern {
+  code: string;
+  /**
+   * How the scan skips a candidate by type: through the helper it calls as `calleeI` with both types, or by its own
+   * tests of the subject's type and then the candidate's.
+   */
+  typePairs: "helper" | { subject: number; candidate: number }[];
+}
+
+export const selectionPatterns: SelectionPattern[] = [
+  {
+    code: `push bp
 mov bp,sp
 push si
 push di
@@ -239,7 +249,10 @@ labelIB: pop di
 pop si
 pop bp
 retf`,
-  `push bp
+    typePairs: "helper",
+  },
+  {
+    code: `push bp
 mov bp,sp
 push si
 push di
@@ -472,7 +485,10 @@ labelHV: pop di
 pop si
 pop bp
 retf`,
-  `push bp
+    typePairs: "helper",
+  },
+  {
+    code: `push bp
 mov bp,sp
 push si
 push di
@@ -710,4 +726,6 @@ labelIA: pop di
 pop si
 pop bp
 retf`,
+    typePairs: [{ subject: 12, candidate: 42 }],
+  },
 ];

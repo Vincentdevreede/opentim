@@ -5,10 +5,9 @@
  * for it have 0x4000, as the analysis reads them. It also reports the types that join a list during a run, and parts
  * whose own list flags disagree with the list they are on. Fails when a fixed type is found on the moving list.
  *
- *   pnpm --filter @opentim/content check-moving-list --game <game folder> [--steps 500] [--jobs <n>] [--puzzles 1-20]
+ *   pnpm --filter @opentim/content check-moving-list --game <game folder> [--steps 500] [--jobs 1] [--puzzles 1-20]
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
@@ -125,7 +124,8 @@ if (!isMainThread) {
     return n;
   };
   const steps = count("steps", values.steps!);
-  const jobs = values.jobs ? count("jobs", values.jobs) : Math.max(1, availableParallelism() - 1);
+  // One emulator at a time unless told: a run with four at once took a machine down.
+  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
 
   // The fixed types, from the part factory's starting flags as the analysis reads them.
   const game: Game = build.name.startsWith("Even More") ? "evenmore" : "tim1";

@@ -10,10 +10,9 @@
  * isn't 0, so a field that is always 0 doesn't look found. A field that names another part by its index in the file
  * is compared with the place of that part's record, and -1 with 0.
  *
- *   pnpm --filter @opentim/content check-level-fields --game <game folder> [--jobs <n>] [--puzzles 1-20]
+ *   pnpm --filter @opentim/content check-level-fields --game <game folder> [--jobs 1] [--puzzles 1-20]
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
@@ -207,7 +206,8 @@ if (!isMainThread) {
     if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
     return n;
   };
-  const jobs = values.jobs ? count("jobs", values.jobs) : Math.max(1, availableParallelism() - 1);
+  // One emulator at a time unless told: a run with four at once took a machine down.
+  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
   const files = readResources(folder);
   let puzzles = [...files.keys()]
     .map((name) => /^L(\d+)\.LEV$/i.exec(name)?.[1])
@@ -221,13 +221,15 @@ if (!isMainThread) {
   if (!puzzles.length) throw new Error("no puzzles to load");
   const level = (puzzle: number) => files.get(`L${puzzle}.LEV`)!;
   const results: PuzzleResult[] = [];
+  // A worker that fails is reported with the puzzles it gave no result for, after all workers have stopped.
+  const workerErrors: unknown[] = [];
   const lanes = Array.from({ length: Math.min(jobs, puzzles.length) }, (_, lane) =>
     puzzles.filter((_, k) => k % jobs === lane),
   );
   await Promise.all(
     lanes.map(
       (share) =>
-        new Promise<void>((done, fail) => {
+        new Promise<void>((done) => {
           const worker = new Worker(new URL(import.meta.url), {
             workerData: {
               folder,
@@ -236,7 +238,7 @@ if (!isMainThread) {
             },
           });
           worker.on("message", (result: PuzzleResult) => results.push(result));
-          worker.once("error", fail);
+          worker.once("error", (error) => workerErrors.push(error));
           worker.once("exit", () => done());
         }),
     ),
@@ -305,6 +307,9 @@ if (!isMainThread) {
     `${build.name}: ${results.length - failed.length} puzzles loaded, ${paired} of ${parts} placed parts paired`,
   );
   for (const r of failed) console.error(`Puzzle ${r.puzzle}: ${r.error}`);
+  const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
+  if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
+  for (const error of workerErrors) console.error("A worker failed:", error);
   const hex = (n: number) => `0x${n.toString(16)}`;
   for (const [key, tally] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
     const nearest = [...tally.agree]
@@ -351,5 +356,5 @@ if (!isMainThread) {
         }`
       }`,
     );
-  if (failed.length) process.exitCode = 1;
+  if (failed.length || missing.length || workerErrors.length) process.exitCode = 1;
 }

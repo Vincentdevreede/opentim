@@ -20,7 +20,9 @@ export interface SpeedLimitSetup extends Finding {
   callers: number[];
   /** The types whose limit is the same number whatever the level's air pressure, like the bullet's 12288. */
   fixed: { type: number; limit: number }[];
-  /** Every other type's limit is this number minus a value of the air pressure, when the routine says so. */
+  /** The types whose every way through the loop stores the same `base` minus a value of the air pressure. */
+  based: number[];
+  /** That number, when every way that stores a number minus the air pressure's value uses the same one. */
   base?: number;
   /**
    * The value of the air pressure (the word at `address` in the data segment) the routine takes from `base`: the air
@@ -194,6 +196,44 @@ function readSetup(
     (i) => i.mnemonic === "cmp" && sameOperand(i.operands[0], counter) && immediate(i.operands[1]) === table.count,
   );
   if (!bound || !code.edges.some((e) => e.to === head && at.get(e.from)! > place.k)) return;
+  // The loop is left by that compare: `jge exit` or `jl head` right after it.
+  const leave = list[list.indexOf(bound) + 1];
+  const leaves = code.edges.filter((e) => e.from === leave?.address);
+  if (
+    !leave ||
+    !(
+      (["jge", "jnl", "jae", "jnb"].includes(leave.mnemonic) &&
+        leaves.some((e) => e.kind === "taken" && e.to !== null && e.to > bound.address)) ||
+      (["jl", "jnge", "jb", "jnae"].includes(leave.mnemonic) && leaves.some((e) => e.kind === "taken" && e.to === head))
+    )
+  )
+    return;
+  // The counter starts at 0: before the loop, its only write is a store of 0 that every way into the loop passes.
+  const reach = (stops: number[]) => {
+    const reached = new Set<number>();
+    const pending = [code.address];
+    while (pending.length) {
+      const address = pending.pop()!;
+      if (stops.includes(address) || reached.has(address)) continue;
+      reached.add(address);
+      for (const e of code.edges) if (e.from === address && e.to !== null) pending.push(e.to);
+    }
+    return reached;
+  };
+  const before = reach([head, bound.address]);
+  const starts = list.filter((i) => before.has(i.address) && writes(i, counter));
+  const start = starts[0];
+  if (
+    starts.length !== 1 ||
+    !start ||
+    !(
+      (start.mnemonic === "mov" && immediate(start.operands[1]) === 0) ||
+      (start.mnemonic === "xor" && sameOperand(start.operands[1], counter))
+    )
+  )
+    return;
+  const around = reach([start.address, head, bound.address]);
+  if (code.edges.some((e) => around.has(e.from) && (e.to === head || e.to === bound.address))) return;
   const nearPointer = pointer.kind === "register";
   const evidence: Evidence[] = [];
 
@@ -299,6 +339,15 @@ function readSetup(
     if (taken.length && limits.size === 1 && limit !== undefined) fixed.push({ type, limit });
   }
   const based = ways.flatMap((w) => (w.limit && "base" in w.limit ? [w.limit] : []));
+  // A type gets the air pressure's range only when every way it can take stores the same number minus the same value.
+  const basedTypes: number[] = [];
+  for (let type = 0; type < table.count; type++) {
+    const taken = ways.filter((w) => w.equals.every((v) => v === type) && !w.differs.includes(type));
+    const forms = new Set(
+      taken.map((w) => (w.limit && "base" in w.limit ? `${w.limit.base} ${JSON.stringify(w.limit.minus)}` : "")),
+    );
+    if (taken.length && forms.size === 1 && !forms.has("")) basedTypes.push(type);
+  }
   const bases = new Set(based.map((w) => w.base));
   const minus = new Set(based.map((w) => JSON.stringify(w.minus)));
   const air = minus.size === 1 ? airValue(list, based[0]!.minus, evidence) : undefined;
@@ -307,6 +356,7 @@ function readSetup(
     confidence: "inferred",
     routine: code.address,
     fixed,
+    based: basedTypes,
     ...(bases.size === 1 ? { base: [...bases][0]! } : {}),
     ...(air ? { air } : {}),
     evidence: unique,

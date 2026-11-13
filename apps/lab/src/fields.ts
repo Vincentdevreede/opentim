@@ -52,6 +52,8 @@ const u32 = (data: Uint8Array, at: number) => (u16(data, at) + u16(data, at + 2)
 const hex = (n: number, width: number) => "0x" + n.toString(16).toUpperCase().padStart(width, "0");
 const printable = (v: number | undefined) => v !== undefined && v >= 0x20 && v < 0x7f;
 const quote = (text: string) => `“${text}”`;
+/** Reads printable bytes as letters; a run can be too long to pass byte by byte as arguments. */
+const letters = new TextDecoder("latin1");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** Bytes searched for text at most, so a large unknown file can't make the page slow. */
 const MAX_TEXT_BYTES = 1 << 20;
@@ -72,7 +74,7 @@ export function textFields(data: Uint8Array, start = 0, end = data.length): Fiel
         size: run - at,
         label: "text",
         name: "text",
-        value: quote(String.fromCharCode(...data.subarray(at, run))),
+        value: quote(letters.decode(data.subarray(at, run))),
         kind: "text",
         type: "letters",
       });

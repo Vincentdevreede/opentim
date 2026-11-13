@@ -122,6 +122,10 @@ watch(
     void reading.walks.then((result) => {
       if (program.value?.data === data && result.status === "done") markSetters.value = goalMarkSetters(result.effects);
     });
+    // The walks with the loops read per type replace the first ones, as on the Parts page, and can add who sets a mark.
+    void reading.perType.then((result) => {
+      if (program.value?.data === data && result.status === "done") markSetters.value = goalMarkSetters(result.effects);
+    });
   },
   { immediate: true },
 );

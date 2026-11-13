@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AdlibDriver, readAdlibBank } from "../src/adlib.ts";
+import { AdlibDriver, prefersSameInstrument, readAdlibBank, type DriverOptions } from "../src/adlib.ts";
 import { OPL_RATE, Opl2 } from "../src/opl.ts";
 import { hasAdlibTracks, renderAdlib } from "../src/render.ts";
 import { mergeTracks, readTrackEvents } from "../src/sequence.ts";
@@ -89,7 +89,7 @@ describe("readAdlibBank", () => {
 });
 
 /** A driver on a fake chip that keeps the last value written to each register. */
-function driver() {
+function driver(options: DriverOptions = {}) {
   const data = new Uint8Array(5382);
   data.set(instrument(10, true), 0);
   data.set(instrument(20, false), 28);
@@ -97,14 +97,16 @@ function driver() {
   data.set(instrument(0, true), 136 * 28);
   data[5320 + 35 - 27] = 48;
   const regs = new Uint8Array(256);
-  const d = new AdlibDriver({ write: (r, v) => (regs[r] = v) }, readAdlibBank(data));
+  /** The registers written, in order. */
+  const log: number[] = [];
+  const d = new AdlibDriver({ write: (r, v) => (log.push(r), (regs[r] = v)) }, readAdlibBank(data), "adlib", options);
   /** The pitch of a voice: its block and F-number. */
   const pitch = (voice: number) => ({
     block: (regs[0xb0 + voice]! >> 2) & 7,
     fnum: ((regs[0xb0 + voice]! & 3) << 8) | regs[0xa0 + voice]!,
   });
   const keyOn = (voice: number) => (regs[0xb0 + voice]! & 0x20) !== 0;
-  return { d, regs, pitch, keyOn };
+  return { d, regs, log, pitch, keyOn };
 }
 
 describe("AdlibDriver", () => {
@@ -174,6 +176,57 @@ describe("AdlibDriver", () => {
     d.message(0x90, 74, 127);
     // All voices play; the next note takes voice 1, the one used longest ago. Note 74 is D, 8 quarter semitones up.
     expect(pitch(1)).toEqual({ block: 5, fnum: 0x181 });
+  });
+
+  it("prefers a free voice that already has the channel's instrument with the longer driver", () => {
+    const { d, log, keyOn } = driver({ sameInstrumentFirst: true });
+    d.message(0xc1, 1, 0);
+    d.message(0x90, 60, 127);
+    d.message(0x80, 60, 0);
+    d.message(0x91, 62, 127);
+    d.message(0x81, 62, 0);
+    log.length = 0;
+    // Voice 2 is the free one used longest ago, but voice 0 already has channel 0's instrument.
+    d.message(0x90, 64, 127);
+    expect(keyOn(0)).toBe(true);
+    expect(keyOn(2)).toBe(false);
+    // So the instrument isn't written again.
+    expect(log.filter((r) => r >= 0x20 && r < 0x40)).toEqual([]);
+  });
+
+  it("gives the free voice used longest ago with the shorter driver, even when another has the instrument", () => {
+    const { d, keyOn } = driver();
+    d.message(0xc1, 1, 0);
+    d.message(0x90, 60, 127);
+    d.message(0x80, 60, 0);
+    d.message(0x91, 62, 127);
+    d.message(0x81, 62, 0);
+    d.message(0x90, 64, 127);
+    expect(keyOn(2)).toBe(true);
+    expect(keyOn(0)).toBe(false);
+  });
+
+  it("tells the longer ADL driver by its first voice loop", () => {
+    const loop = [
+      0x2e, 0x8a, 0x9c, 0xc7, 0x01, 0x2e, 0x80, 0xbf, 0x9b, 0x01, 0xff, 0x75, 0x0e, 0x2e, 0x38, 0x97, 0xbc, 0x01,
+    ];
+    const longer = new Uint8Array(64);
+    longer.set(loop, 20);
+    expect(prefersSameInstrument(longer)).toBe(true);
+    // The shorter driver has the second loop only, without the instrument test.
+    expect(prefersSameInstrument(Uint8Array.from(loop.slice(0, 13)))).toBe(false);
+    expect(prefersSameInstrument(new Uint8Array(64))).toBe(false);
+  });
+
+  it("writes an additive instrument's carrier level before its modulator's", () => {
+    // The longer driver plays the second note on the same voice, so only the levels are written, not the instrument.
+    const { d, log } = driver({ sameInstrumentFirst: true });
+    d.message(0xc0, 1, 0);
+    d.message(0x90, 60, 127);
+    d.message(0x80, 60, 0);
+    log.length = 0;
+    d.message(0x90, 60, 64);
+    expect(log.filter((r) => r >= 0x40 && r < 0x60)).toEqual([0x43, 0x40]);
   });
 });
 

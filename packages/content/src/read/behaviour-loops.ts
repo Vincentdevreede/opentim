@@ -328,6 +328,19 @@ export function discoverCountedLoops(
       withoutUpdate.push(...(outgoing.get(address) ?? []));
     }
     if (avoidsUpdate) continue;
+    // Whether a pass can run the update before it reaches this address, so that a read there sees the next count.
+    const afterUpdate = (address: number): boolean => {
+      const pending = [...(outgoing.get(update.address) ?? [])];
+      const seen = new Set<number>();
+      while (pending.length) {
+        const at = pending.pop()!;
+        if (at === address) return true;
+        if (at === compare.address || seen.has(at)) continue;
+        seen.add(at);
+        pending.push(...(outgoing.get(at) ?? []));
+      }
+      return false;
+    };
     const writtenRegisters = new Set<string>();
     const fields: LoopField[] = [];
     const helperEvidence: Evidence[] = [];
@@ -349,6 +362,8 @@ export function discoverCountedLoops(
         (name) =>
           !modified.has(name) &&
           !volatile.has(name) &&
+          // Every path into the loop still holds the part there: nothing between the load and the loop changed it.
+          origins.get(compare.address)?.get(name) === 1 &&
           ownerDefinitions.some(
             (i) => isRegister(i.operands[0], name) && dominates(i.address, compare.address, code.address),
           ),
@@ -502,7 +517,8 @@ export function discoverCountedLoops(
             !immediate(shift.operands[1], 1) ||
             index?.mnemonic !== "mov" ||
             !isRegister(index.operands[0], "bx") ||
-            !sameOperand(index.operands[1], counter)
+            !sameOperand(index.operands[1], counter) ||
+            afterUpdate(index.address)
           ) {
             invalid = true;
             break;
@@ -587,7 +603,11 @@ export function discoverCountedLoops(
             .at(-1);
           if (!definition || !dominates(definition.address, at, bodyEntry)) return undefined;
           const source = definition.operands[1];
-          if (definition.mnemonic === "mov" && sameOperand(source, counter)) return { scale: 1, bias: 0 };
+          if (definition.mnemonic === "mov" && sameOperand(source, counter)) {
+            // A copy made after the update on every pass is one more than the count the loop's test saw.
+            if (dominates(update.address, definition.address, bodyEntry)) return { scale: 1, bias: 1 };
+            return afterUpdate(definition.address) ? undefined : { scale: 1, bias: 0 };
+          }
           if (definition.mnemonic === "mov" && isRegister(source))
             return affine(source.name, definition.address, depth + 1);
           if (!["shl", "add", "sub"].includes(definition.mnemonic) || !immediate(source)) return undefined;
