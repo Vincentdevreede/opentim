@@ -440,6 +440,13 @@ The Lab's Structure panel names them:
     "time", "count", "ammo", "banana", "boulders" and "eggs".
     The banana (0 or 1 in the shipped levels) and the other types: what their code does with it isn't read.
 
+**The play area** is the screen, 640 × 400, seen from -91, -8. When a puzzle starts, TOONS.EXE (file offset
+`0x228d0`) sets the view to -91 across and -8 down, and writes the same two numbers over the level's scroll words, as
+TIM.EXE does with its -8, -8; the redraw then covers the whole screen, 640 × 400 (`0x1ce09`). So the play area runs
+from -91 to 549 across and from -8 to 392 down, which is where the walls of the shipped levels end. The level files'
+own scroll words (-91 in 40 levels, -8 in the others) are read and overwritten. Whether the parts bin or the controls
+cover some of the screen while a puzzle is set up isn't read. The Lab draws the play area there.
+
 ### Toons: still open
 
 - **Goals.** Not read. TOONS.EXE has to have them in its code or data, as TIM 1 has; the Lab shows the goal text.
@@ -447,5 +454,3 @@ The Lab's Structure panel names them:
   tables of their own (records 36 and 37 point into them), which aren't read.
 - **Own drawing code.** The conveyor belt, the timer, the counter, the thumpulator and the message machine have
   drawing code of their own; the Lab draws only their frames.
-- **The play area** is TIM's 576 × 368 in the Lab. The walls of Toons' levels reach 549 across and 392 down (40 levels
-  scroll to -91 across, the others to -8), so Toons' is likely a little different; it isn't read from TOONS.EXE.

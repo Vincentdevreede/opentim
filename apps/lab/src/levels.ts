@@ -32,20 +32,32 @@ export interface LevelEntry {
   error?: string;
 }
 
+/** A play area: where its top left corner is in the level's pixels, and its size. */
+export interface PlayArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /**
  * The play area of TIM 1 and Even More, in pixels, measured from where the levels put their parts: all but a few fit
  * in it, and the ones outside stand just off its edge. TIM.EXE starts the view at -8, -8.
  */
-export const PLAY_AREA = { width: 576, height: 368 };
+export const PLAY_AREA: PlayArea = { x: 0, y: 0, width: 576, height: 368 };
 /**
  * The play area by layout. TIM 2's is its screen, 640 × 400: TIM2.EXE's goal routine counts a part off the screen when
  * its middle is outside it, and its panels are drawn in a frame of that size. While a puzzle is set up, the control
  * panel covers the left 48 pixels and the parts bin the right 80.
+ *
+ * Toons' is its screen too, 640 × 400, seen from -91, -8: when a puzzle starts, TOONS.EXE sets the view to -91 across
+ * and -8 down (over the level's own scroll words) and draws the whole screen, so the play area runs from -91 to 549
+ * across and from -8 to 392 down.
  */
-export const PLAY_AREAS: Record<LevelLayout, { width: number; height: number }> = {
+export const PLAY_AREAS: Record<LevelLayout, PlayArea> = {
   tim: PLAY_AREA,
-  toons: PLAY_AREA,
-  tim2: TIM2_SCREEN,
+  toons: { x: -91, y: -8, width: 640, height: 400 },
+  tim2: { x: 0, y: 0, ...TIM2_SCREEN },
 };
 /** The games of each level layout, for display. */
 export const LAYOUT_NAMES: Record<LevelLayout, string> = { tim: "TIM 1, Even More", toons: "Toons", tim2: "TIM 2" };
@@ -139,7 +151,7 @@ export interface Note {
 
 export interface Scene {
   /** The play area of the level's game. */
-  area: { width: number; height: number };
+  area: PlayArea;
   /** The static and moving parts, in the order the file stores them, which is also the drawing order. */
   parts: DrawnPart[];
   lines: Line[];

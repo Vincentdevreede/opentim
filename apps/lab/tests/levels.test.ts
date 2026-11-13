@@ -2,7 +2,7 @@ import type { Level, LevelPart, PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { groupOf, layoutScene, partAt, readLevels, toonsSetting, toonsTiles } from "../src/levels.ts";
+import { PLAY_AREAS, groupOf, layoutScene, partAt, readLevels, toonsSetting, toonsTiles } from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -222,7 +222,7 @@ describe("layoutScene", () => {
       [47, "pattern" as const],
     ]);
     const scene = layoutScene(level, list, spriteOf, drawing);
-    expect(scene.area).toEqual({ width: 640, height: 400 });
+    expect(scene.area).toEqual({ x: 0, y: 0, width: 640, height: 400 });
     expect(scene.bin.map((p) => p.index)).toEqual([4]);
     expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
       ["frame", "frame 0 for state 1"],
@@ -447,5 +447,12 @@ describe("toonsSetting", () => {
 
   it("gives nothing for a type whose code doesn't read it", () => {
     expect(toonsSetting(59, 1)).toBeUndefined();
+  });
+});
+
+describe("PLAY_AREAS", () => {
+  it("has Toons' screen seen from the view TOONS.EXE starts a puzzle with", () => {
+    expect(PLAY_AREAS.toons).toEqual({ x: -91, y: -8, width: 640, height: 400 });
+    expect(PLAY_AREAS.tim).toMatchObject({ x: 0, y: 0 });
   });
 });

@@ -181,7 +181,12 @@ const goalAreas = computed(() => {
     number: number;
     box: { x: number; y: number; width: number; height: number };
   }[] = [];
-  const edge = { left: -MARGIN, top: -MARGIN, right: s.area.width + MARGIN, bottom: s.area.height + MARGIN };
+  const edge = {
+    left: s.area.x - MARGIN,
+    top: s.area.y - MARGIN,
+    right: s.area.x + s.area.width + MARGIN,
+    bottom: s.area.y + s.area.height + MARGIN,
+  };
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
@@ -268,7 +273,10 @@ const stats = computed(() => {
   return [
     { label: "Layout", value: LAYOUT_NAMES[level.value!.layout] },
     { label: "Version", value: `0x${level.value!.version.toString(16)}` },
-    { label: "Play area", value: `${s.area.width} × ${s.area.height}` },
+    {
+      label: "Play area",
+      value: `${s.area.width} × ${s.area.height}${s.area.x || s.area.y ? ` from ${s.area.x}, ${s.area.y}` : ""}`,
+    },
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },
