@@ -15,7 +15,9 @@ import {
   type PartList,
   type Placement,
   type Shape,
+  type Tim2Size as Size,
   compose,
+  tim2MirrorSide,
   type Bounds,
   type Composition,
   type SpriteOf,
@@ -149,6 +151,34 @@ export interface Scene {
   notes: Note[];
   /** The knot TIM.EXE draws at a rope's ends: picture 36 of GP_BORD, 5 pixels left of and 2 above the slot. */
   knot: Composition;
+  /** The picture TIM2.EXE shows for each of a TIM 2 level's notes. */
+  noteMarks: NoteMark[];
+}
+
+/** Where a TIM 2 level's note is, and its picture. */
+export interface NoteMark {
+  text: string;
+  at: Point;
+  composition: Composition;
+}
+
+/** The sheet TIM2.EXE draws a note's picture from. */
+const NOTE_SHEET = "HANDLES";
+
+/**
+ * TIM2.EXE draws a note as picture 41 of HANDLES at the note's place, or picture 42 when the note's third word is 2 or
+ * more. When the word is odd it mirrors the picture left to right and draws it 4 pixels further left.
+ */
+function noteMarks(level: Level, spriteOf: SpriteOf): NoteMark[] {
+  return (level.tim2?.notes ?? []).map((note) => {
+    const mirrored = (note.z & 1) !== 0;
+    const sprite: Placement = { sheet: NOTE_SHEET, sprite: note.z > 1 ? 42 : 41, x: 0, y: 0, layer: 0 };
+    return {
+      text: note.text,
+      at: { x: note.x - (mirrored ? 4 : 0), y: note.y },
+      composition: compose([mirrored ? { ...sprite, flip: "h" } : sprite], spriteOf),
+    };
+  });
 }
 
 /** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
@@ -226,14 +256,11 @@ export function tiles(part: LevelPart, sheet: string): Placement[] {
   return out;
 }
 
-/** Mirrors placements inside the part's size, as TIM.EXE does: x becomes width - x - the sprite's width. */
-function mirror(
-  sprites: readonly Placement[],
-  part: LevelPart,
-  spriteOf: SpriteOf,
-  x: boolean,
-  y: boolean,
-): Placement[] {
+/**
+ * Mirrors placements inside a size, as TIM.EXE does inside the part's size: x becomes width - x - the sprite's width.
+ * TIM 2 parts are mirrored in the size `tim2MirrorSide` gives.
+ */
+function mirror(sprites: readonly Placement[], side: Size, spriteOf: SpriteOf, x: boolean, y: boolean): Placement[] {
   if (!x && !y) return [...sprites];
   return sprites.map((p) => {
     const image = spriteOf(p.sheet, p.sprite);
@@ -243,8 +270,8 @@ function mirror(
     const flip = `${h ? "h" : ""}${v ? "v" : ""}`;
     return {
       ...p,
-      x: x ? part.size.width - p.x - image.width : p.x,
-      y: y ? part.size.height - p.y - image.height : p.y,
+      x: x ? side.width - p.x - image.width : p.x,
+      y: y ? side.height - p.y - image.height : p.y,
       flip: (flip || undefined) as Placement["flip"],
     };
   });
@@ -337,19 +364,21 @@ function patternPieces(part: LevelPart, listPart: Part, spriteOf: SpriteOf): { p
   return { pieces, clip };
 }
 
-/** Mirrors boxes and lines inside the part's size, as `mirror` does with sprites. */
-function mirrorShapes(shapes: readonly Shape[], part: LevelPart, x: boolean, y: boolean): Shape[] {
-  const w = part.size.width;
-  const h = part.size.height;
+/**
+ * Mirrors boxes and lines inside a size, as `mirror` does with sprites. TIM2.EXE mirrors a line's ends as width - x,
+ * without taking 1 off, so a line drawn from 0 lands on the width.
+ */
+function mirrorShapes(shapes: readonly Shape[], side: Size, x: boolean, y: boolean): Shape[] {
+  const { width: w, height: h } = side;
   return shapes.map((s) =>
     s.kind === "box"
       ? { ...s, x: x ? w - s.x - s.width : s.x, y: y ? h - s.y - s.height : s.y }
       : {
           ...s,
-          x1: x ? w - 1 - s.x1 : s.x1,
-          x2: x ? w - 1 - s.x2 : s.x2,
-          y1: y ? h - 1 - s.y1 : s.y1,
-          y2: y ? h - 1 - s.y2 : s.y2,
+          x1: x ? w - s.x1 : s.x1,
+          x2: x ? w - s.x2 : s.x2,
+          y1: y ? h - s.y1 : s.y1,
+          y2: y ? h - s.y2 : s.y2,
         },
   );
 }
@@ -376,7 +405,7 @@ function drawPart(
     if (!list || !spriteOf(sheet, state))
       return { ...base, how: "outline", detail: `type ${part.type} isn’t in the part list` };
     const single: Placement[] = [{ sheet, sprite: state, x: 0, y: 0, layer: 0 }];
-    const composition = compose(mirror(single, part, spriteOf, mirrored.x, mirrored.y), spriteOf);
+    const composition = compose(mirror(single, part.size, spriteOf, mirrored.x, mirrored.y), spriteOf);
     return {
       ...base,
       how: "sprite",
@@ -413,15 +442,17 @@ function drawPart(
   const shown = listPart.states?.[state] ?? state;
   const frame = frameOf(listPart, state);
   if (frame) {
-    const shapes = mirrorShapes(frame.shapes ?? [], part, mirrored.x, mirrored.y);
-    const composition = compose(mirror(frame.sprites, part, spriteOf, mirrored.x, mirrored.y), spriteOf, { shapes });
+    // TIM2.EXE's usual draw routine mirrors a part in a size of its own, not in the part's size.
+    const side = (layout === "tim2" && tim2MirrorSide(part, listPart)) || part.size;
+    const shapes = mirrorShapes(frame.shapes ?? [], side, mirrored.x, mirrored.y);
+    const composition = compose(mirror(frame.sprites, side, spriteOf, mirrored.x, mirrored.y), spriteOf, { shapes });
     const detail = shown === state ? `frame ${state}` : `frame ${shown} for state ${state}`;
     if (composition.placed.length) return { ...base, how: "frame", detail, composition };
   }
   if (!sheet) return { ...base, how: "outline", detail: "no sprite sheet" };
   if (!spriteOf(sheet, state)) return { ...base, how: "outline", detail: `${sheet} has no sprite ${state}` };
   const single: Placement[] = [{ sheet, sprite: state, x: 0, y: 0, layer: 0 }];
-  const composition = compose(mirror(single, part, spriteOf, mirrored.x, mirrored.y), spriteOf);
+  const composition = compose(mirror(single, part.size, spriteOf, mirrored.x, mirrored.y), spriteOf);
   return { ...base, how: "sprite", detail: `sprite ${state} of ${sheet}`, composition };
 }
 
@@ -545,6 +576,7 @@ export function layoutScene(
     bin: level.parts.filter((p) => groupOf(level, p, solution) === "bin"),
     notes,
     knot,
+    noteMarks: noteMarks(level, spriteOf),
   };
 }
 

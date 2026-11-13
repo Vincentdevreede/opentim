@@ -62,7 +62,11 @@ describe("readLoadedParts", () => {
       resource("PART0.BMP", new Uint8Array(1)),
     ]);
     expect(loaded?.list.parts[0]?.frames).toEqual([
-      { id: 0, sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 3, layer: 0 }] },
+      {
+        id: 0,
+        sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 3, layer: 0 }],
+        box: { x: 0, y: 0, width: 10, height: 10 },
+      },
     ]);
   });
 });

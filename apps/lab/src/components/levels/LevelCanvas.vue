@@ -14,6 +14,8 @@ const props = defineProps<{
   paletteOf: (sheet: string) => Uint8Array | undefined;
   /** The palette whose colours ropes and belts are drawn in. */
   linePalette?: Uint8Array;
+  /** A colour of that palette to fill the play area with, as TIM2.EXE does with a level's background colour. */
+  areaColour?: number;
   zoom: number;
   bounds: boolean;
   selected?: number;
@@ -51,6 +53,12 @@ const pictures = computed(
 
 const knotPicture = computed(() =>
   props.scene.knot.placed.length ? compositionCanvas(props.scene.knot, props.paletteOf("GP_BORD")) : undefined,
+);
+
+const notePictures = computed(() =>
+  props.scene.noteMarks.map((m) =>
+    m.composition.placed.length ? compositionCanvas(m.composition, props.paletteOf("HANDLES")) : undefined,
+  ),
 );
 
 /** Device pixels per CSS pixel, kept up to date when the page is zoomed or moved to another screen. */
@@ -119,6 +127,11 @@ watchEffect(() => {
   context.fillRect(-MARGIN, area.value.height, width.value, MARGIN);
   context.fillRect(-MARGIN, 0, MARGIN, area.value.height);
   context.fillRect(area.value.width, 0, MARGIN, area.value.height);
+  const fill = props.areaColour === undefined ? undefined : paletteColor(props.linePalette, props.areaColour);
+  if (fill) {
+    context.fillStyle = fill;
+    context.fillRect(0, 0, area.value.width, area.value.height);
+  }
   context.strokeStyle = colors.line;
   context.lineWidth = px;
   context.strokeRect(0, 0, area.value.width, area.value.height);
@@ -156,6 +169,12 @@ watchEffect(() => {
   if (knot)
     for (const line of scene.lines)
       for (const p of line.knots ?? []) context.drawImage(knot, p.x + scene.knot.bounds.x, p.y + scene.knot.bounds.y);
+
+  // The notes’ pictures, after the parts.
+  scene.noteMarks.forEach((m, i) => {
+    const picture = notePictures.value[i];
+    if (picture) context.drawImage(picture, m.at.x + m.composition.bounds.x, m.at.y + m.composition.bounds.y);
+  });
 
   // The goal over the parts: the parts it looks at ringed, and the places it tests as numbered areas.
   for (const d of scene.parts) {

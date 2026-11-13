@@ -400,6 +400,7 @@ onBeforeUnmount(() => {
                 :scene="scene"
                 :palette-of="paletteOf"
                 :line-palette="paletteOf('PART0')"
+                :area-colour="background === 'game' ? level.tim2?.background : undefined"
                 :zoom="zoom"
                 :bounds="showBounds"
                 :selected="selectedPart"

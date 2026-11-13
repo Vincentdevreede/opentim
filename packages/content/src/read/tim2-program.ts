@@ -79,21 +79,177 @@ export function tim2Drawing(types: Tim2Types): Map<number, Tim2Drawing> {
   );
 }
 
+/** A width and a height. */
+export interface Tim2Size {
+  width: number;
+  height: number;
+}
+
+/** One outline of a `.PAR` file: its points, in the part's size, the last with bit 0x4000 of its flags. */
+export interface Tim2Outline {
+  /** Two words before the points, which TIM2.EXE reads and doesn't keep. */
+  skipped: [number, number];
+  points: { flags: number; x: number; y: number }[];
+}
+
 /**
- * Whether a part's `.PAR` file has the size limits of TIM 2's walls. A `.PAR` file is a `PAR:` chunk that starts with
- * `PROPI`, a byte 1 and the part's type, then words of its properties; the words at 0x16 and 0x18 look like the largest
- * size a player can stretch the part to. In the floppy and CD builds the types with 576 × 416 there are exactly the ones
- * TIM2.EXE draws with its wall routine, the large pipes included. That is a match in the files, not a rule the program
- * follows, so it only stands in when TIM2.EXE isn't loaded.
+ * A part's `.PAR` file, as TIM2.EXE's loader (in its overlays; in the floppy build at file offset `0x6571f`) reads it
+ * into the part's type record when it loads the type's animation.
  */
-export function hasWallLimits(par: Uint8Array): boolean {
+export interface Tim2Properties {
+  /** 0x149; the loader refuses 0 and anything higher. */
+  version: number;
+  /** The part's type. The loader refuses a file for another type. */
+  type: number;
+  /** Compared with the air to work out how fast the part falls (type record 0x36). */
+  density: number;
+  /** Type record 0x38; the loader makes 0 into 1000. */
+  mass: number;
+  /** Type record 0x3a, passed to collisions with the friction. */
+  bounciness: number;
+  /** Type record 0x3c. */
+  friction: number;
+  /** Type record 0x40: the most a part's vertical speed can be. 0 in every file; TIM2.EXE works it out from the air. */
+  terminalVelocity: number;
+  /** The smallest and largest size a player can resize the part to, in steps of 16 (type record 0x32 and 0x2e). */
+  minSize: Tim2Size;
+  maxSize: Tim2Size;
+  /** Type record 0x42: the size TIM2.EXE mirrors most parts in, and gives a part whose type has no size of its own. */
+  size: Tim2Size;
+  /**
+   * Bit 0x08 makes the loader add each outline mirrored left to right, bit 0x10 upside down, each within the size:
+   * x becomes width - 1 - x. The loader doesn't keep the word, and no other bit is read.
+   */
+  flags: number;
+  /** The part's shapes for collisions, as points. Which one the game uses when isn't read yet. */
+  outlines: Tim2Outline[];
+}
+
+const PROPERTIES = "PROP";
+const NEWEST_PROPERTIES = 0x149;
+const LAST_POINT = 0x4000;
+
+/**
+ * Reads a part's `.PAR` file: a `PAR:` chunk with `PROP`, then words: the version, the type, the density, mass,
+ * bounciness, friction and terminal velocity, the smallest width and height, the largest width and height, the size,
+ * the flags, the number of outlines and their number of points in all, then the outlines. Undefined when it isn't one.
+ */
+export function readPar(par: Uint8Array): Tim2Properties | undefined {
   let data: Uint8Array | undefined;
   try {
     data = findChunk(readChunks(par), "PAR:")?.data;
   } catch {
-    return false;
+    return undefined;
   }
-  if (!data || data.length < 0x1a || String.fromCharCode(...data.subarray(0, 5)) !== "PROPI") return false;
+  if (!data || data.length < 0x24 || String.fromCharCode(...data.subarray(0, 4)) !== PROPERTIES) return undefined;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  return view.getUint16(0x16, true) === 576 && view.getUint16(0x18, true) === 416;
+  const word = (at: number) => view.getInt16(at, true);
+  const version = view.getUint16(4, true);
+  if (version === 0 || version > NEWEST_PROPERTIES) return undefined;
+  const size = (at: number) => ({ width: word(at), height: word(at + 2) });
+  const outlines: Tim2Outline[] = [];
+  const count = word(0x20);
+  let at = 0x24;
+  // The loader reads the outlines only when the file says it has points.
+  for (let i = 0; word(0x22) && i < count; i++) {
+    if (at + 4 > data.length) return undefined;
+    const outline: Tim2Outline = { skipped: [word(at), word(at + 2)], points: [] };
+    at += 4;
+    for (let flags = 0; !(flags & LAST_POINT); at += 6) {
+      if (at + 6 > data.length) return undefined;
+      flags = view.getUint16(at, true);
+      outline.points.push({ flags, x: word(at + 2), y: word(at + 4) });
+    }
+    outlines.push(outline);
+  }
+  return {
+    version,
+    type: word(6),
+    density: word(8),
+    mass: word(0x0a),
+    bounciness: word(0x0c),
+    friction: word(0x0e),
+    terminalVelocity: word(0x10),
+    minSize: size(0x12),
+    maxSize: size(0x16),
+    size: size(0x1a),
+    flags: word(0x1e),
+    outlines,
+  };
+}
+
+/**
+ * Whether a part's `.PAR` file has the size limits of TIM 2's walls: 576 × 416 as its largest size. In the floppy and
+ * CD builds the types with that size are exactly the ones TIM2.EXE draws with its wall routine, the large pipes
+ * included. That is a match in the files, not a rule the program follows, so it only stands in when TIM2.EXE isn't
+ * loaded.
+ */
+export function hasWallLimits(par: Uint8Array): boolean {
+  const properties = readPar(par);
+  return properties?.maxSize.width === 576 && properties.maxSize.height === 416;
+}
+
+/**
+ * How TIM2.EXE's size routine (in the floppy build at file offset `0x21477`; it runs whenever a part's state is set,
+ * also when a level is set up) fills two words of a part's record, offsets `0x44` and `0x46`, which its usual draw
+ * routine mirrors the part in. The type picks the way, by lists in the code that are the same in all three builds.
+ * Every type not in the lists below gets the size of the frame its state shows when bit 0x1000 of its third flag word
+ * is set, and the size in its `.PAR` file when it isn't.
+ */
+/** Types that keep their own size there. */
+const KEEPS_ITS_SIZE = new Set([
+  1, 2, 5, 46, 48, 56, 60, 82, 83, 84, 85, 97, 99, 100, 101, 102, 118, 121, 122, 123, 124, 125, 126, 127, 203, 205, 271,
+  280,
+]);
+/** Types that get 0. */
+const NO_SIZE = new Set([8, 10, 76]);
+/** Types that get the size of the frame their state shows. */
+const FRAME_SIZE = new Set([4, 7, 57, 58, 71, 88]);
+/** Bit 0x1000 of the third flag word: a type the size routine gives its frame's size. */
+const SIZED_BY_FRAME = 0x1000;
+
+/** What `tim2MirrorSide` needs of a placed part. */
+export interface Tim2MirroredPart {
+  type: number;
+  size: Tim2Size;
+  flags: readonly number[];
+  state: readonly number[];
+}
+
+/** What `tim2MirrorSide` needs of the part's type: its animation's frames and size, and its `.PAR` size. */
+export interface Tim2MirroredType {
+  frames: readonly { id: number; box?: { x: number; y: number; width: number; height: number } }[];
+  states?: readonly number[];
+  mirrorBox?: Tim2Size;
+  parSize?: Tim2Size;
+}
+
+/**
+ * Where TIM2.EXE's usual draw routine measures a mirrored part from: a sprite of a part mirrored left to right lands
+ * at this width less its place less its own width, as if the part were this wide. The routine moves the part by the
+ * mirror size (see above) less the right edge of the frame of state 0, and then mirrors the frame in the animation's
+ * size, so the width is the mirror size, less that edge, plus the animation's width; the same goes down. Undefined
+ * when the animation or the `.PAR` size it needs is missing.
+ */
+export function tim2MirrorSide(part: Tim2MirroredPart, type: Tim2MirroredType): Tim2Size | undefined {
+  const frameOf = (state: number) => {
+    const id = type.states?.[state] ?? state;
+    return type.frames.find((f) => f.id === id)?.box;
+  };
+  const first = frameOf(0);
+  const shown = frameOf(part.state[0] ?? 0);
+  if (!first || !type.mirrorBox) return undefined;
+  const third = part.flags[2] ?? 0;
+  const mirror = KEEPS_ITS_SIZE.has(part.type)
+    ? part.size
+    : NO_SIZE.has(part.type)
+      ? { width: 0, height: 0 }
+      : FRAME_SIZE.has(part.type) || third & SIZED_BY_FRAME
+        ? shown
+        : type.parSize;
+  if (!mirror) return undefined;
+  return {
+    width: mirror.width - first.x - first.width + type.mirrorBox.width,
+    height: mirror.height - first.y - first.height + type.mirrorBox.height,
+  };
 }

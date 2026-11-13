@@ -296,7 +296,10 @@ What the loader does with the fields, from TIM2.EXE:
 - **Every level is a puzzle**: title and goal text are always there. When the game runs in another language, it reads
   the title, the goal and the notes again from a language file, so the level file keeps the English ones.
 - **Notes**: eight places for a text the puzzle shows, each with an x, a y, from version `0x112` a third word, and the
-  text. The game shows a note for each place with a text. The word before them is read and not kept.
+  text. The game shows a note for each place with a text. The word before them is read and not kept. The third word
+  picks the note's picture: TIM2.EXE draws picture 41 of `HANDLES.BMP` at the note's place, or 42 when the word is 2 or
+  more, and when the word is odd mirrors it left to right and draws it 4 pixels further left (the routine at file
+  offset `0x1e010` in the floppy build). The shipped levels use 0 to 3. The Levels page draws the pictures.
 - **Flags**: of the three flag words of a part the game keeps only bit `0x8000` of the first, bits `0x32` of the
   second (`0x10` and `0x20` mirror the part, as in TIM 1) and bits `0x140` of the third; the other bits come from the
   part's type. The files still have the type's bits, because the editor saved the whole words.
@@ -329,6 +332,13 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
   The run loop (the routine at file offset `0x53240` in the floppy build) sets that count back to 0 when the machine
   starts and runs the goal routine once a step, right after the step, so the last word is a number of steps. Four
   levels use it, like 108 steps for the message computers.
+- **Two other ways a run ends.** The run loop checks the input after every step. Its input routine (file offset
+  `0x36311` in the floppy build) keeps the mouse buttons in `[0x7ad8]`, the typed character in `[0x7ade]` (its low 7
+  bits) and the held modifier keys in `[0x7ae4]`: 1 for Ctrl (scan code `0x1d`), 2 for Alt (`0x38`), 4 for either
+  Shift (`0x2a`, `0x36`) and 8 for the right Alt. With Ctrl, Alt and Shift held (7) and character `0x16`, which is
+  Ctrl+V, the loop sets the game's mode to `0x200`, the same as a met goal: a hidden key that solves the puzzle. With
+  the right mouse button (value 2; the click code elsewhere counts the middle button, 4, as it too) it sets the mode to
+  `0x1000`, the mode the game is in while the player builds, so the machine stops.
 - When the routine first says the goal is met, the run loop goes on for 30 more steps and then ends the puzzle as
   solved, whatever the routine says in those steps. The run loop waits for its step timer before each step (see
   [the animation speed](file-formats.md#animations-anm)), so a step takes at least 33.8 ms.
@@ -349,8 +359,13 @@ the only load in mode 9 is command 10012, which reloads the current level after 
 designer's solution puts them, and `0x100` marks the bin parts the solution doesn't use. The Levels page puts the parts
 without `0x40` in the bin, and its Solution box shows the level as the solution does.
 
-The two bytes after the version: a new level starts with 0 and 3 (TIM2.EXE sets them so when it clears a level). The
-second goes from 1 to 15 in the shipped levels and may pick the background; not read further.
+**The two bytes after the version** (from version `0x113`). A new level starts with 0 and 3 (TIM2.EXE sets them so
+when it clears a level). The loader keeps them in two bytes of the data segment (`[0x66a8]` and `[0x66a7]` in the
+floppy build). The first is only written back when the game saves a level; nothing else reads it, and it is 0 in every
+shipped level. The second is the level's background: the routine that draws the play area fills it with that palette
+colour (a box from 0, 0, 560 wide) before the parts, and the editor's dialog with the air and gravity also sets it. It
+is 3 in 172 of the 206 levels and goes from 1 to 15 in the others. Before version `0x113` the loader leaves both as they
+were. The Levels page fills the play area with it when the background is set to Game.
 
 ### Drawing TIM 2 levels
 
@@ -372,13 +387,26 @@ the part's state. Two others draw from the part's size:
   off at the part's box, widened across to whole groups of 8 pixels.
 
 Without TIM2.EXE nothing in the files names a type's draw routine; the level files, the `.ANM` and the `.PAR` files
-were checked. The Lab then goes by two matches in the files. A part's `.PAR` file (`PROPI`, the type, then its
-properties) has 576 × 416 in the two words that look like its largest size exactly for the types drawn by the wall
-routine, the large pipes (97) included, in the floppy and CD builds (`hasWallLimits`). And the type's flag bits the
+were checked. The Lab then goes by two matches in the files. A part's `.PAR` file (see [the file formats](file-formats.md#part-properties-par)) has 576 × 416 as its
+largest size exactly for the types drawn by the wall routine, the large pipes (97) included, in the floppy and CD builds (`hasWallLimits`). And the type's flag bits the
 levels keep: bit `0x2000` of the third word for walls (every wall type but the large pipes has it) and bits `0x1080`
 without `0x0400` for tile patterns. Neither is a rule of the program, so the Lab says which one it used; the demo
 ships few `.PAR` files, so there only TIM2.EXE gets every wall right.
 
+- **Mirroring the other parts.** The usual routine mirrors a part with bit `0x10` of the second flag word left to
+  right and with `0x20` upside down, but not in the part's size. It moves the part by two words of its record
+  (offsets `0x44` and `0x46`) less the right (or bottom) edge of the frame of state 0, and then mirrors the frame in
+  the animation's size. TIM2.EXE's size routine (file offset `0x21477` in the floppy build; it runs whenever a part's
+  state is set, also when a level is set up) fills those two words by the type, from lists in its code that are the
+  same in all three builds: the part's own size for the walls, tiles and the other parts drawn from their size (1, 2,
+  5, 46, 48, 56, 60, 82 to 85, 97, 99 to 102, 118, 121 to 127, 203, 205, 271 and 280), 0 for the belt, the rope and
+  type 76, and the size of the frame the state shows for 4, 7, 57, 58, 71 and 88. Every other type gets that frame's
+  size too when bit `0x1000` of its third flag word is set, and the size in its `.PAR` file when it isn't. The same
+  routine makes that the part's size, unless the type record has a size of its own. The `.PAR` size is often a few
+  pixels narrower than the animation, so a part of such a type mirrored left to right lands that much further left:
+  up to 7 pixels in the shipped levels, like 6 for the cat (12); the mouse motor's is 1 wider, so it moves right. Lines mirror as the width less x, without taking 1 off.
+  The Lab follows all of it (`tim2MirrorSide`); without the `.PAR` file (the demo has few) it mirrors such a part in
+  its own size.
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
   has all of bits `0x1480` in its type's third flag word, which is how the Lab knows it without TIM2.EXE.
@@ -392,12 +420,11 @@ levels keep their parts between 0 and 568 across and above 377.
 
 What isn't worked out yet, and what the Lab does meanwhile:
 
-- **Mirroring other parts.** TIM2.EXE's usual draw routine mirrors a part by two words of its record (offsets `0x44`
-  and `0x46`, not read yet) less its first frame's box, and then mirrors the frame in the animation's size. The Lab
-  mirrors such parts inside their size, as for TIM 1, which may put them a few pixels off. Walls follow the program.
-- **The two bytes after the version.** A new level gets 0 and 3; the second goes from 1 to 15 and may pick the
-  background. Not read further.
-- **The notes' third word** (from version `0x112`): 0 to 3 in the shipped levels; what it changes isn't read.
-- **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
-  with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
-- **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
+- **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls, and a mirrored part
+  whose type takes its mirror size from the `.PAR` file is mirrored in its own size.
+- **Cut off pictures.** The usual draw routine draws types 36, 45 and 70 with bit `0x10` of the third flag word cut off
+  at a row the part's record keeps (offset `0xae`). What sets that row isn't read, and the Lab draws them whole.
+- **Screen width.** The 256 colour `VGA:` driver in `VM.OVL` addresses rows 320 pixels wide in a 400 line mode, while
+  the play area is taken as 640 by 400 from the goal check and the panel animations. How the two fit (a doubled pixel,
+  or another mode for the play area) isn't settled. The line rule is the same at any width, so drawing lines doesn't
+  depend on it.

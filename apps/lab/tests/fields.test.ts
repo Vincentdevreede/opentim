@@ -82,6 +82,22 @@ describe("fieldsOf", () => {
     ]);
   });
 
+  it("names a TIM 2 .PAR file's words and outline points", () => {
+    const words = [0x149, 12, 2000, 120, 0, 64, 0, 240, 240, 0, 0, 39, 42, 8, 1, 2];
+    const data = writeChunk(
+      "PAR:",
+      Uint8Array.from([...text("PROP"), ...u16(...words, 7, 9, 0, 0, 1, 0x4000, 38, 41)]),
+    );
+    const fields = fieldsOf(resource("PART12.PAR", "other", data));
+    expectOrdered(fields);
+    expect(fields.find((f) => f.label === "width")).toMatchObject({ offset: 8 + 0x1a, value: "39" });
+    expect(fields.slice(-3).map((f) => [f.group, f.name, f.value])).toEqual([
+      ["outline 0", "point 0", "0, 1"],
+      ["outline 0", "flags of point 1, the last", "0x4000"],
+      ["outline 0", "point 1, the last", "38, 41"],
+    ]);
+  });
+
   it("leaves the bytes of files without a decoder unread, and of a broken level too", () => {
     expect(fieldsOf(resource("PART0.PAR", "other", Uint8Array.of(1, 0, 2)))).toEqual([]);
     expect(fieldsOf(resource("L2.LEV", "level", Uint8Array.of(0xef, 0xac)))).toEqual([]);
