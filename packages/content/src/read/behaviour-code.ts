@@ -275,7 +275,13 @@ function jumpTable(
         fallback.target.address !== jump.address;
     } else continue;
     const onlyWayIn = (to: number, from: number) => edges.every((edge) => edge.to !== to || edge.from === from);
-    if (!onlyWayIn(shift.address, branch.address) || !onlyWayIn(jump.address, shift.address)) return undefined;
+    // The range check holds only when every way to the shift goes through the comparison and then the branch.
+    if (
+      !onlyWayIn(branch.address, compare.address) ||
+      !onlyWayIn(shift.address, branch.address) ||
+      !onlyWayIn(jump.address, shift.address)
+    )
+      return undefined;
     if (!guarded || count <= 0 || count > 256) return undefined;
     const destinations: JumpTable["destinations"] = [];
     for (let index = 0; index < count; index++) {

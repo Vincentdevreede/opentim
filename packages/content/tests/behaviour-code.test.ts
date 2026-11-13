@@ -85,6 +85,11 @@ describe("routine control flow", () => {
     const looped = routine(0x8b, 0x5e, 6, 0x83, 0xfb, 1, 0x77, 0x0e, 0xd1, 0xe3, 0x2e, 0xff, 0xa7, 0x0f, 0, 0x13, 0, 0x15, 0, 0xeb, 0xf3, 0xcb, 0xcb);
     expect(looped.status).toBe("partial");
     expect(looped.uncertainties.some((u) => u.includes("can be bypassed"))).toBe(true);
+    // mov bx, [bp+6]; cmp ax, 1; jb branch; cmp bx, 1; branch: ja default; shl bx, 1; jmp cs:[bx+0x14]; default: retf
+    // prettier-ignore
+    const intoBranch = routine(0x8b, 0x5e, 6, 0x83, 0xf8, 1, 0x72, 3, 0x83, 0xfb, 1, 0x77, 0x0b, 0xd1, 0xe3, 0x2e, 0xff, 0xa7, 0x14, 0, 0x18, 0, 0x18, 0, 0xcb);
+    expect(intoBranch.status).toBe("partial");
+    expect(intoBranch.edges.filter((edge) => edge.kind === "jump-table")).toEqual([]);
   });
 
   it("follows a bounded sparse search table and preserves its actual keys", () => {
