@@ -12,7 +12,7 @@ import {
 import { computed, nextTick, ref, watch } from "vue";
 import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
-import { groupOf, toonsSetting, type StartGroup } from "../../levels.ts";
+import { groupOf, toonsSetting, toonsStart, type StartGroup } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -41,6 +41,8 @@ const props = defineProps<{
   record?: readonly WriterField[];
   /** For Toons, the type table's sort words, which decide which tunnel of a pair the puzzle start puts in the bin. */
   toonsKinds?: ReadonlyMap<number, number>;
+  /** For Toons, the words of the types the bin is sorted by, which TOONS.EXE sets when it starts. */
+  toonsBinKinds?: ReadonlyMap<number, number>;
 }>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
@@ -73,14 +75,33 @@ const TOONS_HINTS: Partial<Record<StartGroup, string>> = {
   bin: "Parts without bit 0x40 of the third flag word, and the ropes and belts tied to them. The file keeps them where the designer left them; TOONS.EXE puts them in the bin when the puzzle starts.",
 };
 
+/** How TOONS.EXE's puzzle setup leaves a Toons level: the bin in its order, and the plugs it pulls out. */
+const start = computed(() =>
+  props.level.layout === "toons" ? toonsStart(props.level, props.toonsKinds, props.toonsBinKinds) : undefined,
+);
+
+/** The bin's hint for Toons: in TOONS.EXE's order once it is loaded, else by the type's number. */
+const toonsBinHint = computed(
+  () =>
+    `${TOONS_HINTS.bin} ${
+      props.toonsBinKinds?.size
+        ? "In TOONS.EXE’s order: by a table of the types in the program, a type’s parts in the order the setup puts them there."
+        : "By the type’s number until TOONS.EXE is loaded, whose own order puts the types by a table in the program."
+    }`,
+);
+
 /** The parts of each group as the puzzle starts, leaving out a group that only Toons has when it is empty. */
 const groups = computed(() =>
   GROUPS.map((g) => ({
     ...g,
     hint:
+      (g.group === "bin" && start.value ? toonsBinHint.value : undefined) ??
       (props.level.layout === "tim2" ? TIM2_HINTS : props.level.layout === "toons" ? TOONS_HINTS : {})[g.group] ??
       g.hint,
-    parts: props.level.parts.filter((p) => groupOf(props.level, p, false, props.toonsKinds) === g.group),
+    parts:
+      g.group === "bin" && start.value
+        ? start.value.binOrder.map((i) => props.level.parts[i]!)
+        : props.level.parts.filter((p) => groupOf(props.level, p, false, props.toonsKinds) === g.group),
   })).filter((g) => g.group !== "gone" || g.parts.length),
 );
 
@@ -224,6 +245,8 @@ interface Row {
   link?: number;
   /** Where the loader keeps the field, as a short tag and what it means. */
   loaded?: { tag: string; title: string; faint?: boolean };
+  /** What the puzzle start makes of the field, as a short tag and what it means. */
+  start?: { tag: string; title: string };
 }
 
 const words = (at: number[]) => at.map((a) => hex(a, 2)).join(" ");
@@ -256,6 +279,31 @@ function loadedTag(place: LoadedPlace): Row["loaded"] {
   return { tag, title: what ? `${where}: ${what}.` : `${where}.` };
 }
 
+/**
+ * The plugs TOONS.EXE's puzzle setup pulls out of a part, or the part's own plug when `own` (`0xb7b3`), with the
+ * part's plugs after it.
+ */
+function plugsAtStart(p: LevelPart, own = false): Row["start"] {
+  const pulled = start.value?.unplugged.filter((u) => u.part === p.index || (!own && u.into === p.index)) ?? [];
+  if (!pulled.length) return undefined;
+  const after = start.value?.plugs.get(p.index);
+  return {
+    tag: `unplugged at the start${after?.some((l) => l !== null) ? `: ${after.map(index).join(", ")}` : ""}`,
+    title: `${pulled.map((u) => `#${u.part} out of place ${u.place + 1} of #${u.into}`).join("; ")}. TOONS.EXE pulls a part’s plug out when its puzzle setup puts the part, or the part it is plugged into, in the bin.`,
+  };
+}
+
+/** The state TOONS.EXE's puzzle setup leaves a part on the board with, when it changes it. */
+function stateAtStart(p: LevelPart): Row["start"] {
+  const state = start.value?.states.get(p.index);
+  if (state === undefined) return undefined;
+  return {
+    tag: `${state} at the start`,
+    title:
+      "Pulling a plug out or untying a rope as the puzzle starts runs the part’s own routine, which sets its state again: an electric switch shows the plugs it still has, an anvil whether a rope is tied to it. The level is drawn with this state.",
+  };
+}
+
 /** The fields of a part, as rows of name, value and, when the meaning isn't clear, a note. */
 function rows(p: LevelPart): Row[] {
   // Only TIM 1 and Even More levels were loaded with the game's loader.
@@ -263,7 +311,7 @@ function rows(p: LevelPart): Row[] {
   const out: Row[] = [
     { key: "type", value: `${p.type} · ${nameOf(p)}`, loaded: at("type") },
     { key: "flags", ...flagsShown(p), raw: p.flags.map(word).join(" "), loaded: at("flags") },
-    { key: "state", value: p.state.join(", "), loaded: at("state") },
+    { key: "state", value: p.state.join(", "), loaded: at("state"), start: stateAtStart(p) },
     { key: "position", value: pair(p.position), loaded: at("position") },
     { key: "size", value: `${p.size.width} × ${p.size.height}`, loaded: at("size") },
     { key: "base size", value: `${p.baseSize.width} × ${p.baseSize.height}`, loaded: at("baseSize") },
@@ -305,15 +353,19 @@ function rows(p: LevelPart): Row[] {
     });
   }
   if (p.plugs?.some((l) => l !== null))
-    out.push({ key: "plugs", value: p.plugs.map(index).join(", "), loaded: at("plugs") });
+    out.push({ key: "plugs", value: p.plugs.map(index).join(", "), loaded: at("plugs"), start: plugsAtStart(p) });
   if (p.pulley !== undefined) out.push({ key: "pulley", value: index(p.pulley), loaded: at("pulley") });
   if (p.tunnel !== undefined) out.push({ key: "tunnel", value: index(p.tunnel) });
   if (p.plugPlace !== undefined) {
     const plugged = p.plugs?.[0];
+    // A part with bit 0x2 of the third flag word takes plugs: its plugs are the parts in it, and the byte isn't used.
+    const takesPlugs = props.level.layout === "toons" && ((p.flags[2] ?? 0) & 0x2) !== 0;
     out.push(
-      plugged === null || plugged === undefined
-        ? { key: "plugPlace", value: String(p.plugPlace), note: "no plug" }
-        : { key: "plugPlace", value: `place ${p.plugPlace + 1} of #${plugged}` },
+      takesPlugs
+        ? { key: "plugPlace", value: `${p.plugPlace}, not used: it takes plugs` }
+        : plugged === null || plugged === undefined
+          ? { key: "plugPlace", value: String(p.plugPlace), note: "no plug" }
+          : { key: "plugPlace", value: `place ${p.plugPlace + 1} of #${plugged}`, start: plugsAtStart(p, true) },
     );
   }
   if (p.setting !== undefined) {
@@ -405,6 +457,9 @@ function rows(p: LevelPart): Row[] {
                 <span v-else :title="r.raw">{{ r.value }}</span>
                 <!-- The note and where the loader keeps the field go under the value, so the value keeps its width. -->
                 <span v-if="r.note" class="block font-sans text-2xs text-hypothesis">{{ r.note }}</span>
+                <span v-if="r.start" class="block font-sans text-2xs text-faint" :title="r.start.title">{{
+                  r.start.tag
+                }}</span>
                 <span
                   v-if="r.loaded"
                   class="block text-2xs text-faint"

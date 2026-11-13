@@ -38,6 +38,7 @@ import {
   readTim2Types,
   readToonsDrawing,
   readToonsGoals,
+  readToonsBinKinds,
   readToonsListKinds,
   summariseTim2Goal,
   toonsGoalParts,
@@ -260,6 +261,10 @@ const areaNumbers = computed(() => new Map(goalAreas.value.map((a) => [a.conditi
 const toonsKinds = computed(() =>
   program.value?.name === "TOONS.EXE" ? readToonsListKinds(program.value.data) : new Map<number, number>(),
 );
+/** The word of each Toons type the parts bin is sorted by, as TOONS.EXE sets it when it starts. */
+const toonsBinKinds = computed(() =>
+  program.value?.name === "TOONS.EXE" ? readToonsBinKinds(program.value.data) : new Map<number, number>(),
+);
 /**
  * For a Toons goal, the level parts each condition is about when the puzzle starts, in the order TOONS.EXE keeps its
  * lists, with the parts on the board where the file puts them and the ropes the puzzle start leaves tied: the n-th part
@@ -362,6 +367,7 @@ const scene = computed(() =>
         drawingFrom: tim2Drawing.value?.from,
         toons: toonsCode.value,
         toonsKinds: toonsKinds.value,
+        toonsBinKinds: toonsBinKinds.value,
       })
     : undefined,
 );
@@ -561,6 +567,7 @@ onBeforeUnmount(() => {
         :header="loadedHeader"
         :record="recordFields"
         :toons-kinds="toonsKinds"
+        :toons-bin-kinds="toonsBinKinds"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

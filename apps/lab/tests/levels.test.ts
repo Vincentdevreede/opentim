@@ -467,8 +467,41 @@ describe("groupOf", () => {
   it("draws a rope between two parts on the board, and says which tunnel the puzzle start takes off", () => {
     const scene = layoutScene(level, undefined, () => undefined);
     expect(scene.parts.map((p) => p.part.index)).toEqual([0, 1, 3]);
-    expect(scene.bin.map((p) => p.index)).toEqual([2, 4, 6]);
+    // Without TOONS.EXE's sort words the bin goes by the type's number: the rope, the balloon, the tunnel.
+    expect(scene.bin.map((p) => p.index)).toEqual([4, 2, 6]);
     expect(scene.notes.map((n) => n.title)).toContain("1 tunnel taken off.");
+  });
+
+  it("puts the bin in the order of TOONS.EXE's sort words, and the file's order for the solution", () => {
+    const binKinds = new Map([
+      [46, 0],
+      [23, 1],
+      [14, 2],
+    ]);
+    expect(layoutScene(level, undefined, () => undefined, undefined, { toonsBinKinds: binKinds }).bin).toEqual([
+      level.parts[6],
+      level.parts[2],
+      level.parts[4],
+    ]);
+    expect(layoutScene(level, undefined, () => undefined, undefined, { solution: true }).bin).toEqual([]);
+  });
+
+  it("draws an electric switch on the board without the plug the puzzle start pulls out, and says so", () => {
+    // Switch #0 (state 1: a plug in its first place) stays; hair drier #1, plugged into it, goes to the bin.
+    const plugged = {
+      layout: "toons",
+      parts: [
+        part(0, 2, 0x42, { state: [1, 0], plugs: [1, null] }),
+        part(1, 52, 0x01, { plugs: [0, null], plugPlace: 0 }),
+      ],
+    } as unknown as Level;
+    const scene = layoutScene(plugged, undefined, () => undefined);
+    expect(scene.parts.map((d) => [d.part.index, d.part.state[0], d.part.plugs])).toEqual([[0, 0, [null, null]]]);
+    expect(scene.notes.map((n) => n.title)).toEqual(
+      expect.arrayContaining(["1 plug pulled out.", "1 part with another state."]),
+    );
+    // The level itself keeps the file's values.
+    expect(plugged.parts[0]!.state[0]).toBe(1);
   });
 });
 

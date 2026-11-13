@@ -168,7 +168,7 @@ export interface Scene {
   /** The static and moving parts, in the order the file stores them, which is also the drawing order. */
   parts: DrawnPart[];
   lines: Line[];
-  /** Parts waiting in the bin, which aren't on the board. */
+  /** Parts waiting in the bin, which aren't on the board; for a Toons puzzle in the order TOONS.EXE keeps them. */
   bin: LevelPart[];
   notes: Note[];
   /** The knot TIM.EXE draws at a rope's ends: picture 36 of GP_BORD, 5 pixels left of and 2 above the slot. */
@@ -182,13 +182,18 @@ const TIM2_NOT_IN_SOLUTION = 0x100;
 /** Where a part is when the puzzle starts: on its list, in the bin, or `gone` for a Toons tunnel the setup frees. */
 export type StartGroup = LevelPart["group"] | "gone";
 
-const toonsStarts = new WeakMap<Level, { kinds?: ReadonlyMap<number, number>; start: ToonsPuzzleStart }>();
-/** TOONS.EXE's puzzle start of a level, worked out once per level and type table. */
-function toonsStart(level: Level, kinds?: ReadonlyMap<number, number>): ToonsPuzzleStart {
-  const known = toonsStarts.get(level);
-  if (known && known.kinds === kinds) return known.start;
-  const start = toonsPuzzleStart(level, kinds);
-  toonsStarts.set(level, { kinds, start });
+type Kinds = ReadonlyMap<number, number> | undefined;
+const toonsStarts = new WeakMap<Level, { kinds: Kinds; binKinds: Kinds; start: ToonsPuzzleStart }[]>();
+/**
+ * TOONS.EXE's puzzle start of a level (`toonsPuzzleStart`), worked out once per level and pair of sort words: `kinds`
+ * for the parts lists, `binKinds` for the bin (`readToonsBinKinds`).
+ */
+export function toonsStart(level: Level, kinds?: Kinds, binKinds?: Kinds): ToonsPuzzleStart {
+  const known = toonsStarts.get(level) ?? [];
+  const found = known.find((k) => k.kinds === kinds && k.binKinds === binKinds);
+  if (found) return found.start;
+  const start = toonsPuzzleStart(level, kinds, binKinds);
+  toonsStarts.set(level, [...known.slice(-3), { kinds, binKinds, start }]);
   return start;
 }
 
@@ -634,11 +639,26 @@ export function layoutScene(
     drawingFrom = "TIM2.EXE’s",
     toons,
     toonsKinds,
-  }: { solution?: boolean; drawingFrom?: string; toons?: ToonsCode; toonsKinds?: ReadonlyMap<number, number> } = {},
+    toonsBinKinds,
+  }: {
+    solution?: boolean;
+    drawingFrom?: string;
+    toons?: ToonsCode;
+    toonsKinds?: ReadonlyMap<number, number>;
+    toonsBinKinds?: ReadonlyMap<number, number>;
+  } = {},
 ): Scene {
   const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsKinds)]));
   const board = level.parts.filter((p) => groups.get(p) !== "bin" && groups.get(p) !== "gone");
-  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom, toons));
+  // A Toons puzzle starts with the bin in TOONS.EXE's order and the parts on the board as its setup leaves them.
+  const start = level.layout === "toons" && !solution ? toonsStart(level, toonsKinds, toonsBinKinds) : undefined;
+  const atStart = (p: LevelPart): LevelPart => {
+    const state = start?.states.get(p.index);
+    const plugs = start?.plugs.get(p.index);
+    if (state === undefined && !plugs) return p;
+    return { ...p, ...(state === undefined ? {} : { state: [state, p.state[1]] }), ...(plugs ? { plugs } : {}) };
+  };
+  const parts = board.map((p) => drawPart(atStart(p), level.layout, list, spriteOf, drawing, drawingFrom, toons));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {
@@ -675,12 +695,26 @@ export function layoutScene(
       title: `${plural(gone.length, "tunnel")} taken off.`,
       detail: `${gone.map((p) => `#${p.index}`).join(", ")}: the other end of a tunnel in the bin. TOONS.EXE takes it off as the puzzle starts and makes a new one when the player puts the tunnel on the board.`,
     });
+  // The plugs the setup pulls out of a part that stays on the board, and the states it changes there.
+  const pulled = start?.unplugged.filter((u) => !start.bin.has(u.into) || !start.bin.has(u.part)) ?? [];
+  if (pulled.length)
+    notes.push({
+      status: "decoded",
+      title: `${plural(pulled.length, "plug")} pulled out.`,
+      detail: `${pulled.map((u) => `#${u.part} from #${u.into}`).join(", ")}: the puzzle start unplugs what it puts in the bin.`,
+    });
+  if (start?.states.size)
+    notes.push({
+      status: "decoded",
+      title: `${plural(start.states.size, "part")} with another state.`,
+      detail: `${[...start.states].map(([i, state]) => `#${i} ${state}`).join(", ")}: drawn with the state the puzzle start leaves them in.`,
+    });
   const knot = compose([KNOT], spriteOf);
   return {
     area: PLAY_AREAS[level.layout],
     parts,
     lines,
-    bin: level.parts.filter((p) => groups.get(p) === "bin"),
+    bin: start ? start.binOrder.map((i) => level.parts[i]!) : level.parts.filter((p) => groups.get(p) === "bin"),
     notes,
     knot,
   };

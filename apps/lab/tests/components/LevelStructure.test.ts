@@ -91,3 +91,36 @@ it("keeps a Toons part's flags as the stored words, since the meanings are TIM's
   expect(text).toContain("flags 0x1040 0x0030 0x0008");
   expect(text).not.toContain("mirrored");
 });
+
+it("says which plugs a Toons puzzle start pulls out, and the state it leaves the switch with", async () => {
+  // Electric switch #0 (state 1: a plug in its first place) stays on the board; hair drier #1 goes to the bin.
+  const sw: LevelPart = { ...part(0, 2), flags: [0, 0, 0x42], state: [1, 0], plugs: [1, null] };
+  const drier: LevelPart = { ...part(1, 52), flags: [0, 0, 0x01], plugs: [0, null], plugPlace: 0 };
+  const l = level([sw, drier], "toons");
+  const render = (selected: number) =>
+    renderToString(createSSRApp({ render: () => h(LevelStructure, { level: l, name: "CAKE1.LEV", selected }) }));
+  const text = visibleText(await render(0));
+  expect(text).toContain("state 1, 0 0 at the start");
+  expect(text).toContain("plugs #1, none unplugged at the start");
+  expect(visibleText(await render(1))).toContain("plugPlace place 1 of #0 unplugged at the start");
+});
+
+it("lists a Toons bin in TOONS.EXE's order, by the type's number until it is loaded", async () => {
+  const loose = (index: number, type: number) => ({ ...part(index, type), flags: [0, 0, 0] });
+  const l = level([loose(0, 52), loose(1, 23)], "toons");
+  const order = async (toonsBinKinds?: Map<number, number>) => {
+    const page = await renderToString(
+      createSSRApp({ render: () => h(LevelStructure, { level: l, name: "CAKE1.LEV", toonsBinKinds }) }),
+    );
+    return [...page.matchAll(/data-structure-part="(\d+)"/g)].map((m) => Number(m[1]));
+  };
+  expect(await order()).toEqual([1, 0]);
+  expect(
+    await order(
+      new Map([
+        [52, 0],
+        [23, 1],
+      ]),
+    ),
+  ).toEqual([0, 1]);
+});

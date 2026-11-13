@@ -88,9 +88,12 @@ The biggest file of the Lab. In order:
   type,
   `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
   the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
-  for TIM 2 and Toons, whose files keep no bin; for Toons it follows `toonsPuzzleStart`, with the type table's sort
-  words the page passes as `toonsKinds`, and gives `gone` for a tunnel the puzzle start takes off, which the Structure
-  panel lists as "Taken off" and the scene notes), and for TIM 2 the frame a state picks
+  for TIM 2 and Toons, whose files keep no bin; for Toons it follows `toonsPuzzleStart` through `toonsStart`, with the
+  type table's sort words the page passes as `toonsKinds` and `toonsBinKinds`, and gives `gone` for a tunnel the
+  puzzle start takes off, which the Structure panel lists as "Taken off" and the scene notes). For a Toons puzzle the
+  scene's bin and the Structure panel's are in TOONS.EXE's order, the board is drawn with the states the setup leaves
+  (an unplugged switch, an anvil whose rope went to the bin), the scene notes the plugs it pulls out, and the
+  Structure panel tags a part's plugs and state with what the start makes of them. For TIM 2 the frame a state picks
   (`Part.states`) and the wall and tile pattern routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`), when it is
   loaded. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
   tables `readToonsDrawing` reads and the message machine's font.
