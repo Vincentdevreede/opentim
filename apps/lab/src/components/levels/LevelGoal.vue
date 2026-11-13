@@ -61,7 +61,8 @@ const ownWords = computed(() => {
   // A word the routine keeps that the summary doesn't list, in the order the routine first uses it.
   const lines = props.goal.status === "done" ? props.goal.goal.lines : [];
   for (const line of lines)
-    for (const [, word, indexed] of line.matchAll(/\b(word 0x[0-9a-f]{4})\b(\[)?/g)) {
+    // A word of the data segment, or of a far segment as Toons' goals keep some (`word 0x340f:7514`).
+    for (const [, word, indexed] of line.matchAll(/\b(word 0x[0-9a-f]{4}(?::[0-9a-f]{4})?)\b(\[)?/g)) {
       const list = indexed ? tables : words;
       if (!list.includes(word!)) list.push(word!);
     }

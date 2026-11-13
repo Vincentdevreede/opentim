@@ -400,7 +400,7 @@ class Runner {
           const key = this.key(s.target, state.env, frame);
           const mode = this.names.mode;
           if (mode && key === `w:${mode.word}`) {
-            if (value.kind !== "constant" || value.value !== mode.met)
+            if (value.kind !== "constant" || (mode.met !== undefined && value.value !== mode.met))
               throw new DoesntFit("it sets the game mode to something other than the goal being met");
             this.met.push(state.alive);
             break;

@@ -37,6 +37,7 @@ import {
   hasWallLimits,
   readTim2Types,
   readToonsDrawing,
+  readToonsGoals,
   summariseTim2Goal,
   tim2Drawing as drawingOf,
   type GoalCondition,
@@ -154,6 +155,17 @@ watch(
   { immediate: true },
 );
 
+/** Toons' goals, read from TOONS.EXE when it is loaded: one routine per puzzle, named by the level it is for. */
+const toonsGoals = computed(() => {
+  if (program.value?.name !== "TOONS.EXE") return undefined;
+  const byType = new Map(list.value?.parts.map((p) => [p.type, p.id]));
+  try {
+    return byType.size ? readToonsGoals(program.value.data, byType) : readToonsGoals(program.value.data);
+  } catch (e) {
+    return { problem: e instanceof Error ? e.message : String(e), goals: [] };
+  }
+});
+
 /** The puzzle a level file is, by its name: `L12.LEV` is puzzle 12, whose goal routine TIM.EXE picks by that number. */
 const puzzle = computed(() => {
   const match = /^L(\d+)\.LEV$/i.exec(current.value?.resource.name ?? "");
@@ -170,7 +182,14 @@ const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefin
       ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
       : { status: "none", why: "This level has no goal entries." };
   }
-  if (level.value?.layout === "toons") return { status: "none", why: "Toons’ goals aren’t read from TOONS.EXE yet." };
+  if (level.value?.layout === "toons") {
+    const read = toonsGoals.value;
+    if (!read) return { status: "none", why: "The goals are read from TOONS.EXE, which isn’t loaded." };
+    if (read.problem) return { status: "none", why: `The goals couldn’t be read: ${read.problem}` };
+    const name = current.value?.resource.name.replace(/\.LEV$/i, "").toUpperCase();
+    const found = read.goals.find((g) => g.name === name);
+    return found ? { status: "done", goal: found } : { status: "none", why: `TOONS.EXE has no goal for ${name}.` };
+  }
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
   if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };

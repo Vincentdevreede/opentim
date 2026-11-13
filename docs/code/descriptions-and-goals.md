@@ -101,6 +101,12 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
 
 `check-goals` compares `runGoal` with the game's own routine in the emulator on random worlds (`goal-check.ts`).
 
+Toons' goals (`toons-goals.ts`): `findToonsGoalTable` finds the dispatcher, its table and the level names in TOONS.EXE
+laid out with its overlays (`readToonsMemory`), and `readToonsGoals` reads the routines with `readGoalRoutines` (with
+`resolve` for the overlay stubs and `farWords` for words reached through `es`, kept as `FAR_WORDS` plus segment and
+offset) and says them with `describeGoal`, which says a call to `GoalNames.finder` as the part it finds. A goal without
+a value in `GoalNames.mode` is met by any write of the mode word: Toons' countdown.
+
 ## Level files
 
 - `level.ts`: `readLevel(data, { layout, name })` reads TIM 1, Even More and Toons `.LEV`/`.GKC` files. Puzzle or

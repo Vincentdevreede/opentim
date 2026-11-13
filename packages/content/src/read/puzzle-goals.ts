@@ -245,6 +245,25 @@ export function negate(test: GoalTest): GoalTest {
 const ZERO: GoalValue = { kind: "constant", value: 0 };
 const EXIT = -1;
 
+/**
+ * Where a goal's word of another segment than the data segment is: this, plus the segment times 0x10000, plus its
+ * offset, past every word of the data segment. Toons' goals keep some of their words in a far segment they load into
+ * `es`. `farWord` gives the segment and offset back.
+ */
+export const FAR_WORDS = 2 ** 32;
+export const farWord = (address: number) =>
+  address >= FAR_WORDS
+    ? { segment: Math.floor((address - FAR_WORDS) / 0x10000), offset: (address - FAR_WORDS) % 0x10000 }
+    : undefined;
+
+/** How to read a program whose goals reach past TIM.EXE's ways. */
+export interface GoalReading {
+  /** Where a far call leads, for calls through the stubs of an overlay manager. */
+  resolve?: (segment: number, offset: number) => { segment: number; offset: number };
+  /** Whether a goal may read and write words of another segment through `es`, after loading it with a constant. */
+  farWords?: boolean;
+}
+
 /** One routine's code: its instructions by address, and where each goes next. */
 class RoutineGraph {
   readonly instructions = new Map<number, Instruction>();
@@ -328,10 +347,32 @@ class RoutineReader {
   /** Where the stack pointer is, from the routine's frame pointer: pushes and pops are words at frame offsets. */
   private sp = 0;
   private readonly calls: Set<string>;
+  private readonly reading: GoalReading;
+  /** The constant each register holds, while it holds one, to know the segment a goal loads into `es`. */
+  private constants = new Map<string, number>();
+  /** The segment in `es`, when a goal loaded one. */
+  private es?: number;
 
-  constructor(image: Uint8Array, address: number, segment: number, calls: Set<string>) {
+  constructor(image: Uint8Array, address: number, segment: number, calls: Set<string>, reading: GoalReading = {}) {
     this.calls = calls;
+    this.reading = reading;
     this.graph = new RoutineGraph(image, address, segment);
+  }
+
+  /** The registers' constants and `es`, to put back when a branch's other way starts. */
+  private known() {
+    return { constants: new Map(this.constants), es: this.es };
+  }
+
+  private restore(known: ReturnType<RoutineReader["known"]>) {
+    this.constants = new Map(known.constants);
+    this.es = known.es;
+  }
+
+  /** Where two ways meet, a register keeps its constant (and `es` its segment) only when both ways left the same. */
+  private meet(other: ReturnType<RoutineReader["known"]>) {
+    for (const [name, value] of this.constants) if (other.constants.get(name) !== value) this.constants.delete(name);
+    if (other.es !== this.es) this.es = undefined;
   }
 
   read(): GoalStatement[] {
@@ -389,14 +430,18 @@ class RoutineReader {
         const join = this.inside(this.graph.join(at), region, at);
         const sp = this.sp;
         const flags = { flags: this.flags, at: this.flagsAt };
+        const before = this.known();
         const taken = this.run(i.target!.address, { ...region, stop: join });
         const takenSp = this.sp;
         const takenFlags = { flags: this.flags, at: this.flagsAt };
+        const takenKnown = this.known();
         // Both ways start from the flags before the branch, which the branch doesn't change.
         this.sp = sp;
         this.flags = flags.flags;
         this.flagsAt = flags.at;
+        this.restore(before);
         const fall = this.run(next, { ...region, stop: join });
+        this.meet(takenKnown);
         const ends = (body: GoalStatement[]) => ["break", "return"].includes(body.at(-1)?.kind ?? "");
         if (!ends(taken) && !ends(fall) && takenSp !== this.sp)
           throw new Unreadable(at, "two ways that leave the stack in different places");
@@ -422,11 +467,13 @@ class RoutineReader {
         const target = i.target!.address;
         const loop = target > at ? this.loopAt(target, next) : undefined;
         if (loop) {
-          const before = this.run(target, { stop: loop.at });
+          const before = this.run(target, { stop: loop.at, loopExit: loop.at + this.instruction(loop.at).size });
           const test = this.test(this.instruction(loop.at));
           const exit = loop.at + this.instruction(loop.at).size;
           const sp = this.sp;
+          const entered = this.known();
           const body = this.run(next, { stop: target, loopExit: exit });
+          this.meet(entered);
           if (this.sp !== sp) throw new Unreadable(at, "a loop that moves the stack");
           out.push({ kind: "loop", before, test, body });
           at = exit;
@@ -452,14 +499,20 @@ class RoutineReader {
     return join;
   }
 
-  /** A loop entered by a jump to its test: straight code from `test` to a branch back to `body`. */
+  /**
+   * A loop entered by a jump to its test: code from `test` to a branch back to `body`. The test may leave the loop
+   * early on the way, by branches to where the loop goes on after it (`while (a && b)`), which then read as breaks.
+   */
   private loopAt(test: number, body: number): { at: number } | undefined {
     let at = test;
-    for (let n = 0; n < 8; n++) {
+    const exits: number[] = [];
+    for (let n = 0; n < 12; n++) {
       const i = this.graph.instructions.get(at);
       if (!i) return undefined;
-      if (i.flow === "branch") return i.target!.address === body ? { at } : undefined;
-      if (i.flow !== "next") return undefined;
+      if (i.flow === "branch" && i.target!.address === body)
+        return exits.every((e) => e === at + i.size) ? { at } : undefined;
+      if (i.flow === "branch" && i.target!.address > at) exits.push(i.target!.address);
+      else if (i.flow !== "next") return undefined;
       at += i.size;
     }
     return undefined;
@@ -508,9 +561,14 @@ class RoutineReader {
         return { kind: "constant", value: operand.value & 0xffff };
       case "memory": {
         if (operand.width !== 16) throw new Unreadable(at, `a ${operand.width}-bit memory operand`);
-        if (operand.segment !== "ds" && !(operand.segment === "ss" && operand.base.join() === "bp"))
+        const far = operand.segment === "es" && this.es !== undefined ? FAR_WORDS + this.es * 0x10000 : undefined;
+        if (
+          operand.segment !== "ds" &&
+          far === undefined &&
+          !(operand.segment === "ss" && operand.base.join() === "bp")
+        )
           throw new Unreadable(at, `memory through ${operand.segment}`);
-        const displacement = operand.displacement & 0xffff;
+        const displacement = (operand.displacement & 0xffff) + (far ?? 0);
         if (operand.base.includes("bp")) {
           if (operand.base.length !== 1) throw new Unreadable(at, "an indexed local");
           return { kind: "local", offset: displacement >= 0x8000 ? displacement - 0x10000 : displacement };
@@ -542,6 +600,45 @@ class RoutineReader {
   }
 
   private step(i: Instruction): GoalStatement[] {
+    const [a, b] = i.operands;
+    // `mov es, register` after the register was loaded with a segment: the goal reads that segment's words next.
+    if (i.mnemonic === "mov" && a?.kind === "register" && a.name === "es" && this.reading.farWords) {
+      const segment = b?.kind === "register" ? this.constants.get(b.name) : undefined;
+      if (segment === undefined) throw new Unreadable(i.address, "a segment in es that isn't a constant");
+      this.es = segment;
+      return [];
+    }
+    // A segment loaded into a register only to go into `es` next is no word of the goal's: it is kept, not said.
+    if (this.reading.farWords && i.mnemonic === "mov" && a?.kind === "register" && b?.kind === "immediate") {
+      for (let at = i.address + i.size, n = 0; n < 3; n++) {
+        const next = this.graph.instructions.get(at);
+        if (!next || next.flow !== "next") break;
+        const [to, from] = next.operands;
+        if (next.mnemonic === "mov" && to?.kind === "register" && to.name === "es") {
+          if (from?.kind === "register" && from.name === a.name) {
+            this.constants.set(a.name, b.value & 0xffff);
+            return [];
+          }
+          break;
+        }
+        if (next.operands.some((o) => o.kind === "register" && o.name === a.name)) break;
+        at += next.size;
+      }
+    }
+    const statements = this.statements(i);
+    for (const s of statements)
+      if (s.kind === "set" && s.target.kind === "register") {
+        if (s.value.kind === "constant") this.constants.set(s.target.name, s.value.value);
+        else this.constants.delete(s.target.name);
+      } else if (s.kind === "call") {
+        // A routine the goal calls can change every register and es.
+        this.constants.clear();
+        this.es = undefined;
+      }
+    return statements;
+  }
+
+  private statements(i: Instruction): GoalStatement[] {
     const at = i.address;
     const [a, b] = i.operands;
     const binary = (op: GoalOperator, left: GoalValue, right: GoalValue): GoalValue => ({
@@ -639,9 +736,10 @@ class RoutineReader {
       }
       case "call": {
         if (!i.target) throw new Unreadable(at, `an indirect call (${i.text})`);
-        const routine = i.target.address;
-        this.calls.add(`${i.target.segment}:${i.target.offset}`);
-        return [{ kind: "call", routine, segment: i.target.segment, offset: i.target.offset, stack: this.sp }];
+        const target = this.reading.resolve?.(i.target.segment, i.target.offset) ?? i.target;
+        const routine = target.segment * 16 + target.offset;
+        this.calls.add(`${target.segment}:${target.offset}`);
+        return [{ kind: "call", routine, segment: target.segment, offset: target.offset, stack: this.sp }];
       }
       case "retf":
       case "ret":
@@ -666,6 +764,7 @@ export function readGoalRoutines(
   segment: number,
   offset: number,
   known = new Map<number, GoalRoutine | GoalProblem>(),
+  reading: GoalReading = {},
 ): Map<number, GoalRoutine | GoalProblem> {
   const pending = [`${segment}:${offset}`];
   const reached = new Set<number>();
@@ -677,7 +776,7 @@ export function readGoalRoutines(
     const calls = new Set<string>();
     if (!known.has(address)) {
       try {
-        const body = new RoutineReader(image, address, s, calls).read();
+        const body = new RoutineReader(image, address, s, calls, reading).read();
         known.set(address, { address, segment: s, offset: o, body });
       } catch (problem) {
         if (!(problem instanceof Unreadable)) throw problem;

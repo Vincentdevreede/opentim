@@ -405,7 +405,7 @@ What isn't worked out yet, and what the Lab does meanwhile:
 Sid & Al's Incredible Toons ships 100 puzzles in four sets, `CAKE1` to `CAKE30`, `BRAN1` to `BRAN20`, `HARD1` to
 `HARD25` and `LOON1` to `LOON25`. All 100 read to their last byte in the Toons layout
 ([file formats](file-formats.md#level-files-lev-tim-gkc)), versions `0x105` and `0x106`. Each has a title and a goal
-text; the goal itself isn't in the file.
+text; the goal itself isn't in the file but in TOONS.EXE ([Toons goals](#toons-goals)).
 
 **Parts bin.** The files have no bin list. Bit 0x40 of a part's third flag word decides, as in TIM 2: TOONS.EXE lets
 the player neither move nor change a part with it (the routine that says what the player may do with a part returns
@@ -458,6 +458,40 @@ from -91 to 549 across and from -8 to 392 down, which is where the walls of the 
 own scroll words (-91 in 40 levels, -8 in the others) are read and overwritten. Whether the parts bin or the controls
 cover some of the screen while a puzzle is set up isn't read. The Lab draws the play area there.
 
+### Toons goals
+
+As in TIM 1, the goal isn't in the level file but is a routine in TOONS.EXE, one per puzzle. The run loop (the check
+at file offset `0x86fb`) calls a dispatcher (`0x87fc`) every step while a word of its own, the goal's countdown
+(`[0x470d]`, -1 when a run starts), is below 0. The dispatcher calls the far pointer the puzzle's number (the byte
+`[0x448c]`, 0 to 99) picks from a table of 100 (`0x4d99a`); an entry of 0 would meet the goal at once. All 100 point
+into one overlay (stub segment `0x4669`, code at `0x71290`), and 61 routines serve the 100 puzzles. A routine meets the
+goal by setting the countdown to a number of steps, 10 in most, up to 120: the run loop counts it down by 1 a step,
+and at 0 sets the game mode word to `0x200`, which ends the run as solved, as in TIM 1. The step count (`[0x470f]`) is
+0 in the first step.
+
+The puzzle's number is its place in the four sets: `CAKE1` is 0, `BRAN1` 30, `HARD1` 50 and `LOON1` 75. TOONS.EXE
+builds the file name from a table of the sets' first numbers (0, 30, 50, 75 and 100, at `0x4d672`) and their names
+(`0x6dfd0`).
+
+A Toons goal starts, in the step whose count is 0, by finding its parts with a routine that gives the n-th part of a
+type on the lists a mask names (`0x882d`; the fixed list `0x2000`, the moving list `0x1000`), and keeps them in words,
+some in a far segment (`0x340f`). Each step it then tests their fields, like CAKE1: Al's action 8 and state 66 and the
+state of all five message machines not 0, then the goal is met 10 steps later.
+
+`readToonsGoals` (`src/read/toons-goals.ts`) finds the dispatcher, the run loop's words and the level names by their
+code, and reads the routines with TIM's goal reader (`readGoalRoutines`), which follows calls through the overlay stubs
+and words a goal reaches through `es` once it has loaded a constant segment there. `describeGoal` says a call to the
+finder as the part it finds ("word 0x340f:7514 = the 1st al-e-cat on the moving list, or 0 if there is none") and a
+write of the countdown as "the goal is met, and the run ends 10 steps later". The fields are named by the record
+offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid's `action` at `0x0c`, `positionX` at
+`0x1f`, and so on). 89 of the 100 goals read; the Levels page shows the routine next to the goal text. The reading
+isn't checked in an emulator as TIM 1's is.
+
 ### Toons: still open
 
-- **Goals.** Not read. TOONS.EXE has to have them in its code or data, as TIM 1 has; the Lab shows the goal text.
+- **Goals as conditions.** No Toons goal reads as conditions yet: they find their parts through a routine that
+  walks the lists (the conditions only know TIM's walks) and keep them in words between steps. The Lab shows the goal
+  routine with a "program only" badge.
+- **Eleven goals aren't read**: BRAN16, HARD4, HARD6, HARD18 and HARD21 to HARD25 (one routine), LOON1 and LOON7. Their
+  routines count in byte locals, or loop or branch in ways the reader doesn't take; the Lab says which.
+- **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.
