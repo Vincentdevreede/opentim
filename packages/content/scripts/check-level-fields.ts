@@ -349,7 +349,8 @@ function report(results: PuzzleResult[], size: number, hasBin: boolean, headerLi
         if (!tally) {
           // TIM 1 keeps its words at even places; Toons' and TIM 2's records are packed, so a word can start anywhere.
           const step = width === 1 || packed ? 1 : 2;
-          const offsets = Array.from({ length: Math.floor((size - (width - 1)) / step) }, (_, k) => k * step);
+          const places = packed ? size - (width - 1) : Math.floor(size / step);
+          const offsets = Array.from({ length: places }, (_, k) => k * step);
           tally = { pairs: 0, nonZero: 0, values: [], offsets, agree: new Map(offsets.map((o) => [o, 0])) };
           tallies.set(key, tally);
         }
