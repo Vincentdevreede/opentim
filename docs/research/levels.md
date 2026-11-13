@@ -425,8 +425,17 @@ asks for, and the message machine with its letter under the frame.
 **Al and Sid** are drawn by frame like the other parts, each frame from the sheet of the action it belongs to
 ([file formats](file-formats.md#toonsexe)). The level reader doesn't set the action, so a part starts with action 0,
 whose sheet is `CATROOT` or `SIDROOT`; every Al and Sid in the shipped levels has state 0, the first frame of action 0.
-For another state the Lab takes the sheet of the action the frame belongs to, which is how the frames are laid out but
-not something the loader is seen doing.
+For another state the Lab takes the sheet of the action the frame belongs to.
+
+That the state is the frame is read from code. TOONS.EXE draws Al and Sid with the same routine as every part drawn
+from frames (file offset `0x1df79`), which takes the part's state as the place in the type's frame list (and in its
+list of positions) and nothing else; before it, for Al and Sid only, a routine (`0x3027f`, called from the drawing
+switch at `0x1e40a`) looks the part's action up in the action table and loads that action's sheet as the type's
+sheet, without touching the frame. When Al or Sid starts an action, the run code (`0x29c8a` for Al) sets the state to
+the action's first frame from the first-frame table, and the action's own code steps it from there (CATSHOT, `0x2aac3`,
+sets it to 111 plus a step from a table, within its frames 112 to 123). That a state belongs to the action whose run of
+frames holds it is how the two tables lay the frames out; the game doesn't check it, so a state outside the action's
+frames would draw with the action's sheet.
 
 **Toons' own fields.** TOONS.EXE's level reader (file offset `0x24c12`) reads three fields a TIM part doesn't have.
 The Lab's Structure panel names them:
@@ -568,10 +577,10 @@ every part of a type they look at. The places are the file's: for a part in the 
   goal is then met at once, which the conditions say as two more ways. In LOON7 both balloons come first on the moving
   list and the top one has the rope.
 - Al's and Sid's action is named by its sheet ("action = 50 (CATFISH)"), and a state by its frame in the sheet of the
-  action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is a frame number counted over the
-  sheets is inferred from the action table (each action's first frame and frame count), not seen in the goal code.
-  CAKE26 tests action 16 with state 141, which lies in another action's frames, so a state is only named next to its
-  own action.
+  action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is the frame drawn is read from the
+  drawing code ([Al and Sid](#toons-levels)); which action's frames it is in comes from the action tables. CAKE26
+  tests action 16 with state 141, which lies in another action's frames, so a state is only named next to its own
+  action.
 
 A Toons part's record is 0xb3 bytes: the level reader and two other places allocate it with `calloc(1, 0xb3)`
 (`0x24b45`, `0x24293`, `0xc15a`), so a goal's offsets up to `0xb2` are fields (the counters' setting at `0xaf`).
