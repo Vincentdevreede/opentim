@@ -417,6 +417,11 @@ tunnels in the bin. That the routine is the start of a puzzle is read from what 
 **Drawing.** The Lab draws a Toons level with the `toons` list: frames by state, walls and the ladder as tiles by
 TOONS.EXE's rule ([file formats](file-formats.md#toonsexe)), the rope and the belt as lines.
 
+The conveyor belt, the timer, the counter, the thumpulator and the message machine are drawn as their own code in
+TOONS.EXE draws them, with the tables it reads ([file formats](file-formats.md#toonsexe)), when `TOONS.EXE` is
+loaded: the conveyor belt as a row of tiles, the counter with its count, the thumpulator with the sections its setting
+asks for, and the message machine with its letter under the frame.
+
 **Al and Sid** are drawn by frame like the other parts, each frame from the sheet of the action it belongs to
 ([file formats](file-formats.md#toonsexe)). The level reader doesn't set the action, so a part starts with action 0,
 whose sheet is `CATROOT` or `SIDROOT`; every Al and Sid in the shipped levels has state 0, the first frame of action 0.
@@ -456,5 +461,3 @@ cover some of the screen while a puzzle is set up isn't read. The Lab draws the 
 ### Toons: still open
 
 - **Goals.** Not read. TOONS.EXE has to have them in its code or data, as TIM 1 has; the Lab shows the goal text.
-- **Own drawing code.** The conveyor belt, the timer, the counter, the thumpulator and the message machine have
-  drawing code of their own; the Lab draws only their frames.

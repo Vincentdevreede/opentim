@@ -121,6 +121,8 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
 - `toons.ts`: Toons' program (`loadImage`), its type table of 70-byte records (`findToonsTypeTable`,
   `readToonsTypes`, `TOONS_RECORD_FIELDS`) and Al's and Sid's actions (`readToonsActions`); `readToonsParts` in
   `parts.ts` makes the `toons` list from it.
+- `toons-drawing.ts`: TOONS.EXE with its overlays laid out (`readToonsMemory`) and the drawing code of the Toons types
+  that have their own, with its tables (`readToonsDrawing`).
 
 ## The emulator: `src/run`
 

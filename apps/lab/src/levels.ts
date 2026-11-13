@@ -20,7 +20,10 @@ import {
   type Composition,
   type SpriteOf,
   type Tim2Drawing,
+  type ToonsDrawing,
 } from "@opentim/content";
+import type { Font } from "@opentim/resources";
+import { toonsPicture } from "./toons-drawing.ts";
 import type { Edition } from "./edition.ts";
 import type { Resource } from "./importer.ts";
 import type { Confidence } from "./kinds.ts";
@@ -105,9 +108,16 @@ export function readLevels(resources: readonly Resource[], layout: LevelLayout):
  * - `tiles`: 16 × 16 tiles, for parts with bit 0x40 in the first flag word, like walls.
  * - `line`: a rope or a belt, drawn as lines between the parts it ties.
  * - `block`: TIM 2's colour block, a box filled with one colour.
+ * - `code`: a Toons part its type's own drawing code draws, like the counter with its digits.
  * - `outline`: nothing to draw it with, so only its box is shown.
  */
-export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "block" | "outline";
+export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "block" | "code" | "outline";
+
+/** What the Toons types with drawing code of their own need: the code's tables and the message machine's font. */
+export interface ToonsCode {
+  drawing: ToonsDrawing;
+  font?: Font;
+}
 
 export interface DrawnPart {
   part: LevelPart;
@@ -441,6 +451,7 @@ function drawPart(
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
   drawingFrom = "TIM2.EXE’s",
+  toons?: ToonsCode,
 ): DrawnPart {
   const listPart = list?.parts.find((p) => p.type === part.type);
   const flags2 = part.flags[1] ?? 0;
@@ -489,6 +500,11 @@ function drawPart(
     const composition = compose(toons ? toonsTiles(part, sheet, toons) : tiles(part, sheet), spriteOf);
     if (composition.missing.length) return { ...base, how: "outline", detail: `tiles of ${sheet} are missing` };
     return { ...base, how: "tiles", detail: `tiles of ${sheet} from sprite ${state}`, composition };
+  }
+  if (layout === "toons" && toons && sheet) {
+    const picture = toonsPicture(part, listPart.frames, sheet, toons.drawing, spriteOf, toons.font);
+    const composition = picture && compose(picture.sprites, spriteOf, { shapes: picture.shapes ?? [] });
+    if (picture && composition?.placed.length) return { ...base, how: "code", detail: picture.detail, composition };
   }
   // In TIM 2 the state picks a frame from the animation's list of states.
   const shown = listPart.states?.[state] ?? state;
@@ -588,10 +604,14 @@ export function layoutScene(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  { solution = false, drawingFrom = "TIM2.EXE’s" }: { solution?: boolean; drawingFrom?: string } = {},
+  {
+    solution = false,
+    drawingFrom = "TIM2.EXE’s",
+    toons,
+  }: { solution?: boolean; drawingFrom?: string; toons?: ToonsCode } = {},
 ): Scene {
   const board = level.parts.filter((p) => groupOf(level, p, solution) !== "bin");
-  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom));
+  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom, toons));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {

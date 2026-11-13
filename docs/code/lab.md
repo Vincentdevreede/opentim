@@ -81,7 +81,8 @@ The biggest file of the Lab. In order:
   the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
   for TIM 2 and Toons, whose files keep no bin), and for TIM 2 the frame a state picks
   (`Part.states`) and the wall and tile pattern routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`), when it is
-  loaded.
+  loaded. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
+  tables `readToonsDrawing` reads and the message machine's font.
 - **Audio**: banks and samples, played as samples or as music through emulated Sound Blaster Pro or AdLib FM, in a
   worker.
 - **Sandbox**: the engine package's `World` in PixiJS.

@@ -74,6 +74,15 @@ it, or the first one after it, since `TITLE.TTM` loads `TITLE.SCR` before `game.
 `GAME.PAL`, not with `TITLE.PAL`, which nothing in `TOONS.EXE` or the scripts names; `DYNAMXTP.BMP` shows with
 `DYNAMIX.PAL`. Every other Toons image gets `GAME.PAL`, the palette `TOONS.EXE` loads for play.
 
+## Fonts (.FNT)
+
+`readFont` (`font.ts`). A font is one `FNT:` chunk: a byte `0xff`, the widest glyph's width, the height, a byte that may
+be the baseline (not read), the first character and the number of characters, the unpacked size (u16), then the glyphs
+packed like a `BIN:` chunk (a compression byte and the u32 unpacked size first). Unpacked, they are an offset (u16) per
+character into the bitmaps, a width (byte) per character, and the bitmaps: one bit a pixel, the high bit leftmost,
+each row rounded up to whole bytes. All eight of Toons' fonts read this way. The Lab draws the message machine's
+letter with `TUXEDO.FNT`, as TOONS.EXE does.
+
 ## Sound banks (.SX)
 
 `readSoundBank` and `decodeSound` (`sound.ts`). A `SND:` container with an `INF:` chunk, a `DAT:` chunk per sound and
@@ -247,14 +256,52 @@ sheets it loads by what they are doing (`catwalk`, `sidrun`, …). It draws a pa
   state + middles + 1; a column starts with state + middles + 2, takes the next middles in turn and ends with state + 2
   × middles + 3. A part both wider and taller repeats the state.
 - with its own code for types 0 (conveyor belt), 1 (belt), 14 (rope), 36 and 37 (Al and Sid), 38 (timer), 39
-  (counter), 40 (thumpulator) and 42 (message machine); 76 isn't drawn;
+  (counter), 40 (thumpulator) and 42 (message machine); 76 isn't drawn (see below);
 - else from the frame list when bit 0x1000 of its drawing flags is set, and else as sprite N for state N, at the
   record's position for N or at the origin. In the shipped levels every part of a type with a frame list has the
   bit, except the teeter-totter, whose list and positions give the same picture, and the thumpulator, which has its own
   code.
 
-What the own drawing code of the types above adds to their frames isn't read; the Lab draws their frames, the conveyor
-belt's included, and the belt and the rope as lines.
+**Own drawing code.** The routine that draws a part (file offset `0x1e310`) draws a part with bit 0x40 of its first
+flag word as tiles, and else looks its type up in a table of ten types that follows it, with the code for each. The
+belt and the rope are drawn by the main program (`0x1d85a`, `0x1dc0d`), type 76 not at all, Al and Sid as described
+below, and five types by code in an overlay of their own. Each is followed by the Lab:
+
+- **The conveyor belt** (`0x6fd8d`) is a row of 16-pixel tiles as wide as the part, from its own sheet. Three tables
+  of 6 bytes from `0x3eb10` give, by the part's state, the sprite of the first tile (1, 1, 2, 2, 0, 0), the last (7,
+  7, 8, 8, 9, 9) and the ones between (3, 3, 4, 4, 6, 6). Between, sprite 4 is 5 on every other tile, and sprite 6
+  moves 1 pixel down on every other tile; the last tile keeps the place of the tile before it. It draws no frame and
+  isn't mirrored.
+- **The timer** (`0x53a9f`) draws its frame, but first puts sprite 13 for sprite 12 in it when the part is mirrored
+  (and 12 for 13 when it isn't), so the face reads the right way round.
+- **The counter** (`0x5401d`) draws its frame, then two lights over it, sprite 21 at 21, 9 and sprite 22 at 66, 12,
+  the other way round while it counts up, and then its count's ones and tens, each the sprite of its digit, at a
+  place per digit from two tables of 10 pairs (`0x3be2c` and `0x3be40`), 1 pixel further across. The lights and the
+  digits aren't mirrored.
+- **The thumpulator** (`0x54c62`) draws itself from its setting, not its state: a top piece (sprite 0, or sprite 1 five
+  pixels lower when bit 0x100 is set), then from 17 pixels down a section of 65 pixels for each of bits 4 to 7, and a
+  bottom piece (sprite 7, or 6 with bit 0x200, at 21 across, or 19 with bit 0x100). Each section shows frame 0, or for
+  the section bits 0 to 3 name, the frame in bits 10 to 12, and one of three pieces in turn from a table at `0x3c139`
+  (a place and a sprite: 57, 22 with sprite 13, 63, 27 with 14, 56, 14 with 15), moved across by a number per frame
+  (`0x3c142`: 0, 0, 10, 20, 30, 40, 20). Mirrored, every piece is mirrored in the part's width.
+- **The message machine** (`0x55595`) draws sprite 0, then its setting as text centred on 26, 30, then its frame over
+  both. The text is in `tuxedo.fnt` (loaded at `0x25f65`): each letter outlined in black one pixel left, right, up and
+  down, with a black shadow 2 pixels left and down, in a colour from a list of five (4, 10, 14, 15 and 12, at
+  `0x4d4dc`) picked by the letter's code and its place on the screen, never colour 12 (the background it is set to)
+  nor the colour of the letter before (`0x6942b`). In the shipped levels the frame of state 0 covers the letter.
+
+`readToonsDrawing` (`packages/content/src/read/toons-drawing.ts`) finds the drawing routine by its search through the
+ten types, follows each case to its code (through the overlay manager's stubs, see below) and reads the tables each
+routine reads, in the order it reads them. The numbers in the code itself, like the counter's light places, are
+constants in the Lab (`apps/lab/src/toons-drawing.ts`).
+
+**Overlays.** Most of TOONS.EXE's part code is in Borland overlays. The overlay data after the load image starts with
+`FBOV`, its size, the file offset of a segment table (8 bytes a segment: the segment, a word, its flags and a word) and
+the number of segments. A segment with flags 3 is an overlay's stub: `int 3Fh` at 0, the file offset of the overlay's
+code from the end of the `FBOV` header at 4, its size at 8, the size of its fixups (after the code) at 10, and from 0x20
+an `int 3Fh` and the routine's offset per routine, 5 bytes each. A fixup is a place in the code that holds a segment as
+8 times its entry in the segment table. `readToonsMemory` lays every overlay after the load image with its fixups
+applied, as the overlay manager would load it, and leads a far pointer into a stub to the overlay's routine.
 
 **Al and Sid.** Before it draws Al or Sid (file offset `0x3027f`), TOONS.EXE looks up the part's action (the word at
 record offset `0x0c`) in a table of near pointers, Al's at `0x4569d` and Sid's at `0x49894`, to a 12-byte entry in

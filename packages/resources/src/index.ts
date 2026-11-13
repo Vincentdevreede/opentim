@@ -10,6 +10,7 @@ export {
   type Image,
   type ScnCommand,
 } from "./image.ts";
+export { glyphOf, glyphPixel, readFont, type Font, type Glyph } from "./font.ts";
 export { kindOf, type ResourceKind } from "./kind.ts";
 export {
   compressType3,

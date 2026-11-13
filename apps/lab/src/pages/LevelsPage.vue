@@ -20,11 +20,23 @@ import LevelStructure from "../components/levels/LevelStructure.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
-import { LAYOUT_NAMES, MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
+import {
+  LAYOUT_NAMES,
+  MARGIN,
+  PLAY_AREA,
+  layoutOf,
+  layoutScene,
+  readLevels,
+  type LevelEntry,
+  type ToonsCode,
+} from "../levels.ts";
+import { MESSAGE_FONT } from "../toons-drawing.ts";
+import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
   hasWallLimits,
   readTim2Types,
+  readToonsDrawing,
   summariseTim2Goal,
   tim2Drawing as drawingOf,
   type GoalCondition,
@@ -257,11 +269,31 @@ const tim2Drawing = computed((): { how: Map<number, Tim2Drawing>; from: string }
   });
   return walls.length ? { how: new Map(walls), from: "the .PAR files’" } : undefined;
 });
+/**
+ * TOONS.EXE's drawing code for the types that have their own, when it is loaded, and the font the message machine
+ * writes its letter in.
+ */
+const toonsCode = computed((): ToonsCode | undefined => {
+  if (program.value?.name !== "TOONS.EXE") return undefined;
+  try {
+    const drawing = readToonsDrawing(program.value.data);
+    if (!drawing) return undefined;
+    const fontFile = resources.value.find((r) => r.name === MESSAGE_FONT);
+    try {
+      return fontFile ? { drawing, font: readFont(fontFile.data) } : { drawing };
+    } catch {
+      return { drawing };
+    }
+  } catch {
+    return undefined;
+  }
+});
 const scene = computed(() =>
   level.value
     ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value?.how, {
         solution: showSolution.value,
         drawingFrom: tim2Drawing.value?.from,
+        toons: toonsCode.value,
       })
     : undefined,
 );
@@ -280,6 +312,7 @@ const stats = computed(() => {
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },
+    ...(count(["code"]) ? [{ label: "By their own code", value: String(count(["code"])) }] : []),
     ...(count(["block"]) ? [{ label: "Colour blocks", value: String(count(["block"])) }] : []),
     { label: "Drawn as a box", value: String(count(["outline"])) },
     { label: "Ropes and belts", value: String(s.lines.length) },
