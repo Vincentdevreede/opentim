@@ -87,6 +87,13 @@ three-letter files are the drivers (`ADL` AdLib, `M32` MT-32, `GMD` General MIDI
 patch resources (a 2-byte header `89 00`), like `003` with the AdLib instruments. `packages/sound` plays music with
 them.
 
+The `ADL` driver comes in two versions. TIM 1, TIM 2, Toons and Even More's CD have a 9,295 byte one; Even More's
+floppy, demo and French builds and the Add On Disk have one that is 50 bytes longer. The extra bytes are one loop at the
+start of the voice allocator (`0x1ad7` in the longer file): it takes a free voice that already has the channel's
+instrument before any other free voice. Apart from that loop and the addresses it moves, the two files are the same.
+`prefersSameInstrument` (`adlib.ts`) finds the loop, and the Lab plays each build's music with its own version. The
+`SBP` driver is the same 9,701 byte file in every build and has no such loop.
+
 ## Language packages (FRENCH.RES, GERMAN.RES)
 
 `unpackLanguagePackage` and `installLanguage` (`language.ts`). On the installation media of the French and German

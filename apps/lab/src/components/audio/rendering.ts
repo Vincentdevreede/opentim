@@ -9,6 +9,8 @@ export interface RenderRequest {
   /** The AdLib instruments, SCI patch 3. */
   patch: Uint8Array;
   card: FmCard;
+  /** Give a new note a free voice with the channel's instrument first, as the longer `ADL` driver does. */
+  sameInstrumentFirst: boolean;
 }
 
 export type RenderResponse =
@@ -48,7 +50,7 @@ export function useRendered(job: Ref<RenderJob | undefined>) {
     rendering.value = false;
   }
 
-  function start({ key, sound, patch, card }: RenderJob) {
+  function start({ key, sound, patch, card, sameInstrumentFirst }: RenderJob) {
     const w = new Worker(new URL("./render.worker.ts", import.meta.url), { type: "module" });
     worker = w;
     w.onmessage = (e: MessageEvent<RenderResponse>) => {
@@ -68,7 +70,7 @@ export function useRendered(job: Ref<RenderJob | undefined>) {
       error.value = e.message || "The renderer stopped";
       stop();
     };
-    w.postMessage({ sound, patch, card } satisfies RenderRequest);
+    w.postMessage({ sound, patch, card, sameInstrumentFirst } satisfies RenderRequest);
   }
 
   watch(

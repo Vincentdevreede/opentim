@@ -316,6 +316,83 @@ describe("descriptions from extracted behaviour rules", () => {
     expect(words.some((text) => text.includes("65535"))).toBe(false);
   });
 
+  it("does not call a mask or a shift of the frame by 1 the decremented state", () => {
+    const names = (operator: string) => {
+      const left: Expression = { kind: "binary", operator, left: field(12), right: constant(1), width: 16 };
+      const data = report([
+        rule(constant(1), { kind: "compare", left, operator: "==", right: constant(0), signed: false }),
+        rule(field(12), { kind: "compare", left, operator: "!=", right: constant(0), signed: false }),
+      ]);
+      return describeBehaviour(data)
+        .parts[0]!.animations.filter((item) => item.trigger.kind === "input-case")
+        .map((item) => item.trigger.name);
+    };
+    for (const operator of ["&", ">>"]) {
+      const found = names(operator);
+      expect(found.length).toBeGreaterThan(0);
+      expect(found.some((name) => name.includes("decremented"))).toBe(false);
+    }
+    expect(names("-").some((name) => name.includes("decremented state"))).toBe(true);
+  });
+
+  it("keeps the assumptions of every path when the same effect is found on several", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    data.layout.fields.push({ name: "positionX", offset: 0x1e, ...proof });
+    data.parts[0]!.visibleEffects = [
+      { ...write(0x1e, constant(5)), confidence: "checked", assumptions: [], condition: test(0x40, "==", 0) },
+      {
+        ...write(0x1e, constant(9)),
+        assumptions: ["The second path's own assumption."],
+        condition: test(0x40, "!=", 0),
+      },
+    ];
+    const effect = describeBehaviour(data).parts[0]!.effects.find((item) => item.field === 0x1e)!;
+    expect(effect.conditions).toHaveLength(2);
+    expect(effect.confidence).toBe("inferred");
+    expect(effect.assumptions).toContain("The second path's own assumption.");
+  });
+
+  it("does not say a test of a linked part's flip is the part's own", () => {
+    const flip: Expression = {
+      kind: "binary",
+      operator: "&",
+      left: { kind: "field", object: "referenced-by(part+0x78)", offset: 8, width: 16 },
+      right: constant(0x10),
+      width: 16,
+    };
+    const data = report([
+      rule(constant(1), { kind: "compare", left: flip, operator: "!=", right: constant(0), signed: false }),
+      rule(field(12), { kind: "compare", left: flip, operator: "==", right: constant(0), signed: false }),
+    ]);
+    data.layout.fields[2] = {
+      name: "drawingFlags",
+      offset: 8,
+      masks: [{ name: "horizontalFlip", value: 0x10 }],
+      ...proof,
+    };
+    const names = describeBehaviour(data)
+      .parts[0]!.animations.filter((item) => item.trigger.kind === "input-case")
+      .map((item) => item.trigger.name);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.some((name) => name.includes("reflected"))).toBe(false);
+  });
+
+  it("does not say a part sets a flag when it gives another part its own drawing flags with one bit more", () => {
+    const data = report([rule(field(12), { kind: "true" })]);
+    data.layout.fields[2] = { name: "drawingFlags", offset: 8, ...proof };
+    const copied: Expression = { kind: "binary", operator: "|", left: field(8), right: constant(0x2000), width: 16 };
+    const ownCopy: Expression = { ...copied, left: { kind: "field", object: "collider", offset: 8, width: 16 } };
+    const words = (value: Expression) => {
+      data.parts[0]!.visibleEffects = [{ ...write(8, value), object: "collider" }];
+      return describeBehaviour(data)
+        .parts[0]!.effects.filter((item) => item.field === 8)
+        .map((item) => item.description)
+        .join(" ");
+    };
+    expect(words(copied)).not.toMatch(/^Sets /);
+    expect(words(ownCopy)).toMatch(/^Sets /);
+  });
+
   it("does not replace a nonzero control by one when no code producer assigns one", () => {
     const data = report([
       rule(field(12), test(0x12, "==", 0)),
@@ -757,6 +834,19 @@ describe("descriptions from extracted behaviour rules", () => {
       expect(walk.stop?.branches?.map((branch) => [branch.walk.states, branch.walk.status])).toEqual([
         [[10, 10], "rest"],
       ]);
+      expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
+    });
+
+    it("names the assumption that rules out a number its writers give the field the next frame depends on", () => {
+      const plus: Expression = { kind: "binary", operator: "+", left: field(12), right: field(0x96), width: 16 };
+      const data = bike([rule(plus, { kind: "true" })]);
+      data.routines[2]!.outcomes = [
+        { ...proof, condition: { kind: "true" }, fields: [write(0x96, constant(0))] },
+        { ...proof, condition: test(0x40, "!=", 0), fields: [write(0x96, constant(1))] },
+      ] as never;
+      const walk = walkBehaviourRules(data, 39, [known(12, 5)]);
+      expect(walk.stop?.branches?.length).toBeGreaterThan(0);
+      expect(walk.stop?.branches?.[0]?.walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
       expect(walk.assumptions).toContain(MONKEY_BIKE_ASSUMPTION);
     });
   });
@@ -2078,6 +2168,38 @@ describe("countdowns", () => {
     const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
     expect(walk).toMatchObject({ status: "rest", states: [0, 0, 0, 0, 0] });
     expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+  });
+
+  it("gives a step under one path of a split rule that path's own evidence", () => {
+    const data = complete(
+      report([
+        rule(field(12), test(0x12, "!=", 0), [
+          write(0x96, minus(0x96, 1)),
+          write(0x12, { kind: "unknown", reason: "Field 0x12 differs on complementary paths", width: 16 }),
+        ]),
+        rule(field(12), test(0x12, "==", 0)),
+      ]),
+      [
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "!=", 0)),
+          fields: [write(0x96, minus(0x96, 1))],
+          evidence: [{ address: 0xaaa, bytes: [], text: "counts on" }],
+        },
+        {
+          ...anyPath,
+          condition: both(test(0x12, "!=", 0), compare(minus(0x96, 1), "==", 0)),
+          fields: [write(0x96, minus(0x96, 1)), write(0x12, constant(0))],
+          evidence: [{ address: 0xbbb, bytes: [], text: "clears the control value" }],
+        },
+        { ...anyPath, condition: test(0x12, "==", 0) },
+      ],
+    );
+    const walk = walkBehaviourRules(data, 39, [known(12, 0), known(0x12, 1), known(0x96, 3)]);
+    expect(walk.fields.find((item) => item.offset === 0x12)?.value).toBe(0);
+    const addresses = walk.evidence.map((item) => item.address);
+    expect(addresses).toContain(0xaaa);
+    expect(addresses).toContain(0xbbb);
   });
 
   it("takes a rule apart into its paths when the countdown picks one of two values for the control value", () => {

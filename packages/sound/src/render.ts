@@ -45,6 +45,8 @@ export function samplePcm(sample: Sample): Pcm {
 export interface RenderOptions {
   /** The card whose driver plays the tracks; the AdLib by default. */
   card?: FmCard;
+  /** Give a new note a free voice with the channel's instrument first, as the longer `ADL` driver does. */
+  sameInstrumentFirst?: boolean;
   /** Called while rendering, with the part done from 0 to 1. */
   onProgress?: (done: number) => void;
 }
@@ -89,7 +91,7 @@ export function renderAdlib(sound: Uint8Array, bank: AdlibBank, options: RenderO
     else chips[chip]!.write(register, value);
     if (timed) renderTo(Math.min(position + WRITE_SAMPLES, length));
   };
-  const driver = new AdlibDriver({ write }, bank, card);
+  const driver = new AdlibDriver({ write }, bank, card, { sameInstrumentFirst: options.sameInstrumentFirst });
   timed = true;
   for (const event of events) {
     if ((event.status & 15) === CONTROL_CHANNEL) continue;
