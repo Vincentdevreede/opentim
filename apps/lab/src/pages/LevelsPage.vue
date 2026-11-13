@@ -29,12 +29,12 @@ import {
   readLevels,
   type LevelEntry,
   type ToonsCode,
+  type ToonsSort,
 } from "../levels.ts";
 import { MESSAGE_FONT } from "../toons-drawing.ts";
 import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
-  hasWallLimits,
   readTim2Types,
   readToonsDrawing,
   readToonsGoals,
@@ -161,9 +161,11 @@ watch(
   { immediate: true },
 );
 
-/** Toons' goals, read from TOONS.EXE when it is loaded: one routine per puzzle, named by the level it is for. */
+/** True while a Toons level is shown, whose goals, drawing and sort words come from TOONS.EXE. */
+const isToons = computed(() => level.value?.layout === "toons");
+/** Toons' goals, read from TOONS.EXE: one routine per puzzle, named by the level it is for. */
 const toonsGoals = computed(() => {
-  if (program.value?.name !== "TOONS.EXE") return undefined;
+  if (!isToons.value || !program.value) return undefined;
   const byType = new Map(list.value?.parts.map((p) => [p.type, p.id]));
   try {
     return byType.size ? readToonsGoals(program.value.data, byType) : readToonsGoals(program.value.data);
@@ -197,7 +199,7 @@ const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefin
   }
   if (level.value?.layout === "toons") {
     const read = toonsGoals.value;
-    if (!read) return { status: "none", why: "The goals are read from TOONS.EXE, which isn’t loaded." };
+    if (!read) return undefined;
     if (read.problem) return { status: "none", why: `The goals couldn’t be read: ${read.problem}` };
     const name = current.value?.resource.name.replace(/\.LEV$/i, "").toUpperCase();
     const found = read.goals.find((g) => g.name === name);
@@ -205,7 +207,6 @@ const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefin
   }
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
-  if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
   if (!g) return { status: "none", why: "The goals are read from TIM 1 and Even More only, so far." };
   if (g.status === "reading") return g;
   if (g.status === "error") return { status: "none", why: `The goals couldn’t be read: ${g.message}` };
@@ -259,13 +260,14 @@ const goalAreas = computed(() => {
   return out;
 });
 const areaNumbers = computed(() => new Map(goalAreas.value.map((a) => [a.condition, a.number])));
-/** The word of each Toons type its parts lists are sorted by, from TOONS.EXE's type table. */
-const toonsKinds = computed(() =>
-  program.value?.name === "TOONS.EXE" ? readToonsListKinds(program.value.data) : new Map<number, number>(),
-);
-/** The word of each Toons type the parts bin is sorted by, as TOONS.EXE sets it when it starts. */
-const toonsBinKinds = computed(() =>
-  program.value?.name === "TOONS.EXE" ? readToonsBinKinds(program.value.data) : new Map<number, number>(),
+/**
+ * The words of TOONS.EXE's type table a Toons level's parts lists and parts bin are sorted by, the second as TOONS.EXE
+ * sets them when it starts.
+ */
+const toonsSort = computed((): ToonsSort | undefined =>
+  isToons.value && program.value
+    ? { kinds: readToonsListKinds(program.value.data), binKinds: readToonsBinKinds(program.value.data) }
+    : undefined,
 );
 /**
  * For a Toons goal, the level parts each condition is about when the puzzle starts, in the order TOONS.EXE keeps its
@@ -276,9 +278,10 @@ const toonsParts = computed(() => {
   const out = new Map<GoalCondition, ToonsGoalParts>();
   const g = goal.value;
   const l = level.value;
-  if (g?.status !== "done" || l?.layout !== "toons" || !toonsKinds.value.size) return out;
+  const sort = toonsSort.value;
+  if (g?.status !== "done" || l?.layout !== "toons" || !sort) return out;
   for (const c of g.goal.summary.ways.flat()) {
-    const found = toonsGoalParts(l, c, toonsKinds.value);
+    const found = toonsGoalParts(l, c, sort.kinds, sort.binKinds);
     if (found) out.set(c, found);
   }
   return out;
@@ -326,29 +329,23 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 const { colorsOf, choose } = usePalettes();
 const paletteOf = (sheet: string) => colorsOf(choose(sheetFile(sheet), AUTO)?.name);
 
+/** True while a TIM 2 level is shown, which TIM2.EXE's type table says how to draw. */
+const isTim2 = computed(() => level.value?.layout === "tim2");
 /**
- * How TIM2.EXE draws each type, when it is loaded: walls and tile patterns have routines of their own. Without it, the
- * types whose `.PAR` file has the walls' size limits stand in for the wall routine's.
+ * How TIM2.EXE draws each type: walls and tile patterns have routines of their own. Undefined when its type table
+ * isn't found, which the scene notes.
  */
-const tim2Drawing = computed((): { how: Map<number, Tim2Drawing>; from: string } | undefined => {
-  if (program.value?.name === "TIM2.EXE")
-    try {
-      return { how: drawingOf(readTim2Types(program.value.data)), from: "TIM2.EXE’s" };
-    } catch {
-      // Falls back to the files below.
-    }
-  const walls = resources.value.flatMap((r): [number, Tim2Drawing][] => {
-    const type = /^PART(\d+)\.PAR$/.exec(r.name)?.[1];
-    return type !== undefined && hasWallLimits(r.data) ? [[Number(type), "wall"]] : [];
-  });
-  return walls.length ? { how: new Map(walls), from: "the .PAR files’" } : undefined;
+const tim2Drawing = computed((): Map<number, Tim2Drawing> | undefined => {
+  if (!isTim2.value || !program.value) return undefined;
+  try {
+    return drawingOf(readTim2Types(program.value.data));
+  } catch {
+    return undefined;
+  }
 });
-/**
- * TOONS.EXE's drawing code for the types that have their own, when it is loaded, and the font the message machine
- * writes its letter in.
- */
+/** TOONS.EXE's drawing code for the types that have their own, and the font the message machine writes its letter in. */
 const toonsCode = computed((): ToonsCode | undefined => {
-  if (program.value?.name !== "TOONS.EXE") return undefined;
+  if (!isToons.value || !program.value) return undefined;
   try {
     const drawing = readToonsDrawing(program.value.data);
     if (!drawing) return undefined;
@@ -364,12 +361,10 @@ const toonsCode = computed((): ToonsCode | undefined => {
 });
 const scene = computed(() =>
   level.value
-    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value?.how, {
+    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value, {
         solution: showSolution.value,
-        drawingFrom: tim2Drawing.value?.from,
         toons: toonsCode.value,
-        toonsKinds: toonsKinds.value,
-        toonsBinKinds: toonsBinKinds.value,
+        toonsSort: toonsSort.value,
       })
     : undefined,
 );
@@ -568,8 +563,7 @@ onBeforeUnmount(() => {
         :selected="selectedPart"
         :header="loadedHeader"
         :record="recordFields"
-        :toons-kinds="toonsKinds"
-        :toons-bin-kinds="toonsBinKinds"
+        :toons-sort="toonsSort"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

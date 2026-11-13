@@ -182,18 +182,23 @@ const TIM2_NOT_IN_SOLUTION = 0x100;
 /** Where a part is when the puzzle starts: on its list, in the bin, or `gone` for a Toons tunnel the setup frees. */
 export type StartGroup = LevelPart["group"] | "gone";
 
-type Kinds = ReadonlyMap<number, number> | undefined;
-const toonsStarts = new WeakMap<Level, { kinds: Kinds; binKinds: Kinds; start: ToonsPuzzleStart }[]>();
 /**
- * TOONS.EXE's puzzle start of a level (`toonsPuzzleStart`), worked out once per level and pair of sort words: `kinds`
- * for the parts lists, `binKinds` for the bin (`readToonsBinKinds`).
+ * The words of TOONS.EXE's type table that Toons sorts its parts by: `kinds` for the parts lists
+ * (`readToonsListKinds`), `binKinds` for the bin (`readToonsBinKinds`).
  */
-export function toonsStart(level: Level, kinds?: Kinds, binKinds?: Kinds): ToonsPuzzleStart {
+export interface ToonsSort {
+  kinds: ReadonlyMap<number, number>;
+  binKinds: ReadonlyMap<number, number>;
+}
+
+const toonsStarts = new WeakMap<Level, { sort: ToonsSort; start: ToonsPuzzleStart }[]>();
+/** TOONS.EXE's puzzle start of a level (`toonsPuzzleStart`), worked out once per level and sort words. */
+export function toonsStart(level: Level, sort: ToonsSort): ToonsPuzzleStart {
   const known = toonsStarts.get(level) ?? [];
-  const found = known.find((k) => k.kinds === kinds && k.binKinds === binKinds);
+  const found = known.find((k) => k.sort.kinds === sort.kinds && k.sort.binKinds === sort.binKinds);
   if (found) return found.start;
-  const start = toonsPuzzleStart(level, kinds, binKinds);
-  toonsStarts.set(level, [...known.slice(-3), { kinds, binKinds, start }]);
+  const start = toonsPuzzleStart(level, sort.kinds, sort.binKinds);
+  toonsStarts.set(level, [...known.slice(-3), { sort, start }]);
   return start;
 }
 
@@ -205,20 +210,16 @@ export function toonsStart(level: Level, kinds?: Kinds, binKinds?: Kinds): Toons
  *
  * Toons has no bin in its files either. TOONS.EXE's puzzle setup puts every part without bit 0x40 in the bin, and with
  * it the ropes and belts tied to it and the other end of a tunnel, which it frees (`toonsPuzzleStart`); a rope or a
- * belt between two parts that stay stays on the board. `kinds`, the type table's sort words, decide which tunnel of a
- * pair goes to the bin. Where the file puts the parts is the solution. The bits that are 0x100 in TIM 2 aren't set in
- * Toons' levels.
+ * belt between two parts that stay stays on the board. The type table's sort words (`sort`) decide which tunnel of a
+ * pair goes to the bin, so a Toons puzzle needs them. Where the file puts the parts is the solution. The bits that are
+ * 0x100 in TIM 2 aren't set in Toons' levels.
  */
-export const groupOf = (
-  level: Level,
-  part: LevelPart,
-  solution = false,
-  kinds?: ReadonlyMap<number, number>,
-): StartGroup => {
+export const groupOf = (level: Level, part: LevelPart, solution = false, sort?: ToonsSort): StartGroup => {
   const third = part.flags[2] ?? 0;
   if (level.layout === "toons") {
     if (solution) return part.group;
-    const start = toonsStart(level, kinds);
+    if (!sort) throw new Error("A Toons puzzle starts by the sort words of TOONS.EXE.");
+    const start = toonsStart(level, sort);
     return start.bin.has(part.index) ? "bin" : start.gone.has(part.index) ? "gone" : part.group;
   }
   if (level.layout === "tim" || third & TIM2_FIXED) return part.group;
@@ -260,18 +261,6 @@ export function toonsSetting(type: number, setting: number): string | undefined 
 
 /** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
 const TILED = 0x40;
-/**
- * How TIM 2 draws a part without TIM2.EXE's type table. The levels keep the flag bits of the part's type: every type
- * TIM2.EXE draws with its wall routine has bit 0x2000 of the third word except the large pipes, every type it
- * draws with its tile pattern routine has bits 0x1080 and not 0x0400, and only the colour block has all of 0x1480.
- */
-function tim2DrawingFromFlags(part: LevelPart): Tim2Drawing {
-  const third = part.flags[2] ?? 0;
-  if (third & 0x2000) return "wall";
-  if ((third & 0x1480) === 0x1480) return "block";
-  return (third & 0x1480) === 0x1080 ? "pattern" : "frame";
-}
-
 /**
  * TIM2.EXE's colour block routine: a box the part's size, filled and outlined in the palette colour of the low byte
  * of the part's extra word, colour 5 when that is 0.
@@ -480,7 +469,6 @@ function drawPart(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  drawingFrom = "TIM2.EXE’s",
   toons?: ToonsCode,
 ): DrawnPart {
   const listPart = list?.parts.find((p) => p.type === part.type);
@@ -507,8 +495,8 @@ function drawPart(
   }
   const sheet = listPart.sheets[0];
   if (layout === "tim2") {
-    const how = drawing?.get(part.type) ?? tim2DrawingFromFlags(part);
-    const by = drawing?.has(part.type) ? drawingFrom : "the flags’";
+    const how = drawing?.get(part.type) ?? "frame";
+    const by = "TIM2.EXE’s";
     if (how === "block") {
       const shape = blockShape(part);
       const composition = compose([], spriteOf, { shapes: [shape] });
@@ -628,37 +616,28 @@ function beltLine(belt: LevelPart, parts: readonly LevelPart[]): Line | undefine
 const plural = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
 const numbers = (parts: { part: LevelPart }[]) => parts.map((p) => `#${p.part.index}`).join(", ");
 
-/** Lays out a level for drawing, and lists what the drawing leaves out or guesses. */
+/**
+ * Lays out a level for drawing, and lists what the drawing leaves out or guesses. A TIM 2 level takes how TIM2.EXE
+ * draws each type (`drawing`), a Toons puzzle TOONS.EXE's drawing code (`toons`) and sort words (`toonsSort`).
+ */
 export function layoutScene(
   level: Level,
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  {
-    solution = false,
-    drawingFrom = "TIM2.EXE’s",
-    toons,
-    toonsKinds,
-    toonsBinKinds,
-  }: {
-    solution?: boolean;
-    drawingFrom?: string;
-    toons?: ToonsCode;
-    toonsKinds?: ReadonlyMap<number, number>;
-    toonsBinKinds?: ReadonlyMap<number, number>;
-  } = {},
+  { solution = false, toons, toonsSort }: { solution?: boolean; toons?: ToonsCode; toonsSort?: ToonsSort } = {},
 ): Scene {
-  const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsKinds)]));
+  const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsSort)]));
   const board = level.parts.filter((p) => groups.get(p) !== "bin" && groups.get(p) !== "gone");
   // A Toons puzzle starts with the bin in TOONS.EXE's order and the parts on the board as its setup leaves them.
-  const start = level.layout === "toons" && !solution ? toonsStart(level, toonsKinds, toonsBinKinds) : undefined;
+  const start = level.layout === "toons" && !solution && toonsSort ? toonsStart(level, toonsSort) : undefined;
   const atStart = (p: LevelPart): LevelPart => {
     const state = start?.states.get(p.index);
     const plugs = start?.plugs.get(p.index);
     if (state === undefined && !plugs) return p;
     return { ...p, ...(state === undefined ? {} : { state: [state, p.state[1]] }), ...(plugs ? { plugs } : {}) };
   };
-  const parts = board.map((p) => drawPart(atStart(p), level.layout, list, spriteOf, drawing, drawingFrom, toons));
+  const parts = board.map((p) => drawPart(atStart(p), level.layout, list, spriteOf, drawing, toons));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {
@@ -673,6 +652,12 @@ export function layoutScene(
       status: "unsupported",
       title: "No part list for this game.",
       detail: "Without one the parts can’t be drawn, so only their boxes are shown.",
+    });
+  if (level.layout === "tim2" && !drawing)
+    notes.push({
+      status: "partial",
+      title: "Walls and patterns drawn as frames.",
+      detail: "TIM2.EXE’s type table wasn’t found, so its wall, pattern and block rules aren’t known.",
     });
   const outlined = parts.filter((p) => p.how === "outline");
   if (list && outlined.length)

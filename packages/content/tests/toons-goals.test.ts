@@ -21,6 +21,9 @@ import {
   toonsRopePlaces,
 } from "../src/read/toons-goals.ts";
 
+/** No sort words for the bin: a type keeps its number. */
+const none = new Map<number, number>();
+
 const hex = (text: string) => Uint8Array.from(text.match(/../g)!.map((b) => parseInt(b, 16)));
 function image(size: number, pieces: [number, string][]) {
   const bytes = new Uint8Array(size);
@@ -628,25 +631,25 @@ describe("toonsGoalParts", () => {
       where: ["rope1 ≠ 0"],
       tests: ["drawingFlags has the bits 0x2000"],
     };
-    expect(toonsGoalParts(loon, c as GoalCondition, kinds)).toEqual({ parts: [1], player: "ropes" });
+    expect(toonsGoalParts(loon, c as GoalCondition, kinds, none)).toEqual({ parts: [1], player: "ropes" });
   });
 
   it("decides tests of only the ropes and the type as the puzzle starts", () => {
     const first = { kind: "first", lists: moving, tests: ["type isn't balloon"] } as GoalCondition;
-    expect(toonsGoalParts(loon, first, kinds)).toEqual({ parts: [0], holds: false });
+    expect(toonsGoalParts(loon, first, kinds, none)).toEqual({ parts: [0], holds: false });
     const every = { kind: "every", lists: moving, types: balloon, tests: ["rope1 = 0"] } as GoalCondition;
-    expect(toonsGoalParts(loon, every, kinds)).toEqual({ parts: [0, 1], holds: false, player: "ropes" });
+    expect(toonsGoalParts(loon, every, kinds, none)).toEqual({ parts: [0, 1], holds: false, player: "ropes" });
   });
 
   it("says when a part from the bin could come before the n-th part", () => {
     const nth = { kind: "nth", nth: 2, lists: moving, types: balloon, tests: [] } as unknown as GoalCondition;
-    expect(toonsGoalParts(loon, nth, kinds)).toEqual({ parts: [1], holds: true });
+    expect(toonsGoalParts(loon, nth, kinds, none)).toEqual({ parts: [1], holds: true });
     const binned = level([
       { type: 23, y: 300 },
       { type: 23, y: 14, fixed: false },
     ]);
     // The second balloon starts in the bin, so the moving list has only one as the puzzle starts.
-    expect(toonsGoalParts(binned, nth, kinds)).toEqual({ parts: [], player: "bin" });
+    expect(toonsGoalParts(binned, nth, kinds, none)).toEqual({ parts: [], player: "bin" });
   });
 
   it("leaves out the rope places of a rope the puzzle start puts in the bin", () => {
@@ -657,9 +660,9 @@ describe("toonsGoalParts", () => {
       { type: 15, y: 104, group: "static", fixed: false },
       { type: 14, y: -100, group: "static", fixed: false, tie: [1, 2] },
     ]);
-    expect([...toonsRopePlaces(loose, toonsPuzzleStart(loose, kinds))]).toEqual([[3, [true, false]]]);
+    expect([...toonsRopePlaces(loose, toonsPuzzleStart(loose, kinds, none))]).toEqual([[3, [true, false]]]);
     const c = { kind: "first", lists: moving, types: balloon, where: ["rope1 ≠ 0"], tests: [] };
-    expect(toonsGoalParts(loose, c as unknown as GoalCondition, kinds)).toEqual({ parts: [], player: "ropes" });
+    expect(toonsGoalParts(loose, c as unknown as GoalCondition, kinds, none)).toEqual({ parts: [], player: "ropes" });
   });
 });
 
@@ -701,7 +704,7 @@ describe("toonsPuzzleStart", () => {
       })),
     }) as unknown as Level;
   const start = (l: Level) => {
-    const s = toonsPuzzleStart(l);
+    const s = toonsPuzzleStart(l, none, none);
     return { bin: [...s.bin].sort((a, b) => a - b), gone: [...s.gone] };
   };
 
@@ -745,9 +748,7 @@ describe("toonsPuzzleStart", () => {
       [23, 2],
     ]);
     expect(toonsPuzzleStart(l, new Map(), binKinds).binOrder).toEqual([4, 0, 3, 2]);
-    // Without the words, the type's number stands in.
-    expect(toonsPuzzleStart(l).binOrder).toEqual([4, 0, 3, 2]);
-    expect(toonsPuzzleStart(l, new Map(), new Map([[23, -1]])).binOrder).toEqual([3, 2, 4, 0]);
+    expect(toonsPuzzleStart(l, new Map(), new Map([...binKinds, [23, -1]])).binOrder).toEqual([3, 2, 4, 0]);
   });
 
   it("pulls a part's plug out of the switch on the board, and the switch shows its plugs again", () => {
@@ -758,7 +759,7 @@ describe("toonsPuzzleStart", () => {
       { type: 52, fixed: false, plug: 1, plugs: [0, null], plugPlace: 0 },
       { type: 38, plug: 1, plugs: [0, null], plugPlace: 1 },
     ]);
-    const s = toonsPuzzleStart(l);
+    const s = toonsPuzzleStart(l, none, none);
     expect([...s.bin]).toEqual([1]);
     expect(s.unplugged).toEqual([{ part: 1, into: 0, place: 0 }]);
     expect([...s.plugs]).toEqual([
@@ -773,7 +774,7 @@ describe("toonsPuzzleStart", () => {
       { type: 2, fixed: false, state: 3, plug: 2, plugs: [1, null] },
       { type: 52, plug: 1, plugs: [0, null], plugPlace: 0 },
     ]);
-    const s = toonsPuzzleStart(l);
+    const s = toonsPuzzleStart(l, none, none);
     expect(s.unplugged).toEqual([{ part: 1, into: 0, place: 0 }]);
     expect(s.plugs.get(1)).toEqual([null, null]);
     expect(s.states.size).toBe(0);
@@ -785,7 +786,7 @@ describe("toonsPuzzleStart", () => {
       { type: 23, fixed: false },
       { type: 14, fixed: false, tie: [0, 1] },
     ]);
-    expect([...toonsPuzzleStart(l).states]).toEqual([[0, 0]]);
+    expect([...toonsPuzzleStart(l, none, none).states]).toEqual([[0, 0]]);
   });
 
   it("puts the first tunnel of a pair in the bin and takes the other end off", () => {

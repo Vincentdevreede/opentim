@@ -132,6 +132,9 @@ const SHEETS: Record<string, Bitmap[]> = {
 };
 const spriteOf = (sheet: string, index: number) => SHEETS[sheet]?.[index];
 
+/** The sort words of a Toons level, none here: a type keeps its number. */
+const SORT = { kinds: new Map<number, number>(), binKinds: new Map<number, number>() };
+
 describe("readLevels", () => {
   it("lists levels in number order before scenes, and says why a file can't be read", () => {
     const scene = bytes(0xaced, 0x102, 67, 268, 1001, 0, 0, 0);
@@ -190,7 +193,7 @@ describe("layoutScene", () => {
       { type: 0, flags1: 0x1040, flags3: 0x40, state: 1 },
       { type: 1, width: 64, flags3: 0x40 },
       { type: 47, x: 4, y: 0, width: 40, height: 16, flags3: 0x40 },
-      // The colour block: TIM2.EXE's flags for it are 0x1480 in the third word.
+      // The colour block, which TIM2.EXE draws with its block routine.
       { type: 127, width: 20, height: 10, flags3: 0x14c0 },
       // Without bit 0x40 of the third word the part starts in the bin.
       { type: 0 },
@@ -220,6 +223,7 @@ describe("layoutScene", () => {
     const drawing = new Map([
       [1, "wall" as const],
       [47, "pattern" as const],
+      [127, "block" as const],
     ]);
     const scene = layoutScene(level, list, spriteOf, drawing);
     expect(scene.area).toEqual({ x: 0, y: 0, width: 640, height: 400 });
@@ -228,7 +232,7 @@ describe("layoutScene", () => {
       ["frame", "frame 0 for state 1"],
       ["tiles", "pieces of a wall, by TIM2.EXE’s wall rule"],
       ["tiles", "a pattern of tiles, by TIM2.EXE’s pattern rule"],
-      ["block", "a box in colour 5, by the flags’ block rule"],
+      ["block", "a box in colour 5, by TIM2.EXE’s block rule"],
     ]);
     expect(scene.parts[3]!.composition!.shapes).toEqual([
       { kind: "box", x: 0, y: 0, width: 20, height: 10, colour: 5, fill: 5, after: 0 },
@@ -243,6 +247,11 @@ describe("layoutScene", () => {
     // A grid from 0, 0 of the screen, cut off at the box widened to groups of 8 across.
     expect(scene.parts[2]!.composition!.placed.map((p) => p.x)).toEqual([-4, 12, 28]);
     expect(scene.parts[2]!.clip).toEqual({ x: 0, y: 0, width: 48, height: 16 });
+    // Without TIM2.EXE's type table the flag bits don't stand in: every part is drawn by its frame, and the scene says so.
+    const unread = layoutScene(level, list, spriteOf);
+    expect(unread.parts.map((p) => p.how)).toEqual(["frame", "frame", "frame", "outline"]);
+    expect(unread.notes.map((n) => n.title)).toContain("Walls and patterns drawn as frames.");
+    expect(scene.notes.map((n) => n.title)).not.toContain("Walls and patterns drawn as frames.");
   });
 
   it("leaves TIM 2's solution parts on the board when the solution is shown", () => {
@@ -292,10 +301,8 @@ describe("layoutScene", () => {
           : p,
       ),
     };
-    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]]), {
-      drawingFrom: "the .PAR files’",
-    }).parts;
-    expect(lying!.detail).toBe("pieces of a wall, by the .PAR files’ wall rule");
+    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]])).parts;
+    expect(lying!.detail).toBe("pieces of a wall, by TIM2.EXE’s wall rule");
     // PART47's sprites are 32 × 32: lying, each piece moves to 36 - 0 - 32 and turns upside down.
     expect(lying!.composition!.placed.map((p) => [p.placement.y, p.placement.flip])).toEqual([[4, "v"]]);
     // Standing, it moves to 40 - 0 - 32 across and turns left to right.
@@ -450,7 +457,7 @@ describe("groupOf", () => {
       part(6, 46, 0x08, { tunnel: 5 }),
     ],
   } as unknown as Level;
-  const groups = (solution = false) => level.parts.map((p) => groupOf(level, p, solution));
+  const groups = (solution = false) => level.parts.map((p) => groupOf(level, p, solution, SORT));
 
   it("puts a Toons part without bit 0x40 of the third flag word in the bin, with the ropes tied to it", () => {
     expect(groups()).toEqual(["static", "static", "bin", "static", "bin", "gone", "bin"]);
@@ -460,14 +467,18 @@ describe("groupOf", () => {
     expect(groups(true)).toEqual(level.parts.map(() => "static"));
   });
 
+  it("needs TOONS.EXE's sort words for a Toons puzzle", () => {
+    expect(() => groupOf(level, level.parts[0]!)).toThrow(/TOONS\.EXE/);
+  });
+
   it("keeps TIM 1's groups as the file has them", () => {
     expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
   });
 
   it("draws a rope between two parts on the board, and says which tunnel the puzzle start takes off", () => {
-    const scene = layoutScene(level, undefined, () => undefined);
+    const scene = layoutScene(level, undefined, () => undefined, undefined, { toonsSort: SORT });
     expect(scene.parts.map((p) => p.part.index)).toEqual([0, 1, 3]);
-    // Without TOONS.EXE's sort words the bin goes by the type's number: the rope, the balloon, the tunnel.
+    // A type TOONS.EXE's sort words don't place keeps its number: the rope, the balloon, the tunnel.
     expect(scene.bin.map((p) => p.index)).toEqual([4, 2, 6]);
     expect(scene.notes.map((n) => n.title)).toContain("1 tunnel taken off.");
   });
@@ -478,7 +489,8 @@ describe("groupOf", () => {
       [23, 1],
       [14, 2],
     ]);
-    expect(layoutScene(level, undefined, () => undefined, undefined, { toonsBinKinds: binKinds }).bin).toEqual([
+    const toonsSort = { kinds: new Map<number, number>(), binKinds };
+    expect(layoutScene(level, undefined, () => undefined, undefined, { toonsSort }).bin).toEqual([
       level.parts[6],
       level.parts[2],
       level.parts[4],
@@ -495,7 +507,7 @@ describe("groupOf", () => {
         part(1, 52, 0x01, { plugs: [0, null], plugPlace: 0 }),
       ],
     } as unknown as Level;
-    const scene = layoutScene(plugged, undefined, () => undefined);
+    const scene = layoutScene(plugged, undefined, () => undefined, undefined, { toonsSort: SORT });
     expect(scene.parts.map((d) => [d.part.index, d.part.state[0], d.part.plugs])).toEqual([[0, 0, [null, null]]]);
     expect(scene.notes.map((n) => n.title)).toEqual(
       expect.arrayContaining(["1 plug pulled out.", "1 part with another state."]),

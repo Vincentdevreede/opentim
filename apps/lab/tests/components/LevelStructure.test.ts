@@ -6,6 +6,9 @@ import { expect, it } from "vitest";
 import { visibleText } from "../visible-text.ts";
 import LevelStructure from "../../src/components/levels/LevelStructure.vue";
 
+/** The sort words of a Toons level, none here: a type keeps its number. */
+const SORT = { kinds: new Map<number, number>(), binKinds: new Map<number, number>() };
+
 const part = (index: number, type: number, links: [number | null, number | null] = [null, null]): LevelPart => ({
   index,
   group: "static",
@@ -44,7 +47,9 @@ const level = (parts: LevelPart[], layout: Level["layout"] = "tim"): Level => ({
 
 const CHECKED = LOADED_HEADERS.get(EVEN_MORE_FLOPPY_EXE);
 const html = (l: Level, selected?: number, header: LoadedHeader | undefined = CHECKED) =>
-  renderToString(createSSRApp({ render: () => h(LevelStructure, { level: l, name: "L1.LEV", selected, header }) }));
+  renderToString(
+    createSSRApp({ render: () => h(LevelStructure, { level: l, name: "L1.LEV", selected, header, toonsSort: SORT }) }),
+  );
 
 it("tags each field of a part with the name of the record word the loader keeps it in", async () => {
   const page = await html(level([part(0, 9, [1, null]), part(1, 2)]), 0);
@@ -98,23 +103,33 @@ it("says which plugs a Toons puzzle start pulls out, and the state it leaves the
   const drier: LevelPart = { ...part(1, 52), flags: [0, 0, 0x01], plugs: [0, null], plugPlace: 0 };
   const l = level([sw, drier], "toons");
   const render = (selected: number) =>
-    renderToString(createSSRApp({ render: () => h(LevelStructure, { level: l, name: "CAKE1.LEV", selected }) }));
+    renderToString(
+      createSSRApp({ render: () => h(LevelStructure, { level: l, name: "CAKE1.LEV", selected, toonsSort: SORT }) }),
+    );
   const text = visibleText(await render(0));
   expect(text).toContain("state 1, 0 0 at the start");
   expect(text).toContain("plugs #1, none unplugged at the start");
   expect(visibleText(await render(1))).toContain("plugPlace place 1 of #0 unplugged at the start");
 });
 
-it("lists a Toons bin in TOONS.EXE's order, by the type's number until it is loaded", async () => {
+it("lists a Toons bin in TOONS.EXE's order", async () => {
   const loose = (index: number, type: number) => ({ ...part(index, type), flags: [0, 0, 0] });
   const l = level([loose(0, 52), loose(1, 23)], "toons");
-  const order = async (toonsBinKinds?: Map<number, number>) => {
+  const order = async (binKinds: Map<number, number>) => {
+    const toonsSort = { kinds: new Map<number, number>(), binKinds };
     const page = await renderToString(
-      createSSRApp({ render: () => h(LevelStructure, { level: l, name: "CAKE1.LEV", toonsBinKinds }) }),
+      createSSRApp({ render: () => h(LevelStructure, { level: l, name: "CAKE1.LEV", toonsSort }) }),
     );
     return [...page.matchAll(/data-structure-part="(\d+)"/g)].map((m) => Number(m[1]));
   };
-  expect(await order()).toEqual([1, 0]);
+  expect(
+    await order(
+      new Map([
+        [52, 1],
+        [23, 0],
+      ]),
+    ),
+  ).toEqual([1, 0]);
   expect(
     await order(
       new Map([

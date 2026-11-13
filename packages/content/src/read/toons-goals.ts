@@ -468,9 +468,8 @@ export interface ToonsPuzzleStart {
  *
  * The third list is kept sorted by the type record's word at 0x2a (`binKinds`, `readToonsBinKinds`), lowest first;
  * the insertion routine (`0xbcd1`) puts a part before the first one with a higher word, so parts of a type stay in the
- * order the setup puts them there. Without `binKinds` the type's number stands in for the word, which is the file's
- * own word for most types but not the one TOONS.EXE sorts by. `kinds` (the list's sort words) only decide the order
- * the setup walks the lists in; without them it is the order by place alone.
+ * order the setup puts them there. A type past the end of the table (none in TOONS.EXE) keeps its number. `kinds` (the
+ * list's sort words, `readToonsListKinds`) decide the order the setup walks the lists in.
  *
  * The type routines that set a state again are read for two types: the electric switch takes 1 for a plug in its first
  * place and 2 for one in its second, and keeps bit 4 (file offset `0x6f461`); the anvil takes 1 while a rope is tied at
@@ -481,8 +480,8 @@ export interface ToonsPuzzleStart {
  */
 export function toonsPuzzleStart(
   level: Level,
-  kinds: ReadonlyMap<number, number> = new Map(),
-  binKinds?: ReadonlyMap<number, number>,
+  kinds: ReadonlyMap<number, number>,
+  binKinds: ReadonlyMap<number, number>,
 ): ToonsPuzzleStart {
   const parts = level.parts;
   const bin = new Set<number>();
@@ -652,7 +651,7 @@ export function toonsPuzzleStart(
     }
     putInBin(index);
   }
-  const binKind = (index: number) => binKinds?.get(parts[index]!.type) ?? parts[index]!.type;
+  const binKind = (index: number) => binKinds.get(parts[index]!.type) ?? parts[index]!.type;
   const binOrder: number[] = [];
   for (const index of inserted) {
     const k = binOrder.findIndex((other) => binKind(index) < binKind(other));
@@ -728,12 +727,13 @@ export function toonsGoalParts(
   level: Level,
   condition: GoalCondition,
   kinds: ReadonlyMap<number, number>,
+  binKinds: ReadonlyMap<number, number>,
 ): ToonsGoalParts | undefined {
   const c = condition;
   const group = c.lists === "the fixed list" ? "static" : c.lists === "the moving list" ? "moving" : undefined;
   if (!group || (c.types?.length ?? 0) > 1) return undefined;
   const type = c.types?.[0]?.type;
-  const start = toonsPuzzleStart(level, kinds);
+  const start = toonsPuzzleStart(level, kinds, binKinds);
   const order = toonsListOrder(level, c.lists!, kinds).filter((i) => !start.bin.has(i) && !start.gone.has(i));
   const ofType = type === undefined ? order : order.filter((index) => level.parts[index]?.type === type);
   const ropes = toonsRopePlaces(level, start);

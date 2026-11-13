@@ -12,7 +12,7 @@ import {
 import { computed, nextTick, ref, watch } from "vue";
 import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
-import { groupOf, toonsSetting, toonsStart, type StartGroup } from "../../levels.ts";
+import { groupOf, toonsSetting, toonsStart, type StartGroup, type ToonsSort } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -39,10 +39,11 @@ const props = defineProps<{
   header?: LoadedHeader;
   /** The part record's fields as the behaviour read of the loaded program names them, once it is read. */
   record?: readonly WriterField[];
-  /** For Toons, the type table's sort words, which decide which tunnel of a pair the puzzle start puts in the bin. */
-  toonsKinds?: ReadonlyMap<number, number>;
-  /** For Toons, the words of the types the bin is sorted by, which TOONS.EXE sets when it starts. */
-  toonsBinKinds?: ReadonlyMap<number, number>;
+  /**
+   * For Toons, the sort words of TOONS.EXE's type table: those of the lists decide which tunnel of a pair the puzzle
+   * start puts in the bin, and the bin is sorted by its own, which TOONS.EXE sets when it starts.
+   */
+  toonsSort?: ToonsSort;
 }>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
@@ -72,22 +73,12 @@ const TIM2_HINTS: Partial<Record<StartGroup, string>> = {
 
 /** Toons stores no bin either: the puzzle start puts the parts without bit 0x40 there, with what is tied to them. */
 const TOONS_HINTS: Partial<Record<StartGroup, string>> = {
-  bin: "Parts without bit 0x40 of the third flag word, and the ropes and belts tied to them. The file keeps them where the designer left them; TOONS.EXE puts them in the bin when the puzzle starts.",
+  bin: "Parts without bit 0x40 of the third flag word, and the ropes and belts tied to them. The file keeps them where the designer left them; TOONS.EXE puts them in the bin when the puzzle starts. In TOONS.EXE’s order: by a table of the types in the program, a type’s parts in the order the setup puts them there.",
 };
 
 /** How TOONS.EXE's puzzle setup leaves a Toons level: the bin in its order, and the plugs it pulls out. */
 const start = computed(() =>
-  props.level.layout === "toons" ? toonsStart(props.level, props.toonsKinds, props.toonsBinKinds) : undefined,
-);
-
-/** The bin's hint for Toons: in TOONS.EXE's order once it is loaded, else by the type's number. */
-const toonsBinHint = computed(
-  () =>
-    `${TOONS_HINTS.bin} ${
-      props.toonsBinKinds?.size
-        ? "In TOONS.EXE’s order: by a table of the types in the program, a type’s parts in the order the setup puts them there."
-        : "By the type’s number until TOONS.EXE is loaded, whose own order puts the types by a table in the program."
-    }`,
+  props.level.layout === "toons" && props.toonsSort ? toonsStart(props.level, props.toonsSort) : undefined,
 );
 
 /** The parts of each group as the puzzle starts, leaving out a group that only Toons has when it is empty. */
@@ -95,13 +86,12 @@ const groups = computed(() =>
   GROUPS.map((g) => ({
     ...g,
     hint:
-      (g.group === "bin" && start.value ? toonsBinHint.value : undefined) ??
       (props.level.layout === "tim2" ? TIM2_HINTS : props.level.layout === "toons" ? TOONS_HINTS : {})[g.group] ??
       g.hint,
     parts:
       g.group === "bin" && start.value
         ? start.value.binOrder.map((i) => props.level.parts[i]!)
-        : props.level.parts.filter((p) => groupOf(props.level, p, false, props.toonsKinds) === g.group),
+        : props.level.parts.filter((p) => groupOf(props.level, p, false, props.toonsSort) === g.group),
   })).filter((g) => g.group !== "gone" || g.parts.length),
 );
 
