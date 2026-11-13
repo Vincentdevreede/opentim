@@ -157,7 +157,8 @@ condition is about the part a field of the n-th part holds.
 
 `toonsListOrder` (`toons-goals.ts`) puts a Toons level's list in TOONS.EXE's order, so the Lab can say which level part
 "the 1st al-e-cat on the moving list" is; `readToonsListKinds` reads the type table's word it sorts by.
-`toonsPuzzleStart` follows TOONS.EXE's puzzle setup (`0x25829`) call by call and says where it leaves each part: in
+`toonsPuzzleStart` follows TOONS.EXE's puzzle setup (`0x25829`) call by call, with both sort words of TOONS.EXE's type
+table, and says where it leaves each part: in
 the bin every part without the fixed bit with the ropes and belts tied to it, taken off (`gone`) the other end of a
 tunnel it puts in the bin, and on the board the rest, ropes and belts between two parts that stay included. It also
 gives the bin in TOONS.EXE's order (`binOrder`: sorted by the word `readToonsBinKinds` reads, a type's parts in the
@@ -186,7 +187,7 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
 - `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
   `part` for an entry about one part.
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
-  draws as walls or tile patterns.
+  draws as walls, tile patterns or colour blocks. Nothing stands in for it: the Lab needs TIM2.EXE.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
   lists.
 - `toons.ts`: Toons' program (`loadImage`), its type table of 70-byte records (`findToonsTypeTable`,

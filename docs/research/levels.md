@@ -369,17 +369,18 @@ the part's state. Two others draw from the part's size:
   routine repeats the frame of state 0 on a grid of that frame's size, starting at 0, 0 of the screen, and cuts it
   off at the part's box, widened across to whole groups of 8 pixels.
 
-Without TIM2.EXE nothing in the files names a type's draw routine; the level files, the `.ANM` and the `.PAR` files
-were checked. The Lab then goes by two matches in the files. A part's `.PAR` file (`PROPI`, the type, then its
-properties) has 576 × 416 in the two words that look like its largest size exactly for the types drawn by the wall
-routine, the large pipes (97) included, in the floppy and CD builds (`hasWallLimits`). And the type's flag bits the
-levels keep: bit `0x2000` of the third word for walls (every wall type but the large pipes has it) and bits `0x1080`
-without `0x0400` for tile patterns. Neither is a rule of the program, so the Lab says which one it used; the demo
-ships few `.PAR` files, so there only TIM2.EXE gets every wall right.
+Nothing in the other files names a type's draw routine; the level files, the `.ANM` and the `.PAR` files were
+checked. Two things in the files match it, though neither is a rule of the program. A part's `.PAR` file (`PROPI`, the
+type, then its properties) has 576 × 416 in the two words that look like its largest size exactly for the types drawn
+by the wall routine, the large pipes (97) included, in the floppy and CD builds; the demo ships few `.PAR` files. And
+the type's flag bits the levels keep: bit `0x2000` of the third word for walls (every wall type but the large pipes
+has it) and bits `0x1080` without `0x0400` for tile patterns. The Lab used to go by these when TIM2.EXE wasn't loaded;
+it now needs TIM2.EXE to open TIM 2 and draws by its type table only. Every type the levels of the three builds use is
+in that table. When the table isn't found, the Lab draws walls and patterns by their frames and says so.
 
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
-  has all of bits `0x1480` in its type's third flag word, which is how the Lab knows it without TIM2.EXE.
+  has all of bits `0x1480` in its type's third flag word; the Lab knows it from TIM2.EXE's type table.
 
 The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
 and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
@@ -459,8 +460,8 @@ So in the 100 shipped puzzles, 699 of the 3,439 parts start in the bin: 65 of th
 each because a part it ties goes there. The other 56 ropes and 15 belts stay on the board, and 7 tunnels are taken
 off (in BRAN10, BRAN18, BRAN20, CAKE15, HARD5, LOON7 and LOON21). The Lab does the same (`toonsPuzzleStart`): it draws
 the ropes and belts that stay, puts the others in the bin, and lists a tunnel taken off on its own in the Structure
-panel and in a note. Which tunnel of a pair goes to the bin follows the lists' order, with TOONS.EXE's type table when
-it is loaded; the shipped levels give the same tunnels by place alone. The Solution box shows every part where the
+panel and in a note. Which tunnel of a pair goes to the bin follows the lists' order, with TOONS.EXE's type table,
+which the Lab needs to open Toons; the shipped levels give the same tunnels by place alone. The Solution box shows every part where the
 file puts it. CAKE15 ("Use a tunnel to help Al get to the bubble gum") has one of its two tunnels in the bin and the
 other taken off. In LOON7, rope #2 between balloon #41 and eye-hook #4 is now drawn on the board.
 
@@ -482,8 +483,8 @@ the same bin in the same order, the same tunnels taken off, the same plugs and t
 the same 22 parts. Run between the two resets of a puzzle start ([Toons: assumptions](#toons-assumptions)), it gives
 the same again. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
 trans-roto-matic #18, skeleto-bobbin #19, bomb #46, baseball #45 and tunnel #20; the file has them in the order 0, 1,
-18, 19, 20, 42, 43, 45, 46. Without TOONS.EXE the Lab sorts by the type's number, which gives another order in 78
-puzzles.
+18, 19, 20, 42, 43, 45, 46. Sorting by the type's number instead, as the Lab once did without TOONS.EXE, gives
+another order in 78 puzzles; the Lab now needs TOONS.EXE to open Toons.
 
 **Unplugged as the puzzle starts.** The setup pulls out 22 plugs in 19 puzzles. In 13 both parts go to the bin. In
 the other 9, in 8 puzzles, the part plugged in goes to the bin and the electric switch it was in stays on the board,

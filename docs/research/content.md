@@ -103,7 +103,7 @@ pnpm --filter @opentim/content extract-parts --tim1 <folder> --tim1 <folder> --e
 
 The ids are chosen by hand, in `packages/content/src/part-ids.ts`; everything else comes from the games. The readers
 are in `packages/content/src/read`. The lab, a research tool, uses them too: it reads the parts from the files it
-loads, `TIM.EXE` included, and compares them with the committed list.
+loads, the game's program included, which it needs to open a game. It doesn't use the committed lists.
 
 - **TIM 1 and Even More** keep a table with a 58-byte record per part type in their program, `TIM.EXE`. The script
   unpacks the program (LZEXE 0.91), finds its data segment and searches the table: the place where the frames use

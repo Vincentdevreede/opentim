@@ -18,6 +18,11 @@ goals, and sounds.
   and stages files, `confirmImport` checks and saves them, `load` publishes them and starts the behaviour read in the
   background. It holds the resources, the edition and the program; parts are read again per page
   (`readLoadedParts` in `parts.ts`). A `generation` counter cancels work that a newer import made stale.
+- The game's program is required: `TIM.EXE` for TIM 1, Even More and the Add-On Disk, `TIM2.EXE` and `TOONS.EXE`
+  for the others, demos included. Each version in `version-catalog.json` names its `program`; `programNames` in
+  `edition.ts` gives it, or all three names for a version that isn't known. A staged import without it
+  (`missingProgram`) can't continue, and the start screen names the file to add. `restore` stages a save without the
+  program in the same way instead of loading it.
 - `storage.ts`: keeps the files in the browser's private file system (OPFS), one folder per import. A save holds a
   lock while it writes; loading removes the folders of saves that never finished, when no save holds that lock. Without
   a secure context an import lasts only for the tab.
@@ -75,7 +80,9 @@ The biggest file of the Lab. In order:
 - **Parts**: part cards; `PartDetail.vue` has a stage with frames and sprites, and side tabs Frame or Sprite,
   Behaviour (`BehaviourPanel`, three layouts), Interactions (`InteractionLists`) and Type (`RecordPanel`, the 58-byte
   type record, or Toons' 70-byte one). `readLoadedParts` in `parts.ts` reads the parts from `TIM.EXE`, `INFO.RES` or
-  `TOONS.EXE`; `partName(part, listId)` takes Toons' names from Toons' own list. Toons gets no behaviour read.
+  `TOONS.EXE`, or says why it can't (`problem`); the lists committed in `@opentim/content` never stand in. Parts the
+  readers have no id for are `unknown`. `partName(part, listId)` takes Toons' names from Toons' own list. Toons gets
+  no behaviour read.
 - **Levels**: `LevelCanvas` (the level drawn, goal areas), `LevelGoal` (conditions and the goal routine; Toons' goals
   come from `readToonsGoals` on the page itself, not from the behaviour read; a Toons condition shows which part of its
   type it is about ("1st", and the level part's number from `goalParts`), what the goal remembers about it in a chip
@@ -89,14 +96,14 @@ The biggest file of the Lab. In order:
   `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
   the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
   for TIM 2 and Toons, whose files keep no bin; for Toons it follows `toonsPuzzleStart` through `toonsStart`, with the
-  type table's sort words the page passes as `toonsKinds` and `toonsBinKinds`, and gives `gone` for a tunnel the
+  type table's sort words the page reads from TOONS.EXE and passes as `toonsSort`, and gives `gone` for a tunnel the
   puzzle start takes off, which the Structure panel lists as "Taken off" and the scene notes). For a Toons puzzle the
   scene's bin and the Structure panel's are in TOONS.EXE's order, the board is drawn with the states the setup leaves
   (an unplugged switch, an anvil whose rope went to the bin, the latter a decided assumption in
   [Toons: assumptions](../research/levels.md#toons-assumptions)), the scene notes the plugs it pulls out, and the
   Structure panel tags a part's plugs and state with what the start makes of them. For TIM 2 the frame a state picks
-  (`Part.states`) and the wall and tile pattern routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`), when it is
-  loaded. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
+  (`Part.states`) and the wall, tile pattern and colour block routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`);
+  without its type table the scene draws frames and notes it. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
   tables `readToonsDrawing` reads and the message machine's font.
 - **Audio**: banks and samples, played as samples or as music through emulated Sound Blaster Pro or AdLib FM, in a
   worker.
