@@ -348,21 +348,31 @@ const BIN_KIND = 0x2a;
 export function readToonsBinKinds(exe: Uint8Array): Map<number, number> {
   try {
     const image = loadImage(exe);
-    const { start, count } = findToonsTypeTable(image);
-    // prettier-ignore
-    const code = [0xb8, ANY, ANY, 0x8e, 0xc0, 0x26, 0x8b, 0x87, ANY, ANY, 0xba, 0x46, 0x00, 0xf7, 0xea, 0xba, ANY, ANY,
-      0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x89, 0x8f, ANY, ANY];
-    for (let at = find(image, code); at >= 0; at = find(image, code, at + 1)) {
-      if (u16(image, at + 16) * 16 + u16(image, at + 25) - BIN_KIND !== start) continue;
-      const table = u16(image, at + 1) * 16 + u16(image, at + 8);
-      const kinds = new Map<number, number>();
-      for (let place = 0; place < count; place++) kinds.set(u16(image, table + 2 * place), place);
-      return kinds;
-    }
+    const { count } = findToonsTypeTable(image);
+    const at = findToonsBinKindsCode(image);
+    if (at === undefined) return new Map();
+    const table = u16(image, at + 1) * 16 + u16(image, at + 8);
+    const kinds = new Map<number, number>();
+    for (let place = 0; place < count; place++) kinds.set(u16(image, table + 2 * place), place);
+    return kinds;
   } catch {
     // No type table: no sort words.
   }
   return new Map();
+}
+
+/**
+ * Where in TOONS.EXE's load image the start-up routine that writes the bin's sort words (`readToonsBinKinds`) does it:
+ * the place of its `mov ax, segment` before it reads the table. Undefined when it isn't found.
+ */
+export function findToonsBinKindsCode(image: Uint8Array): number | undefined {
+  const { start } = findToonsTypeTable(image);
+  // prettier-ignore
+  const code = [0xb8, ANY, ANY, 0x8e, 0xc0, 0x26, 0x8b, 0x87, ANY, ANY, 0xba, 0x46, 0x00, 0xf7, 0xea, 0xba, ANY, ANY,
+    0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x89, 0x8f, ANY, ANY];
+  for (let at = find(image, code); at >= 0; at = find(image, code, at + 1))
+    if (u16(image, at + 16) * 16 + u16(image, at + 25) - BIN_KIND === start) return at;
+  return undefined;
 }
 
 /**
