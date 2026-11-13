@@ -5500,11 +5500,20 @@ export function readBehaviourInSteps(
     if (codes.has(entry.address)) continue;
     const code = readRoutineCode(image, entry, list.dataSegment);
     codes.set(entry.address, code);
-    for (const call of code.calls)
+    for (const call of code.calls) {
+      if (profile.stopAtProgramStart && call.target?.address === loaded.entry) {
+        // Following a call to the program's start would read the whole program as a callee.
+        code.uncertainties.push(
+          `The call at ${hex(call.instruction)} goes to the program's start (${hex(call.target.segment)}:${hex(call.target.offset)}); the reader doesn't follow it, so what it does is unresolved.`,
+        );
+        if (code.status === "complete") code.status = "partial";
+        continue;
+      }
       if (call.target && call.target.address < image.length && !codes.has(call.target.address)) {
         entries.set(call.target.address, call.target);
         pending.push(call.target);
       }
+    }
   }
   for (const callback of layout.callbacks)
     if (!callback.objectSource) {

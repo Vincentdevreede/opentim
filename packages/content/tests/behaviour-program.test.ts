@@ -70,5 +70,7 @@ describe("loadOverlaidProgram", () => {
     expect([...loadImage.subarray(0x03, 0x08)]).toEqual([0x9a, 0x25, 0x00, 0x18, 0x00]);
     expect(read.routine(0x18, 0x25)).toEqual({ segment: 0x20, offset: 2, address: 0x202 });
     expect(read.routine(0x00, 0x03)).toEqual({ segment: 0, offset: 3, address: 3 });
+    // The header starts the program at 0:0.
+    expect(read.entry).toBe(0);
   });
 });

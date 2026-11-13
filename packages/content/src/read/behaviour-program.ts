@@ -27,6 +27,12 @@ export interface BehaviourProfile {
    * six callbacks only.
    */
   otherRoutines: string[];
+  /**
+   * Whether the reader stops at a call to the program's start (0:0 in all four programs) instead of reading the whole
+   * program as the callee. TIM.EXE has such calls too (through code pointers that are still 0 when the program
+   * starts), but its results were checked with them followed, so it keeps following them until that is decided.
+   */
+  stopAtProgramStart: boolean;
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -36,6 +42,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   recordLookup: "multiply",
   partPointer: "near",
   otherRoutines: [],
+  stopAtProgramStart: false,
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -47,8 +54,16 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     recordLookup: "pointer-table",
     partPointer: "far",
     otherRoutines: ["draw", "set-up"],
+    stopAtProgramStart: true,
   },
-  toons: { storage: "overlays", recordSize: 70, recordLookup: "multiply", partPointer: "near", otherRoutines: [] },
+  toons: {
+    storage: "overlays",
+    recordSize: 70,
+    recordLookup: "multiply",
+    partPointer: "near",
+    otherRoutines: [],
+    stopAtProgramStart: true,
+  },
 };
 
 /** The profile of a part list's game; TIM.EXE's for a list of another id, as the reader read every program before. */
@@ -63,6 +78,8 @@ export interface BehaviourImage {
   loadImage: Uint8Array;
   /** Where a far pointer to a routine leads: through an overlay's stub to the routine itself. */
   routine(segment: number, offset: number): CodeAddress;
+  /** Where the program starts, in the image: a call there runs the whole program again, so the reader doesn't follow it. */
+  entry: number;
 }
 
 const u16 = (data: Uint8Array, at: number) => (at >= 0 && at + 1 < data.length ? data[at]! | (data[at + 1]! << 8) : 0);
@@ -153,6 +170,7 @@ export function loadOverlaidProgram(exe: Uint8Array): BehaviourImage {
   return {
     image,
     loadImage: plain,
+    entry: u16(exe, 0x16) * 16 + u16(exe, 0x14),
     routine(segment, offset) {
       const target = program.resolve(segment, offset);
       return { ...target, address: target.segment * 16 + target.offset };
@@ -164,9 +182,12 @@ export function loadOverlaidProgram(exe: Uint8Array): BehaviourImage {
 export function loadBehaviourImage(program: Uint8Array, profile: BehaviourProfile): BehaviourImage {
   if (profile.storage === "overlays") return loadOverlaidProgram(program);
   const image = unpackLzexe(program);
+  // LZEXE's unpacking code keeps the program's own start in its first words.
+  const stub = u16(program, 8) * 16 + u16(program, 0x16) * 16;
   return {
     image,
     loadImage: image,
+    entry: u16(program, stub + 2) * 16 + u16(program, stub),
     routine: (segment, offset) => ({ segment, offset, address: segment * 16 + offset }),
   };
 }
