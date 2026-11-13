@@ -270,4 +270,27 @@ describe("describeGoal", () => {
     expect(lines.slice(-2)).toEqual(["if di ≠ 0:", "  the goal is met"]);
     expect(lines.join("\n")).not.toContain("0x682f");
   });
+
+  it("says the number of an unsigned test as an unsigned word", () => {
+    const k = (value: number) => ({ kind: "constant" as const, value });
+    const positionX = {
+      kind: "word" as const,
+      address: {
+        kind: "binary" as const,
+        op: "+" as const,
+        left: { kind: "register" as const, name: "si" },
+        right: k(0x1e),
+      },
+    };
+    const body = [
+      {
+        kind: "if",
+        test: { left: positionX, op: "<", right: k(40000), signed: false },
+        then: [{ kind: "set", target: { kind: "word", address: k(MODE) }, value: k(0x200) }],
+        else: [],
+      },
+    ];
+    const lines = describeGoal(new Map([[0, { body }]]) as unknown as Parameters<typeof describeGoal>[0], 0, names);
+    expect(lines[0]).toBe("if si.positionX < 40000 (unsigned):");
+  });
 });

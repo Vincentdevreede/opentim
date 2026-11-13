@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useTemplateRef, watchEffect } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
 import { MARGIN, PLAY_AREA, partAt, type DrawnPart, type Scene } from "../../levels.ts";
 import { compositionCanvas } from "../pixels.ts";
 
@@ -49,6 +49,18 @@ const knotPicture = computed(() =>
   props.scene.knot.placed.length ? compositionCanvas(props.scene.knot, props.paletteOf("GP_BORD")) : undefined,
 );
 
+/** Device pixels per CSS pixel, kept up to date when the page is zoomed or moved to another screen. */
+const ratio = ref(1);
+let ratioQuery: MediaQueryList | undefined;
+function trackRatio() {
+  ratioQuery?.removeEventListener("change", trackRatio);
+  ratio.value = window.devicePixelRatio || 1;
+  ratioQuery = window.matchMedia(`(resolution: ${ratio.value}dppx)`);
+  ratioQuery.addEventListener("change", trackRatio);
+}
+onMounted(trackRatio);
+onBeforeUnmount(() => ratioQuery?.removeEventListener("change", trackRatio));
+
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(`--color-${name}`).trim();
 
 function drawPicture(context: CanvasRenderingContext2D, d: DrawnPart, picture: HTMLCanvasElement) {
@@ -68,8 +80,9 @@ watchEffect(() => {
   const context = el?.getContext("2d");
   if (!el || !context) return;
   const { scene, bounds, selected } = props;
-  // The canvas is drawn at a whole zoom and the page scales it to the exact one, so lines and text stay sharp.
-  const zoom = Math.max(1, Math.ceil(props.zoom));
+  // The canvas is drawn at a whole number of device pixels per pixel of the level, and the page scales it to the exact
+  // zoom, so lines and text stay sharp on screens with more than one device pixel per CSS pixel too.
+  const zoom = Math.max(1, Math.ceil(props.zoom * ratio.value));
   /** One pixel on the screen, in pixels of the level, for lines and labels that keep their size at any zoom. */
   const px = 1 / props.zoom;
   const colors = {
