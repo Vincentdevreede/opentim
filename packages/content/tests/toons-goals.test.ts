@@ -4,6 +4,7 @@ import { conditionText, summariseGoal } from "../src/read/goal-conditions.ts";
 import {
   FAR_WORDS,
   readGoalRoutines,
+  runGoal,
   type GoalRoutine,
   type GoalStatement,
   type GoalTest,
@@ -64,6 +65,40 @@ describe("readGoalRoutines for Toons", () => {
       "  di += 1",
       "ax = di",
     ]);
+  });
+});
+
+describe("readGoalRoutines for Toons' byte counters, long loops and sums", () => {
+  /** Runs a read routine over a memory of words, from words given, and gives the words it leaves. */
+  const run = (code: string, words: Record<number, number> = {}) => {
+    const routines = readGoalRoutines(image(0x40, [[0, code]]), 0, 0);
+    expect(routines.get(0)).toHaveProperty("body");
+    const memory = new Map(Object.entries(words).map(([a, v]) => [Number(a), v]));
+    runGoal(routines, 0, { read: (a) => memory.get(a) ?? 0, write: (a, v) => memory.set(a, v) });
+    return memory;
+  };
+
+  it("reads a byte local counted up to a number, and a byte loaded into al with ah cleared", () => {
+    // sub sp, 2; mov byte [bp-1], 0; jmp test; body: mov al, [bp-1]; mov ah, 0; mov [0x10], ax; inc byte [bp-1];
+    // test: cmp byte [bp-1], 3; jb body; mov sp, bp
+    const code = "558bec83ec02c646ff00eb0b8a46ffb400a31000fe46ff807eff0372ef8be55dcb";
+    expect(run(code).get(0x10)).toBe(2);
+  });
+
+  it("reads a loop whose test leaves it, with a jump back to a body too far for a short branch", () => {
+    // xor si, si; jmp test; body: inc si; test: cmp si, 3; jge out; jmp body; out: mov [0x10], si
+    expect(run("558bec33f6eb014683fe037d03e9f7ff893610005dcb").get(0x10)).toBe(3);
+  });
+
+  it("reads an ordered branch on a sum as the sum without overflow, as the processor's flags say it", () => {
+    // mov ax, [0x10]; add ax, [0x12]; jge skip; mov word [0x14], 1; skip:
+    const code = "558beca1100003061200" + "7d06c70614000100" + "5dcb";
+    const sumBelowZero = (a: number, b: number) => run(code, { 0x10: a & 0xffff, 0x12: b & 0xffff }).get(0x14) === 1;
+    expect(sumBelowZero(0x7fff, 1)).toBe(false);
+    expect(sumBelowZero(-1, -0x8000)).toBe(true);
+    expect(sumBelowZero(0, -0x8000)).toBe(true);
+    expect(sumBelowZero(5, -3)).toBe(false);
+    expect(sumBelowZero(-5, 3)).toBe(true);
   });
 });
 

@@ -121,6 +121,11 @@ don't change:
   and where branches meet, a count that is the same on several ways becomes one test (`joinIte`).
 - `partSize` (Toons' 0xb3) for which offsets are fields, and `valueName` for Al's and Sid's actions and frames.
 
+`readGoalRoutines` also takes shapes only Toons' goals have (TIM's read the same): byte locals and bytes in memory
+(`setByte`, `byteLocals`), `mov al, byte; mov ah, 0` as one load (`skip`), loops whose test leaves them with a `jmp`
+back after it or calls a routine (`loopAt`), and an ordered branch after `add` or `sub` as the sum or difference without
+overflow (`branchTest`, with a first test for -32768).
+
 When a Toons goal has too many ways, `byPart` tries it as one way with a condition per found part, the tests all its
 ways share and then "one of: …". A condition with `once` says the tests held at some step ("so far" or "before").
 

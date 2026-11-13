@@ -487,8 +487,22 @@ and words a goal reaches through `es` once it has loaded a constant segment ther
 finder as the part it finds ("word 0x340f:7514 = the 1st al-e-cat on the moving list, or 0 if there is none") and a
 write of the countdown as "the goal is met, and the run ends 10 steps later". The fields are named by the record
 offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid's `action` at `0x0c`, `positionX` at
-`0x1f`, and so on). 89 of the 100 goals read; the Levels page shows the routine next to the goal text. The reading
-isn't checked in an emulator as TIM 1's is.
+`0x1f`, and so on). All 100 goals read; the Levels page shows the routine next to the goal text. The reading isn't
+checked in an emulator as TIM 1's is.
+
+Eleven routines needed more of the reader than TIM's goals, which it now takes (TIM's goals read the same as before,
+by `list-goals` and `check-goals` on six builds):
+
+- **Byte counters** (HARD6, LOON1): a counter in a byte local (`mov byte [bp-1], 0`, `inc byte [bp-1]`,
+  `cmp byte [bp-1], 3; jb`), loaded with `mov al, [bp-1]; mov ah, 0`. A byte local is kept as a word that holds only
+  the byte, which is exact while no word of the frame overlaps it; a byte elsewhere is the low byte of its word.
+- **Long loops** (HARD4): a loop whose body is too long for a short branch back tests with a branch that leaves it and
+  a `jmp` back to the body after that.
+- **Loops that call** (HARD18 to HARD25, LOON7): a `do … while` whose first part is jumped into and calls the finder,
+  like HARD18's "find the next message machine until there is none" (`0x6a33b`).
+- **A sum's sign** (BRAN16, LOON1): `add ax, [bx+0x4f]; jge` tests the sum without overflow, as the processor's flags
+  do: `a + b ≥ 0` is read as `a ≥ -b`, and when b is -32768, whose negation isn't a word, the sum is below 0 whatever a
+  is (`0x6a15a`).
 
 **The finder** (`0x882d`) takes the type, n and the mask, starts at the head of the list the mask picks (the list head
 routine at `0x3b4a`), and follows each part's next word, counting the parts of the type. It gives the n-th one, or 0
@@ -497,7 +511,7 @@ reads the data segment's own words at the field offsets: LOON18 looks for 6 fish
 such a condition "not in this level". Which part of the level is the 1st on the list (file order, most likely) isn't
 read.
 
-**As conditions.** 84 of the 100 goals show as conditions on the Levels page, said in game terms:
+**As conditions.** 86 of the 100 goals show as conditions on the Levels page, said in game terms:
 
 - the parts the goal finds in its first step are "the 1st al-e-cat on the moving list" and so on, for every step after
   (read from code: the setup runs only while the step count is 0, and nothing else writes those words);
@@ -517,11 +531,16 @@ A Toons part's record is 0xb3 bytes: the level reader and two other places alloc
 
 ### Toons: still open
 
-- **Goals as conditions.** Five read goals keep a word that is more than a found part or a sign that something
-  happened, and show only as their routine ("program only"): CAKE6, HARD12 and HARD13 keep the step at which Sid last
-  had action 17 and are met 30 steps later; CAKE28 counts the steps at which Sid has action 55, state 484 and control
-  0, and is met at 2; BRAN8 keeps whether the electric switch went on and then off again, with Al never at action 16
-  or 37.
-- **Eleven goals aren't read**: BRAN16, HARD4, HARD6, HARD18 and HARD21 to HARD25 (one routine), LOON1 and LOON7. Their
-  routines count in byte locals, or loop or branch in ways the reader doesn't take; the Lab says which.
+- **Goals as conditions.** 14 goals show only as their routine ("program only"):
+  - CAKE6, HARD12 and HARD13 keep the step at which Sid last had action 17 and are met 30 steps later; CAKE28 counts
+    the steps at which Sid has action 55, state 484 and control 0, and is met at 2; BRAN8 keeps whether the electric
+    switch went on and then off again, with Al never at action 16 or 37. These words are more than a found part or a
+    sign that something happened.
+  - HARD18 and HARD21 to HARD25 (one routine) find every message machine on the fixed list, as many as there are, and
+    are met when all have a state other than 0: a loop whose rounds depend on the level.
+  - BRAN16 keeps the part Al's word at `0xb1` points to, when Al has action 16 and that part is an Al, and is met
+    when that part's positionY plus its height is below 0; LOON1 does the same for four Als and is met when it holds
+    for all four. A part reached through a field isn't something the conditions say.
+  - LOON7 looks for the first balloon whose word at `0x6f` isn't 0, starting with n = 0, which gives the first part on
+    the moving list when it is a balloon.
 - **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.

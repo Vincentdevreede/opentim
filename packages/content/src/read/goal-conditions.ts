@@ -887,8 +887,11 @@ function withHistory(ways: Literal[][]): Literal[][] {
   return ways.flatMap((way) => {
     const ever = way.filter((l) => l.kind === "ever");
     let split: Literal[][] = [way.filter((l) => l.kind !== "ever")];
-    for (const e of ever)
-      split = split.flatMap((w) => waysOf(e.item).map((inner) => [...w, { ...e, item: and(...(inner as Formula[])) }]));
+    for (const e of ever) {
+      const inner = waysOf(e.item);
+      if (split.length * inner.length > 64) throw new DoesntFit("it has too many ways to be met");
+      split = split.flatMap((w) => inner.map((i) => [...w, { ...e, item: and(...(i as Formula[])) }]));
+    }
     return split;
   });
 }
