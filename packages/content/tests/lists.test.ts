@@ -90,7 +90,11 @@ describe("the part lists", () => {
 
   it("has Toons' parts with a sheet, and Al and Sid, who have none", () => {
     expect(toons.parts).toHaveLength(75);
-    expect(partOfType(toons, 36)).toMatchObject({ id: "al-e-cat", sheets: [], frames: [] });
+    const al = partOfType(toons, 36);
+    expect(al).toMatchObject({ id: "al-e-cat" });
+    expect(al?.frames).toHaveLength(520);
+    expect(al?.frames[0]?.sprites).toEqual([{ sheet: "CATROOT", sprite: 0, x: 0, y: 0, layer: 3 }]);
+    expect(partOfType(toons, 37)?.frames[0]?.sprites[0]?.sheet).toBe("SIDROOT");
     expect(partOfType(toons, 45)?.tiles).toEqual({ width: 32, middles: 1 });
   });
 });

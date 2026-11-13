@@ -30,7 +30,13 @@ export {
   type TypeRecord,
 } from "./read/parts.ts";
 export { RECORD_FIELDS, RECORD_SIZE, type RecordField } from "./read/type-table.ts";
-export { TOONS_RECORD_FIELDS, TOONS_RECORD_SIZE } from "./read/toons.ts";
+export {
+  TOONS_CRITTERS,
+  TOONS_RECORD_FIELDS,
+  TOONS_RECORD_SIZE,
+  readToonsActions,
+  type ToonsAction,
+} from "./read/toons.ts";
 
 /** Every part list, by id. The version catalog says which list belongs to a version of a game. */
 export const PART_LISTS: Record<string, PartList> = Object.fromEntries(

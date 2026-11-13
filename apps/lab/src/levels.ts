@@ -5,6 +5,7 @@
 
 import {
   PULLEY,
+  TOONS_CRITTERS,
   TIM2_SCREEN,
   readLevel,
   type Level,
@@ -498,6 +499,9 @@ function drawPart(
     const detail = shown === state ? `frame ${state}` : `frame ${shown} for state ${state}`;
     if (composition.placed.length) return { ...base, how: "frame", detail, composition };
   }
+  // Al and Sid have no sheet of their own: a frame without sprites is one whose action names no sheet.
+  if (layout === "toons" && TOONS_CRITTERS.includes(part.type))
+    return { ...base, how: "outline", detail: `frame ${state} has no sheet` };
   if (!sheet) return { ...base, how: "outline", detail: "no sprite sheet" };
   if (!spriteOf(sheet, state)) return { ...base, how: "outline", detail: `${sheet} has no sprite ${state}` };
   const single: Placement[] = [{ sheet, sprite: state, x: 0, y: 0, layer: 0 }];

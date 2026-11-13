@@ -170,6 +170,6 @@ export function whyNoFrames(listId: string, part: Part): string | undefined {
   if (!part.sheets.length) return "It has no sprite sheet: the game draws it without sprites, so there are no frames.";
   if (listId === "tim2") return "Its .ANM file has no frames with sprites: the game draws it another way.";
   if (listId === "toons")
-    return "It has no PART sheet: TOONS.EXE draws it from the CAT or SID sheet of what it is doing. Not worked out yet.";
+    return "It has no PART sheet: TOONS.EXE draws it from the CAT or SID sheet of what it is doing, and those tables weren’t found in this TOONS.EXE.";
   return "Its record in TIM.EXE doesn’t place its sprites: the game draws it in its own code, like walls from tiles. Not worked out yet.";
 }

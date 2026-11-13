@@ -256,6 +256,18 @@ sheets it loads by what they are doing (`catwalk`, `sidrun`, …). It draws a pa
 What the own drawing code of the types above adds to their frames isn't read; the Lab draws their frames, the conveyor
 belt's included, and the belt and the rope as lines.
 
+**Al and Sid.** Before it draws Al or Sid (file offset `0x3027f`), TOONS.EXE looks up the part's action (the word at
+record offset `0x0c`) in a table of near pointers, Al's at `0x4569d` and Sid's at `0x49894`, to a 12-byte entry in
+the data segment (from `0x4e642` and `0x4eafe`): the action's frame count, the number of its sheet, and four words
+that aren't read. It loads that sheet, named in a list of 9-byte names (`0x4e8e2` and `0x4ed9e`, like `catroot`) with
+`.bmp` added, puts it in the type's record as the sheet, and draws the frame of the part's state from the type's own
+frame list, as for any part. The frame list holds every frame of every action, one action after another: a second
+table (`0x3f0a0` and `0x403c0`, 6 bytes an action) gives each action's first frame (stored negative for some; without the sign it lines up with the frame
+counts) and a far pointer to the action's code. Al has 60 actions and 520 frames, Sid 56 and 485. Some
+actions have no entry or no name, so their frames have no sheet (Al's `catjump` and a few other sheets are in the
+files but named nowhere). `readToonsActions` (`packages/content/src/read/toons.ts`) finds the four tables by the code
+that reads them, and the `toons` part list gives each of Al's and Sid's frames the sheet of its action.
+
 ## TIM 2
 
 TIM 2 has one archive, `RESOURCE.001`. Its sheets and screens are read like those of TIM 1, and it draws them with

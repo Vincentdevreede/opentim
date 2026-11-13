@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { readToonsParts } from "../src/read/parts.ts";
-import { findToonsTypeTable, loadImage, readToonsTypes, TOONS_RECORD_SIZE } from "../src/read/toons.ts";
+import {
+  findToonsTypeTable,
+  loadImage,
+  readToonsActions,
+  readToonsTypes,
+  TOONS_RECORD_SIZE,
+} from "../src/read/toons.ts";
 
 /**
  * A made-up program: code that reaches the table the way TOONS.EXE does and walks three types, a table of three
@@ -102,5 +108,61 @@ describe("readToonsParts", () => {
 
   it("refuses a frame that uses a sprite its sheet doesn't have", () => {
     expect(() => readToonsParts(program(), (sheet) => (sheet === "PART1" ? 2 : undefined))).toThrow(/sprite 2/);
+  });
+});
+
+/** A made-up program with Al's and Sid's tables where TOONS.EXE's code finds them. */
+function critterProgram() {
+  const image = new Uint8Array(0x800);
+  const put = (at: number, bytes: number[]) => image.set(bytes, at);
+  const word = (at: number, value: number) => put(at, [value & 0xff, value >> 8]);
+  const text = (at: number, value: string) =>
+    put(
+      at,
+      [...value].map((c) => c.charCodeAt(0)),
+    );
+  // The start-up code loads the data segment, 0x40.
+  put(0x00, [0xba, 0x40, 0x00]);
+  // mov ax, 0x60; mov es, ax; mov si, es:[bx + table], for Al and then Sid.
+  put(0x10, [0xb8, 0x60, 0x00, 0x8e, 0xc0, 0x26, 0x8b, 0xb7, 0x00, 0x00]);
+  put(0x20, [0xb8, 0x60, 0x00, 0x8e, 0xc0, 0x26, 0x8b, 0xb7, 0x10, 0x00]);
+  // mov dx, 9; imul dx; add ax, names.
+  put(0x30, [0xba, 0x09, 0x00, 0xf7, 0xea, 0x05, 0x00, 0x01]);
+  put(0x40, [0xba, 0x09, 0x00, 0xf7, 0xea, 0x05, 0x80, 0x01]);
+  // mov dx, 6; imul dx; mov dx, 0x68; mov bx, ax; mov es, dx; cmp word es:[bx + table], 0.
+  const first = (at: number, table: number) =>
+    put(at, [0xba, 6, 0, 0xf7, 0xea, 0xba, 0x68, 0, 0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x83, 0xbf, table, 0, 0]);
+  first(0x50, 0x00);
+  first(0x70, 0x20);
+  // Al: action 0 has an entry, action 1 none, action 2 another; a pointer that isn't an entry ends the table.
+  [0xe8, 0, 0xf4, 0x01].forEach((p, i) => word(0x600 + 2 * i, p));
+  put(0x400 + 0xe8, [1, 0]);
+  put(0x400 + 0xf4, [3, 1]);
+  text(0x500, "catroot");
+  text(0x509, "catwalk");
+  [0, 0, 0xfffe].forEach((f, i) => word(0x680 + 6 * i, f));
+  // Sid: one action.
+  word(0x610, 0x174);
+  put(0x400 + 0x174, [2, 0]);
+  text(0x580, "sidroot");
+  const header = new Uint8Array(32);
+  const size = header.length + image.length;
+  header.set([0x4d, 0x5a, size % 512, 0, Math.ceil(size / 512), 0, 0, 0, 2, 0]);
+  return Uint8Array.from([...header, ...image]);
+}
+
+describe("readToonsActions", () => {
+  it("reads each action's first frame, frame count and sheet, Al's tables first", () => {
+    const actions = readToonsActions(critterProgram());
+    expect(actions.get(36)).toEqual([
+      { start: 0, frames: 1, sheet: "CATROOT" },
+      undefined,
+      { start: 2, frames: 3, sheet: "CATWALK" },
+    ]);
+    expect(actions.get(37)).toEqual([{ start: 0, frames: 2, sheet: "SIDROOT" }]);
+  });
+
+  it("gives nothing when the code that reads the tables isn't there", () => {
+    expect(readToonsActions(program()).size).toBe(0);
   });
 });
