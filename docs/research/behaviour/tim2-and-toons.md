@@ -164,9 +164,9 @@ followed (see below), so the reader no longer reads the whole program as a calle
 | -------------------------- | ----: | ---------------: | -------: | ---------: | -----------: | -----------------: | ----: |
 | Even More, English CD      |    63 |               63 |      940 |        210 |          730 |                159 |  12 s |
 | Toons, English             |    75 |                6 |      454 |        118 |          336 |                 67 | 140 s |
-| TIM 2, multilingual CD     |   149 |                0 |      655 |        143 |          512 |                 34 |   9 s |
-| TIM 2, multilingual floppy |   149 |                0 |      642 |        142 |          500 |                 33 |   9 s |
-| TIM 2, English demo        |   149 |                0 |      642 |        141 |          501 |                 33 |   9 s |
+| TIM 2, multilingual CD     |   149 |                0 |      655 |        143 |          512 |                 55 |   9 s |
+| TIM 2, multilingual floppy |   149 |                0 |      642 |        142 |          500 |                 55 |   9 s |
+| TIM 2, English demo        |   149 |                0 |      642 |        141 |          501 |                 55 |   9 s |
 
 In Even More most routines read in part are bounded by a helper's summary (700 of the 730), which is why all its parts
 read fully. In Toons and TIM 2 the reasons are different:
@@ -200,7 +200,7 @@ read fully. In Toons and TIM 2 the reasons are different:
 ## What is left
 
 - **The helpers.** TIM.EXE's shared helpers are recognised by the shape of their code, written for its 58-byte records,
-  its part offsets and near part pointers. Toons recognises about half of Even More's kinds (lists, insertion, field
+  its part offsets and near part pointers. Toons recognises 20 of the 50 kinds Even More has (lists, insertion, field
   relations and updates, wide arithmetic, angle helpers), but not the ones that reach a part's outline or another part
   through a far pointer in the part (Toons keeps the outline points' far pointer at 0x89, TIM.EXE a near one at 0x82),
   nor the factory, the frame position or the contact searches. TIM 2 recognises only the kinds that don't touch a
