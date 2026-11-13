@@ -50,7 +50,8 @@ language in a subfolder). The research uses the five TIM 1 and six Even More bui
 
 Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side by side on worker threads through
 `scripts/builds.ts` (`--jobs n`; one build takes up to a minute and about 1.7 GB). A build is a game folder given by
-its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`; most scripts read only TIM 1 and Even More (`readBuild`).
+its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`; the behaviour scripts read only TIM 1 and Even More
+(`readBuild`).
 
 | Script                      | What it does                                                                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -61,18 +62,27 @@ its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`; most scripts read only 
 | `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.                                                     |
 | `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                                                                |
 | `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                                                          |
-| `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions.                                                                 |
+| `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions (TIM 1 and Even More; notes only for TIM 2 and Toons).           |
 | `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the read goals against the game's goal routines in the emulator. Both take TIM 1, Even More, TIM 2 and Toons. |
 | `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)).                                         |
-| `check-level-fields`        | Finds where the level loader puts each field of a level file.                                                                                          |
-| `check-moving-list`         | Checks decided assumption 22 in the game's own run.                                                                                                    |
+| `check-level-fields`        | Finds where the level loader puts each field of a level file. Takes all four games.                                                                    |
+| `check-moving-list`         | Checks decided assumption 22 in the game's own run; for TIM 2 and Toons at the puzzle start. Takes all four games.                                     |
+| `check-puzzle-start`        | Checks what the Lab says each puzzle starts with (`puzzleStart`) against the game's own puzzle start in the emulator. Takes all four games.            |
 | `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                                                              |
 
-The emulator scripts (`record-level`, `check-level-fields`, `check-moving-list`) only know the two
-recorded builds (`GAME_BUILDS` in `src/run/game.ts`). `check-level-fields` and `check-moving-list` run one emulator
-at a time unless `--jobs` says more. Run `check-level-fields` one build at a time and in the background: a run with
-`--jobs 4` once took the machine down. `check-goals` runs only the goal routines, with the program's memory laid out
-by hand, so it takes every build of every game.
+The level checks (`check-level-fields`, `check-level-frames`, `check-moving-list`, `check-puzzle-start`) take every
+game and print the same lines for each: a line per build, then what was checked, then notes and differences. Where a
+check doesn't apply to a game, the output says so instead of failing.
+
+For TIM 1 and Even More the emulator scripts (`record-level`, `check-level-fields`, `check-moving-list`,
+`check-puzzle-start`) start the whole game, so they only know the two recorded builds (`GAME_BUILDS` in
+`src/run/game.ts`); for another TIM build they say it isn't checked. TIM2.EXE and TOONS.EXE don't start in the
+emulator (they want EMS memory), so for them the scripts run only the game's own level loader and puzzle start, on a
+bare processor (`src/run/level-start.ts`), which takes a fifth of a second a level and works on every build. A TIM
+puzzle takes about 12 seconds. `check-level-fields` and `check-moving-list` run one emulator at a time unless `--jobs`
+says more. Run them one build at a time and in the background: a run with `--jobs 4` once took the machine down.
+`check-goals` runs only the goal routines, with the program's memory laid out by hand, so it takes every build of
+every game.
 
 ## Deploy
 

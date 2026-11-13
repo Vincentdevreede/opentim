@@ -317,6 +317,45 @@ What the loader does with the fields, from TIM2.EXE:
 - **After the parts**, from version `0x107`: the goal, as a word, eight entries and a word. In TIM 1 the goal is a
   routine per puzzle in TIM.EXE instead; TIM 2 has one routine that tests the entries (see below).
 
+### TIM 2: the loader's records and the puzzle start
+
+`check-level-fields --tim2` and `check-puzzle-start --tim2` run TIM2.EXE's own level loader (file offset `0x68020` in
+the CD build, in an overlay) and its puzzle start (`0x686de`, the routine that calls the loader with the level's name
+and the game's mode) on every level, standing in only for the game's file and memory routines. The game keeps its
+part records in a store of 150 records of 0xba bytes that it makes when it starts (`0x1a539`, called with 150 at
+`0x1985f`), so that runs first. The loader's table of parts has a far pointer per part, in the file's order, so each
+part of the file pairs with its record; all 8,583 parts of the CD's 206 levels do. Where the loader puts the fields:
+
+- the type at 0x08, the flag words at 0x0a, 0x0c and 0x0e (each the type's own bits with the kept bits of the file's,
+  as above), the second also at 0xac;
+- the state at 0xa8 and at 0x10 (in 8,491 of the parts; the others are set by their type), the place at 0x22, 0x24
+  and again at 0xa4, 0xa6;
+- the links as far pointers at 0x5e and 0x62 (again at 0x66 and 0x6a), the plugs as far pointers at 0x6e and 0x72;
+- a belt's record (0x3e bytes from the near `calloc`) at 0x58 in the belt and in both its parts, with the two parts at
+  +6 and +0x0a; a rope's record (0x36 bytes) at 0x76 or 0x78, with the parts at +4 (again at +0x0c) and +8; the rope
+  places' bytes at 0x7a, 0x7b and 0x7c, 0x7d.
+
+The size and the base size aren't in any one word of every record: the type sets them from its pictures, which the
+check doesn't give it.
+
+**The puzzle start does more than the Lab says.** With the mode of a puzzle (any but 1 and 6, which keep every part
+where it is, and 9), the start routine (`0x68817`) walks the moving list and then the fixed list and puts each part
+without bit 0x40 of its third flag word in the bin, as the Lab has it. But in 195 of the CD's 206 puzzles it starts
+otherwise than the Lab says:
+
+- **The bin's order** (72 puzzles differ only in this): the bin isn't in the file's order. Parts of a type come
+  together, in the reverse of the order the start reaches them, and the types in an order of their own, as in Toons;
+  where that order comes from isn't read yet.
+- **Ropes and belts go with their parts**: a rope or a belt tied to a part that goes to the bin goes there too (18
+  ropes and 27 belts of the CD's levels), and the ropes and belts of the parts on the board are untied from it.
+- **The explosives of a remote control are taken off** (37 in the CD's levels), as Toons takes off a tunnel's other
+  end; three remote controls with bit 0x40 go to the bin too (ELEV22 #10, HLEV6 #3, MLEV21 #9).
+- **Plugs are pulled out and states change** on the board: in 44 puzzles a part on the board loses its plug, and its
+  state changes, most often to 0.
+
+For the designer's solution (mode 9) the parts with bit 0x100 stay in the bin and the rest come on the board, as the
+Lab says; only the bin's order differs, in 58 of the 206.
+
 ### TIM 2 goals
 
 The loader keeps the goal in the data segment: the first word, eight entries of 18 bytes (a part pointer and seven
@@ -458,6 +497,9 @@ What isn't worked out yet, and what the Lab does meanwhile:
 - **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
   with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
 - **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
+- **The puzzle start.** The Lab puts the parts without bit 0x40 in the bin in the file's order and changes nothing on
+  the board; TIM2.EXE also sorts the bin, takes ropes, belts and explosives with their parts and pulls plugs
+  ([above](#tim-2-the-loaders-records-and-the-puzzle-start)). `check-puzzle-start --tim2` lists every difference.
 
 ## Toons levels
 
@@ -534,10 +576,21 @@ writes is read. So in the bin the types come in the table's order, and a type's 
 there: the moving list's before the fixed list's, each list in its order, and a rope or a belt when the part it holds
 goes. `readToonsBinKinds` reads the table, and `toonsPuzzleStart` gives the bin in this order (`binOrder`).
 
-**Checked on the CPU.** The puzzle setup itself, run on the CPU over part records built from each of the 100 level
-files as the level reader builds them (each list put together with the game's insertion routine in file order), gives
-the same bin in the same order, the same tunnels taken off, the same plugs and the same states on the board as
-`toonsPuzzleStart`, in all 100 puzzles. The second flag word of a part on the board changes only by the belt bit, on
+**Checked on the CPU.** `check-puzzle-start --toons` runs TOONS.EXE's own level loader on each of the 100 level files
+and then its puzzle start as the game runs it: the routine that loads the level and runs the setup (`0x2573f`), the
+routine after it and the level reset (`0x228bc`, `0xec1e`, called one after the other at `0x2290a`), after the
+start-up routine that writes the bin's sort words. Only the game's file and memory routines are stood in for
+([the code map](../code/descriptions-and-goals.md#the-emulator-srcrun)). It gives the same bin in the same order, the
+same tunnels taken off, and on the board the same plugs, the same states, the same rope places untied and the same
+belts taken off as `toonsPuzzleStart`, in all 100 puzzles.
+
+That needed one fix the earlier check, over records built by hand, couldn't show: **a pulley before its rope in the
+file has no rope over it.** The level reader keeps the rope over a pulley at the pulley's second rope place (0x71),
+taking the record at the first rope place of the part the pulley's field names (`0x24f3c`), and it does that as it
+reads the pulley. It reads the parts in the file's order and makes a rope's record as it reads the rope, so a pulley
+that comes first gets 0 there. In HARD6 pulleys #4 and #15 come before their rope #21, and in HARD25 pulley #32 before
+its rope; when the rope goes to the bin, there is nothing at their second place to untie. `toonsPuzzleStart` follows
+the reader in this now. The second flag word of a part on the board changes only by the belt bit, on
 the same 22 parts. Run between the two resets of a puzzle start ([Toons: assumptions](#toons-assumptions)), it gives
 the same again. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
 trans-roto-matic #18, skeleto-bobbin #19, bomb #46, baseball #45 and tunnel #20; the file has them in the order 0, 1,

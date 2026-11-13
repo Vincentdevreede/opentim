@@ -95,7 +95,8 @@ The biggest file of the Lab. In order:
   type,
   `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
   the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
-  for TIM 2 and Toons, whose files keep no bin; for Toons it follows `toonsPuzzleStart` through `toonsStart`, with the
+  for TIM 2 and Toons, whose files keep no bin; it follows `puzzleStart` from the content package through `levelStart`,
+  which `check-puzzle-start` checks against each game; for Toons that is `toonsPuzzleStart`, through `toonsStart`, with the
   type table's sort words the page reads from TOONS.EXE and passes as `toonsSort`, and gives `gone` for a tunnel the
   puzzle start takes off, which the Structure panel lists as "Taken off" and the scene notes). For a Toons puzzle the
   scene's bin and the Structure panel's are in TOONS.EXE's order, the board is drawn with the states the setup leaves
