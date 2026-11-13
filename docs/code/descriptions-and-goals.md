@@ -107,6 +107,23 @@ laid out with its overlays (`readToonsMemory`), and `readToonsGoals` reads the r
 offset) and says them with `describeGoal`, which says a call to `GoalNames.finder` as the part it finds. A goal without
 a value in `GoalNames.mode` is met by any write of the mode word: Toons' countdown.
 
+`summariseGoal` takes Toons' goals through options of `GoalNames` that only `readToonsGoals` sets, so TIM's summaries
+don't change:
+
+- `finder`: a `find` statement gives the part `{ kind: "nth", type, nth, lists }`, said as the condition kind `nth`.
+- `firstStep` (the step count word): the goal's `if the step count = 0` setup is run on its own (`runSetup`), and
+  `keptWords` sorts the words it sets in three passes. A word set to a found part and never written in the steps keeps
+  that part. A word set to a number and, in the steps, only to one other number when a test holds is a latch: read
+  before this step's writes it is the formula `ever` with `before`, after them `ever` "so far" (the `end` value it is
+  compared with is the pass's own, with the word as the step left it). Reading any other set up word doesn't fit,
+  because the steps are read without the setup.
+- `countedLoops`: a loop whose test is decided in every round is run round by round (`unroll`, at most 64 rounds),
+  and where branches meet, a count that is the same on several ways becomes one test (`joinIte`).
+- `partSize` (Toons' 0xb3) for which offsets are fields, and `valueName` for Al's and Sid's actions and frames.
+
+When a Toons goal has too many ways, `byPart` tries it as one way with a condition per found part, the tests all its
+ways share and then "one of: …". A condition with `once` says the tests held at some step ("so far" or "before").
+
 ## Level files
 
 - `level.ts`: `readLevel(data, { layout, name })` reads TIM 1, Even More and Toons `.LEV`/`.GKC` files. Puzzle or

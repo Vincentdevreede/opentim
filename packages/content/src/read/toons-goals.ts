@@ -22,6 +22,7 @@ import {
   type GoalValue,
 } from "./puzzle-goals.ts";
 import { readToonsMemory, type ToonsMemory } from "./toons-drawing.ts";
+import { readToonsActions } from "./toons.ts";
 
 const ANY = -1;
 const u16 = (data: Uint8Array, at: number) => data[at]! | (data[at + 1]! << 8);
@@ -51,6 +52,30 @@ const COUNT_STEP = [0xff, 0x06];
  */
 const SETS = [0x8a, 0x84, ANY, ANY, 0xb4, 0x00, 0x3b, 0x46, 0xfe, 0x7e, ANY, 0x8a, 0x84, ANY, ANY];
 const SET_NAME = [0xff, 0xb7];
+
+/** A Toons part's record: 0xb3 bytes, as TOONS.EXE allocates it with `calloc(1, 0xb3)` (file offset `0x24b45`). */
+const TOONS_PART_SIZE = 0xb3;
+const ACTION = 0x0c;
+const STATE = 0x0e;
+
+/**
+ * Al's and Sid's actions and states in words: an action by the sheet it draws from, and a state, which is a frame
+ * number, as a frame of the action the goal tests with it when it falls in that action's frames, like "CATFISH frame
+ * 16 of 16". A goal can test a state outside the action's frames (CAKE26: action 16 and state 141), so a state is
+ * only named next to its action.
+ */
+function actionNames(exe: Uint8Array): GoalNames["valueName"] {
+  const actions = readToonsActions(exe);
+  if (!actions.size) return undefined;
+  return (type, offset, value, part) => {
+    const own = actions.get(type);
+    if (!own) return undefined;
+    if (offset === ACTION) return own[value]?.sheet;
+    const action = own[part.get(ACTION) ?? -1];
+    if (offset !== STATE || !action || value < action.start || value >= action.start + action.frames) return undefined;
+    return `${action.sheet} frame ${value - action.start + 1} of ${action.frames}`;
+  };
+}
 
 /** The fields of a Toons part record the goals read, by offset, as TOONS.EXE's loader and drawing code use them. */
 const TOONS_FIELDS: [number, string][] = [
@@ -216,8 +241,13 @@ export function readToonsGoals(
       routineNames.set(goal.address, `${goal.name ?? `puzzle ${goal.puzzle}`}'s goal`);
   if (find !== undefined) routineNames.set(find, "the search for the n-th part of a type on the lists");
   const { mode, countdown, steps } = table.words;
+  const valueName = actionNames(exe);
   const names: GoalNames = {
     fields: new Map(TOONS_FIELDS),
+    partSize: TOONS_PART_SIZE,
+    countedLoops: true,
+    ...(steps !== undefined ? { firstStep: steps } : {}),
+    ...(valueName ? { valueName } : {}),
     types,
     lists: [],
     words: new Map([

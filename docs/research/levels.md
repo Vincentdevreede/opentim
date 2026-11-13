@@ -490,11 +490,38 @@ offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid
 `0x1f`, and so on). 89 of the 100 goals read; the Levels page shows the routine next to the goal text. The reading
 isn't checked in an emulator as TIM 1's is.
 
+**The finder** (`0x882d`) takes the type, n and the mask, starts at the head of the list the mask picks (the list head
+routine at `0x3b4a`), and follows each part's next word, counting the parts of the type. It gives the n-th one, or 0
+when the list ends before it. So a goal that looks for more parts than the level has keeps 0 for the others and then
+reads the data segment's own words at the field offsets: LOON18 looks for 6 fish and the level has 4. The Lab marks
+such a condition "not in this level". Which part of the level is the 1st on the list (file order, most likely) isn't
+read.
+
+**As conditions.** 84 of the 100 goals show as conditions on the Levels page, said in game terms:
+
+- the parts the goal finds in its first step are "the 1st al-e-cat on the moving list" and so on, for every step after
+  (read from code: the setup runs only while the step count is 0, and nothing else writes those words);
+- a word set to 0 in the first step and to 1 whenever a test holds, and then tested, is "at some step so far": CAKE2
+  is "at some step so far, the 1st eunice-elephant: action 5, state 8, and at some step so far the 2nd one too";
+- a goal that goes over its parts with a counter (CAKE1's five message machines, BRAN10's three Sids) gives a
+  condition for each part, and parts that each pass one of several tests are one condition each: LOON17 is "the 1st,
+  2nd and 3rd sid-mouse: action ≠ 45, one of: positionX > 640 or positionX < 0 or positionY > 400 or positionY < 0";
+- Al's and Sid's action is named by its sheet ("action = 50 (CATFISH)"), and a state by its frame in the sheet of the
+  action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is a frame number counted over the
+  sheets is inferred from the action table (each action's first frame and frame count), not seen in the goal code.
+  CAKE26 tests action 16 with state 141, which lies in another action's frames, so a state is only named next to its
+  own action.
+
+A Toons part's record is 0xb3 bytes: the level reader and two other places allocate it with `calloc(1, 0xb3)`
+(`0x24b45`, `0x24293`, `0xc15a`), so a goal's offsets up to `0xb2` are fields (the counters' setting at `0xaf`).
+
 ### Toons: still open
 
-- **Goals as conditions.** No Toons goal reads as conditions yet: they find their parts through a routine that
-  walks the lists (the conditions only know TIM's walks) and keep them in words between steps. The Lab shows the goal
-  routine with a "program only" badge.
+- **Goals as conditions.** Five read goals keep a word that is more than a found part or a sign that something
+  happened, and show only as their routine ("program only"): CAKE6, HARD12 and HARD13 keep the step at which Sid last
+  had action 17 and are met 30 steps later; CAKE28 counts the steps at which Sid has action 55, state 484 and control
+  0, and is met at 2; BRAN8 keeps whether the electric switch went on and then off again, with Al never at action 16
+  or 37.
 - **Eleven goals aren't read**: BRAN16, HARD4, HARD6, HARD18 and HARD21 to HARD25 (one routine), LOON1 and LOON7. Their
   routines count in byte locals, or loop or branch in ways the reader doesn't take; the Lab says which.
 - **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.

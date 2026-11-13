@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { describeGoal, type GoalNames } from "../src/read/describe-goals.ts";
-import { FAR_WORDS, readGoalRoutines, type GoalRoutine, type GoalStatement } from "../src/read/puzzle-goals.ts";
+import { conditionText, summariseGoal } from "../src/read/goal-conditions.ts";
+import {
+  FAR_WORDS,
+  readGoalRoutines,
+  type GoalRoutine,
+  type GoalStatement,
+  type GoalTest,
+  type GoalValue,
+} from "../src/read/puzzle-goals.ts";
 import type { ToonsMemory } from "../src/read/toons-drawing.ts";
 import { findToonsGoalTable } from "../src/read/toons-goals.ts";
 
@@ -115,5 +123,160 @@ describe("findToonsGoalTable", () => {
       ],
       words: { countdown: 0x70d, mode: 0x6db, steps: 0x70f },
     });
+  });
+});
+
+describe("summariseGoal for Toons", () => {
+  const STEPS = 0x470f;
+  const COUNTDOWN = 0x470d;
+  const FINDER = 0x262d;
+  const KEPT = FAR_WORDS + 0x340f * 0x10000;
+  const c = (value: number): GoalValue => ({ kind: "constant", value });
+  const r = (name: string): GoalValue => ({ kind: "register", name });
+  const word = (address: GoalValue | number): Extract<GoalValue, { kind: "word" }> => ({
+    kind: "word",
+    address: typeof address === "number" ? c(address) : address,
+  });
+  const plus = (left: GoalValue, right: GoalValue): GoalValue => ({ kind: "binary", op: "+", left, right });
+  const field = (part: GoalValue, offset: number) => word(plus(part, c(offset)));
+  const set = (target: GoalValue, value: GoalValue): GoalStatement => ({ kind: "set", target, value }) as GoalStatement;
+  const test = (left: GoalValue, op: GoalTest["op"], right: GoalValue): GoalTest => ({ op, signed: true, left, right });
+  const when = (t: GoalTest, then: GoalStatement[], otherwise: GoalStatement[] = []): GoalStatement => ({
+    kind: "if",
+    test: t,
+    then,
+    else: otherwise,
+  });
+  /** The finder's call as TOONS.EXE makes it: the mask, n and the type pushed, and the part stored. */
+  const find = (type: number, nth: GoalValue, mask: number, into: GoalValue): GoalStatement[] => [
+    set({ kind: "local", offset: -2 }, c(mask)),
+    set({ kind: "local", offset: -4 }, nth),
+    set({ kind: "local", offset: -6 }, c(type)),
+    { kind: "call", routine: FINDER, segment: 0, offset: FINDER, stack: -6 },
+    set(into, r("ax")),
+  ];
+  const met = set(word(COUNTDOWN), c(10));
+  const toons: GoalNames = {
+    fields: new Map([
+      [0x04, "type"],
+      [0x08, "drawingFlags"],
+      [0x0c, "action"],
+      [0x0e, "state"],
+      [0x1f, "positionX"],
+    ]),
+    types: new Map([
+      [36, "al-e-cat"],
+      [23, "balloon"],
+    ]),
+    lists: [],
+    words: new Map([
+      [COUNTDOWN, "the goal's countdown"],
+      [STEPS, "the step count"],
+    ]),
+    mode: { word: COUNTDOWN },
+    finder: FINDER,
+    partSize: 0xb3,
+    firstStep: STEPS,
+    countedLoops: true,
+    valueName: (type, offset, value, part) =>
+      type === 36 && offset === 0x0c && value === 50
+        ? "CATFISH"
+        : type === 36 && offset === 0x0e && part.get(0x0c) === 50
+          ? `CATFISH frame ${value - 401} of 16`
+          : undefined,
+  };
+  const summary = (body: GoalStatement[]) =>
+    summariseGoal(new Map([[0, { address: 0, segment: 0, offset: 0, body }]]), 0, toons);
+  const al = word(KEPT + 0x7470);
+
+  it("reads a word set to the part the finder found in the first step as that part in every step", () => {
+    const s = summary([
+      when(test(word(STEPS), "==", c(0)), find(36, c(1), 0x1000, al)),
+      set(r("bx"), al),
+      when(test(field(r("bx"), 0x0c), "==", c(50)), [
+        set(r("bx"), al),
+        when(test(field(r("bx"), 0x0e), "==", c(417)), [met]),
+      ]),
+    ]);
+    expect(s.problem).toBeUndefined();
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      ["the 1st al-e-cat on the moving list: action = 50 (CATFISH), state = 417 (CATFISH frame 16 of 16)"],
+    ]);
+    expect(s.remembered).toEqual([]);
+  });
+
+  it("reads a word set to 0 in the first step and to 1 when a test holds as the test held at some step so far", () => {
+    const flag = word(0x4c78);
+    const s = summary([
+      when(test(word(STEPS), "==", c(0)), [...find(36, c(1), 0x1000, al), set(flag, c(0))]),
+      set(r("bx"), al),
+      when(test(field(r("bx"), 0x0c), "==", c(50)), [set(flag, c(1))]),
+      when(test(flag, "!=", c(0)), [met]),
+    ]);
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      ["at some step so far, the 1st al-e-cat on the moving list: action = 50 (CATFISH)"],
+    ]);
+    expect(s.ways[0]![0]!.once).toBe("so far");
+  });
+
+  it("doesn't read a word the goal counts with from step to step", () => {
+    const count = word(0x4c7a);
+    const s = summary([
+      when(test(word(STEPS), "==", c(0)), [...find(36, c(1), 0x1000, al), set(count, c(0))]),
+      set(r("bx"), al),
+      when(test(field(r("bx"), 0x0c), "==", c(50)), [set(count, plus(count, c(1)))]),
+      when(test(count, "==", c(2)), [met]),
+    ]);
+    expect(s.problem).toMatch(/keeps a word from step to step/);
+  });
+
+  // si = 0; while si < 3: bx = si << 1; bx = word 0x340f:7584[bx]; if <test of bx>: di += 1; si += 1
+  const overParts = (pick: (bx: GoalValue) => GoalStatement[]): GoalStatement[] => {
+    const slot = plus({ kind: "binary", op: "<<", left: r("si"), right: c(1) }, c(KEPT + 0x7584));
+    return [
+      when(test(word(STEPS), "==", c(0)), [
+        set(r("si"), c(0)),
+        {
+          kind: "loop",
+          before: [],
+          test: test(r("si"), "<", c(3)),
+          body: [...find(23, plus(r("si"), c(1)), 0x1000, word(slot)), set(r("si"), plus(r("si"), c(1)))],
+        },
+      ]),
+      set(r("di"), c(0)),
+      set(r("si"), c(0)),
+      {
+        kind: "loop",
+        before: [],
+        test: test(r("si"), "<", c(3)),
+        body: [set(r("bx"), word(slot)), ...pick(r("bx")), set(r("si"), plus(r("si"), c(1)))],
+      },
+      when(test(r("di"), "==", c(3)), [met]),
+    ];
+  };
+
+  it("runs a loop with a counter round by round, a condition for each part it found", () => {
+    const flags = { kind: "binary", op: "&", left: field(r("bx"), 0x08), right: c(0x2000) } as const;
+    const s = summary(overParts(() => [when(test(flags, "!=", c(0)), [set(r("di"), plus(r("di"), c(1)))])]));
+    expect(s.ways.map((w) => w.map(conditionText))).toEqual([
+      [1, 2, 3].map(
+        (n) =>
+          `the ${n === 1 ? "1st" : n === 2 ? "2nd" : "3rd"} balloon on the moving list: drawingFlags has the bits 0x2000`,
+      ),
+    ]);
+  });
+
+  it("says parts that each pass one of several tests as one condition each, with the tests as alternatives", () => {
+    const inc = set(r("di"), plus(r("di"), c(1)));
+    const s = summary(
+      overParts((bx) => [
+        when(test(field(bx, 0x1f), "<", c(0)), [inc], [when(test(field(bx, 0x1f), ">", c(640)), [inc])]),
+      ]),
+    );
+    expect(s.problem).toBeUndefined();
+    expect(s.ways).toHaveLength(1);
+    expect(s.ways[0]!.map(conditionText)).toEqual(
+      ["1st", "2nd", "3rd"].map((n) => `the ${n} balloon on the moving list: one of: positionX < 0 or positionX > 640`),
+    );
   });
 });

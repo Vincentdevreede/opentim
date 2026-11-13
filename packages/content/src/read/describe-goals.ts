@@ -37,10 +37,25 @@ export interface GoalNames {
    * mask), as Toons' goals find their parts. A call to it is said as what it finds.
    */
   finder?: number;
+  /** How many bytes a part's record has, so an offset below it is a field: TIM's 0xa0 when not given. */
+  partSize?: number;
+  /**
+   * The step count word, for a goal that sets up the words it keeps in the step whose count is 0, as Toons' goals do
+   * (`if the step count = 0: …`). The conditions read such a goal as the steps after the first, with the words set up.
+   */
+  firstStep?: number;
+  /** Whether a loop with a counter is run round by round for the conditions, as Toons' goals go over their parts. */
+  countedLoops?: boolean;
+  /**
+   * A value of a field of a part of a type in words, like the sheet of Al's action, when there is a name for it. `part`
+   * has the values the other tests fix the part's fields to, by offset.
+   */
+  valueName?: (type: number, offset: number, value: number, part: ReadonlyMap<number, number>) => string | undefined;
 }
 
 const TYPE = 0x04;
-const PART_SIZE = 0xa0;
+/** A TIM part's record size: an offset below it from a part's address is one of its fields. */
+export const PART_SIZE = 0xa0;
 
 type Routines = ReadonlyMap<number, GoalRoutine | GoalProblem>;
 
@@ -297,7 +312,7 @@ export function withoutSaves(body: readonly GoalStatement[]): GoalStatement[] {
   return body.slice(k);
 }
 
-const ordinal = (n: number) =>
+export const ordinal = (n: number) =>
   `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
 
 /** The lists a mask names, by the bits the list routines test: 0x2000 fixed, 0x1000 moving, 0x0800 the third. */
@@ -306,7 +321,7 @@ const MASK_LISTS: [number, string][] = [
   [0x1000, "the moving list"],
   [0x0800, "the third list"],
 ];
-const masked = (mask: number) => {
+export const masked = (mask: number) => {
   const lists = MASK_LISTS.filter(([bit]) => mask & bit).map(([, name]) => name);
   return lists.length ? lists.join(" or ") : `the lists ${hex(mask)}`;
 };
@@ -345,7 +360,7 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
           a.op === "+" &&
           isRegister(a.left) &&
           isConstant(a.right) &&
-          a.right.value < PART_SIZE
+          a.right.value < (names.partSize ?? PART_SIZE)
         )
           return `${value(a.left)}.${names.fields.get(a.right.value) ?? hex(a.right.value)}`;
         if (a.kind === "binary" && a.op === "+" && isConstant(a.right))

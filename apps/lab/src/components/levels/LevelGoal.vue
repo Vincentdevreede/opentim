@@ -25,6 +25,8 @@ const props = defineProps<{
   markSetters?: ReadonlyMap<string, string[]>;
   /** The least time one step of the run takes, to say a number of steps in seconds. */
   stepMilliseconds?: number;
+  /** How many parts of each type the level has, bin included, to note an n-th part it doesn't have. */
+  typeCounts?: ReadonlyMap<number, number>;
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
@@ -97,6 +99,16 @@ const typeNumbers = (c: GoalCondition) => c.types?.map((t) => t.type) ?? goalTyp
 /** A condition's parts in words: the types, or any part. */
 const typesOf = (c: GoalCondition) =>
   (c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part") + (c.part === undefined ? "" : ` #${c.part}`);
+/** "1st", "2nd", "3rd", "4th": which part of its type a condition is about. */
+const ordinal = (n: number) =>
+  `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
+/** Whether the level has fewer parts of the type than the one the condition is about: the goal finds none then. */
+const missing = (c: GoalCondition) =>
+  c.kind === "nth" && !!props.typeCounts && (props.typeCounts.get(c.types?.[0]?.type ?? -1) ?? 0) < c.nth!;
+const ONCE = {
+  "so far": "The tests held at some step of the run so far, this one included: the goal keeps a word for it",
+  before: "The tests held at some step before this one: the goal keeps a word for it",
+} as const;
 const countOf = (c: GoalCondition) => {
   const op = { "==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥" }[c.count!.op];
   return `${op} ${c.count!.value}`;
@@ -124,10 +136,14 @@ const countOf = (c: GoalCondition) => {
                   :aria-label="`area ${areaNumbers.get(c)}`"
                   >{{ areaNumbers.get(c) }}</span
                 >
-                <LabChip>{{ c.kind }}</LabChip>
+                <LabChip>{{ c.kind === "nth" ? ordinal(c.nth!) : c.kind }}</LabChip>
+                <LabChip v-if="c.once" tone="accent" :title="ONCE[c.once]">once</LabChip>
                 <template v-if="c.kind !== 'word'">
                   <span class="min-w-0 truncate font-mono text-meta text-ink">{{ typesOf(c) }}</span>
                   <span v-if="c.lists" class="shrink-0 text-meta text-faint">on {{ c.lists }}</span>
+                  <LabChip v-if="missing(c)" tone="error" title="The level has fewer parts of this type, bin included"
+                    >not in this level</LabChip
+                  >
                 </template>
               </span>
               <!-- What the condition tests goes on a line of its own, so it is never cut off by the names. -->

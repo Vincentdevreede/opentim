@@ -166,6 +166,13 @@ const toonsGoals = computed(() => {
   }
 });
 
+/** How many parts of each type the level has, bin included, for a goal that finds the n-th part of a type. */
+const typeCounts = computed(() => {
+  const counts = new Map<number, number>();
+  for (const part of level.value?.parts ?? []) counts.set(part.type, (counts.get(part.type) ?? 0) + 1);
+  return counts;
+});
+
 /** The puzzle a level file is, by its name: `L12.LEV` is puzzle 12, whose goal routine TIM.EXE picks by that number. */
 const puzzle = computed(() => {
   const match = /^L(\d+)\.LEV$/i.exec(current.value?.resource.name ?? "");
@@ -476,6 +483,7 @@ onBeforeUnmount(() => {
               :area-numbers="areaNumbers"
               :mark-setters="markSetters"
               :step-milliseconds="stepMilliseconds"
+              :type-counts="typeCounts"
             />
           </div>
           <div class="relative min-w-0 flex-[2]">

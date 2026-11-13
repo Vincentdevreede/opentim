@@ -9,8 +9,17 @@
  * something these shapes can't say, like a walk that looks at the parts it saw before, gets no conditions but the
  * reason, and stays readable as its program (`describe-goals.ts`).
  */
-import { shape, withoutSaves, type GoalNames, type Shown } from "./describe-goals.ts";
-import type { GoalComparison, GoalOperator, GoalProblem, GoalRoutine, GoalTest, GoalValue } from "./puzzle-goals.ts";
+import { masked, ordinal, PART_SIZE, shape, withoutSaves, type GoalNames, type Shown } from "./describe-goals.ts";
+import {
+  FAR_WORDS,
+  farWord,
+  type GoalComparison,
+  type GoalOperator,
+  type GoalProblem,
+  type GoalRoutine,
+  type GoalTest,
+  type GoalValue,
+} from "./puzzle-goals.ts";
 
 /** A place a part has to be in: the inclusive range of its positionX and positionY, open where a side isn't tested. */
 export interface GoalArea {
@@ -24,10 +33,18 @@ export interface GoalCondition {
    * `none`: no part of the types on the lists passes `where`. `some`: at least one passes the tests. `first`/`last`:
    * the first part a search finds, or the last one a walk keeps. `count`: how many parts pass `where`, against a number.
    * `word`: a test of a word of the game's memory, like the step count. `part`: one part of the level, by `part`.
+   * `nth`: the n-th part of its type on the lists, as Toons' goals find their parts, by `nth`.
    */
-  kind: "every" | "none" | "some" | "first" | "last" | "count" | "word" | "part";
+  kind: "every" | "none" | "some" | "first" | "last" | "count" | "word" | "part" | "nth";
   /** For `part`: the part's index in the level. */
   part?: number;
+  /** For `nth`: which part of the type, from 1. */
+  nth?: number;
+  /**
+   * When the tests needn't hold now: `so far` when they held at some step of the run up to this one, `before` when
+   * at some step before this one. A goal remembers it in a word it keeps.
+   */
+  once?: "so far" | "before";
   /** The lists the parts are on, like "the moving list". */
   lists?: string;
   /** The part types, by number and name; none means parts of any type. */
@@ -52,7 +69,6 @@ export interface GoalSummary {
 }
 
 const TYPE = 0x04;
-const PART_SIZE = 0xa0;
 /** More ways than this and the conditions say less than the program. */
 const MOST_WAYS = 6;
 /** How deep a routine may call itself before it counts as never stopping. */
@@ -76,7 +92,9 @@ type PartRef =
   /** The first part of a walk where `where` holds. */
   | { kind: "first"; walk: Walked; where: Formula }
   /** The last part of a walk where `where` holds. */
-  | { kind: "last"; walk: Walked; where: Formula };
+  | { kind: "last"; walk: Walked; where: Formula }
+  /** The n-th part of a type on the lists, from the finder; the goal keeps it from its first step. */
+  | { kind: "nth"; type: number; nth: number; lists: string };
 
 type Sym =
   | { kind: "constant"; value: number }
@@ -101,14 +119,20 @@ type Formula =
   | { kind: "not"; item: Formula }
   /** `then` when `when` holds, else `else`: a test of a word that is one of two values. */
   | { kind: "choose"; when: Formula; then: Formula; else: Formula }
-  | { kind: "some"; walk: Walked; where: Formula };
+  | { kind: "some"; walk: Walked; where: Formula }
+  /**
+   * `item` held at some step: of the run so far, this step included, or (`before`) before this step. A word a goal
+   * keeps, set to 0 in its first step and to 1 whenever a test holds, says this.
+   */
+  | { kind: "ever"; item: Formula; before: boolean };
 
 class DoesntFit extends Error {}
 
 const TRUE: Formula = { kind: "true" };
 const FALSE: Formula = { kind: "false" };
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
-const constant = (value: number): Sym => ({ kind: "constant", value: value & 0xffff });
+/** A number as a word; a place of a far segment (`FAR_WORDS` and up) stays as it is. */
+const constant = (value: number): Sym => ({ kind: "constant", value: value >= FAR_WORDS ? value : value & 0xffff });
 const signed16 = (value: number) => (value >= 0x8000 ? value - 0x10000 : value);
 const hex = (value: number) => `0x${value.toString(16)}`;
 
@@ -186,6 +210,14 @@ function binary(op: GoalOperator, left: Sym, right: Sym): Sym {
   if (left.kind === "constant" && right.kind === "constant") {
     const l = left.value;
     const r = right.value;
+    // A place in a far segment plus or less a number, like `es:[bx + 0x7584]`, is another place of that segment.
+    if (l >= FAR_WORDS || r >= FAR_WORDS) {
+      const far = farWord(Math.max(l, r))!;
+      const other = l >= FAR_WORDS ? r : l;
+      if ((op === "+" && other < FAR_WORDS) || (op === "-" && r < FAR_WORDS && l >= FAR_WORDS))
+        return constant(FAR_WORDS + far.segment * 0x10000 + ((far.offset + (op === "+" ? other : -other)) & 0xffff));
+      throw new DoesntFit("it works out a place in a far segment in a way it can't follow");
+    }
     switch (op) {
       case "+":
         return constant(l + r);
@@ -279,6 +311,40 @@ interface State {
   alive: Formula;
 }
 
+/**
+ * What a goal that sets up its words in its first step keeps in them, as `summariseGoal` finds it: the words that keep
+ * a part the finder found, and the words that remember that something happened (0 at first, and 1 from the step
+ * where a test held).
+ */
+interface Kept {
+  parts: ReadonlyMap<number, Sym>;
+  /**
+   * Words set to `first` in the setup and to `value` when `when` holds: `end` is what they hold after every write of a
+   * step, with the word as the step left it as such.
+   */
+  latches: ReadonlyMap<number, Latch>;
+  /** Whether reading another word the first step set up doesn't fit: the last pass. */
+  strict: boolean;
+}
+
+interface Latch {
+  when: Formula;
+  value: number;
+  first: number;
+  end: Sym;
+}
+
+/** A value with every part that is the same as `target` put `by` in its place. */
+function replaced<T>(value: T, target: unknown, by: unknown): T {
+  if (same(value, target)) return by as T;
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => replaced(v, target, by)) as T;
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, replaced(v, target, by)])) as T;
+}
+
+/** How many rounds a loop with a counter may run before it counts as never stopping. */
+const MOST_ROUNDS = 64;
+
 /** Runs a goal program symbolically: what each word becomes, and when the goal is met. */
 class Runner {
   private walks = 0;
@@ -288,14 +354,84 @@ class Runner {
   readonly met: Formula[] = [];
   /** The data segment words the goal writes, by address. */
   readonly written = new Set<number>();
+  /** Every word the goal writes outside its first step's setup, kept words too. */
+  readonly stepWrites = new Set<number>();
+  /** The words the setup in the first step sets, and what to: `if the step count = 0: …`. */
+  setup?: Map<number, Sym>;
+  private inSetup = false;
   private readonly heads: ReadonlyMap<number, string>;
   private readonly routines: Routines;
   private readonly names: GoalNames;
+  private readonly kept?: Kept;
 
-  constructor(routines: Routines, names: GoalNames) {
+  constructor(routines: Routines, names: GoalNames, kept?: Kept) {
     this.routines = routines;
     this.names = names;
+    this.kept = kept;
     this.heads = new Map(names.lists.map((l) => [l.head, l.name]));
+  }
+
+  /**
+   * A word a branch didn't write, where branches meet: as it was before, which for a goal with a setup may be a word
+   * it keeps. Without a setup, the word as the step left it.
+   */
+  private readonly missing = (address: number): Sym | undefined => {
+    if (!this.kept) return undefined;
+    // A word that remembers something stays as the step left it until it is read, as in the pass that found it.
+    if (this.kept.latches.has(address)) return { kind: "word", address };
+    return this.read(constant(address));
+  };
+
+  /** Whether a test is the one a setup in the first step is under: the step count against 0. */
+  private setupOf(s: Extract<Shown, { kind: "if" }>): readonly Shown[] | undefined {
+    const { test } = s;
+    if (
+      this.names.firstStep === undefined ||
+      test.left.kind !== "word" ||
+      test.left.address.kind !== "constant" ||
+      test.left.address.value !== this.names.firstStep ||
+      test.right.kind !== "constant" ||
+      test.right.value !== 0
+    )
+      return undefined;
+    if (test.op === "==" && !s.else.length) return s.then as Shown[];
+    if (test.op === "!=" && !s.then.length) return s.else as Shown[];
+    return undefined;
+  }
+
+  /**
+   * Runs the setup of the first step on its own, to see what it sets the words to. The steps go on without it: the
+   * last pass reads every word it sets as what the setup put there or what the goal remembers in it since.
+   */
+  private runSetup(body: readonly Shown[], state: State, frame: number) {
+    if (this.setup) throw new DoesntFit("it sets up its words twice");
+    const met = this.met.length;
+    const returns: State[] = [];
+    this.inSetup = true;
+    let end: State;
+    try {
+      end = this.run(body, { env: new Map(state.env), alive: TRUE }, frame, returns);
+    } finally {
+      this.inSetup = false;
+    }
+    if (returns.length || this.met.length > met) throw new DoesntFit("it ends or meets the goal while it sets up");
+    this.setup = new Map();
+    for (const [key, value] of end.env)
+      if (key.startsWith("w:") && value !== state.env.get(key)) this.setup.set(Number(key.slice(2)), value);
+  }
+
+  /** Runs a loop with a counter round by round: its test must be decided in every round. */
+  private unroll(s: Extract<Shown, { kind: "loop" }>, start: State, frame: number, returns: State[]): State {
+    let state = start;
+    for (let round = 0; round <= MOST_ROUNDS; round++) {
+      state = this.run(s.before as Shown[], state, frame, returns);
+      if (state.alive.kind === "false") return state;
+      const go = this.condition(s.test, state.env, frame);
+      if (go.kind === "false") return state;
+      if (go.kind !== "true") throw new DoesntFit("it has a loop whose rounds depend on the parts");
+      state = this.run(s.body as Shown[], state, frame, returns);
+    }
+    throw new DoesntFit(`it has a loop that runs more than ${MOST_ROUNDS} rounds`);
   }
 
   private walk(lists: string): Walked {
@@ -322,7 +458,7 @@ class Runner {
       // Registers are the routine's own; words of memory are shared.
       const env: Env = new Map([...state.env].filter(([k]) => k.startsWith("w:")));
       const end = this.run(shape(withoutSaves(routine.body), this.names), { env, alive: state.alive }, frame, returns);
-      return merge([...returns, end]);
+      return merge([...returns, end], this.missing);
     } finally {
       if (depth) this.calling.set(address, depth);
       else this.calling.delete(address);
@@ -351,6 +487,15 @@ class Runner {
     if (address.kind === "constant") {
       const list = this.heads.get(address.value);
       if (list !== undefined) return { kind: "part", ref: { kind: "first", walk: this.walk(list), where: TRUE } };
+      const part = this.kept?.parts.get(address.value);
+      if (part) return part;
+      const latch = this.kept?.latches.get(address.value);
+      if (latch)
+        return ite({ kind: "ever", item: latch.when, before: true }, constant(latch.value), constant(latch.first));
+      if (this.kept?.strict && this.setup?.has(address.value))
+        throw new DoesntFit(
+          "it keeps a word from step to step that is neither a part it found nor a sign of something that happened",
+        );
       return { kind: "word", address: address.value };
     }
     if (address.kind === "part") return { kind: "field", ref: address.ref, offset: 0 };
@@ -359,7 +504,7 @@ class Runner {
       address.op === "+" &&
       address.left.kind === "part" &&
       address.right.kind === "constant" &&
-      address.right.value < PART_SIZE
+      address.right.value < (this.names.partSize ?? PART_SIZE)
     )
       return { kind: "field", ref: address.left.ref, offset: address.right.value };
     throw new DoesntFit("it reads memory at a computed place");
@@ -377,7 +522,16 @@ class Runner {
         throw new DoesntFit("it passes the place of a local");
       case "word": {
         const address = this.value(v.address, env, frame);
-        if (address.kind === "constant" && env.has(`w:${address.value}`)) return env.get(`w:${address.value}`)!;
+        if (address.kind === "constant" && env.has(`w:${address.value}`)) {
+          const found = env.get(`w:${address.value}`)!;
+          // A word that remembers something, read after every write of this step: it says whether the test held
+          // at some step so far.
+          const latch = this.kept?.latches.get(address.value);
+          if (!latch) return found;
+          if (same(found, latch.end))
+            return ite({ kind: "ever", item: latch.when, before: false }, constant(latch.value), constant(latch.first));
+          return replaced(found, { kind: "word", address: address.value }, this.read(address));
+        }
         return this.read(address);
       }
       case "binary":
@@ -405,11 +559,46 @@ class Runner {
             this.met.push(state.alive);
             break;
           }
-          if (key.startsWith("w:")) this.written.add(Number(key.slice(2)));
+          if (key.startsWith("w:") && !this.inSetup) {
+            const address = Number(key.slice(2));
+            this.stepWrites.add(address);
+            // A word that keeps a part or remembers something is said by the conditions, not as a word kept.
+            if (!this.kept?.parts.has(address) && !this.kept?.latches.has(address)) this.written.add(address);
+          }
           state.env.set(key, value);
           break;
         }
+        case "find": {
+          const value = (v: GoalValue, what: string) => {
+            const found = this.value(v, state.env, frame);
+            if (found.kind !== "constant") throw new DoesntFit(`it looks for a part by a ${what} that isn't a number`);
+            return found.value;
+          };
+          const part: Sym = {
+            kind: "part",
+            ref: {
+              kind: "nth",
+              type: value(s.type, "type"),
+              nth: value(s.nth, "place"),
+              lists: masked(value(s.mask, "list")),
+            },
+          };
+          const key = this.key(s.target, state.env, frame);
+          state.env.delete("r:dx");
+          state.env.set("r:ax", part);
+          if (key.startsWith("w:") && !this.inSetup) {
+            this.stepWrites.add(Number(key.slice(2)));
+            if (!this.kept?.parts.has(Number(key.slice(2)))) this.written.add(Number(key.slice(2)));
+          }
+          state.env.set(key, part);
+          break;
+        }
         case "if": {
+          const setup = this.setupOf(s);
+          if (setup) {
+            this.runSetup(setup, state, frame);
+            break;
+          }
           const when = this.condition(s.test, state.env, frame);
           const then = this.run(s.then as Shown[], { env: state.env, alive: and(state.alive, when) }, frame, returns);
           const otherwise = this.run(
@@ -418,7 +607,7 @@ class Runner {
             frame,
             returns,
           );
-          state = mergeIf(when, state, then, otherwise);
+          state = mergeIf(when, state, then, otherwise, this.missing, this.names.countedLoops);
           break;
         }
         case "walk":
@@ -457,7 +646,9 @@ class Runner {
         case "break":
           throw new DoesntFit("it stops a loop early");
         case "loop":
-          throw new DoesntFit("it has a loop that isn't a walk over the parts");
+          if (!this.names.countedLoops) throw new DoesntFit("it has a loop that isn't a walk over the parts");
+          state = this.unroll(s, state, frame, returns);
+          break;
       }
     }
     return state;
@@ -542,23 +733,23 @@ class Runner {
 
 /** Whether a sym or formula looks at the part of a walk. */
 const mentions = (value: unknown, walked: Walked) =>
-  holds(
-    value,
-    (n) => (n as { ref?: PartRef }).ref?.kind === "each" && (n as { ref: PartRef }).ref.walk.id === walked.id,
-  );
+  holds(value, (n) => {
+    const ref = (n as { ref?: PartRef }).ref;
+    return ref?.kind === "each" && ref.walk.id === walked.id;
+  });
 
 /** The state where ways meet: each word is the value of the way that got there. */
-function merge(states: State[]): State {
+function merge(states: State[], missing?: (address: number) => Sym | undefined): State {
   const live = states.filter((s) => s.alive.kind !== "false");
   if (!live.length) return { env: states[0]?.env ?? new Map(), alive: FALSE };
   if (live.length === 1) return live[0]!;
   const keys = new Set(live.flatMap((s) => [...s.env.keys()]));
   const env: Env = new Map();
   for (const key of keys) {
-    const missing: Sym = key.startsWith("w:")
-      ? { kind: "word", address: Number(key.slice(2)) }
+    const unset: Sym = key.startsWith("w:")
+      ? (missing?.(Number(key.slice(2))) ?? { kind: "word", address: Number(key.slice(2)) })
       : { kind: "unset", why: `${key.slice(2)} on one of the ways` };
-    const values = live.map((s) => s.env.get(key) ?? missing);
+    const values = live.map((s) => s.env.get(key) ?? unset);
     let value = values.at(-1)!;
     for (let k = live.length - 2; k >= 0; k--) value = ite(live[k]!.alive, values[k]!, value);
     env.set(key, value);
@@ -569,19 +760,53 @@ function merge(states: State[]): State {
 }
 
 /** The state after an if: each word is the value of the branch the test picked. */
-function mergeIf(when: Formula, before: State, then: State, otherwise: State): State {
+function mergeIf(
+  when: Formula,
+  before: State,
+  then: State,
+  otherwise: State,
+  missing?: (address: number) => Sym | undefined,
+  joined = false,
+): State {
   if (then.alive.kind === "false") return otherwise;
   if (otherwise.alive.kind === "false") return then;
   const env: Env = new Map();
   for (const key of new Set([...then.env.keys(), ...otherwise.env.keys()])) {
     const unset: Sym = key.startsWith("w:")
-      ? { kind: "word", address: Number(key.slice(2)) }
+      ? (missing?.(Number(key.slice(2))) ?? { kind: "word", address: Number(key.slice(2)) })
       : { kind: "unset", why: `${key.slice(2)} on one of the ways` };
-    env.set(key, ite(when, then.env.get(key) ?? unset, otherwise.env.get(key) ?? unset));
+    const value = ite(when, then.env.get(key) ?? unset, otherwise.env.get(key) ?? unset);
+    env.set(key, joined ? joinIte(value) : value);
   }
   // Without a return in either branch the program runs on whenever it ran before the test.
   const whole = same(then.alive, and(before.alive, when)) && same(otherwise.alive, and(before.alive, not(when)));
   return { env, alive: whole ? before.alive : or(then.alive, otherwise.alive) };
+}
+
+/**
+ * A value that is the same on several ways as one test: "1 when a, else 1 when b, else 0" is "1 when a or b, else 0".
+ * This keeps a count over parts that each pass one of several tests from growing with every way.
+ */
+function joinIte(value: Sym): Sym {
+  if (value.kind !== "ite") return value;
+  const { when, then, else: otherwise } = value;
+  if (otherwise.kind === "ite") {
+    if (same(otherwise.then, then)) return joinIte(ite(or(when, otherwise.when), then, otherwise.else));
+    if (same(otherwise.else, then)) return joinIte(ite(or(when, not(otherwise.when)), then, otherwise.then));
+  }
+  if (then.kind === "ite") {
+    if (same(then.else, otherwise)) return joinIte(ite(and(when, then.when), then.then, otherwise));
+    if (same(then.then, otherwise)) return joinIte(ite(and(when, not(then.when)), then.else, otherwise));
+  }
+  // Both ways a choice between the same two values: one choice.
+  if (
+    then.kind === "ite" &&
+    otherwise.kind === "ite" &&
+    same(then.then, otherwise.then) &&
+    same(then.else, otherwise.else)
+  )
+    return joinIte(ite(or(and(when, then.when), and(not(when), otherwise.when)), then.then, then.else));
+  return value;
 }
 
 /** `(A and t) or (A and not t)` is `A`, which keeps the merged conditions short. */
@@ -599,7 +824,8 @@ function simplifyAlive(alive: Formula, live: State[]): Formula {
 type Literal =
   | Extract<Formula, { kind: "test" }>
   | { kind: "some"; walk: Walked; ways: Literal[][] }
-  | { kind: "none"; walk: Walked; ways: Literal[][] };
+  | { kind: "none"; walk: Walked; ways: Literal[][] }
+  | Extract<Formula, { kind: "ever" }>;
 
 function dnf(f: Formula, negated = false): Literal[][] {
   switch (f.kind) {
@@ -640,7 +866,31 @@ function dnf(f: Formula, negated = false): Literal[][] {
       if (negated) return [[{ kind: "none", walk: f.walk, ways: inner }]];
       return [[{ kind: "some", walk: f.walk, ways: inner }]];
     }
+    case "ever":
+      if (negated) throw new DoesntFit("it needs something never to have happened");
+      return [[f]];
   }
+}
+
+const waysOf = (f: Formula) =>
+  shortest(
+    dnf(f)
+      .map(tidy)
+      .filter((w): w is Literal[] => !!w),
+  );
+
+/**
+ * Ways with what a goal remembers: a test that held at some step in one of several ways is one way for each, as "at
+ * some step, A or B" is "at some step A, or at some step B".
+ */
+function withHistory(ways: Literal[][]): Literal[][] {
+  return ways.flatMap((way) => {
+    const ever = way.filter((l) => l.kind === "ever");
+    let split: Literal[][] = [way.filter((l) => l.kind !== "ever")];
+    for (const e of ever)
+      split = split.flatMap((w) => waysOf(e.item).map((inner) => [...w, { ...e, item: and(...(inner as Formula[])) }]));
+    return split;
+  });
 }
 
 const typeTest = (l: Literal, walked: Walked) =>
@@ -812,7 +1062,7 @@ class Sayer {
     }
   }
 
-  test(t: Extract<Literal, { kind: "test" }>): string {
+  test(t: Extract<Literal, { kind: "test" }>, type?: number, part: ReadonlyMap<number, number> = new Map()): string {
     if (
       t.left.kind === "binary" &&
       t.left.op === "&" &&
@@ -829,12 +1079,21 @@ class Sayer {
     )
       return `type ${t.op === "==" ? "is" : "isn't"} ${this.typeOf(t.right.value).name}`;
     const unsigned = !t.signed && t.op !== "==" && t.op !== "!=" ? " (unsigned)" : "";
-    return `${this.sym(t.left)} ${OPS[t.op]} ${this.sym(t.right)}${unsigned}`;
+    const named =
+      type !== undefined && t.left.kind === "field" && t.right.kind === "constant" && (t.op === "==" || t.op === "!=")
+        ? this.names.valueName?.(type, t.left.offset, t.right.value, part)
+        : undefined;
+    return `${this.sym(t.left)} ${OPS[t.op]} ${this.sym(t.right)}${unsigned}${named ? ` (${named})` : ""}`;
   }
 
-  /** Says tests, with a lower and an upper bound of one field as one range. */
-  tests(literals: Extract<Literal, { kind: "test" }>[]): string[] {
+  /** Says tests, with a lower and an upper bound of one field as one range; `type` names values of its fields. */
+  tests(literals: Extract<Literal, { kind: "test" }>[], type?: number): string[] {
     const out: string[] = [];
+    // The fields the tests fix, for naming one value by another, like a frame by the action it belongs to.
+    const part = new Map<number, number>();
+    for (const t of literals)
+      if (t.op === "==" && t.left.kind === "field" && t.right.kind === "constant")
+        part.set(t.left.offset, t.right.value);
     const used = new Set<number>();
     literals.forEach((t, k) => {
       if (used.has(k)) return;
@@ -851,7 +1110,7 @@ class Sayer {
           ((low && (o.op === "<=" || o.op === "<")) || (high && (o.op === ">=" || o.op === ">"))),
       );
       if (pair < 0 || t.left.kind === "binary") {
-        out.push(this.test(t));
+        out.push(this.test(t, type, part));
         return;
       }
       used.add(pair);
@@ -939,6 +1198,12 @@ function conditions(way: Literal[], say: Sayer): GoalCondition[] {
   };
   const byRef = new Map<string, { ref: PartRef; tests: Extract<Literal, { kind: "test" }>[] }>();
   for (const l of way) {
+    if (l.kind === "ever") {
+      const inner = conditions(waysOf(l.item)[0] ?? [], say);
+      if (inner.length !== 1) throw new DoesntFit("it remembers that several things held at one step");
+      out.push({ ...inner[0]!, once: l.before ? "before" : "so far" });
+      continue;
+    }
     if (l.kind === "some") {
       // Parts of several types that pass the same tests are one condition; other tests are said as alternatives.
       const groups = byTests(l.walk, l.ways).map((ways) => ({
@@ -1013,6 +1278,18 @@ function conditions(way: Literal[], say: Sayer): GoalCondition[] {
   }
   for (const { ref, tests } of byRef.values()) {
     if (ref.kind === "each") continue;
+    if (ref.kind === "nth") {
+      const area = say.area(tests);
+      out.push({
+        kind: "nth",
+        nth: ref.nth,
+        lists: ref.lists,
+        types: [say.typeOf(ref.type)],
+        tests: say.tests(tests, ref.type),
+        ...(area ? { area } : {}),
+      });
+      continue;
+    }
     const where = shortest(
       dnf(ref.where)
         .map(tidy)
@@ -1146,22 +1423,143 @@ export function conditionText(c: GoalCondition): string {
       return tests;
     case "part":
       return `${types} #${c.part}${tests ? `: ${tests}` : ""}`;
+    case "nth":
+      return `${once(c)}the ${ordinal(c.nth!)} ${types}${on}${tests ? `: ${tests}` : ""}`;
   }
+}
+
+const once = (c: GoalCondition) =>
+  c.once === "so far" ? "at some step so far, " : c.once === "before" ? "at some step before this one, " : "";
+
+/**
+ * What a goal that sets up its words in its first step keeps in them. A first pass runs the setup to see what it sets;
+ * a word set to a part the finder found, and not written in the steps, keeps that part. A second pass runs the steps
+ * with those parts: a word set to a number in the setup and to one other number when a test holds, and never to
+ * anything else, remembers that the test held at some step. Without a setup, nothing is kept.
+ */
+function keptWords(routines: Routines, start: number, names: GoalNames): Kept | undefined {
+  const first = new Runner(routines, names);
+  try {
+    first.routine(start, { env: new Map(), alive: TRUE });
+  } catch (problem) {
+    // The steps may not fit before the parts are known; the setup comes first and is what this pass is for.
+    if (!(problem instanceof DoesntFit)) throw problem;
+  }
+  const setup = first.setup;
+  if (!setup) return undefined;
+  const parts = new Map([...setup].filter(([, value]) => value.kind === "part" && value.ref.kind === "nth"));
+  const second = new Runner(routines, names, { parts, latches: new Map(), strict: false });
+  const end = second.routine(start, { env: new Map(), alive: TRUE });
+  if ([...parts.keys()].some((address) => second.stepWrites.has(address)))
+    throw new DoesntFit("it changes a word that keeps a part it found");
+  const latches = new Map<number, Latch>();
+  for (const [address, value] of setup) {
+    if (value.kind !== "constant" || !second.stepWrites.has(address)) continue;
+    const before: Sym = { kind: "word", address };
+    const found = cases(end.env.get(`w:${address}`) ?? before);
+    const changed = found.filter((c) => !same(c.value, before));
+    const to = changed[0]?.value;
+    if (
+      !to ||
+      to.kind !== "constant" ||
+      to.value === value.value ||
+      changed.length === found.length ||
+      !changed.every((c) => same(c.value, to))
+    )
+      continue;
+    const when = or(...changed.map((c) => c.when));
+    // A test of a word the goal keeps itself, or of a value it never set, isn't something that happened.
+    if (holds(when, (n) => n.kind === "unset" || (n.kind === "word" && setup.has((n as { address: number }).address))))
+      continue;
+    latches.set(address, { when, value: to.value, first: value.value, end: end.env.get(`w:${address}`)! });
+  }
+  return { parts, latches, strict: true };
+}
+
+/** Conditions on parts the finder found in the order of their types' first condition, then by their place. */
+function inOrder(conditions: GoalCondition[]): GoalCondition[] {
+  const types = conditions.map((c) => c.types?.[0]?.type);
+  const rank = (c: GoalCondition) => [types.indexOf(c.types?.[0]?.type), c.nth ?? 0];
+  return [...conditions].sort((a, b) => rank(a)[0]! - rank(b)[0]! || rank(a)[1]! - rank(b)[1]!);
+}
+
+/** The parts a sym or formula looks at that the finder found. */
+function foundParts(value: unknown): string[] {
+  const out = new Set<string>();
+  holds(value, (n) => {
+    const ref = (n as { ref?: PartRef }).ref;
+    if (ref?.kind === "nth") out.add(JSON.stringify(ref));
+    return false;
+  });
+  return [...out];
+}
+
+/**
+ * A goal met when each of some parts it found passes one of several tests, as one way: a condition for each part,
+ * with the tests all its ways share and then its alternatives. Undefined when the goal isn't of that shape.
+ */
+function byPart(met: Formula, say: Sayer): GoalCondition[] | undefined {
+  // "Not (A or B)" is "not A and not B".
+  const items =
+    met.kind === "and" ? met.items : met.kind === "not" && met.item.kind === "or" ? met.item.items.map(not) : [met];
+  const groups = new Map<string, Formula[]>();
+  for (const item of items) {
+    const parts = foundParts(item);
+    if (parts.length !== 1) return undefined;
+    groups.set(parts[0]!, [...(groups.get(parts[0]!) ?? []), item]);
+  }
+  const out: GoalCondition[] = [];
+  for (const formulas of groups.values()) {
+    const ways = withHistory(waysOf(and(...formulas)));
+    if (ways.length > MOST_WAYS) return undefined;
+    const each = ways.map((w) => conditions(w, say));
+    if (each.some((c) => c.length !== 1)) return undefined;
+    const first = each[0]![0]!;
+    if (each.some(([c]) => !same({ ...c, tests: [], area: undefined }, { ...first, tests: [], area: undefined })))
+      return undefined;
+    const shared = first.tests.filter((t) => each.every(([c]) => c!.tests.includes(t)));
+    const alternatives = each.map(([c]) => c!.tests.filter((t) => !shared.includes(t)));
+    const area = each.length === 1 ? first.area : undefined;
+    out.push({
+      ...first,
+      tests: [
+        ...shared,
+        ...(each.length > 1
+          ? [`one of: ${alternatives.map((a) => (a.length > 1 ? `(${a.join(", ")})` : a[0])).join(" or ")}`]
+          : []),
+      ],
+      ...(area ? { area } : { area: undefined }),
+    });
+    if (!out.at(-1)!.area) delete out.at(-1)!.area;
+  }
+  return out;
 }
 
 /** Says the goal routine at `start` as conditions, or why it can't. */
 export function summariseGoal(routines: Routines, start: number, names: GoalNames): GoalSummary {
   try {
-    const runner = new Runner(routines, names);
+    const kept = names.firstStep === undefined ? undefined : keptWords(routines, start, names);
+    const runner = new Runner(routines, names, kept);
     const end = runner.routine(start, { env: new Map(), alive: TRUE });
     const say = new Sayer(names, runner.written);
     const met = or(...runner.met);
-    const ways = shortest(
-      dnf(met)
-        .map(tidy)
-        .filter((w): w is Literal[] => !!w),
-    );
-    if (ways.length > MOST_WAYS) throw new DoesntFit("it has too many ways to be met");
+    let ways: Literal[][];
+    try {
+      ways = withHistory(
+        shortest(
+          dnf(met)
+            .map(tidy)
+            .filter((w): w is Literal[] => !!w),
+        ),
+      );
+      if (ways.length > MOST_WAYS) throw new DoesntFit("it has too many ways to be met");
+    } catch (problem) {
+      // Parts it found that each pass one of several tests, all at once: one condition each, with the tests as
+      // alternatives, instead of a way for every choice.
+      const each = kept && problem instanceof DoesntFit ? byPart(met, say) : undefined;
+      if (!each) throw problem;
+      return { ways: [inOrder(each)], remembered: [] };
+    }
     const remembered = [...runner.written]
       .sort((a, b) => a - b)
       .map((address) => {
@@ -1175,7 +1573,7 @@ export function summariseGoal(routines: Routines, start: number, names: GoalName
         });
         return { word: name, becomes };
       });
-    return { ways: ways.map((w) => conditions(w, say)), remembered };
+    return { ways: ways.map((w) => (kept ? inOrder(conditions(w, say)) : conditions(w, say))), remembered };
   } catch (problem) {
     if (problem instanceof DoesntFit) return { ways: [], remembered: [], problem: problem.message };
     throw problem;
