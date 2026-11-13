@@ -10,7 +10,7 @@
  * - TIM 1 and Even More: the game is started and the puzzle loaded as the play screen does (`loadPuzzle` in
  *   `src/run/game.ts`), only for the builds the level recorder knows; for another build the output says it isn't
  *   checked. Their start changes nothing the file has, so the bin's order and each placed part's saved state, plugs and
- *   first rope are compared with the file.
+ *   first rope place are compared with the file.
  *
  * Fails when a puzzle starts otherwise in the game than the Lab says, or a level can't be loaded.
  *
@@ -152,15 +152,28 @@ const u16 = (record: Uint8Array, at: number) => record[at]! | (record[at + 1]! <
 /**
  * TIM 1 and Even More: each puzzle loaded by the game, its bin compared by type in order, and each placed part paired
  * with its record as `check-level-fields` pairs them (type, flags and place on its list), then its saved state (0x90),
- * plugs (0x62, 0x64) and first rope (0x66) compared with the file.
+ * plugs (0x62, 0x64) and first rope place (0x66: the rope's record, in the rope and in each part it ties there)
+ * compared with the file. A part no one record pairs with (another of its type with the same flags and place) isn't
+ * compared.
  */
-function differencesTim(level: Level, loaded: ReturnType<typeof loadPuzzle>): string[] {
+function differencesTim(
+  level: Level,
+  loaded: ReturnType<typeof loadPuzzle>,
+): { differences: string[]; unpaired: number } {
   const out: string[] = [];
   const ours = puzzleStart(level);
   const bin = ours.bin.map((i) => level.parts[i]!.type);
   const game = loaded.bin.map((b) => u16(b.record, 4));
   if (bin.length !== game.length || bin.some((t, k) => game[k] !== t))
     out.push(`the bin by type: ours ${bin.join(", ") || "none"}, the game's ${game.join(", ") || "none"}`);
+  // The parts whose first rope place holds a rope's record: the rope itself, and each part it ties there.
+  const tied = new Set<number>();
+  for (const part of level.parts) {
+    const rope = part.ropes[0].rope;
+    if (!rope) continue;
+    tied.add(part.index);
+    rope.parts.forEach((end, k) => end !== null && rope.slots[k] === 0 && tied.add(end));
+  }
   const records = loaded.parts.map((p) => ({ ...p, used: false }));
   const paired = new Map<number, (typeof records)[number]>();
   const unpaired: number[] = [];
@@ -182,7 +195,6 @@ function differencesTim(level: Level, loaded: ReturnType<typeof loadPuzzle>): st
     pick.used = true;
     paired.set(part.index, pick);
   }
-  if (unpaired.length) out.push(`no record pairs with ${unpaired.map((i) => `#${i}`).join(", ")}`);
   const extra = records.filter((r) => !r.used).length - unpaired.length;
   if (extra > 0) out.push(`${extra} records on the lists no part of the file pairs with`);
   for (const [index, record] of paired) {
@@ -194,12 +206,12 @@ function differencesTim(level: Level, loaded: ReturnType<typeof loadPuzzle>): st
       if (expected >= 0 && u16(record.record, 0x62 + 2 * k) !== expected)
         out.push(`#${index}'s plug ${k + 1}: ours ${plug === null ? "none" : `#${plug}`}, the game's differs`);
     });
-    if (!!part.ropes[0].rope !== !!u16(record.record, 0x66))
+    if (tied.has(index) !== !!u16(record.record, 0x66))
       out.push(
-        `#${index}'s first rope: ours ${part.ropes[0].rope ? "tied" : "none"}, the game's ${u16(record.record, 0x66) ? "tied" : "none"}`,
+        `#${index}'s first rope place: ours ${tied.has(index) ? "tied" : "none"}, the game's ${u16(record.record, 0x66) ? "tied" : "none"}`,
       );
   }
-  return out;
+  return { differences: out, unpaired: unpaired.length };
 }
 
 function checkTim(build: BuildFolder, range: Range): BuildCheck {
@@ -226,16 +238,24 @@ function checkTim(build: BuildFolder, range: Range): BuildCheck {
   });
   const open = gameFiles(build.folder);
   const results: { name: string; differences: string[] }[] = [];
+  let unpaired = 0;
   for (const puzzle of puzzles) {
     const name = `L${puzzle}`;
     try {
       const level = readLevel(files.get(`${name}.LEV`)!, { layout: "tim", name: `${name}.LEV` });
-      results.push({ name, differences: differencesTim(level, loadPuzzle(exe, open, puzzle)) });
+      const found = differencesTim(level, loadPuzzle(exe, open, puzzle));
+      unpaired += found.unpaired;
+      results.push({ name, differences: found.differences });
     } catch (problem) {
       results.push({ name, differences: [`not loaded: ${(problem as Error).message}`] });
     }
   }
   report(check, "puzzles", results);
+  if (unpaired)
+    check.lines.push({
+      error: false,
+      text: `  Placed parts not compared, as no one record pairs with them: ${unpaired}`,
+    });
   return check;
 }
 
