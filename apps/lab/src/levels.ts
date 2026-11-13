@@ -172,6 +172,39 @@ export const groupOf = (level: Level, part: LevelPart, solution = false): LevelP
   return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
 };
 
+/** The Toons types whose setting TOONS.EXE reads, and what it counts for them. */
+const TOONS_SHOTS: Record<number, [string, string]> = {
+  20: ["shot", "shots"],
+  22: ["boulder", "boulders"],
+  69: ["egg", "eggs"],
+};
+
+/**
+ * A Toons part's setting in words, as TOONS.EXE reads it for the part's type, or undefined for a type whose code
+ * doesn't read it. The timer counts its time down in the low byte; the counter keeps its count with bit 0x4000 when it
+ * counts down; the message machine shows the setting as text, one letter in the shipped levels; the thumpulator takes
+ * its number of sections from bits 4 to 7; the pistol, the catapult and the hen use one up with each shot.
+ */
+export function toonsSetting(type: number, setting: number): string | undefined {
+  const count = (n: number, [one, more]: [string, string]) => `${n} ${n === 1 ? one : more}`;
+  switch (type) {
+    case 38:
+      return `time ${setting & 0xff}`;
+    case 39:
+      return `count ${setting & 0xbfff}, counting ${setting & 0x4000 ? "down" : "up"}`;
+    case 40:
+      return count((setting >> 4) & 0xf, ["section", "sections"]);
+    case 42: {
+      // The text ends at a 0 byte: the high byte is 0 for a single letter.
+      const bytes = [setting & 0xff, setting >> 8];
+      const end = bytes.indexOf(0);
+      return `“${String.fromCharCode(...(end < 0 ? bytes : bytes.slice(0, end)))}”`;
+    }
+  }
+  const shots = TOONS_SHOTS[type];
+  return shots ? count(setting, shots) : undefined;
+}
+
 /** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
 const TILED = 0x40;
 /**

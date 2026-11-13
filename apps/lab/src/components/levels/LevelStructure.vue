@@ -13,7 +13,7 @@ import {
 import { computed, nextTick, ref, watch } from "vue";
 import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
-import { groupOf } from "../../levels.ts";
+import { groupOf, toonsSetting } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -286,14 +286,22 @@ function rows(p: LevelPart): Row[] {
     out.push({ key: "plugs", value: p.plugs.map(index).join(", "), loaded: at("plugs") });
   if (p.pulley !== undefined) out.push({ key: "pulley", value: index(p.pulley), loaded: at("pulley") });
   if (p.tunnel !== undefined) out.push({ key: "tunnel", value: index(p.tunnel) });
-  if (p.toons)
+  if (p.plugPlace !== undefined) {
+    const plugged = p.plugs?.[0];
+    out.push(
+      plugged === null || plugged === undefined
+        ? { key: "plugPlace", value: String(p.plugPlace), note: "no plug" }
+        : { key: "plugPlace", value: `place ${p.plugPlace + 1} of #${plugged}` },
+    );
+  }
+  if (p.setting !== undefined) {
+    const words = toonsSetting(p.type, p.setting);
     out.push({
-      key: "toons",
-      value: [p.toons.byte !== undefined ? `byte ${p.toons.byte}` : "", `word ${p.toons.word}`]
-        .filter(Boolean)
-        .join(", "),
-      note: "meaning unknown",
+      key: "setting",
+      value: words ?? String(p.setting),
+      ...(words ? {} : { note: "not read for this part" }),
     });
+  }
   if (p.outline)
     out.push({ key: "outline", value: p.outline.map(pair).join(" · ") || "none", note: "TIM.EXE skips it" });
   out.push({ key: "bytes", value: `${hex(p.offset, 4)}, ${p.length} bytes`, link: p.offset });

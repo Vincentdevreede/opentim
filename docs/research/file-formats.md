@@ -170,7 +170,9 @@ Then the static parts, the moving parts, from version `0x105` a `binFlag` word, 
 | outline        | 2 + 2 per point                       | Before version `0x102`, not in Toons.                                                                         |
 
 A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46, the
-tunnel), and an unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
+tunnel: the tunnel at its other end), from version `0x106` a byte with the plug place (which of the plugged part's
+two plug places the part takes), and a word with the part's setting, like the timer's time or the message machine's
+letter ([the levels](levels.md#toons-levels)). What the game's loader does with each field is in
 [the levels](levels.md#what-the-loader-keeps).
 
 ### TIM 2 levels

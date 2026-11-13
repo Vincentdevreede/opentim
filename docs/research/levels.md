@@ -417,6 +417,29 @@ tunnels in the bin. That the routine is the start of a puzzle is read from what 
 **Drawing.** The Lab draws a Toons level with the `toons` list: frames by state, walls and the ladder as tiles by
 TOONS.EXE's rule ([file formats](file-formats.md#toonsexe)), the rope and the belt as lines.
 
+**Toons' own fields.** TOONS.EXE's level reader (file offset `0x24c12`) reads three fields a TIM part doesn't have.
+The Lab's Structure panel names them:
+
+- **The tunnel's link** (type 46 only) is the tunnel at the other end. The reader ties the two both ways (`0x24f45`).
+  When Al or Sid goes in, TOONS.EXE times the trip by how far apart the two tunnels are (half the distance across plus
+  down, `0x2bff6`), and when the player fixes or frees one tunnel, the other gets the same bit 0x40 of the third flag
+  word (`0x279a9`). In the shipped levels the links come in pairs that point at each other.
+- **The plug place**, a byte from version `0x106` (`0x24f76`): which of the plugged part's two plug places the part
+  takes. When the player unplugs a part, TOONS.EXE clears that place of the part it was plugged into, and plugging it
+  in again sets both (`0xb665`). In all 70 shipped parts that have a plug, the plugged part's plug at this place is
+  the part itself; two timers take the second place.
+- **The setting**, the last word. The reader keeps it twice, as the part's setting and as the one it starts from, and
+  only the code of some types reads it:
+  - the timer: its time in the low byte, counted down as it runs. When it is set up, the timer's state becomes 12
+    less twice the time (`0x538a1`), which every shipped timer's saved state already is;
+  - the up/down counter: its count, with bit `0x4000` set while it counts down; a hit flips the bit (`0x53f37`);
+  - the message machine: the text it shows, a letter in every shipped level (`0x41` is "A");
+  - the thumpulator: its number of sections in bits 4 to 7, and in other bits how its drawing code lays them out;
+  - the pistol, the catapult and the hen: the shots left. Each shot takes one, and at 0 the part doesn't fire
+    (`0x6fa31`, `0x52816`, `0x56b39`). The editor's labels for these settings are in the data segment: "letter",
+    "time", "count", "ammo", "banana", "boulders" and "eggs".
+    The banana (0 or 1 in the shipped levels) and the other types: what their code does with it isn't read.
+
 ### Toons: still open
 
 - **Goals.** Not read. TOONS.EXE has to have them in its code or data, as TIM 1 has; the Lab shows the goal text.
@@ -426,5 +449,3 @@ TOONS.EXE's rule ([file formats](file-formats.md#toonsexe)), the rope and the be
   drawing code of their own; the Lab draws only their frames.
 - **The play area** is TIM's 576 × 368 in the Lab. The walls of Toons' levels reach 549 across and 392 down (40 levels
   scroll to -91 across, the others to -8), so Toons' is likely a little different; it isn't read from TOONS.EXE.
-- **The two Toons words** of each part (a byte from version `0x106` and a word) and the tunnel's link: what the game
-  does with them isn't read.

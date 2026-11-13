@@ -2,7 +2,7 @@ import type { Level, LevelPart, PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { groupOf, layoutScene, partAt, readLevels, toonsTiles } from "../src/levels.ts";
+import { groupOf, layoutScene, partAt, readLevels, toonsSetting, toonsTiles } from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -431,5 +431,21 @@ describe("groupOf", () => {
 
   it("keeps TIM 1's groups as the file has them", () => {
     expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
+  });
+});
+
+describe("toonsSetting", () => {
+  it("says the setting as TOONS.EXE reads it for the part's type", () => {
+    expect(toonsSetting(38, 4)).toBe("time 4");
+    expect(toonsSetting(39, 0x4001)).toBe("count 1, counting down");
+    expect(toonsSetting(39, 13)).toBe("count 13, counting up");
+    expect(toonsSetting(40, 0x30)).toBe("3 sections");
+    expect(toonsSetting(42, 0x41)).toBe("“A”");
+    expect(toonsSetting(20, 1)).toBe("1 shot");
+    expect(toonsSetting(69, 5)).toBe("5 eggs");
+  });
+
+  it("gives nothing for a type whose code doesn't read it", () => {
+    expect(toonsSetting(59, 1)).toBeUndefined();
   });
 });

@@ -90,10 +90,23 @@ export interface LevelPart {
   pulley?: number | null;
   /** For TIM 2's programmable ball, from version 0x111: six words the game keeps with the ball. */
   program?: number[];
-  /** For a Toons tunnel, the tunnel it leads to. */
+  /**
+   * For a Toons tunnel, the tunnel at its other end. TOONS.EXE ties the two both ways when it loads them, times Al's
+   * or Sid's trip through by how far apart they are, and fixes or frees the other end with the one the player changes.
+   */
   tunnel?: number | null;
-  /** Toons stores one byte (from version 0x106) and one word more per part. Their meaning isn't known. */
-  toons?: { byte?: number; word: number };
+  /**
+   * Toons, from version 0x106: which of its plugged part's two plug places this part takes. TOONS.EXE keeps it with
+   * the part and, when the player unplugs it, clears that place of the plugged part. In every shipped part that has a
+   * plug, the plugged part's plug at this place is the part itself.
+   */
+  plugPlace?: number;
+  /**
+   * Toons: a word whose meaning depends on the part, kept as the part's setting (and again as the setting it starts
+   * from): the timer's time, the counter's count, the message machine's letter, the thumpulator's arms and the shots
+   * of the pistol, the catapult and the hen. See `docs/research/levels.md`.
+   */
+  setting?: number;
   /**
    * Files before version 0x102 store points after each part, as a byte for x and a byte for y. They trace the part's
    * outline, like the eight corners of a ball. The TIM 1 program reads them and doesn't keep them.
@@ -307,9 +320,8 @@ function readPart(r: Reader, index: number, group: PartGroup, version: number, l
     part.program = Array.from({ length: 6 }, (_, i) => field(`program.${i}`, () => r.i16()));
   if (layout === "toons") {
     if (type === TOONS_TUNNEL) part.tunnel = nullable(field("tunnel", () => r.u16()));
-    part.toons = { word: 0 };
-    if (version > 0x105) part.toons.byte = field("toons.byte", () => r.u8());
-    part.toons.word = field("toons.word", () => r.u16());
+    if (version > 0x105) part.plugPlace = field("plugPlace", () => r.u8());
+    part.setting = field("setting", () => r.u16());
   } else if (version < 0x102) {
     const count = field("outline", () => r.u16());
     part.outline = Array.from({ length: count }, (_, i) => point(`outline.${i}`));
