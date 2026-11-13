@@ -51,6 +51,16 @@ describe("outline tables", () => {
     );
   });
 
+  it.each([
+    ["sub di,2", "83c702837efe04", "83ef02837efe04"],
+    ["mov di,2", "83c702837efe04", "bf0200837efe04"],
+    ["sub word [bp-4],4", "8346fc0483c702", "836efc0483c702"],
+  ])("gives no tables when the copy loop steps with %s", (_, shipped, changed) => {
+    const image = program();
+    image.set(Buffer.from(RESET.replace(shipped, changed), "hex"), ENTRY);
+    expect(read(image)).toBeUndefined();
+  });
+
   it("gives no tables when an instruction writes into one by its address", () => {
     const image = program();
     // mov byte [0x2e5c], 0 followed by retf, somewhere else in the program.

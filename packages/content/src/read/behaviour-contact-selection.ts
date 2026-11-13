@@ -1,6 +1,6 @@
 /** Describes candidate ordering and rejection rules from the complete shared contact scanner. */
 import { matchHeapRoutine } from "./behaviour-heap-release.ts";
-import { selectionPatterns } from "./behaviour-contact-selection-patterns.ts";
+import { selectionPatterns, type SelectionPattern } from "./behaviour-contact-selection-patterns.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Finding } from "./behaviour.ts";
@@ -17,6 +17,8 @@ export interface ContactSelection extends Finding {
   candidateGates: string[];
   previousContactGates: string[];
   excludedTypePairs?: [number, number][];
+  /** Set when a pair is excluded only with the subject's type first; absent when either order is excluded. */
+  excludedTypePairOrder?: "subjectThenCandidate";
   candidateFilter?: {
     routine: number;
     requiredSubjectType: number;
@@ -43,18 +45,45 @@ export interface ContactSelection extends Finding {
   sideBytesClearedBeforeSearch: number[];
 }
 
+/** The type gate and excluded pairs of a scan, from how its form of the code skips a candidate by type. */
+export function candidateTypePairs(
+  pattern: SelectionPattern,
+  helperIsTypeFilter: boolean,
+): (Pick<ContactSelection, "excludedTypePairs" | "excludedTypePairOrder"> & { gate: string }) | undefined {
+  if (pattern.typePairs !== "helper")
+    return {
+      gate: "The subject's type and the candidate's type are not an excluded pair, tested in that order.",
+      excludedTypePairs: pattern.typePairs.map(({ subject, candidate }): [number, number] => [subject, candidate]),
+      excludedTypePairOrder: "subjectThenCandidate",
+    };
+  if (!helperIsTypeFilter) return undefined;
+  return {
+    gate: "The unordered type-pair exclusion helper returns zero.",
+    excludedTypePairs: [
+      [12, 42],
+      [42, 52],
+      [54, 58],
+      [54, 54],
+    ],
+  };
+}
+
 /** A footprint alone cannot establish ordering; every branch and direct target is checked separately here. */
 export function addContactSelection(codes: Map<number, RoutineCode>, summaries: Map<number, EngineSummary>) {
   for (const code of codes.values()) {
     const summary = summaries.get(code.address);
     if (!summary?.contactSearch || summary.globalObjectWrites?.length) continue;
-    let bound: Map<string, number> | undefined;
+    let bound: Map<string, number> | undefined, matched: SelectionPattern | undefined;
     for (const pattern of selectionPatterns) {
-      bound = matchHeapRoutine(code, pattern, new Map());
-      if (bound) break;
+      bound = matchHeapRoutine(code, pattern.code, new Map());
+      if (bound) {
+        matched = pattern;
+        break;
+      }
     }
     if (
       !bound ||
+      !matched ||
       bound.get("globalA") !== summary.contactSearch.subjectGlobal ||
       bound.get("globalF") !== summary.contactSearch.candidateGlobal
     )
@@ -76,13 +105,12 @@ export function addContactSelection(codes: Map<number, RoutineCode>, summaries: 
     )
       continue;
     const motion = summaries.get(bound.get("calleeB")!);
-    const filter = summaries.get(bound.get("calleeI")!);
+    const typePairs = candidateTypePairs(matched, summaries.get(bound.get("calleeI")!)?.kind === "contact-type-filter");
     const membership = summaries.get(bound.get("calleeD")!);
     const list = membership?.contactSmall?.kind === "typed-list-membership" ? membership.contactSmall : undefined;
     const membershipPurpose = list
       ? "The candidate is not found in the subject's type-specific contact list."
       : "The first read-only candidate filter returns zero.";
-    const excluded = filter?.kind === "contact-type-filter";
     const purpose =
       "Tests the previous contact first, then eligible listed parts in order, using two contact tests; the second admits touching rectangle boundaries in the global-list search. Later accepted contacts can replace earlier contacts.";
     const finding: Finding = {
@@ -136,16 +164,12 @@ export function addContactSelection(codes: Map<number, RoutineCode>, summaries: 
           membershipPurpose,
           "The candidate differs from the subject and from the previous contact.",
           "The candidate has an outline pointer and its ignored flag is clear.",
-          ...(excluded ? ["The unordered type-pair exclusion helper returns zero."] : []),
+          ...(typePairs ? [typePairs.gate] : []),
         ],
-        ...(excluded
+        ...(typePairs
           ? {
-              excludedTypePairs: [
-                [12, 42],
-                [42, 52],
-                [54, 58],
-                [54, 54],
-              ] as [number, number][],
+              excludedTypePairs: typePairs.excludedTypePairs,
+              ...(typePairs.excludedTypePairOrder ? { excludedTypePairOrder: typePairs.excludedTypePairOrder } : {}),
             }
           : {}),
         passes: [

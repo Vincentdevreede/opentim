@@ -125,7 +125,7 @@ export const LIMIT_RULE_FIELD =
   "its rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a walk can't follow it";
 const UNDECIDED_TEST =
   "a test of the part's own fields isn't settled by its type, and the source names no type and its search's flag tests aren't all read";
-const UNCLASSIFIED = "not described, for a reason this check doesn't name";
+export const UNCLASSIFIED = "not described, for a reason this check doesn't name";
 export const CONSUMER_UNREAD =
   "the helper that walks the list is read only as a footprint (which member fields it may write), not path by path";
 
@@ -569,6 +569,11 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       a.routine - b.routine,
   );
   return result;
+}
+
+/** The pairs that aren't described and that the check can't explain: no reason, or one it doesn't name. */
+export function unexplainedPairs(pairs: OtherPartPairs): OtherPartPair[] {
+  return pairs.pairs.filter((p) => p.status !== "described" && (!p.reasons.length || p.reasons.includes(UNCLASSIFIED)));
 }
 
 /** The pairs as text, by source: which targets, how, and where each one is described. */

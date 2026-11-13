@@ -7,7 +7,8 @@ import {
   type BehaviourWalk,
   type KnownField,
 } from "../src/read/describe-behaviour.ts";
-import { compareMeasuredWalks } from "../src/read/behaviour-walk-validation.ts";
+import { compareMeasuredWalks, runWrites } from "../src/read/behaviour-walk-validation.ts";
+import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import { measuredClips, type MeasuredClip } from "../src/read/behaviour-validation.ts";
 
 const proof = { confidence: "inferred" as const, assumptions: ["Synthetic extracted rules."], evidence: [] };
@@ -1266,5 +1267,31 @@ describe("a loop that stops at the first part it finds in a skipped search's lis
     });
     // A list loaded from another field isn't the search's list.
     expect(compareMeasuredWalks([model], clip, report(0x7a), undefined, 12).classification).toBe("prefix");
+  });
+});
+
+describe("the bytes a run can write", () => {
+  const written = (body: number[]) => {
+    // push bp; mov bp,sp; mov si,[bp+6]; the body; pop bp; retf
+    const image = Uint8Array.from([0x55, 0x8b, 0xec, 0x8b, 0x76, 6, ...body, 0x5d, 0xcb]);
+    const code = readRoutineCode(image, { address: 0, segment: 0, offset: 0 }, 0);
+    const routine = { ...code, calls: [] } as unknown as Parameters<typeof runWrites>[1];
+    const result = runWrites({ routines: [routine] } as unknown as BehaviourReport, routine);
+    return result && [...result].sort((a, b) => a - b);
+  };
+
+  it("counts a store through a pointer loaded from the part", () => {
+    // mov bx,[si+0x54]; mov [bx+0x20],ax
+    expect(written([0x8b, 0x5c, 0x54, 0x89, 0x47, 0x20])).toEqual([0x20, 0x21]);
+  });
+
+  it("gives up on a store whose address adds two registers", () => {
+    // mov bx,[bp-2]; mov [bx+si+0x60],al
+    expect(written([0x8b, 0x5e, 0xfe, 0x88, 0x40, 0x60])).toBeUndefined();
+  });
+
+  it("gives up on a pointer worked out in another register", () => {
+    // mov ax,[bp-2]; shl ax,1; add ax,si; mov di,ax; mov [di+0x54],cx
+    expect(written([0x8b, 0x46, 0xfe, 0xd1, 0xe0, 0x03, 0xc6, 0x8b, 0xf8, 0x89, 0x4d, 0x54])).toBeUndefined();
   });
 });

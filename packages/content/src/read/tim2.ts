@@ -12,7 +12,10 @@ import type { Frame, Placement, Shape } from "../model.ts";
  */
 export function readPartNames(info: Uint8Array): Map<number, string> {
   const names = new Map<number, string>();
-  for (const line of String.fromCharCode(...info).split(/\r?\n/)) {
+  // In pieces, as a call takes only so many arguments.
+  let text = "";
+  for (let at = 0; at < info.length; at += 4096) text += String.fromCharCode(...info.subarray(at, at + 4096));
+  for (const line of text.split(/\r?\n/)) {
     const match = /^\s*(\d+)\.\t([^\t]+)/.exec(line);
     if (match) names.set(Number(match[1]), match[2]!.trim());
   }

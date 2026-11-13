@@ -293,3 +293,65 @@ describe("indexed owner-field footprints", () => {
     expect(result.uncertainties.some((reason) => reason.includes("Back edge"))).toBe(true);
   });
 });
+
+/** A far routine: `prefix`, a jump to the loop's test, the body, the test and a `jl` back to the body, then `tail`. */
+function loopRoutine(prefix: number[], body: number[], test: number[], tail: number[]) {
+  const bytes = [...prefix, 0xeb, body.length, ...body, ...test];
+  bytes.push(0x7c, -(body.length + test.length + 2) & 0xff, ...tail);
+  return Uint8Array.from(bytes);
+}
+
+describe("counted loop effects after the loop", () => {
+  it("forgets a linked part's field the body writes, also when it is first read after the loop", () => {
+    // The body stores 5 in [part+0x54]+0x20 twice; after the loop that field is copied to the state at 0x0c.
+    const image = loopRoutine(
+      [0x55, 0x8b, 0xec, 0x83, 0xec, 2, 0x56, 0x57, 0x8b, 0x76, 6, 0xc7, 0x46, 0xfe, 0, 0],
+      [0x8b, 0x7c, 0x54, 0xc7, 0x45, 0x20, 5, 0, 0xff, 0x46, 0xfe],
+      [0x83, 0x7e, 0xfe, 2],
+      [0x8b, 0x7c, 0x54, 0x8b, 0x45, 0x20, 0x89, 0x44, 0x0c, 0x5f, 0x5e, 0x8b, 0xe5, 0x5d, 0xcb],
+    );
+    const result = analyseRoutine(image, entry);
+    expect(result.loops).toHaveLength(1);
+    expect(result.transitions).toHaveLength(1);
+    expect(result.transitions[0]!.to).toMatchObject({ offset: 0x20, unresolved: true });
+    expect(result.transitions[0]!.confidence).not.toBe("inferred");
+  });
+});
+
+describe("counted loop indexed stores", () => {
+  // xor di,di; the body is inc di; mov bx,di; shl bx,1; mov word [bx+si+4],7 while di < 4.
+  const image = loopRoutine(
+    [0x55, 0x8b, 0xec, 0x56, 0x57, 0x8b, 0x76, 6, 0x33, 0xff],
+    [0x47, 0x8b, 0xdf, 0xd1, 0xe3, 0xc7, 0x40, 0x04, 7, 0],
+    [0x83, 0xff, 4],
+    [0x5f, 0x5e, 0x5d, 0xcb],
+  );
+  const code = readRoutineCode(image, entry, 0);
+
+  it("lists the fields an index read after the increment reaches", () => {
+    const loops = discoverCountedLoops(code, new Map(), 0x40);
+    expect(loops).toHaveLength(1);
+    expect(loops[0]!.possibleFields.map((f) => f.offset)).toEqual([6, 8, 10, 12]);
+  });
+
+  it("rejects the loop when the last of those fields is the state", () => {
+    expect(discoverCountedLoops(code, new Map(), 12)).toHaveLength(0);
+  });
+});
+
+describe("counted loop owner register", () => {
+  it("does not take a register as the part after it was pointed somewhere else before the loop", () => {
+    // mov si,[bp+6]; lea si,[bp-16]; then three passes of mov word [si+2],5 and inc di.
+    const image = loopRoutine(
+      [
+        0x55, 0x8b, 0xec, 0x83, 0xec, 16, 0x56, 0x57, 0x8b, 0x76, 6, 0x8d, 0x76, 0xf0, 0xc7, 0x46, 0xf2, 1, 0, 0x33,
+        0xff,
+      ],
+      [0xc7, 0x44, 0x02, 5, 0, 0x47],
+      [0x83, 0xff, 3],
+      [0x8b, 0x46, 0xf2, 0x8b, 0x5e, 6, 0x89, 0x47, 0x0c, 0x5f, 0x5e, 0x8b, 0xe5, 0x5d, 0xcb],
+    );
+    expect(discoverCountedLoops(readRoutineCode(image, entry, 0), new Map(), 12)).toHaveLength(0);
+    expect(analyseRoutine(image, entry).transitions.every((t) => t.to.kind !== "constant")).toBe(true);
+  });
+});

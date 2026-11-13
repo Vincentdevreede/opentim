@@ -83,7 +83,14 @@ const job = computed<RenderJob | undefined>(() => {
   const d = decoded.value;
   const item = current.value;
   if (!adlib.value || d?.status !== "decoded" || patch.value.status !== "found" || !item) return undefined;
-  return { key: `${item.key}:${fmCard.value}`, sound: d.sound.data, patch: patch.value.data, card: fmCard.value };
+  return {
+    key: `${item.key}:${fmCard.value}`,
+    sound: d.sound.data,
+    patch: patch.value.data,
+    card: fmCard.value,
+    // Only the AdLib driver differs between builds; the Sound Blaster Pro driver is the same file in all of them.
+    sameInstrumentFirst: fmCard.value === "adlib" && patch.value.sameInstrumentFirst,
+  };
 });
 const rendered = useRendered(job);
 const { progress: renderProgress, error: renderError, rendering } = rendered;

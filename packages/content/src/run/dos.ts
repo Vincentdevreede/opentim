@@ -7,10 +7,11 @@
  * - Memory is a list of blocks from the program's own block up to 640 KB, allocated first fit, freed and resized as DOS
  *   does. Real DOS keeps a header paragraph before each block; leaving it out only moves where blocks start.
  * - File handles are the lowest free ones from 5, as DOS gives them: the C library's file table has room for 20.
- * - The timer interrupt and key presses go through the game's own handlers in the interrupt table. A tick is held back
- *   while another interrupt is still running, as the interrupt controller does.
+ * - The timer interrupt and key presses go through the game's own handlers in the interrupt table. A tick that falls due
+ *   while interrupts are off or another interrupt is still running is held back until it can run, as the interrupt
+ *   controller does.
  */
-import { CF, Cpu, CpuStop, IF, type CpuHooks } from "./cpu.ts";
+import { CF, Cpu, CpuRunsOn, CpuStop, IF, type CpuHooks } from "./cpu.ts";
 import type { DosProgram } from "./program.ts";
 
 /** Where the BIOS stub that every unused interrupt vector points at lives: a single `iret`. */
@@ -55,6 +56,8 @@ export class Dos implements CpuHooks {
   private readonly running: number[] = [];
   private scanCode = 0;
   private nextTick: number;
+  /** Whether a tick fell due that the program's handler hasn't had yet. */
+  private tickPending = false;
   /** Files the program opened, in order, for tracing. */
   readonly opened: string[] = [];
 
@@ -114,7 +117,7 @@ export class Dos implements CpuHooks {
     return this.running.length > 0;
   }
 
-  /** Runs one instruction, then delivers a timer tick when one is due. */
+  /** Runs one instruction, then delivers a timer tick when one is due or was held back. */
   step(): void {
     const cpu = this.cpu;
     cpu.step();
@@ -122,16 +125,24 @@ export class Dos implements CpuHooks {
       while (this.running.length && cpu.regs[4]! >= this.running.at(-1)!) this.running.pop();
     if (cpu.steps >= this.nextTick) {
       this.nextTick += this.tickEvery;
-      cpu.write16(0x40, 0x6c, cpu.read16(0x40, 0x6c) + 1);
-      if (cpu.flag(IF) && !this.inInterrupt) this.hardware(8);
+      // The BIOS count is a double word.
+      const low = (cpu.read16(0x40, 0x6c) + 1) & 0xffff;
+      cpu.write16(0x40, 0x6c, low);
+      if (!low) cpu.write16(0x40, 0x6e, cpu.read16(0x40, 0x6e) + 1);
+      this.tickPending = true;
+    }
+    if (this.tickPending && cpu.flag(IF) && !this.inInterrupt) {
+      this.tickPending = false;
+      this.hardware(8);
     }
   }
 
-  /** Runs until `stop` says so, or fails after `limit` instructions with `what` in the message. */
+  /** Runs until `stop` says so, or fails with `CpuRunsOn` after `limit` instructions, with `what` in the message. */
   runUntil(stop: () => boolean, limit: number, what: string): void {
     const end = this.cpu.steps + limit;
     while (!stop()) {
-      if (this.cpu.steps >= end) throw new CpuStop(`${what}: still running`, this.cpu.linear(this.cpu.cs, this.cpu.ip));
+      if (this.cpu.steps >= end)
+        throw new CpuRunsOn(`${what}: still running`, this.cpu.linear(this.cpu.cs, this.cpu.ip));
       this.step();
     }
   }
@@ -182,7 +193,7 @@ export class Dos implements CpuHooks {
         return true;
       }
       case 0x1a:
-        cpu.regs[1] = 0;
+        cpu.regs[1] = cpu.read16(0x40, 0x6e);
         cpu.regs[2] = cpu.read16(0x40, 0x6c);
         return true;
       case 0x11:

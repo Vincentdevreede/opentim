@@ -53,6 +53,11 @@ describe("TIM 2", () => {
     );
   });
 
+  it("reads a large INFO.RES, with a name across the pieces it is read in", () => {
+    const info = bytes(`${"x".repeat(4096 * 245 - 5)}\r\n12.\tPulley\tHelp.\r\n`);
+    expect(readPartNames(info)).toEqual(new Map([[12, "Pulley"]]));
+  });
+
   it("stops at a part without an id, unless asked to keep it as new", () => {
     const info = bytes("0.\tBowling Ball\tHelp.\r\n999.\tSomething New\tHelp.\r\n");
     const files = (name: string) => (name === "INFO.RES" ? info : undefined);

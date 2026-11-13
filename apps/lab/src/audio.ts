@@ -11,7 +11,7 @@ import {
   type Sound,
   type SoundEntry,
 } from "@opentim/resources";
-import { hasAdlibTracks, readAdlibBank, type Pcm } from "@opentim/sound";
+import { hasAdlibTracks, prefersSameInstrument, readAdlibBank, type Pcm } from "@opentim/sound";
 import type { Resource } from "./importer.ts";
 
 export type AudioItem =
@@ -118,7 +118,14 @@ export function decodeEntry(entry: SoundEntry): DecodedSound {
 export const DRIVERS = "SX.OVL";
 
 export type AdlibPatch =
-  { status: "found"; data: Uint8Array } | { status: "missing"; message: string } | { status: "error"; message: string };
+  | {
+      status: "found";
+      data: Uint8Array;
+      /** True when the `ADL` driver gives a new note a free voice with the channel's instrument first. */
+      sameInstrumentFirst: boolean;
+    }
+  | { status: "missing"; message: string }
+  | { status: "error"; message: string };
 
 const patches = new WeakMap<Resource, AdlibPatch>();
 
@@ -129,10 +136,12 @@ export function adlibPatch(resources: readonly Resource[]): AdlibPatch {
   let patch = patches.get(file);
   if (!patch) {
     try {
-      const data = findPatch(readSoundDrivers(file.data), 3);
+      const drivers = readSoundDrivers(file.data);
+      const data = findPatch(drivers, 3);
       if (data) readAdlibBank(data);
+      const adl = drivers.find((d) => d.name === "ADL");
       patch = data
-        ? { status: "found", data }
+        ? { status: "found", data, sameInstrumentFirst: adl ? prefersSameInstrument(adl.data) : false }
         : { status: "missing", message: `${DRIVERS} has no patch 003 with the AdLib instruments.` };
     } catch (error) {
       patch = { status: "error", message: `${DRIVERS}: ${(error as Error).message}` };
