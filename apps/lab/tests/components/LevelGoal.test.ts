@@ -72,3 +72,21 @@ it("calls a word the routine reads with an index its table, apart from its singl
   expect(page).toContain("its count += 1");
   expect(page).not.toContain("0x");
 });
+
+it("says in a chip that a Toons part depends on the ropes, which the player can take off and tie elsewhere", async () => {
+  const g = goal(["rope1 ≠ 0"]);
+  const condition = g.summary.ways[0]![0]!;
+  const html = await renderToString(
+    createSSRApp({
+      render: () =>
+        h(LevelGoal, {
+          goal: { status: "done", goal: g },
+          areaNumbers: new Map(),
+          atStart: new Map([[condition, { parts: [1], player: "ropes" as const }]]),
+        }),
+    }),
+  );
+  expect(visibleText(html)).toContain("ropes");
+  expect(html).toContain("a rope between two parts on the board stays tied");
+  expect(html).toContain("take either end off and tie it elsewhere, or put the rope in the bin");
+});

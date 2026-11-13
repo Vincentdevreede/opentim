@@ -113,7 +113,9 @@ const ordinal = (n: number) =>
 /** Whether the level has fewer parts of the type than the one the condition is about: the goal finds none then. */
 const missing = (c: GoalCondition) =>
   c.kind === "nth" && !!props.typeCounts && (props.typeCounts.get(c.types?.[0]?.type ?? -1) ?? 0) < c.nth!;
-const ROPES = "The ropes are as the level ties them; the puzzle frees every rope for the player to move.";
+/** What TOONS.EXE lets the player do with a rope that is tied when the puzzle starts. */
+const ROPES =
+  "The ropes are as the puzzle starts: a rope between two parts on the board stays tied. The player can take either end off and tie it elsewhere, or put the rope in the bin.";
 /** What the level says of a condition as the puzzle starts, said in a chip, with why in its tip. */
 const atStart = (c: GoalCondition) => {
   const found = props.atStart?.get(c);
