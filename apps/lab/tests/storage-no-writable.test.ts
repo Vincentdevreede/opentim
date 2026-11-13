@@ -17,7 +17,7 @@ it("loads files for this session only when OPFS can't be written outside a worke
     { name: "TIM.PAL", data: Uint8Array.of(1) },
     { name: "PART1.BMP", data: Uint8Array.of(2) },
   ]);
-  await importFiles([new File([data], "RESOURCE.001")]);
+  await importFiles([new File([data], "RESOURCE.001"), new File([Uint8Array.of(0x4d, 0x5a)], "TIM.EXE")]);
   await confirmImport();
   expect(phase.value).toBe("loaded");
   expect(resources.value.map((r) => r.name)).toEqual(["PART1.BMP", "TIM.PAL"]);

@@ -14,7 +14,7 @@ const part = (id: string, type: number, extra: Partial<Part> = {}): Part => ({
 
 describe("listIdOf", () => {
   it("gives the list of a recognised version that has one", () => {
-    const profile = { id: "x", name: "X", languages: [], files: [], parts: "tim1" };
+    const profile = { id: "x", name: "X", languages: [], files: [], parts: "tim1", program: "TIM.EXE" };
     expect(listIdOf({ status: "recognized", profile })).toBe("tim1");
     expect(listIdOf({ status: "recognized", profile: { ...profile, parts: undefined } })).toBeUndefined();
     expect(listIdOf({ status: "unknown" } as Edition)).toBeUndefined();

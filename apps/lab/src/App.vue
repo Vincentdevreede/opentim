@@ -16,6 +16,7 @@ import {
   failure,
   foundSoFar,
   importFiles,
+  missingProgram,
   needsLanguage,
   phase,
   pickFiles,
@@ -220,7 +221,7 @@ const activeClass =
           v-if="page?.needsFiles && !hasFiles"
           :icon="page.icon"
           title="No files loaded"
-          :text="`Import the game’s RESOURCE files to ${page.forWhat}.`"
+          :text="`Import the game’s RESOURCE files and its program to ${page.forWhat}.`"
           import-link
         />
         <template v-else>
@@ -258,7 +259,13 @@ const activeClass =
       <template v-else-if="phase === 'staged' && staging">
         <span class="flex items-center gap-1.5 text-ink">
           <LabDot status="accent" /><span class="font-mono">{{ staging.resources.length }}</span> resources found ·
-          {{ needsLanguage(staging) ? "choose a language to continue" : "press Continue to load them" }}
+          {{
+            needsLanguage(staging)
+              ? "choose a language to continue"
+              : missingProgram(staging)
+                ? `add ${missingProgram(staging)!.join(" or ")} to continue`
+                : "press Continue to load them"
+          }}
         </span>
       </template>
       <template v-else-if="hasFiles">

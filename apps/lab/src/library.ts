@@ -3,7 +3,7 @@
 import { MAP_NAME, installLanguage, isArchiveName, isLanguagePackageName } from "@opentim/resources";
 import { ref, shallowRef, watch } from "vue";
 import { readBehaviourInBackground, stopBehaviourRead } from "./behaviour.ts";
-import { detectEdition, isProgramName, sha256, type Edition } from "./edition.ts";
+import { detectEdition, isProgramName, programNames, sha256, type Edition } from "./edition.ts";
 import {
   ImportError,
   checkComplete,
@@ -65,6 +65,8 @@ export interface Staging {
   /** Resources replaced by one with the same name in a later archive. */
   replaced: Resource[];
   edition: Edition;
+  /** The game's program among the files, like `TIM.EXE`. The game can't be opened without it. */
+  program?: GameFile;
   /** The check of the archives against `RESOURCE.MAP`. Undefined without one. */
   map?: MapCheck;
   /** Set when the archives miss images or palettes, so they can't be loaded yet. */
@@ -87,13 +89,16 @@ export const offersAddOn = (staged: Staging) =>
 /** True when a language has to be chosen before continuing. */
 export const needsLanguage = (staged: Staging) => staged.languages.length > 0 && !staged.language;
 
+/** The names the missing program can have, like `TIM.EXE`, or undefined when the program is there. */
+export const missingProgram = (staged: Staging) => (staged.program ? undefined : programNames(staged.edition));
+
 /** True when the archives don't match `RESOURCE.MAP`: some are missing, or they are from another version. */
 export const mapHasProblems = (staged: Staging) =>
   !!staged.map && (staged.map.missing.length > 0 || staged.map.problems.length > 0);
 
-/** True when files can be added to the staged ones: to complete them, or to add the Add-On. */
+/** True when files can be added to the staged ones: to complete them, like the missing program, or to add the Add-On. */
 export const canAddFiles = (staged: Staging) =>
-  !!staged.error || staged.edition.status !== "recognized" || offersAddOn(staged);
+  !!staged.error || !staged.program || staged.edition.status !== "recognized" || offersAddOn(staged);
 
 export const phase = ref<Phase>("empty");
 export const archives = shallowRef<Archive[]>([]);
@@ -107,7 +112,7 @@ export const staging = shallowRef<Staging>();
 export const saving = ref(false);
 /** The version of the game the loaded files are. */
 export const edition = shallowRef<Edition>();
-/** The game's program, like `TIM.EXE`, when it was loaded with the archives. */
+/** The game's program, like `TIM.EXE`, which is loaded with the archives. Undefined only while nothing is loaded. */
 export const program = shallowRef<{ name: string; data: Uint8Array; sha256: string }>();
 // The behaviour of a program that was replaced isn't needed anymore, even when no page waits for it now.
 watch(
@@ -250,6 +255,9 @@ async function stage(
   log.push(
     `[import] version       ${edition.status.padEnd(9)} ${edition.status === "recognized" ? edition.profile.id : ""}`.trimEnd(),
   );
+  const names = programNames(edition);
+  const program = files.find((f) => names.includes(f.name));
+  log.push(`[import] program       ${program ? `ok        ${program.name}` : `missing   ${names.join(" or ")}`}`);
   return {
     selected,
     languages,
@@ -258,6 +266,7 @@ async function stage(
     resources,
     replaced,
     edition,
+    program,
     map,
     error: check?.error,
     seconds,
@@ -267,12 +276,11 @@ async function stage(
 }
 
 /** Shows the staged files as the loaded ones, and starts reading the behaviour of their program. */
-function load(staged: Staging): void {
+function load(staged: Staging, exe: GameFile): void {
   resources.value = staged.resources;
   archives.value = staged.files.map(({ name, size }) => ({ name, size }));
   edition.value = staged.edition;
-  const exe = staged.files.find((f) => isProgramName(f.name));
-  program.value = exe && { name: exe.name, data: exe.data, sha256: exe.sha256 };
+  program.value = { name: exe.name, data: exe.data, sha256: exe.sha256 };
   readSeconds.value = staged.seconds;
   if (!staged.resources.some((r) => r.name === selected.value)) selected.value = staged.resources[0]?.name;
   failure.value = undefined;
@@ -282,14 +290,13 @@ function load(staged: Staging): void {
   // then shows the same read. Reading the parts takes a moment, so it waits until the loaded files are painted: a
   // frame callback runs before the paint, and a task queued from it runs after.
   const loaded = program.value;
-  if (loaded)
-    void nextFrame().then(() =>
-      setTimeout(() => {
-        if (program.value !== loaded) return;
-        const parts = readLoadedParts(listIdOf(staged.edition), staged.resources, loaded)?.program;
-        if (parts) readBehaviourInBackground(loaded.data, parts);
-      }),
-    );
+  void nextFrame().then(() =>
+    setTimeout(() => {
+      if (program.value !== loaded) return;
+      const parts = readLoadedParts(listIdOf(staged.edition), staged.resources, loaded)?.program;
+      if (parts) readBehaviourInBackground(loaded.data, parts);
+    }),
+  );
 }
 
 /**
@@ -333,10 +340,11 @@ export async function chooseLanguage(language: string): Promise<void> {
   }
 }
 
-/** Loads the staged archives and saves them in this browser for next time. */
+/** Loads the staged archives and saves them in this browser for next time. Without the game's program, nothing loads. */
 export async function confirmImport(): Promise<void> {
   const staged = staging.value;
-  if (!staged || staged.error || needsLanguage(staged) || mapHasProblems(staged)) return;
+  const exe = staged?.program;
+  if (!staged || !exe || staged.error || needsLanguage(staged) || mapHasProblems(staged)) return;
   const run = ++generation;
   saving.value = true;
   try {
@@ -347,10 +355,13 @@ export async function confirmImport(): Promise<void> {
   } finally {
     if (run === generation) saving.value = false;
   }
-  if (run === generation) load(staged);
+  if (run === generation) load(staged, exe);
 }
 
-/** Reloads the archives saved by an earlier import, if there are any. */
+/**
+ * Reloads the archives saved by an earlier import, if there are any. A save from before the Lab needed the game's
+ * program waits for it on the start screen, like a new import does.
+ */
 export async function restore(): Promise<void> {
   const run = generation;
   const files = await loadLibrary();
@@ -367,7 +378,10 @@ export async function restore(): Promise<void> {
   }
   if (current !== generation) return;
   if (staged.error) fail(staged.error, [], staged.log);
-  else load(staged);
+  else if (!staged.program) {
+    staging.value = staged;
+    phase.value = "staged";
+  } else load(staged, staged.program);
 }
 
 /** Stops reading or saving and goes back to the previous state. */

@@ -1,14 +1,7 @@
 <script setup lang="ts">
 import logo from "@opentim/theme/opentim-logo.png";
 import { computed, ref } from "vue";
-import {
-  catalogEntry,
-  editionHint,
-  editionLanguages,
-  editionName,
-  isProgramName,
-  type Edition,
-} from "../../edition.ts";
+import { catalogEntry, editionHint, editionLanguages, editionName, type Edition } from "../../edition.ts";
 import { CONFIDENCE_HELP, GROUPS, type Confidence } from "../../kinds.ts";
 import {
   canAddFiles,
@@ -19,6 +12,7 @@ import {
   discard,
   foundSoFar,
   mapHasProblems,
+  missingProgram,
   needsLanguage,
   offersAddOn,
   phase,
@@ -62,12 +56,17 @@ const VERSION_BADGES: Record<Edition["status"], { status: Confidence; label: str
 const languageName = (language: string) => language.charAt(0) + language.slice(1).toLowerCase();
 
 const reading = computed(() => phase.value === "reading");
-/** True when something needs a look before continuing: a missing language, missing files, or a mismatch. */
+/**
+ * True when something needs a look before continuing: a missing language, missing files like the game's program, or a
+ * mismatch.
+ */
 const attention = computed(() => {
   const s = staging.value;
   if (!s) return false;
-  return !!s.error || needsLanguage(s) || s.edition.status === "incomplete" || mapHasProblems(s);
+  return !!s.error || needsLanguage(s) || !s.program || s.edition.status === "incomplete" || mapHasProblems(s);
 });
+/** The program to add before continuing, by name: one name when the version tells which, else every game's. */
+const programToAdd = computed(() => (staging.value ? missingProgram(staging.value) : undefined));
 
 const copied = ref(false);
 async function copyEntry() {
@@ -85,8 +84,7 @@ const percent = computed(() =>
 const stagedParts = computed(() => {
   const s = staging.value;
   if (reading.value || !s) return undefined;
-  const exe = s.files.find((f) => isProgramName(f.name));
-  return readLoadedParts(listIdOf(s.edition), s.resources, exe && { name: exe.name, data: exe.data });
+  return s.program && readLoadedParts(listIdOf(s.edition), s.resources, s.program);
 });
 const counts = computed(() => {
   const list = reading.value ? foundSoFar.value : (staging.value?.resources ?? []);
@@ -99,12 +97,8 @@ const counts = computed(() => {
   const parts = {
     id: "parts",
     label: "Parts",
-    // Without a parts list for the game, or with only the committed list standing in, the files' count isn't known.
-    count: reading.value
-      ? "…"
-      : !stagedParts.value || stagedParts.value.problem
-        ? "?"
-        : String(stagedParts.value.list.parts.length),
+    // Without the program, or without a parts reader for the game, the count isn't known.
+    count: reading.value ? "…" : stagedParts.value?.list ? String(stagedParts.value.list.parts.length) : "?",
   };
   const at = kinds.findIndex((k) => k.id === "sprites") + 1;
   return [...kinds.slice(0, at), parts, ...kinds.slice(at)];
@@ -282,6 +276,22 @@ const counts = computed(() => {
           </p>
 
           <ul v-if="!needsLanguage(staging)" class="flex flex-col gap-1 text-soft">
+            <li v-if="programToAdd" class="flex gap-2">
+              <LabIcon name="warning" class="mt-[3px] shrink-0 text-partial" />
+              <span
+                ><b class="font-semibold text-partial"
+                  ><template v-if="programToAdd.length === 1"
+                    ><span class="font-mono">{{ programToAdd[0] }}</span> is missing.</template
+                  ><template v-else>The game’s program is missing.</template></b
+                >
+                <template v-if="programToAdd.length > 1"
+                  >Add the one the game has:
+                  <span class="font-mono text-ink">{{ programToAdd.join(", ").replace(/, (?=[^,]*$)/, " or ") }}</span
+                  >.</template
+                >
+                The lab reads the parts, the goals and the behaviour from it.</span
+              >
+            </li>
             <li v-if="staging.edition.status === 'incomplete'" class="flex gap-2">
               <LabIcon name="warning" class="mt-[3px] shrink-0 text-partial" />
               <span
@@ -337,7 +347,7 @@ const counts = computed(() => {
               v-if="!staging.error"
               variant="primary"
               size="lg"
-              :disabled="saving || needsLanguage(staging) || mapHasProblems(staging)"
+              :disabled="saving || needsLanguage(staging) || mapHasProblems(staging) || !!programToAdd"
               @click="confirmImport"
             >
               <LabIcon v-if="saving" name="spinner" class="animate-spin" />
@@ -345,11 +355,19 @@ const counts = computed(() => {
             </LabButton>
             <LabButton
               v-if="canAddFiles(staging)"
-              :variant="staging.error ? 'primary' : 'default'"
+              :variant="staging.error || programToAdd ? 'primary' : 'default'"
               size="lg"
               :disabled="saving"
               @click="pickFiles"
-              ><LabIcon name="folder" />{{ offersAddOn(staging) ? "Add the Add-On…" : "Add more files…" }}</LabButton
+              ><LabIcon name="folder" />{{
+                programToAdd?.length === 1
+                  ? `Add ${programToAdd[0]}…`
+                  : programToAdd
+                    ? "Add the program…"
+                    : offersAddOn(staging)
+                      ? "Add the Add-On…"
+                      : "Add more files…"
+              }}</LabButton
             >
             <LabButton variant="ghost" size="lg" @click="discard">Start over</LabButton>
           </div>
@@ -419,7 +437,7 @@ const counts = computed(() => {
               <span class="font-mono text-ink">RESOURCE.001</span> and
               <span class="font-mono text-ink">RESOURCE.MAP</span>, and the language files, like
               <span class="font-mono text-ink">GERMAN.RES</span> or <span class="font-mono text-ink">ENGLISH.DAT</span>.
-              Add the game’s program too: <span class="font-mono text-ink">TIM.EXE</span>,
+              The game’s program is needed too: <span class="font-mono text-ink">TIM.EXE</span>,
               <span class="font-mono text-ink">TIM2.EXE</span> or <span class="font-mono text-ink">TOONS.EXE</span>.
             </div>
           </LabBox>
