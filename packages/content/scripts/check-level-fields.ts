@@ -221,13 +221,15 @@ if (!isMainThread) {
   if (!puzzles.length) throw new Error("no puzzles to load");
   const level = (puzzle: number) => files.get(`L${puzzle}.LEV`)!;
   const results: PuzzleResult[] = [];
+  // A worker that fails is reported with the puzzles it gave no result for, after all workers have stopped.
+  const workerErrors: unknown[] = [];
   const lanes = Array.from({ length: Math.min(jobs, puzzles.length) }, (_, lane) =>
     puzzles.filter((_, k) => k % jobs === lane),
   );
   await Promise.all(
     lanes.map(
       (share) =>
-        new Promise<void>((done, fail) => {
+        new Promise<void>((done) => {
           const worker = new Worker(new URL(import.meta.url), {
             workerData: {
               folder,
@@ -236,7 +238,7 @@ if (!isMainThread) {
             },
           });
           worker.on("message", (result: PuzzleResult) => results.push(result));
-          worker.once("error", fail);
+          worker.once("error", (error) => workerErrors.push(error));
           worker.once("exit", () => done());
         }),
     ),
@@ -307,6 +309,7 @@ if (!isMainThread) {
   for (const r of failed) console.error(`Puzzle ${r.puzzle}: ${r.error}`);
   const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
   if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
+  for (const error of workerErrors) console.error("A worker failed:", error);
   const hex = (n: number) => `0x${n.toString(16)}`;
   for (const [key, tally] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
     const nearest = [...tally.agree]
@@ -353,5 +356,5 @@ if (!isMainThread) {
         }`
       }`,
     );
-  if (failed.length || missing.length) process.exitCode = 1;
+  if (failed.length || missing.length || workerErrors.length) process.exitCode = 1;
 }
