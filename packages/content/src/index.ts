@@ -216,3 +216,10 @@ export {
   type ToonsGoalTable,
   type ToonsUnplug,
 } from "./read/toons-goals.ts";
+export {
+  puzzleStart,
+  TIM2_FIXED,
+  TIM2_NOT_IN_SOLUTION,
+  type PuzzleStart,
+  type ToonsSort,
+} from "./read/puzzle-start.ts";

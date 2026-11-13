@@ -472,7 +472,8 @@ describe("groupOf", () => {
   });
 
   it("keeps TIM 1's groups as the file has them", () => {
-    expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
+    const part = toonsPart(16, 16, 0, 0);
+    expect(groupOf({ layout: "tim", parts: [part] } as unknown as Level, part)).toBe("static");
   });
 
   it("draws a rope between two parts on the board, and says which tunnel the puzzle start takes off", () => {

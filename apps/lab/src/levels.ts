@@ -22,7 +22,9 @@ import {
   type Tim2Drawing,
   type ToonsDrawing,
   type ToonsPuzzleStart,
-  toonsPuzzleStart,
+  type PuzzleStart,
+  type ToonsSort,
+  puzzleStart,
 } from "@opentim/content";
 import type { Font } from "@opentim/resources";
 import { toonsPicture } from "./toons-drawing.ts";
@@ -175,38 +177,34 @@ export interface Scene {
   knot: Composition;
 }
 
-/** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
-const TIM2_FIXED = 0x40;
-/** Bit 0x100 of TIM 2's third flag word: the part stays in the bin when the game shows the puzzle's solution. */
-const TIM2_NOT_IN_SOLUTION = 0x100;
 /** Where a part is when the puzzle starts: on its list, in the bin, or `gone` for a Toons tunnel the setup frees. */
 export type StartGroup = LevelPart["group"] | "gone";
 
-/**
- * The words of TOONS.EXE's type table that Toons sorts its parts by: `kinds` for the parts lists
- * (`readToonsListKinds`), `binKinds` for the bin (`readToonsBinKinds`).
- */
-export interface ToonsSort {
-  kinds: ReadonlyMap<number, number>;
-  binKinds: ReadonlyMap<number, number>;
-}
+export type { ToonsSort };
 
-const toonsStarts = new WeakMap<Level, { sort: ToonsSort; start: ToonsPuzzleStart }[]>();
-/** TOONS.EXE's puzzle start of a level (`toonsPuzzleStart`), worked out once per level and sort words. */
-export function toonsStart(level: Level, sort: ToonsSort): ToonsPuzzleStart {
-  const known = toonsStarts.get(level) ?? [];
-  const found = known.find((k) => k.sort.kinds === sort.kinds && k.sort.binKinds === sort.binKinds);
+const starts = new WeakMap<Level, { solution: boolean; sort?: ToonsSort; start: PuzzleStart }[]>();
+/** What a level's puzzle starts with (`puzzleStart`), worked out once per level, solution and sort words. */
+export function levelStart(level: Level, solution = false, sort?: ToonsSort): PuzzleStart {
+  const known = starts.get(level) ?? [];
+  const found = known.find(
+    (k) => k.solution === solution && k.sort?.kinds === sort?.kinds && k.sort?.binKinds === sort?.binKinds,
+  );
   if (found) return found.start;
-  const start = toonsPuzzleStart(level, sort.kinds, sort.binKinds);
-  toonsStarts.set(level, [...known.slice(-3), { sort, start }]);
+  const start = puzzleStart(level, { solution, ...(sort ? { sort } : {}) });
+  starts.set(level, [...known.slice(-3), { solution, ...(sort ? { sort } : {}), start }]);
   return start;
 }
 
+/** TOONS.EXE's puzzle start of a level (`toonsPuzzleStart`), worked out once per level and sort words. */
+export function toonsStart(level: Level, sort: ToonsSort): ToonsPuzzleStart {
+  return levelStart(level, false, sort).toons!;
+}
+
 /**
- * The list a part is on when the puzzle starts. TIM 1 keeps its parts bin as a third list in the file. TIM 2 keeps
- * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
- * third flag word into the parts bin, so those are the bin. When the player asks for the designer's solution, it loads
- * the level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
+ * The list a part is on when the puzzle starts, as `puzzleStart` says. TIM 1 keeps its parts bin as a third list in
+ * the file. TIM 2 keeps every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without
+ * bit 0x40 of the third flag word into the parts bin. When the player asks for the designer's solution, it loads the
+ * level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
  *
  * Toons has no bin in its files either. TOONS.EXE's puzzle setup puts every part without bit 0x40 in the bin, and with
  * it the ropes and belts tied to it and the other end of a tunnel, which it frees (`toonsPuzzleStart`); a rope or a
@@ -215,15 +213,8 @@ export function toonsStart(level: Level, sort: ToonsSort): ToonsPuzzleStart {
  * 0x100 in TIM 2 aren't set in Toons' levels.
  */
 export const groupOf = (level: Level, part: LevelPart, solution = false, sort?: ToonsSort): StartGroup => {
-  const third = part.flags[2] ?? 0;
-  if (level.layout === "toons") {
-    if (solution) return part.group;
-    if (!sort) throw new Error("A Toons puzzle starts by the sort words of TOONS.EXE.");
-    const start = toonsStart(level, sort);
-    return start.bin.has(part.index) ? "bin" : start.gone.has(part.index) ? "gone" : part.group;
-  }
-  if (level.layout === "tim" || third & TIM2_FIXED) return part.group;
-  return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
+  const start = levelStart(level, solution, sort);
+  return start.bin.includes(part.index) ? "bin" : start.gone.has(part.index) ? "gone" : part.group;
 };
 
 /** The Toons types whose setting TOONS.EXE reads, and what it counts for them. */
