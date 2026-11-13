@@ -33,6 +33,11 @@ export interface BehaviourProfile {
    * starts), but its results were checked with them followed, so it keeps following them until that is decided.
    */
   stopAtProgramStart: boolean;
+  /**
+   * Whether the reader goes past a loop that changes only registers and private locals, forgetting what they hold,
+   * instead of leaving the routine unresolved there. Off for TIM.EXE, whose results were checked without it.
+   */
+  confinedLoops: boolean;
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -43,6 +48,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   partPointer: "near",
   otherRoutines: [],
   stopAtProgramStart: false,
+  confinedLoops: false,
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -55,6 +61,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     partPointer: "far",
     otherRoutines: ["draw", "set-up"],
     stopAtProgramStart: true,
+    confinedLoops: true,
   },
   toons: {
     storage: "overlays",
@@ -63,6 +70,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     partPointer: "near",
     otherRoutines: [],
     stopAtProgramStart: true,
+    confinedLoops: true,
   },
 };
 

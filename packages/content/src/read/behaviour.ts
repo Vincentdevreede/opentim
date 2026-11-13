@@ -42,7 +42,16 @@ import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
-import { constant, evidenceOf, field, uniqueEvidence, unknown, unsigned } from "./behaviour-terms.ts";
+import {
+  constant,
+  evidenceOf,
+  field,
+  implicitMemory,
+  implicitRegisterWrites,
+  uniqueEvidence,
+  unknown,
+  unsigned,
+} from "./behaviour-terms.ts";
 
 /** The name of whether a helper's allocation found room at a call, like the wall split's copy: only the run knows. */
 export const allocationAnswer = (call: string) => `allocation answer of the call at ${call}`;
@@ -935,6 +944,8 @@ interface AbstractState {
    * but was asked by something not proved to be the owner.
    */
   ownerMayBeListed?: Set<number>;
+  /** The loops this path already went past as confined loops (see `CONFINED_LOOP_ASSUMPTION`), by their first address. */
+  widened?: Set<number>;
   assumptions: string[];
 }
 interface Location {
@@ -972,6 +983,8 @@ export interface RoutineOptions {
   ownerLink?: number;
   /** How the program passes a part: TIM.EXE and TOONS.EXE as a near pointer, TIM2.EXE as a far one. */
   partPointer?: "near" | "far";
+  /** Read loops that change only registers and private locals as confined loops (`BehaviourProfile.confinedLoops`). */
+  confinedLoops?: boolean;
   /** Summaries of callees already found by following code references. */
   summaries?: Map<number, RoutineAnalysis>;
   /**
@@ -1184,6 +1197,137 @@ function liveRegisters(code: RoutineCode): Map<number, Set<string>> {
  * Analyses a routine as a graph of symbolic transfer functions. Each acyclic path is retained; a back edge is a
  * loss of information, not an invitation to run the loop. The finite path budget is reported whenever reached.
  */
+export const CONFINED_LOOP_ASSUMPTION =
+  "A loop that changes only registers and private locals ends; after it those registers and locals hold values the reader doesn't know, and everything else is as before the loop.";
+
+interface ConfinedLoop {
+  /** The loop's lowest address, which names it. */
+  first: number;
+  body: Set<number>;
+  /** Where the code goes on when it leaves the loop. */
+  exits: number[];
+  registers: string[];
+  locals: Extract<Operand, { kind: "memory" }>[];
+  evidence: Evidence[];
+}
+
+/** Registers a confined loop may not change: the stack and frame pointers and the segments other than ES. */
+const FIXED_REGISTERS = ["sp", "bp", "ss", "ds", "cs"];
+
+/**
+ * The loops of a routine that change nothing but registers and private locals (`[bp-n]`): no calls, no other stores,
+ * no string, port or interrupt instructions, no pushes or pops, and every way on from the loop known. A loop is a
+ * strongly connected part of the routine's graph; each of its instructions maps to it, since a path can come back to
+ * any of them first.
+ */
+function discoverConfinedLoops(code: RoutineCode): Map<number, ConfinedLoop> {
+  const result = new Map<number, ConfinedLoop>();
+  const successors = new Map<number, number[]>();
+  for (const edge of code.edges)
+    if (edge.to !== null) successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+  const instructions = new Map(code.instructions.map((i) => [i.address, i]));
+  // Tarjan's strongly connected components, without recursion.
+  let counter = 0;
+  const index = new Map<number, number>();
+  const low = new Map<number, number>();
+  const onStack = new Set<number>();
+  const stack: number[] = [];
+  const components: number[][] = [];
+  for (const start of code.instructions.map((i) => i.address)) {
+    if (index.has(start)) continue;
+    const work: { node: number; next: number }[] = [{ node: start, next: 0 }];
+    index.set(start, counter);
+    low.set(start, counter++);
+    stack.push(start);
+    onStack.add(start);
+    while (work.length) {
+      const top = work.at(-1)!;
+      const out = successors.get(top.node) ?? [];
+      if (top.next < out.length) {
+        const to = out[top.next++]!;
+        if (!instructions.has(to)) continue;
+        if (!index.has(to)) {
+          index.set(to, counter);
+          low.set(to, counter++);
+          stack.push(to);
+          onStack.add(to);
+          work.push({ node: to, next: 0 });
+        } else if (onStack.has(to)) low.set(top.node, Math.min(low.get(top.node)!, index.get(to)!));
+        continue;
+      }
+      work.pop();
+      if (work.length) {
+        const parent = work.at(-1)!.node;
+        low.set(parent, Math.min(low.get(parent)!, low.get(top.node)!));
+      }
+      if (low.get(top.node) === index.get(top.node)) {
+        const component: number[] = [];
+        let member: number;
+        do {
+          member = stack.pop()!;
+          onStack.delete(member);
+          component.push(member);
+        } while (member !== top.node);
+        components.push(component);
+      }
+    }
+  }
+  for (const component of components) {
+    const body = new Set(component);
+    const looping = component.length > 1 || (successors.get(component[0]!) ?? []).includes(component[0]!);
+    if (!looping) continue;
+    const registers = new Set<string>();
+    const locals: Extract<Operand, { kind: "memory" }>[] = [];
+    let confined = true;
+    for (const address of component) {
+      const i = instructions.get(address)!;
+      const first = i.operands[0];
+      if (
+        i.flow === "call" ||
+        i.flow === "return" ||
+        i.flow === "stop" ||
+        implicitMemory(i) ||
+        /^(push|pop|in|out|lods|scas|cmps|rep|lock|hlt|cli|sti|leave)/.test(i.mnemonic) ||
+        code.edges.some((edge) => edge.from === address && edge.to === null)
+      ) {
+        confined = false;
+        break;
+      }
+      const writing =
+        !["cmp", "test", "nop", "clc", "stc", "cmc", "cld", "std"].includes(i.mnemonic) && i.flow === "next";
+      if (writing && first?.kind === "memory") {
+        if (first.segment !== "ss" || first.base.join() !== "bp" || first.displacement >= 0) {
+          confined = false;
+          break;
+        }
+        locals.push(first);
+      }
+      if (writing && first?.kind === "register") registers.add(first.name);
+      if (i.mnemonic === "xchg" && i.operands[1]?.kind === "register") registers.add(i.operands[1].name);
+      for (const register of implicitRegisterWrites(i)) registers.add(register);
+      if (i.mnemonic === "les") registers.add("es");
+      if (i.mnemonic === "lds") registers.add("ds");
+    }
+    if (!confined || [...registers].some((r) => FIXED_REGISTERS.includes(r))) continue;
+    const exits = [
+      ...new Set(
+        code.edges.filter((edge) => body.has(edge.from) && edge.to !== null && !body.has(edge.to)).map((e) => e.to!),
+      ),
+    ];
+    if (!exits.length) continue;
+    const loop: ConfinedLoop = {
+      first: Math.min(...component),
+      body,
+      exits,
+      registers: [...registers],
+      locals,
+      evidence: component.sort((a, b) => a - b).map((address) => evidenceOf(instructions.get(address)!)),
+    };
+    for (const address of component) result.set(address, loop);
+  }
+  return result;
+}
+
 export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: RoutineOptions = {}): RoutineAnalysis {
   const code = options.code ?? readRoutineCode(image, entry, options.dataSegment ?? 0);
   const carryNeeded = liveCarryOutputs(code);
@@ -1202,6 +1346,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const provenLoops = discoverCountedLoops(code, options.engineSummaries ?? new Map(), stateOffset);
   const loopsByHeader = new Map(provenLoops.map((loop) => [loop.header, loop]));
   const findFirstLoops = discoverFindFirstLoops(code, options.engineSummaries ?? new Map());
+  const confinedLoops = options.confinedLoops ? discoverConfinedLoops(code) : new Map<number, ConfinedLoop>();
   const usedLoops: LoopSummary[] = [];
   const firstArgumentOffset = code.instructions.some((instruction) => instruction.mnemonic === "retf") ? 6 : 4;
   const listLoopsByHeader = new Map(
@@ -3262,6 +3407,25 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (s.visited.has(i.address)) {
       if (s.observationOnly) {
         if (i.address === s.observationHeader) recordIteration(s, i);
+        continue;
+      }
+      const confined = confinedLoops.get(i.address);
+      if (confined && !s.widened?.has(confined.first)) {
+        // Past any number of passes, the loop has changed only its registers and locals: forget those and leave it.
+        const after = clone(s);
+        const forgotten = (what: string) => unknown(`${what} after the loop at ${hex(confined.first)}`);
+        for (const register of confined.registers) registerWrite(register, tracked(forgotten(register)), after);
+        for (const operand of confined.locals) {
+          const l = location(operand, after);
+          if (l) after.memory.set(memoryKey(l), tracked(forgotten(`the local at ${hex(l.offset & 0xffff)}`)));
+        }
+        after.flags = undefined;
+        after.carry = undefined;
+        for (const address of confined.body) after.visited.add(address);
+        after.widened = new Set([...(s.widened ?? []), confined.first]);
+        after.assumptions = [...new Set([...after.assumptions, CONFINED_LOOP_ASSUMPTION])];
+        after.evidence = uniqueEvidence([...after.evidence, ...confined.evidence]);
+        for (const exit of confined.exits) enqueue({ at: exit, state: clone(after) });
         continue;
       }
       uncertainEffects = true;
@@ -5658,6 +5822,7 @@ export function readBehaviourInSteps(
       codes,
       layout,
       ...(profile.partPointer === "far" ? { partPointer: "far" as const } : {}),
+      ...(profile.confinedLoops ? { confinedLoops: true } : {}),
       ...(externalList ? { externalList } : {}),
       ...(callbackSlots.get(address)?.size === 1 &&
       callbackSlots.get(address)!.has(0) &&
