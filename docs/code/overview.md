@@ -49,28 +49,30 @@ language in a subfolder). The research uses the five TIM 1 and six Even More bui
 ## Scripts of the content package
 
 Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side by side on worker threads through
-`scripts/builds.ts` (`--jobs n`; one build takes up to a minute and about 1.7 GB).
+`scripts/builds.ts` (`--jobs n`; one build takes up to a minute and about 1.7 GB). A build is a game folder given by
+its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`; most scripts read only TIM 1 and Even More (`readBuild`).
 
-| Script                      | What it does                                                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `extract-parts`             | Writes the committed part lists `src/lists/*.json` from the builds (also TIM 2).                               |
-| `extract-behaviour`         | Writes behaviour reports (without the per-type loops) and a cross-build comparison to `--out`.                 |
-| `compare-behaviour`         | Compares saved reports with a baseline and the descriptions with the saved recordings (the v25 oracle).        |
-| `validate-behaviour`        | Checks saved reports against v25's callback measurements.                                                      |
-| `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.             |
-| `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                        |
-| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                  |
-| `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions.                         |
-| `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the goal reader against the game's routine in the emulator.           |
-| `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)). |
-| `check-level-fields`        | Finds where the level loader puts each field of a level file.                                                  |
-| `check-moving-list`         | Checks decided assumption 22 in the game's own run.                                                            |
-| `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                      |
+| Script                      | What it does                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `extract-parts`             | Writes the committed part lists `src/lists/*.json` from the builds (also TIM 2).                                                                       |
+| `extract-behaviour`         | Writes behaviour reports (without the per-type loops) and a cross-build comparison to `--out`.                                                         |
+| `compare-behaviour`         | Compares saved reports with a baseline and the descriptions with the saved recordings (the v25 oracle).                                                |
+| `validate-behaviour`        | Checks saved reports against v25's callback measurements.                                                                                              |
+| `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.                                                     |
+| `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                                                                |
+| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                                                          |
+| `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions.                                                                 |
+| `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the read goals against the game's goal routines in the emulator. Both take TIM 1, Even More, TIM 2 and Toons. |
+| `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)).                                         |
+| `check-level-fields`        | Finds where the level loader puts each field of a level file.                                                                                          |
+| `check-moving-list`         | Checks decided assumption 22 in the game's own run.                                                                                                    |
+| `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                                                              |
 
-The emulator scripts (`record-level`, `check-level-fields`, `check-moving-list`, `check-goals`) only know the two
+The emulator scripts (`record-level`, `check-level-fields`, `check-moving-list`) only know the two
 recorded builds (`GAME_BUILDS` in `src/run/game.ts`). `check-level-fields` and `check-moving-list` run one emulator
 at a time unless `--jobs` says more. Run `check-level-fields` one build at a time and in the background: a run with
-`--jobs 4` once took the machine down.
+`--jobs 4` once took the machine down. `check-goals` runs only the goal routines, with the program's memory laid out
+by hand, so it takes every build of every game.
 
 ## Deploy
 

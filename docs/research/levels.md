@@ -84,7 +84,12 @@ Some trials can't be compared, because the game itself reads something undefined
 
 Each of these needs a part the shipped level has, so they matter only for levels made without it.
 
-    pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> [--trials 3000]
+    pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder> \
+      --toons <game folder> [--trials n]
+
+The same script checks TIM 2's goals ([below](#tim-2-goals)) and Toons' ([below](#toons-goals)), each folder the
+same way and with the same lines. Each game has its own number of trials unless `--trials` says: 3,000 for TIM 1 and
+Even More, 1,000 for TIM 2 and Toons.
 
 ### Goals in words
 
@@ -134,8 +139,11 @@ Every build has exactly one of each, and `list-goals` calls them "the step count
 The run loops and step counts of the two recorded builds are the ones the level recorder found. Even More puzzle 70's
 goal needs the second step count to be at least 308 (see [what the loader keeps](#what-the-loader-keeps)).
 
-    pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
-      [--conditions]
+    pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder> \
+      --toons <game folder> [--out <folder>] [--conditions]
+
+It lists Toons' goals the same way, by level name, and TIM 2's as the entries each level keeps with their
+conditions; the builds of TIM 2 are compared by level name, since the demo has levels of its own.
 
 ### Goals as conditions
 
@@ -312,8 +320,22 @@ What the loader does with the fields, from TIM2.EXE:
 ### TIM 2 goals
 
 The loader keeps the goal in the data segment: the first word, eight entries of 18 bytes (a part pointer and seven
-words) and the last word. One routine of TIM2.EXE tests them for every puzzle (in its first overlay; in the floppy
-build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) says it as conditions. What it does:
+words) and the last word. One routine of TIM2.EXE tests them for every puzzle, in its first overlay, the same in all
+three builds:
+
+| Build        | Goal routine | File offset | Goal words           | Check count |
+| ------------ | ------------ | ----------- | -------------------- | ----------- |
+| TIM 2 floppy | `4e03:2503`  | `0x55743`   | `0x7416` to `0x74a8` | `[0x2c2]`   |
+| TIM 2 CD     | `4ee4:2503`  | `0x56753`   | `0x7896` to `0x7928` | `[0x47a]`   |
+| TIM 2 demo   | `4d86:2503`  | `0x54f73`   | `0x756e` to `0x7600` | `[0x240]`   |
+
+`findTim2GoalRoutine` (`src/read/tim2-goal.ts`) finds it in TIM2.EXE laid out with its overlays (the same Borland
+overlays as TOONS.EXE, so `readToonsMemory` lays it out): the one place that reaches an entry by a part's number
+counted from 1 (`mov ax, entries; add ax, -18`), and from its instructions the first word, the check count, the last
+word and the three lists it walks: the bin at `[0x64af]`, the moving list at `[0x64a7]` and the static list at
+`[0x649f]` in the floppy build (the level loader puts a level's static parts on the list at `[0x649f]` and its moving
+parts on the one at `[0x64a7]`).
+`summariseTim2Goal` says the goal as conditions, and `runTim2Goal` tests it as the routine does. What it does:
 
 - When the first word is 0 the goal is never met. It is 1 in every shipped level.
 - The goal isn't met while one of its parts is in the parts bin.
@@ -322,7 +344,13 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
   size: strictly inside the area, or, when the width is -1, off the screen, outside 0 to 640 across or 0 to 400 down.
   For a static part, or a width of 0, it tests the part's state, from the low to the high one.
 - With a count of 0 the entry is about its own part. With a count of N, the routine walks the list its part is on
-  again and needs N parts of the part's type that pass.
+  again from its first part and needs N parts of the part's type that pass; then it goes on after the entry's own
+  part. When the list ends first the goal isn't met, except when the entry's own part is the last on its list: then
+  nothing marks the count as running, and the routine just forgets the entry (see below).
+- The routine looks a part's entry up from the first entry to the first one without a part, so an entry after a gap
+  is never tested. No shipped level has a gap.
+- The routine answers 0 when the first word is 0, 1 when the goal isn't met and 2 when it is. A part in the bin
+  answers 1 before anything else, and that check isn't counted.
 - The last word holds the goal back: the routine counts its own checks and says the goal isn't met before that many.
   The run loop (the routine at file offset `0x53240` in the floppy build) sets that count back to 0 when the machine
   starts and runs the goal routine once a step, right after the step, so the last word is a number of steps. Four
@@ -332,6 +360,36 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
   [the animation speed](file-formats.md#animations-anm)), so a step takes at least 33.8 ms.
 
 The Levels page shows these conditions, with the area of an inside test drawn on the level.
+
+**Checked in the game.** `check-goals --tim2` runs the goal routine in the emulator next to `runTim2Goal`, as
+`check-goals` does for TIM 1's routines: TIM2.EXE laid out with its overlays at segment 0, each level's goal entries
+in the data segment, and made-up parts lists. The parts are the level's goal parts, a few of its other parts and up
+to three more of the goal's types, each on its own list, in the bin or on no list, in the level's order or shuffled,
+with states, places and base sizes drawn around the goal's numbers (the state limits, the area's edges and the
+screen's, one more and one less) and other numbers. It compares the answer and every word of the data segment and the
+parts. Besides the shipped levels it checks 200 made-up goals, with gaps, counts, a first word of 0 and areas off the
+screen, which reach the parts of the routine no shipped level does. A world that takes a test a way no world took
+before counts, and a goal stops when every test went both ways or after 1,000 trials.
+
+On 2026-11-13 no goal differs from the game, in all three builds:
+
+| Build                | Goals |  Trials | Differ | Every test both ways | Tests both ways |
+| -------------------- | ----: | ------: | -----: | -------------------: | --------------: |
+| TIM 2 floppy and CD  |   206 |  68,166 |      0 |                  156 |    963 of 1,032 |
+| TIM 2 demo           |     8 |   4,311 |      0 |                    5 |        37 of 41 |
+| Made-up (each build) |   200 | 176,370 |      0 |                   28 |    797 of 1,310 |
+
+A made-up goal with a first word of 0 has only that test, which goes one way, so few made-up goals take every test
+both ways. The check finds a change to `runTim2Goal`: counting a middle at x 640 as off the screen, failing a count
+that runs out after the last part, or looking past a gap in the entries each makes goals differ.
+
+**A count whose part is last on its list.** The routine starts a count by keeping the part after the entry's part,
+to go on from there when the count is reached, and it fails the goal when the list ends while it keeps one. When the
+entry's part is the last on its list there is no part after it, so running out of parts doesn't fail the goal: the
+entry is skipped, and the goal can be met with too few parts. Ten levels of the floppy and CD count parts (ELEV8,
+HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2. In the files'
+order none of the counted parts is the last of its group; whether one can end last on its list in a game depends on
+how the game orders the lists, which isn't read yet.
 
 **The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
 (the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving
@@ -595,7 +653,7 @@ write of the countdown as "the goal is met, and the run ends 10 steps later". Th
 offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid's `action` at `0x0c`, `positionX` at
 `0x1f`, and so on). All 100 goals read; the Levels page shows the routine next to the goal text.
 
-`check-goals --toons` checks the reading in the emulator as `check-goals` does TIM's: TOONS.EXE laid out with its
+`check-goals --toons` checks the reading in the emulator as it does TIM's: TOONS.EXE laid out with its
 overlays at segment 0 runs each goal routine on the CPU, and the read program runs over the same made-up parts lists
 and words, the step count 0 in half the trials. All 100 goals leave the same words in the data segment and in the far
 segment `0x340f` in 1,000 trials each. The parts lists come from the list head routine the finder calls (`0xc36a`):
