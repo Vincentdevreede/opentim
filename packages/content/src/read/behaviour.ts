@@ -132,6 +132,8 @@ export interface RoutineOutcome extends Finding {
   fields: FieldWrite[];
   /** The globals the path leaves, for a caller to compose. */
   globals?: FieldWrite[];
+  /** Something on the path may have changed any global, so a caller forgets the globals it knew before the call. */
+  forgetsGlobals?: true;
   returnValue: Expression;
   returnConfidence?: Confidence;
   returnPointer?: { object: string; displacement: number };
@@ -1004,6 +1006,11 @@ const clone = (s: AbstractState): AbstractState => ({
   findFirst: s.findFirst && new Set(s.findFirst),
   ownerMayBeListed: s.ownerMayBeListed && new Set(s.ownerMayBeListed),
 });
+/** Forgets every global the path knew, after something at `address` may have changed any of them. */
+function forgetGlobals(s: AbstractState, address: number) {
+  for (const key of s.memory.keys()) if (key.startsWith("data:")) s.memory.delete(key);
+  s.globalHavocAt = address;
+}
 const wordOfByte: Record<string, string> = {
   al: "ax",
   ah: "ax",
@@ -1850,7 +1857,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (expression.kind === "field") {
       if (expression.object.startsWith("address of ")) {
         const pointer = formalObject(expression.object.slice("address of ".length), args, base, s, ownerOffset);
-        return tracked(asExpression(pointer.value), pointer.evidence);
+        // The caller's pointer stays one, so a store through a copy of it, like one kept in a global, reaches its object.
+        return pointer.value.kind === "pointer" ? pointer : tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
       // Whether a helper's allocation found room, like the wall split's copy: only the run knows, so it is named.
@@ -3149,6 +3157,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       condition,
       fields: updates,
       ...(globals.length ? { globals } : {}),
+      ...(s.globalHavocAt !== undefined ? { forgetsGlobals: true as const } : {}),
       returnValue: asExpression(returned.value),
       ...(returned.value.kind === "pointer"
         ? { returnPointer: { object: returned.value.object, displacement: returned.value.displacement } }
@@ -4724,6 +4733,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           branch.conditions.push(condition);
           branch.assumptions = [...new Set([...branch.assumptions, ...outcome.assumptions])];
           branch.evidence.push(evidenceOf(i), ...outcome.evidence);
+          if (outcome.forgetsGlobals) forgetGlobals(branch, i.address);
           for (const item of mapped) {
             const global = item.effect.object === "data";
             branch.registers.set("__summary_owner", item.pointer);
@@ -4907,10 +4917,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       // A helper's stores to globals or through another pointer, like a local whose address the caller passed or an
       // object the part points to, may have been made: what they reach is no longer known.
       if (summary && !summary.uncertainEffects) {
+        if (summary.outcomes?.some((outcome) => outcome.forgetsGlobals)) forgetGlobals(s, i.address);
         const base = summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset;
         for (const effect of summary.writes) {
-          // Storage the helper allocated is new: nothing the caller knew can be in it.
-          if (["part", "stack"].includes(effect.object) || FRESH_OBJECT.test(effect.object)) continue;
+          // Storage the helper allocated is new: nothing the caller knew can be in it. The part's fields are composed
+          // above when the caller passes its own part; any other first argument is reached like any other pointer.
+          if (effect.object === "stack" || (effect.object === "part" && passesPart) || FRESH_OBJECT.test(effect.object))
+            continue;
           const global = effect.object === "data";
           const pointer = global
             ? tracked(constant(0))
