@@ -119,7 +119,9 @@ const level = computed(() => current.value?.level);
 /** Where the loaded program's loader puts the header's numbers, for a build the loader was checked on. */
 const loadedHeader = computed(() => (program.value ? LOADED_HEADERS.get(program.value.sha256) : undefined));
 
-const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
+const loadedParts = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value),
+);
 const list = computed(() => loadedParts.value?.list);
 
 /** Every puzzle's goal, read from the program in the background after its behaviour, which names the goals. */

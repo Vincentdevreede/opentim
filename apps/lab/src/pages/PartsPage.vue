@@ -39,7 +39,9 @@ const order = ref<PartOrder>("number");
 
 const { colorsOf, choose } = usePalettes();
 
-const loaded = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
+const loaded = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value),
+);
 const list = computed(() => loaded.value?.list);
 /** The names of the parts, by type. */
 const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name])));
@@ -69,14 +71,12 @@ watch(
   },
   { immediate: true },
 );
-/** Why there is no behaviour to show, when there can't be any. */
-const noBehaviour = computed(() => {
-  const l = loaded.value;
-  if (!l || l.program) return undefined;
-  if (l.list.id === "tim2" || l.list.id === "toons")
-    return "The lab reads behaviour from the programs of TIM 1 and Even More only, so far.";
-  return l.problem ?? "The parts weren’t read from the program.";
-});
+/** Why there is no behaviour to show: only TIM 1's and Even More's are read so far. */
+const noBehaviour = computed(() =>
+  loaded.value?.list && !loaded.value.program
+    ? "The lab reads behaviour from the programs of TIM 1 and Even More only, so far."
+    : undefined,
+);
 
 /** The decoded image files, which the parts draw their frames from. */
 const sheets = computed(() => {
@@ -90,14 +90,14 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 
 const parts = computed(() => (list.value ? findParts(list.value.parts, query.value, order.value, list.value.id) : []));
 const withFrames = computed(() => list.value?.parts.filter((p) => p.frames.length).length ?? 0);
-/** The file the parts were read from, when they were read from the loaded files and compared with our list. */
+/** The file the parts were read from. */
 const readFrom = computed(() => {
-  const l = loaded.value;
-  if (!l || l.source === "committed") return undefined;
-  return l.source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
+  const source = loaded.value?.source;
+  if (!source) return undefined;
+  return source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
 });
-/** The numbers of the parts that aren't the same as in our list. */
-const differs = computed(() => new Set(loaded.value?.differs ?? []));
+/** The numbers of the parts OpenTIM has no id for yet. */
+const unknown = computed(() => new Set(loaded.value?.unknown ?? []));
 const currentPart = computed(
   () => list.value?.parts.find((p) => p.id === selectedPart.value) ?? parts.value[0] ?? list.value?.parts[0],
 );
@@ -146,13 +146,11 @@ onBeforeUnmount(() => (crumb.value = []));
       <span class="font-mono text-ink">{{ list.parts.length }}</span> parts ·
       <span class="font-mono text-ink">{{ withFrames }}</span> with frames
       <template v-if="readFrom">
-        · read from <span class="font-mono text-ink">{{ readFrom }}</span> ·
-        <template v-if="differs.size">
-          <span class="font-mono text-ink">{{ differs.size }}</span> differ from our list</template
+        · read from <span class="font-mono text-ink">{{ readFrom }}</span>
+        <template v-if="unknown.size">
+          · <span class="font-mono text-ink">{{ unknown.size }}</span> without an id in OpenTIM</template
         >
-        <template v-else>the same as our list</template>
       </template>
-      <template v-else-if="loaded?.problem"> · from our list: {{ loaded.problem }}</template>
     </template>
   </PageHeader>
 
@@ -190,10 +188,10 @@ onBeforeUnmount(() => (crumb.value = []));
               }}</span>
               <LabTag class="absolute top-1 left-1">{{ p.type }}</LabTag>
               <LabDot
-                v-if="differs.has(p.type)"
+                v-if="unknown.has(p.type)"
                 status="partial"
                 class="absolute top-1.5 right-1.5"
-                :title="['Not the same as in our list.', whyNoFrames(list.id, p)].filter(Boolean).join(' ')"
+                :title="['OpenTIM has no id for this part yet.', whyNoFrames(list.id, p)].filter(Boolean).join(' ')"
               />
               <LabDot
                 v-else-if="!p.frames.length"
@@ -217,7 +215,7 @@ onBeforeUnmount(() => (crumb.value = []));
     <PartDetail
       :part="currentPart"
       :sheet-sprites="sheets"
-      :record="loaded?.records.get(currentPart.type)"
+      :record="loaded?.records?.get(currentPart.type)"
       :behaviour="behaviour"
       :walks="walks"
       :no-behaviour="noBehaviour"
@@ -230,10 +228,11 @@ onBeforeUnmount(() => (crumb.value = []));
     />
   </div>
 
+  <LabEmpty v-else-if="loaded?.problem" icon="parts" title="The parts couldn’t be read" :text="loaded.problem" />
   <LabEmpty
     v-else
     icon="parts"
     title="No parts list for these files"
-    text="The lab has parts lists for TIM 1, Even More and TIM 2, but couldn’t match these files to one of them."
+    text="The lab reads the parts of TIM 1, Even More, TIM 2 and Toons, but couldn’t match these files to one of them."
   />
 </template>

@@ -166,7 +166,9 @@ const shownStart = computed({
 });
 const bytes = computed(() => current.value?.data ?? new Uint8Array());
 /** Part names for the markers of a level, from the loaded part list. */
-const partList = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value)?.list);
+const partList = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value)?.list,
+);
 /** A level file or scene, read as the Levels page reads it, for the link to that page. */
 const levelEntry = computed(() =>
   current.value && (current.value.group === "level" || current.value.group === "scene")
