@@ -112,8 +112,15 @@ if (isMainThread) {
       }
       const own = ranked(build);
       const differ = build.puzzles.filter((p) => reference.get(p.puzzle) !== own.get(p.puzzle));
+      const lacks = first.puzzles.filter((p) => !own.has(p.puzzle));
+      const notes = [
+        ...(differ.length
+          ? [`read differently from ${first.folder} in puzzles ${differ.map((p) => p.puzzle).join(", ")}`]
+          : []),
+        ...(lacks.length ? [`no goal for puzzles ${lacks.map((p) => p.puzzle).join(", ")}`] : []),
+      ];
       console.log(
-        `${build.folder}: ${build.puzzles.length} goals; ${differ.length ? `read differently from ${first.folder} in puzzles ${differ.map((p) => p.puzzle).join(", ")}` : `each reads as in ${first.folder}`}`,
+        `${build.folder}: ${build.puzzles.length} goals; ${notes.join("; ") || `each reads as in ${first.folder}`}`,
       );
     }
     if (values.out) {

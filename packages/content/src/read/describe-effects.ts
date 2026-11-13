@@ -1481,7 +1481,8 @@ export function effectsFromOthers(
       }
       const tests = testsOf(kept);
       if (!tests || impossible(tests)) continue;
-      const key = JSON.stringify([c.routine, settings.sets, c.returns ?? null]);
+      // Two types that share a bounce each get their own line, which names them.
+      const key = JSON.stringify([c.sourceType, c.routine, settings.sets, c.returns ?? null]);
       const group = groups.get(key) ?? [];
       groups.set(key, group);
       group.push({
@@ -1798,7 +1799,9 @@ export function effectsFromOthers(
       if (c.onlyType !== undefined && c.onlyType !== part.type) continue;
       const used = { table: false };
       const conditionTerms: Predicate[] = [],
-        words: string[] = [];
+        words: string[] = [],
+        // The list flag's words, like "on the moving list": the only ones a sentence says with "it is" in front.
+        onListWords = new Set<string>();
       let possible = true,
         decided = true,
         byList = false,
@@ -1848,6 +1851,7 @@ export function effectsFromOthers(
         conditionTerms.push(own);
         // A flag the search needs clear says its name, like "its out-of-play flag 0x2000 is clear".
         const cleared = clearNames.get(term);
+        if (flag) onListWords.add(flag);
         words.push(
           flag ??
             (cleared
@@ -1895,13 +1899,29 @@ export function effectsFromOthers(
       const searchedSaid = c.searched.length
         ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
         : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*(its|the game) /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
-      // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
-      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (onListWords.has(w) ? `it is ${w}` : w)).join(" and ")}.` : ""}${searchedSaid}`;
+      // Outcomes join only when their source and its tests match too, so a line never drops another outcome's source
+      // or source test.
+      const key = JSON.stringify([c.sourceType, c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
+      // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
+      const confidence: Confidence = c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence;
+      const lineAssumptions = [
+        ...c.outcome.assumptions,
+        ...c.writes.flatMap((w) => w.assumptions),
+        ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
+        ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
+        ...proofs,
+        ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
+        ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
+        "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
+      ];
+      // Paths that make the same line join: the weaker confidence, and every path's assumptions and evidence.
       if (prior) {
         prior.evidence = uniqueEvidence([...prior.evidence, ...evidence]);
+        if (confidence === "inferred" && prior.confidence === "checked") prior.confidence = confidence;
+        prior.assumptions = [...new Set([...prior.assumptions, ...lineAssumptions])];
         continue;
       }
       effects.set(key, {
@@ -1921,20 +1941,8 @@ export function effectsFromOthers(
         ...(c.place.length ? { place: c.place } : {}),
         ...(c.searched.length ? { searched: c.searched } : {}),
         description,
-        // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
-        confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
-        assumptions: [
-          ...new Set([
-            ...c.outcome.assumptions,
-            ...c.writes.flatMap((w) => w.assumptions),
-            ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
-            ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
-            ...proofs,
-            ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
-            ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
-            "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
-          ]),
-        ],
+        confidence,
+        assumptions: [...new Set(lineAssumptions)],
         evidence,
       });
     }
