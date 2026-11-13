@@ -155,6 +155,9 @@ ways share and then "one of: …". A condition with `once` says the tests held a
 with `never` at no step, with `steps` at how many steps, and `ago` says the last step they held at. `via` says the
 condition is about the part a field of the n-th part holds.
 
+`toonsListOrder` (`toons-goals.ts`) puts a Toons level's list in TOONS.EXE's order, so the Lab can say which level part
+"the 1st al-e-cat on the moving list" is; `readToonsListKinds` reads the type table's word it sorts by.
+
 ## Level files
 
 - `level.ts`: `readLevel(data, { layout, name })` reads TIM 1, Even More and Toons `.LEV`/`.GKC` files. Puzzle or

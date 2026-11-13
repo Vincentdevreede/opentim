@@ -27,6 +27,8 @@ const props = defineProps<{
   stepMilliseconds?: number;
   /** How many parts of each type the level has, bin included, to note an n-th part it doesn't have. */
   typeCounts?: ReadonlyMap<number, number>;
+  /** For a condition on the n-th part of a type, the level part it is, by the game's order of its lists. */
+  partNumbers?: ReadonlyMap<GoalCondition, number>;
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
@@ -99,7 +101,8 @@ const typeNumbers = (c: GoalCondition) => c.types?.map((t) => t.type) ?? goalTyp
 /** A condition's parts in words: the types, or any part, and the part a field of it holds. */
 const typesOf = (c: GoalCondition) => {
   const types = c.types?.length ? c.types.map((t) => t.name).join(", ") : "any part";
-  const own = types + (c.part === undefined ? "" : ` #${c.part}`);
+  const part = c.part ?? props.partNumbers?.get(c);
+  const own = types + (part === undefined ? "" : ` #${part}`);
   return c.via ? `${c.via.kept ? "kept " : ""}${c.via.name} of ${own}` : own;
 };
 /** "1st", "2nd", "3rd", "4th": which part of its type a condition is about. */

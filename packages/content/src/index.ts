@@ -202,4 +202,10 @@ export {
 } from "./read/goal-conditions.ts";
 export { TIM2_STEP_MS } from "./read/tim2.ts";
 export { readToonsDrawing, readToonsMemory, type ToonsDrawing, type ToonsMemory } from "./read/toons-drawing.ts";
-export { findToonsGoalTable, readToonsGoals, type ToonsGoalTable } from "./read/toons-goals.ts";
+export {
+  findToonsGoalTable,
+  readToonsGoals,
+  readToonsListKinds,
+  toonsListOrder,
+  type ToonsGoalTable,
+} from "./read/toons-goals.ts";

@@ -22,7 +22,8 @@ import {
   type GoalValue,
 } from "./puzzle-goals.ts";
 import { readToonsMemory, type ToonsMemory } from "./toons-drawing.ts";
-import { readToonsActions } from "./toons.ts";
+import type { Level } from "./level.ts";
+import { findToonsTypeTable, loadImage, readToonsActions, TOONS_RECORD_SIZE } from "./toons.ts";
 
 const ANY = -1;
 const u16 = (data: Uint8Array, at: number) => data[at]! | (data[at + 1]! << 8);
@@ -306,4 +307,66 @@ export function readToonsGoals(
       };
     }),
   };
+}
+
+/** Types TOONS.EXE puts on a list before the other parts of their kind, whatever their place: the rope and type 76. */
+const FIRST_OF_THEIR_KIND = [14, 76];
+/** Where the type record keeps the word a parts list is sorted by. */
+const LIST_KIND = 0x02;
+
+/**
+ * The word of each type's record a parts list is sorted by (TIM 1 keeps the mass there): most fixed types have one of
+ * their own from 1000 up, and the moving ones their mass. Empty when the type table isn't found.
+ */
+export function readToonsListKinds(exe: Uint8Array): Map<number, number> {
+  try {
+    const image = loadImage(exe);
+    const { start, count } = findToonsTypeTable(image);
+    const kinds = new Map<number, number>();
+    for (let type = 0; type < count; type++) {
+      const at = start + type * TOONS_RECORD_SIZE + LIST_KIND;
+      const word = image[at]! | (image[at + 1]! << 8);
+      kinds.set(type, word >= 0x8000 ? word - 0x10000 : word);
+    }
+    return kinds;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * A Toons level's list in the order TOONS.EXE keeps it, as level part indices, so a goal's "the 1st al-e-cat on the
+ * moving list" is a part of the level. The level loader (file offset `0x2507c`) reads the parts of each list in file
+ * order and puts each on its list with one routine (`0xbcd1`), which the game also uses when the player puts a part
+ * back. That routine keeps the list sorted by the type record's word at 0x02 (`kinds`), lowest first, and goes along
+ * the parts of the same word until one starts higher up (its `savedPositionY` smaller), or at the same height further
+ * left; the new part goes before that one. A rope or a part of type 76 goes before the first part of its word, and
+ * so does a part right after one of those. The places are the file's: a part the player moves goes where its new
+ * place puts it. Empty for a list the file doesn't have.
+ */
+export function toonsListOrder(level: Level, lists: string, kinds: ReadonlyMap<number, number>): number[] {
+  const group = lists === "the fixed list" ? "static" : lists === "the moving list" ? "moving" : undefined;
+  if (!group) return [];
+  const list: Level["parts"] = [];
+  for (const part of level.parts.filter((p) => p.group === group)) {
+    const kind = kinds.get(part.type) ?? 0;
+    // The list's head is a part record of its own whose type is 0.
+    let before = 0;
+    let k = 0;
+    for (; k < list.length; k++) {
+      const at = list[k]!;
+      const own = kinds.get(at.type) ?? 0;
+      const goesBefore =
+        kind === own
+          ? FIRST_OF_THEIR_KIND.includes(before) ||
+            FIRST_OF_THEIR_KIND.includes(part.type) ||
+            at.position.y < part.position.y ||
+            (at.position.y === part.position.y && at.position.x < part.position.x)
+          : kind < own;
+      if (goesBefore) break;
+      before = at.type;
+    }
+    list.splice(k, 0, part);
+  }
+  return list.map((p) => p.index);
 }

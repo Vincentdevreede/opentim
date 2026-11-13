@@ -21,6 +21,8 @@ const props = defineProps<{
   goalAreas?: readonly { number: number; box: { x: number; y: number; width: number; height: number } }[];
   /** The types of the parts the goal looks at, which get a ring. */
   goalTypes?: ReadonlySet<number>;
+  /** Parts the goal looks at by number, like a Toons goal's 1st al-e-cat, which get a ring too. */
+  goalParts?: ReadonlySet<number>;
 }>();
 const emit = defineEmits<{ select: [index: number | undefined] }>();
 
@@ -147,7 +149,8 @@ watchEffect(() => {
 
   // The goal over the parts: the parts it looks at ringed, and the places it tests as numbered areas.
   for (const d of scene.parts) {
-    if (!props.goalTypes?.has(d.part.type) || !d.box.width || !d.box.height) continue;
+    const looked = props.goalTypes?.has(d.part.type) || props.goalParts?.has(d.part.index);
+    if (!looked || !d.box.width || !d.box.height) continue;
     context.save();
     context.strokeStyle = colors.goal;
     context.lineWidth = 2 * px;

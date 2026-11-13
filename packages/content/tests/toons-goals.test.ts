@@ -11,7 +11,8 @@ import {
   type GoalValue,
 } from "../src/read/puzzle-goals.ts";
 import type { ToonsMemory } from "../src/read/toons-drawing.ts";
-import { findToonsGoalTable } from "../src/read/toons-goals.ts";
+import type { Level } from "../src/read/level.ts";
+import { findToonsGoalTable, toonsListOrder } from "../src/read/toons-goals.ts";
 
 const hex = (text: string) => Uint8Array.from(text.match(/../g)!.map((b) => parseInt(b, 16)));
 function image(size: number, pieces: [number, string][]) {
@@ -526,5 +527,44 @@ describe("summariseGoal for Toons", () => {
     expect(s.ways[0]!.map(conditionText)).toEqual(
       ["1st", "2nd", "3rd"].map((n) => `the ${n} balloon on the moving list: one of: positionX < 0 or positionX > 640`),
     );
+  });
+});
+
+describe("toonsListOrder", () => {
+  // Kinds as the type table gives them: Al 2000, the anvil 2000, Sid 1800, the rope 1005, the eye-hook 1006.
+  const kinds = new Map([
+    [36, 2000],
+    [61, 2000],
+    [37, 1800],
+    [14, 1005],
+    [15, 1006],
+  ]);
+  const level = (parts: [type: number, x: number, y: number][]) =>
+    ({
+      parts: parts.map(([type, x, y], index) => ({ index, group: "moving", type, position: { x, y } })),
+    }) as unknown as Level;
+
+  it("sorts a list by kind, and parts of one kind lower first, then further right, then in file order", () => {
+    const l = level([
+      [36, 10, 100],
+      [37, 50, 50],
+      [61, 10, 300],
+      [36, 90, 100],
+      [36, 90, 100],
+    ]);
+    expect(toonsListOrder(l, "the moving list", kinds)).toEqual([1, 2, 3, 4, 0]);
+    expect(toonsListOrder(l, "the fixed list", kinds)).toEqual([]);
+  });
+
+  it("puts a rope before the others of its kind, and a part right after one before the others of its own", () => {
+    const l = level([
+      [14, 0, 0],
+      [14, 0, 50],
+      [15, 0, 50],
+      [15, 0, 0],
+      [15, 0, 90],
+    ]);
+    // The eye-hooks after the ropes: each new one goes first, whatever its place.
+    expect(toonsListOrder(l, "the moving list", kinds)).toEqual([1, 0, 4, 3, 2]);
   });
 });

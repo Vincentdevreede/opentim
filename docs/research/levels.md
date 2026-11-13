@@ -515,7 +515,21 @@ by `list-goals` and `check-goals` on six builds):
 routine at `0x3b4a`), and follows each part's next word, counting the parts of the type. It gives the n-th one, or 0
 when the list ends before it. So a goal that looks for more parts than the level has keeps 0 for the others and then
 reads the data segment's own words at the field offsets: LOON18 looks for 6 fish and the level has 4. The Lab marks
-such a condition "not in this level". Which part of the level is the 1st on the list isn't read yet.
+such a condition "not in this level".
+
+**Which part is the 1st.** The lists are sorted, not in file order. The level loader (`0x250ca`) reads how many parts
+each list has and calls one routine per list (`0x2507c`), which reads the parts in file order and puts each on the
+list with the insertion routine (`0xbcd1`); the game uses the same routine when a part goes back on a list. It keeps a
+list sorted by the type record's word at 0x02 (where TIM 1 keeps the mass: the balloon has 1, Al 2000, Sid 1800, most
+fixed types a number of their own from 1000 up), lowest first. Among parts with the same word, a new part goes before
+the first one that starts higher up (`savedPositionY` smaller) or at the same height further left (`savedPositionX`
+smaller), so lower parts come first, then the ones further right, and a part at the same place as an earlier one after
+it. A rope or a part of type 76 goes before the first part with its word, and so does a part right after one of those
+(the eye-hooks after the ropes). The third list is sorted by the record's word at 0x2a instead. `toonsListOrder`
+follows this, and the emulator agrees: the insertion routine run on the CPU with made-up parts builds the same lists
+in 3,000 trials. So the Lab can say which level part a condition is about: in LOON1 the 1st al-e-cat is the lowest
+one, #60. It numbers the part in the condition ("al-e-cat #60") and rings it on the drawing, where TIM 1's goals ring
+every part of a type they look at. The places are the file's: for a part in the bin, where the player puts it decides.
 
 **As conditions.** All 100 goals show as conditions on the Levels page, said in game terms:
 
@@ -551,7 +565,8 @@ such a condition "not in this level". Which part of the level is the 1st on the 
   list with a rope at its first place, and is met when it is out of play. When the first part on the moving list isn't
   a balloon (n = 0 gives that part only when it is of the type) or no balloon has a rope, the goal keeps 0, and reading
   through 0 finds the data segment's first words: Borland's copyright text, whose drawing flags word has bit 0x2000. The
-  goal is then met at once, which the conditions say as two more ways.
+  goal is then met at once, which the conditions say as two more ways. In LOON7 both balloons come first on the moving
+  list and the top one has the rope.
 - Al's and Sid's action is named by its sheet ("action = 50 (CATFISH)"), and a state by its frame in the sheet of the
   action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is a frame number counted over the
   sheets is inferred from the action table (each action's first frame and frame count), not seen in the goal code.
@@ -563,4 +578,9 @@ A Toons part's record is 0xb3 bytes: the level reader and two other places alloc
 
 ### Toons: still open
 
+- **The goal's parts during a run.** The goals find their parts in the first step of a run, from the lists as they
+  are then. Whether anything in a run takes a part off a list and puts it back (which would sort it again by where it
+  is then) isn't read; the Lab says the order of the parts where the file puts them.
+- **LOON7's balloon** is ringed with every balloon: which balloon has a rope at its first place is in the level (the
+  ropes' records), but the Lab doesn't work it out for the condition yet.
 - **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.
