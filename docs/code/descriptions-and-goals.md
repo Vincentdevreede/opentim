@@ -212,7 +212,7 @@ Node only and not exported from the package; the scripts import it by path. See
 - `goal-check.ts`: `checkGoals`, the random-world comparison of the goal reader with the game.
 - `toons-goal-check.ts`: `checkToonsGoals`, the same for Toons, with TOONS.EXE's memory loaded straight into a `Cpu`
   (no DOS), parts of 0xb3 bytes, and the far segment compared too; `toonsLists` reads the parts lists from the list
-  head routine. Run by `check-toons-goals`.
+  head routine. Run by `check-goals --toons`.
 
 ## The package's exports
 

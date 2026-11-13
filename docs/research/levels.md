@@ -595,7 +595,7 @@ write of the countdown as "the goal is met, and the run ends 10 steps later". Th
 offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid's `action` at `0x0c`, `positionX` at
 `0x1f`, and so on). All 100 goals read; the Levels page shows the routine next to the goal text.
 
-`check-toons-goals` checks the reading in the emulator as `check-goals` does TIM's: TOONS.EXE laid out with its
+`check-goals --toons` checks the reading in the emulator as `check-goals` does TIM's: TOONS.EXE laid out with its
 overlays at segment 0 runs each goal routine on the CPU, and the read program runs over the same made-up parts lists
 and words, the step count 0 in half the trials. All 100 goals leave the same words in the data segment and in the far
 segment `0x340f` in 1,000 trials each. The parts lists come from the list head routine the finder calls (`0xc36a`):
