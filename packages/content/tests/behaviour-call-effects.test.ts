@@ -64,12 +64,17 @@ describe("effects of a called routine", () => {
     expect(routine.transitions.map((t) => [t.to.kind, t.confidence])).toEqual([["unknown", "unresolved"]]);
   });
 
-  it("stores through the part's address that the helper left in a global", () => {
-    // The helper keeps its part's address in the global at 0x300.
-    const helper = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 4, 0x89, 0x36, 0, 3, 0x5e, 0x5d, 0xc3];
-    // The caller passes the part, reads the global back into BX and sets the state to 3 through it.
+  it.each([
+    // mov [0x300], si
+    ["the part's address", [0x89, 0x36, 0, 3], 0x0c],
+    // lea ax, [si+0x20]; mov [0x300], ax
+    ["an address 0x20 into the part", [0x8d, 0x44, 0x20, 0xa3, 0, 3], 0xec],
+  ])("stores through %s that the helper left in a global", (_, keep, displacement) => {
+    // The helper keeps the address in the global at 0x300.
+    const helper = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 4, ...keep, 0x5e, 0x5d, 0xc3];
+    // The caller passes the part, reads the global back into BX and sets the state (0x0c) to 3 through it.
     const caller = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6, 0x56];
-    caller.push(...call(caller.length, 0x80), 0x59, 0x8b, 0x1e, 0, 3, 0xc7, 0x47, 0x0c, 3, 0, 0x5e, 0x5d, 0xcb);
+    caller.push(...call(caller.length, 0x80), 0x59, 0x8b, 0x1e, 0, 3, 0xc7, 0x47, displacement, 3, 0, 0x5e, 0x5d, 0xcb);
     const routine = callerWith(caller, helper);
     expect(routine.transitions.map((t) => t.to)).toEqual([{ kind: "constant", value: 3, width: 16 }]);
   });
@@ -109,6 +114,7 @@ describe("effects of a called routine", () => {
     const routine = callerWith(caller, helper, new Map([[0x60, service]]));
     const updates = routine.transitions.map((t) => t.updates?.find((u) => u.object === "part" && u.offset === 0x20));
     expect(updates).toHaveLength(1);
+    expect(updates[0]).toBeDefined();
     expect(updates[0]?.value).not.toEqual({ kind: "constant", value: 1, width: 16 });
   });
 

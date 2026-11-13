@@ -1895,6 +1895,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (expression.kind === "binary") {
       const left = formalValue(expression.left, args, base, s, ownerOffset, budget);
       const right = formalValue(expression.right, args, base, s, ownerOffset, budget);
+      // A pointer moved by a constant stays a pointer, so a store through it, like `[pointer-0x14]`, reaches its object.
+      if (
+        left.value.kind === "pointer" &&
+        right.value.kind === "constant" &&
+        (expression.operator === "+" || expression.operator === "-")
+      )
+        return tracked(
+          {
+            ...left.value,
+            displacement:
+              left.value.displacement + (expression.operator === "+" ? right.value.value : -right.value.value),
+          },
+          uniqueEvidence([...left.evidence, ...right.evidence]),
+        );
       return tracked(
         binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width, budget),
         uniqueEvidence([...left.evidence, ...right.evidence]),
