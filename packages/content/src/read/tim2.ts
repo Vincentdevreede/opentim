@@ -130,14 +130,19 @@ export function readAnimation(anm: Uint8Array): Animation {
     sequence: word(at + i * 4 + 2),
   }));
   const commands = at + sequenceCount * 4;
-  if (commands + size > data.length) throw new Error(`The commands end past the animation, at byte ${commands + size}`);
+  const end = commands + size;
+  if (end > data.length) throw new Error(`The commands end past the animation, at byte ${end}`);
+  // Every command of a frame, its closing 0 too, lies in the commands the header gives the size of.
+  const past = (c: number) => new Error(`A frame's commands run past the commands' end, at byte ${c}`);
   const frames = boxes.map(({ start, ...box }): AnimationFrame => {
     const list: AnimationCommand[] = [];
     for (let c = commands + start * 2; ;) {
+      if (c + 2 > end) throw past(c);
       const command = word(c);
       if (command === 0) break;
       const length = COMMAND_WORDS[command];
       if (!length) throw new Error(`Unknown command ${command} at byte ${c}`);
+      if (c + length * 2 > end) throw past(c);
       const w = (n: number) => signed(c + n * 2);
       if (command === 2) list.push({ kind: "sprite", sheet: w(1), sprite: w(2), x: w(3), y: w(4), flags: w(5) });
       else if (command === 3)

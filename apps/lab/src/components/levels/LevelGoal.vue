@@ -134,7 +134,7 @@ const countOf = (c: GoalCondition) => {
                 ><span class="font-sans">where</span> {{ say(c.where.join(", "), typeNumbers(c)) }}</span
               >
               <span v-if="c.kind === 'count'" class="font-mono text-meta text-soft">{{ countOf(c) }}</span>
-              <span v-else-if="c.tests.length" class="font-mono text-meta break-words text-soft">{{
+              <span v-if="c.tests.length" class="font-mono text-meta break-words text-soft">{{
                 say(c.tests.join(" · "), typeNumbers(c))
               }}</span>
             </span>

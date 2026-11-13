@@ -20,7 +20,16 @@ import LevelStructure from "../components/levels/LevelStructure.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
-import { LAYOUT_NAMES, MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
+import {
+  LAYOUT_NAMES,
+  MARGIN,
+  PLAY_AREA,
+  goalPartsOf,
+  layoutOf,
+  layoutScene,
+  readLevels,
+  type LevelEntry,
+} from "../levels.ts";
 import {
   LOADED_HEADERS,
   hasWallLimits,
@@ -184,9 +193,10 @@ const goalAreas = computed(() => {
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
-    // position is in range, from a part of the same type in the level. Without one it is the range of positions.
-    const types = new Set(c.types?.map((t) => t.type));
-    const like = s.parts.find((d) => (!types.size || types.has(d.part.type)) && d.box.width && d.box.height);
+    // position is in range, from the part the condition names or one of the same type in the level. Without one it is
+    // the range of positions.
+    const looked = c.part !== undefined || c.types?.length ? goalPartsOf(c, s.parts) : s.parts;
+    const like = looked.find((d) => d.box.width && d.box.height);
     const at = like
       ? {
           x: like.box.x - like.part.position.x,
@@ -209,11 +219,12 @@ const goalAreas = computed(() => {
   return out;
 });
 const areaNumbers = computed(() => new Map(goalAreas.value.map((a) => [a.condition, a.number])));
-/** The types of the parts the goal's conditions look at. */
-const goalTypes = computed(() => {
+/** The parts the goal's conditions look at, by their index in the level. */
+const goalParts = computed(() => {
   const g = goal.value;
-  if (g?.status !== "done") return new Set<number>();
-  return new Set(g.goal.summary.ways.flat().flatMap((c) => c.types?.map((t) => t.type) ?? []));
+  const s = scene.value;
+  if (g?.status !== "done" || !s) return new Set<number>();
+  return new Set(g.goal.summary.ways.flat().flatMap((c) => goalPartsOf(c, s.parts).map((d) => d.part.index)));
 });
 
 /** The decoded sprites of each sheet, as the Sprites page reads them. */
@@ -394,7 +405,7 @@ onBeforeUnmount(() => {
                 :bounds="showBounds"
                 :selected="selectedPart"
                 :goal-areas="showGoal ? goalAreas : undefined"
-                :goal-types="showGoal ? goalTypes : undefined"
+                :goal-parts="showGoal ? goalParts : undefined"
                 @select="selectedPart = $event"
               />
             </div>
