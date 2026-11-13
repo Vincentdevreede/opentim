@@ -5,27 +5,33 @@
  * - TIM 1 and Even More: the goal routines of TIM.EXE (`src/read/puzzle-goals.ts`), each checked against the routine
  *   itself (`src/run/goal-check.ts`). The parts lists come from the analysis: the lists the list head routine picks by
  *   each bit of its mask.
+ * - TIM 2: the goal entries each level file keeps (`level.tim2.goal`), tested by one routine of TIM2.EXE for every
+ *   puzzle. `runTim2Goal` (`src/read/tim2-goal.ts`) says what the entries mean; `src/run/tim2-goal-check.ts` checks it
+ *   against the routine on made-up parts, for each shipped level and for made-up goals.
  * - Toons: the goal routines of TOONS.EXE (`src/read/toons-goals.ts`), checked the same way
  *   (`src/run/toons-goal-check.ts`), with the parts lists the list head routine the finder calls picks.
  *
  * Fails when a game's goals aren't found, a goal can't be read, or a read goal does something other than the game.
  *
- *   pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> --toons <game folder>
- *     [--trials n]
+ *   pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder>
+ *     --toons <game folder> [--trials n]
  *
  * Each game has its own number of trials per puzzle unless `--trials` gives one: 3,000 for TIM 1 and Even More, 1,000
- * for Toons.
+ * for TIM 2 and Toons.
  */
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { globalLists } from "../src/read/behaviour-list-masks.ts";
 import { readBehaviour } from "../src/read/behaviour.ts";
+import { readLevel } from "../src/read/level.ts";
 import { findGoalTable, readGoalRoutines, type GoalProblem, type GoalRoutine } from "../src/read/puzzle-goals.ts";
 import { readToonsMemory } from "../src/read/toons-drawing.ts";
 import { findToonsGoalTable, toonsFinder } from "../src/read/toons-goals.ts";
+import { findTim2GoalRoutine } from "../src/read/tim2-goal.ts";
 import { findDataSegment } from "../src/read/type-table.ts";
 import { checkGoals, type GoalCheckResult } from "../src/run/goal-check.ts";
 import { readLzexeProgram } from "../src/run/program.ts";
+import { checkTim2Goals, madeUpTim2Goals, type Tim2GoalToCheck } from "../src/run/tim2-goal-check.ts";
 import { checkToonsGoals, toonsLists } from "../src/run/toons-goal-check.ts";
 import {
   buildFolders,
@@ -52,12 +58,12 @@ interface BuildCheck {
 }
 
 /** A check's results as every game prints them, after the build's first line. */
-function report(check: BuildCheck, results: readonly (GoalCheckResult & { name?: string })[]) {
+function report(check: BuildCheck, results: readonly (GoalCheckResult & { name?: string })[], what = "goals") {
   const log = (text: string) => check.lines.push({ error: false, text });
   const sum = (pick: (r: (typeof results)[number]) => number) => results.reduce((total, r) => total + pick(r), 0);
   const differ = results.filter((r) => r.differ);
   log(
-    `  Checked ${results.length} goals in ${sum((r) => r.trials)} trials: ${differ.length} differ from the game; ` +
+    `  Checked ${results.length} ${what} in ${sum((r) => r.trials)} trials: ${differ.length} differ from the game; ` +
       `${results.filter((r) => r.bothWays === r.tests).length} took every test both ways ` +
       `(${sum((r) => r.bothWays)} of ${sum((r) => r.tests)} tests in all).`,
   );
@@ -157,10 +163,71 @@ function checkToons(build: BuildFolder<"toons">, trials: number): BuildCheck {
   return check;
 }
 
+/** How many made-up TIM 2 goals the check tries besides the shipped ones. */
+const MADE_UP_TIM2_GOALS = 200;
+
+/** TIM 2: the goal entries of each level, all tested by one routine of TIM2.EXE. */
+function checkTim2(build: BuildFolder<"tim2">, trials: number): BuildCheck {
+  const check: BuildCheck = { lines: [], problems: 0 };
+  const log = (text: string) => check.lines.push({ error: false, text });
+  const error = (text: string) => check.lines.push({ error: true, text });
+  const tim2 = readToonsMemory(readProgram(build));
+  const routine = findTim2GoalRoutine(tim2);
+  if (!routine) {
+    error(`${build.folder}: no goal routine found`);
+    return { ...check, problems: 1 };
+  }
+  const files = readResources(build.folder);
+  const names = [...files.keys()].filter((name) => /\.LEV$/i.test(name)).sort();
+  const goals: Tim2GoalToCheck[] = [];
+  const unread: string[] = [];
+  names.forEach((file, puzzle) => {
+    const name = file.replace(/\.LEV$/i, "");
+    let level: ReturnType<typeof readLevel>;
+    try {
+      level = readLevel(files.get(file)!, { name: file });
+    } catch (problem) {
+      unread.push(`${name}: ${(problem as Error).message}`);
+      return;
+    }
+    const goal = level.tim2?.goal;
+    if (!goal) return unread.push(`${name}: no goal entries`);
+    if (goal.entries.some((e) => e.part !== null && !level.parts[e.part]))
+      return unread.push(`${name}: an entry points past the parts`);
+    goals.push({
+      puzzle,
+      name,
+      first: goal.first,
+      entries: goal.entries,
+      last: goal.last,
+      parts: level.parts.map((part) => ({
+        type: part.type,
+        state: part.state[0],
+        x: part.position.x,
+        y: part.position.y,
+        baseWidth: part.baseSize.width,
+        baseHeight: part.baseSize.height,
+        group: part.group === "moving" ? "moving" : "static",
+      })),
+    });
+  });
+  const file = tim2.fileOffset(routine.address);
+  log(
+    `${build.folder}: goal routine ${hex(routine.segment)}:${hex(routine.offset)} (file offset ${hex(file)}), goal ` +
+      `words ${hex(routine.first)} to ${hex(routine.last)}, checks counted in ${hex(routine.checks)}, ${names.length} ` +
+      `levels shipped, ${goals.length} goals read, ${unread.length} not`,
+  );
+  for (const problem of unread) error(`  Not read: ${problem}`);
+  check.problems += unread.length;
+  report(check, checkTim2Goals(tim2, routine, goals, { trials }));
+  report(check, checkTim2Goals(tim2, routine, madeUpTim2Goals(MADE_UP_TIM2_GOALS), { trials }), "made-up goals");
+  return check;
+}
+
 export function inBuild(build: BuildFolder<Game>, given: { trials?: number }): BuildCheck {
   const trials = given.trials ?? TRIALS[build.game];
   if (build.game === "toons") return checkToons(build as BuildFolder<"toons">, trials);
-  if (build.game === "tim2") throw new Error("TIM 2 isn't checked yet");
+  if (build.game === "tim2") return checkTim2(build as BuildFolder<"tim2">, trials);
   return checkTim(build as BuildFolder, trials);
 }
 

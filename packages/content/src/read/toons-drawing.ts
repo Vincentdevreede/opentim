@@ -23,6 +23,8 @@ export interface ToonsMemory {
   dataSegment: number;
   /** The code segments of the load image, from the segment table the overlay data points to. */
   codeSegments: number[];
+  /** The segment each overlay's code starts at in `memory`, in the order they are laid out. */
+  overlays: number[];
   /** Where a far pointer leads: a pointer into an overlay's stub leads to the overlay's routine. */
   resolve(segment: number, offset: number): { segment: number; offset: number };
   /** The offset in TOONS.EXE of an address of `memory`. */
@@ -39,6 +41,8 @@ const STUB_FLAGS = 3;
  * the program, and a stub segment for each overlay gives where its code is in the overlay data, its size and its
  * fixups. A fixup is a place in the code where a segment goes; the code keeps 8 times the segment's entry in the table
  * there. A stub's routines are `int 3Fh` and the routine's offset in the overlay, 5 bytes each from 0x20.
+ *
+ * TIM2.EXE has its overlays in the same form, so this lays it out too.
  */
 export function readToonsMemory(exe: Uint8Array): ToonsMemory {
   const image = loadImage(exe);
@@ -87,6 +91,7 @@ export function readToonsMemory(exe: Uint8Array): ToonsMemory {
     memory,
     dataSegment,
     codeSegments: codeSegments.sort((a, b) => a - b),
+    overlays: [...stubs.values()].map((stub) => stub.segment),
     resolve(segment, offset) {
       const stub = stubs.get(segment);
       const place = segment * 16 + offset;
