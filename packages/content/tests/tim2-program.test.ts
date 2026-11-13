@@ -43,6 +43,12 @@ describe("TIM2.EXE's type table", () => {
     expect(drawing.get(0)).toBe("frame");
   });
 
+  it("refuses a program cut off before its last record ends", () => {
+    const exe = program(30, () => 0x14242e7d);
+    expect(readTim2Types(exe).records).toHaveLength(30);
+    expect(() => readTim2Types(exe.slice(0, exe.length - 1))).toThrow(/Type 29's record runs past the program/);
+  });
+
   it("refuses a program that isn't TIM2.EXE", () => {
     expect(() => readTim2Types(new Uint8Array(64))).toThrow(/MZ/);
   });

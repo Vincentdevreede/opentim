@@ -318,6 +318,8 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
 - When the first word is 0 the goal is never met. It is 1 in every shipped level.
 - The goal isn't met while one of its parts is in the parts bin.
 - Every entry with a part must hold. Its words are a low and a high state, a count and an area: x, y, width, height.
+  Up to version `0x109` an entry has no high state: the loader (floppy build, file offset `0x61853`) reads the low one
+  and copies it into the high one. No shipped level is that old: they are `0x111` to `0x113`.
 - For a moving part whose area width isn't 0, the entry tests the part's middle, its position plus half its base
   size: strictly inside the area, or, when the width is -1, off the screen, outside 0 to 640 across or 0 to 400 down.
   For a static part, or a width of 0, it tests the part's state, from the low to the high one.

@@ -19,9 +19,7 @@ const props = defineProps<{
   selected?: number;
   /** The places the puzzle's goal tests, numbered as its conditions show them, in pixels of the level. */
   goalAreas?: readonly { number: number; box: { x: number; y: number; width: number; height: number } }[];
-  /** The types of the parts the goal looks at, which get a ring. */
-  goalTypes?: ReadonlySet<number>;
-  /** Parts the goal looks at by number, like a Toons goal's 1st al-e-cat, which get a ring too. */
+  /** The parts the goal looks at, by their index in the level, which get a ring. */
   goalParts?: ReadonlySet<number>;
 }>();
 const emit = defineEmits<{ select: [index: number | undefined] }>();
@@ -162,8 +160,7 @@ watchEffect(() => {
 
   // The goal over the parts: the parts it looks at ringed, and the places it tests as numbered areas.
   for (const d of scene.parts) {
-    const looked = props.goalTypes?.has(d.part.type) || props.goalParts?.has(d.part.index);
-    if (!looked || !d.box.width || !d.box.height) continue;
+    if (!props.goalParts?.has(d.part.index) || !d.box.width || !d.box.height) continue;
     context.save();
     context.strokeStyle = colors.goal;
     context.lineWidth = 2 * px;

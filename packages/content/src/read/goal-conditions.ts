@@ -2013,7 +2013,7 @@ export function conditionText(c: GoalCondition): string {
     case "last":
       return `the ${c.kind} ${types}${on}${where}${tests ? `: ${tests}` : ""}`;
     case "count":
-      return `the count of ${types}${on}${where} ${OPS[c.count!.op]} ${c.count!.value}`;
+      return `the count of ${types}${on}${where} ${OPS[c.count!.op]} ${c.count!.value}${tests ? `, ${tests}` : ""}`;
     case "word":
       return tests;
     case "part":
