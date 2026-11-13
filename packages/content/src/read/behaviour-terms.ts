@@ -138,6 +138,22 @@ export const storesToMemory = (i: Instruction) =>
 /** Whether a write of `width` bits at `offset` touches the word at `word`. */
 export const overlapsWord = (offset: number, width: number, word: number) =>
   offset < word + 2 && word < offset + width / 8;
+/**
+ * The whole registers an instruction changes that its first operand doesn't name: AX and DX for a multiply or divide
+ * with one operand (only AX for a byte one), DX for `cwd`, AX for `cbw` and the other loads of the accumulator, CX for
+ * `loop`, and the second register of `xchg`.
+ */
+export function implicitRegisterWrites(i: Instruction): string[] {
+  const [first, second] = i.operands;
+  if (["mul", "imul", "div", "idiv"].includes(i.mnemonic) && i.operands.length === 1)
+    return first?.kind !== "address" && first?.width === 8 ? ["ax"] : ["ax", "dx"];
+  if (i.mnemonic === "cwd") return ["dx"];
+  if (["cbw", "lahf", "lodsb", "lodsw", "xlat", "aaa", "aas", "daa", "das", "aam", "aad"].includes(i.mnemonic))
+    return ["ax"];
+  if (i.mnemonic.startsWith("loop")) return ["cx"];
+  if (i.mnemonic === "xchg" && isRegister(second)) return [wholeRegister(second.name)];
+  return [];
+}
 /** Words at the offsets, as fields. */
 export const wordFields = (...offsets: number[]): { offset: number; width: number }[] =>
   offsets.map((offset) => ({ offset, width: 16 }));

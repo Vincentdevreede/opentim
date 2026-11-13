@@ -190,8 +190,7 @@ export function discoverCollisionDispatch(
         operand.width !== 32 ||
         operand.direct === indexed ||
         operand.base.join() !== (indexed ? "bx" : "") ||
-        i.prefixes.some((p) => p !== "es") ||
-        (operand.segment === "ds" && i.prefixes.length !== 0) ||
+        i.prefixes.length !== 0 ||
         !["es", "ds"].includes(operand.segment)
       )
         return;
