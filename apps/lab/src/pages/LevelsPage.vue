@@ -40,9 +40,10 @@ import {
   readToonsGoals,
   readToonsListKinds,
   summariseTim2Goal,
-  toonsListOrder,
+  toonsGoalParts,
   tim2Drawing as drawingOf,
   type GoalCondition,
+  type ToonsGoalParts,
   type SpriteOf,
   type Tim2Drawing,
 } from "@opentim/content";
@@ -260,37 +261,45 @@ const toonsKinds = computed(() =>
   program.value?.name === "TOONS.EXE" ? readToonsListKinds(program.value.data) : new Map<number, number>(),
 );
 /**
- * For a Toons goal, the level part each condition on the n-th part of a type is about: its place among the parts of
- * that type on the list, in the order TOONS.EXE keeps the list, with every part where the file puts it.
+ * For a Toons goal, the level parts each condition is about when the puzzle starts, in the order TOONS.EXE keeps its
+ * lists, with every part where the file puts it and the ropes as the level ties them: the n-th part of a type, the
+ * first one whose ropes pass a test, and whether a test of only the ropes and the type holds then.
  */
-const goalParts = computed(() => {
-  const out = new Map<GoalCondition, number>();
+const toonsParts = computed(() => {
+  const out = new Map<GoalCondition, ToonsGoalParts>();
   const g = goal.value;
   const l = level.value;
   if (g?.status !== "done" || l?.layout !== "toons" || !toonsKinds.value.size) return out;
-  const orders = new Map<string, number[]>();
   for (const c of g.goal.summary.ways.flat()) {
-    const type = c.types?.[0]?.type;
-    if (c.kind !== "nth" || !c.lists || type === undefined) continue;
-    if (!orders.has(c.lists)) orders.set(c.lists, toonsListOrder(l, c.lists, toonsKinds.value));
-    const found = orders.get(c.lists)!.filter((index) => l.parts[index]?.type === type)[c.nth! - 1];
-    if (found !== undefined) out.set(c, found);
+    const found = toonsGoalParts(l, c, toonsKinds.value);
+    if (found) out.set(c, found);
   }
   return out;
 });
-/** The parts the goal's conditions look at, ringed on the drawing: the n-th parts by number, the others by type. */
+/** The one level part a condition is about, to number it in the condition. */
+const goalParts = computed(
+  () =>
+    new Map(
+      [...toonsParts.value]
+        .filter(([c, found]) => found.parts.length === 1 && c.kind !== "every")
+        .map(([c, found]) => [c, found.parts[0]!]),
+    ),
+);
+/** The parts the goal's conditions look at, ringed on the drawing: the placed parts by number, the others by type. */
 const goalTypes = computed(() => {
   const g = goal.value;
   if (g?.status !== "done") return new Set<number>();
-  const byNumber = level.value?.layout === "toons" && toonsKinds.value.size > 0;
   return new Set(
     g.goal.summary.ways
       .flat()
-      .filter((c) => !(byNumber && c.kind === "nth"))
+      .filter((c) => !toonsParts.value.has(c))
       .flatMap((c) => c.types?.map((t) => t.type) ?? []),
   );
 });
-const goalPartSet = computed(() => new Set(goalParts.value.values()));
+/** A condition that can't hold as the puzzle starts rings nothing. */
+const goalPartSet = computed(
+  () => new Set([...toonsParts.value.values()].filter((f) => f.holds !== false).flatMap((f) => f.parts)),
+);
 
 /** The decoded sprites of each sheet, as the Sprites page reads them. */
 const sheets = computed(() => {
@@ -518,6 +527,7 @@ onBeforeUnmount(() => {
               :step-milliseconds="stepMilliseconds"
               :type-counts="typeCounts"
               :part-numbers="goalParts"
+              :at-start="toonsParts"
             />
           </div>
           <div class="relative min-w-0 flex-[2]">

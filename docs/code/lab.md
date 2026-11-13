@@ -80,9 +80,12 @@ The biggest file of the Lab. In order:
   come from `readToonsGoals` on the page itself, not from the behaviour read; a Toons condition shows which part of its
   type it is about ("1st", and the level part's number from `goalParts`), what the goal remembers about it in a chip
   ("once", "never", "2 steps", "30 steps ago"), a part a field holds ("kept angel of al-e-cat #15"), and "not in this
-  level" when the level has fewer parts of the type, from `typeCounts`). `goalParts` on the page finds the level part
-  of each condition on an n-th part with `toonsListOrder` and the type table's sort word (`readToonsListKinds`), and
-  `LevelCanvas` rings those parts (`goalParts`) instead of every part of their type,
+  level" when the level has fewer parts of the type, from `typeCounts`; a chip from `atStart` says "not at the
+  start" for a condition the level rules out as the puzzle starts, and "ropes" or "bin parts" when the player can
+  change which part it is). `toonsParts` on the page places each condition with `toonsGoalParts` and the type table's
+  sort word (`readToonsListKinds`): `goalParts` numbers the one part a condition is about, and `LevelCanvas` rings
+  those parts (`goalPartSet`, leaving out a condition that doesn't hold at the start) instead of every part of their
+  type,
   `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
   the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
   for TIM 2 and Toons, whose files keep no bin), and for TIM 2 the frame a state picks

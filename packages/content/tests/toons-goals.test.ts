@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { describeGoal, type GoalNames } from "../src/read/describe-goals.ts";
-import { conditionText, summariseGoal } from "../src/read/goal-conditions.ts";
+import { conditionText, summariseGoal, type GoalCondition } from "../src/read/goal-conditions.ts";
 import {
   FAR_WORDS,
   readGoalRoutines,
@@ -12,7 +12,7 @@ import {
 } from "../src/read/puzzle-goals.ts";
 import type { ToonsMemory } from "../src/read/toons-drawing.ts";
 import type { Level } from "../src/read/level.ts";
-import { findToonsGoalTable, toonsListOrder } from "../src/read/toons-goals.ts";
+import { findToonsGoalTable, toonsGoalParts, toonsListOrder, toonsRopePlaces } from "../src/read/toons-goals.ts";
 
 const hex = (text: string) => Uint8Array.from(text.match(/../g)!.map((b) => parseInt(b, 16)));
 function image(size: number, pieces: [number, string][]) {
@@ -566,5 +566,76 @@ describe("toonsListOrder", () => {
     ]);
     // The eye-hooks after the ropes: each new one goes first, whatever its place.
     expect(toonsListOrder(l, "the moving list", kinds)).toEqual([1, 0, 4, 3, 2]);
+  });
+});
+
+describe("toonsGoalParts", () => {
+  // The balloon sorts first (1), the eye-hook (1006) and the rope (1005) after it.
+  const kinds = new Map([
+    [23, 1],
+    [14, 1005],
+    [15, 1006],
+  ]);
+  const FIXED = 0x40;
+  type Spec = { type: number; y: number; group?: "static" | "moving"; fixed?: boolean; tie?: [number, number] };
+  // A rope ties its first end at that part's place 0 and its second at place 1.
+  const level = (specs: Spec[]) =>
+    ({
+      parts: specs.map((p, index) => ({
+        index,
+        group: p.group ?? "moving",
+        type: p.type,
+        flags: [0, 0, p.fixed === false ? 0 : FIXED],
+        position: { x: 0, y: p.y },
+        ropes: [
+          { at: { x: 0, y: 0 }, ...(p.tie ? { rope: { parts: p.tie, slots: [0, 1] } } : {}) },
+          { at: { x: 0, y: 0 } },
+        ],
+      })),
+    }) as unknown as Level;
+  // Two balloons, the upper one (#1) tied at its first place to an eye-hook (#2) by a rope (#3), as in LOON7.
+  const loon = level([
+    { type: 23, y: 300 },
+    { type: 23, y: 14 },
+    { type: 15, y: 104, group: "static" },
+    { type: 14, y: -100, group: "static", fixed: false, tie: [1, 2] },
+  ]);
+  const balloon = [{ type: 23, name: "balloon" }];
+  const moving = "the moving list";
+
+  it("puts each rope at the places it ties and at its own", () => {
+    expect([...toonsRopePlaces(loon)].sort()).toEqual([
+      [1, [true, false]],
+      [2, [false, true]],
+      [3, [true, false]],
+    ]);
+  });
+
+  it("finds the first balloon with a rope at its first place, which depends on the ropes", () => {
+    const c = {
+      kind: "first",
+      lists: moving,
+      types: balloon,
+      where: ["rope1 ≠ 0"],
+      tests: ["drawingFlags has the bits 0x2000"],
+    };
+    expect(toonsGoalParts(loon, c as GoalCondition, kinds)).toEqual({ parts: [1], player: "ropes" });
+  });
+
+  it("decides tests of only the ropes and the type as the puzzle starts", () => {
+    const first = { kind: "first", lists: moving, tests: ["type isn't balloon"] } as GoalCondition;
+    expect(toonsGoalParts(loon, first, kinds)).toEqual({ parts: [0], holds: false });
+    const every = { kind: "every", lists: moving, types: balloon, tests: ["rope1 = 0"] } as GoalCondition;
+    expect(toonsGoalParts(loon, every, kinds)).toEqual({ parts: [0, 1], holds: false, player: "ropes" });
+  });
+
+  it("says when a part from the bin could come before the n-th part", () => {
+    const nth = { kind: "nth", nth: 2, lists: moving, types: balloon, tests: [] } as unknown as GoalCondition;
+    expect(toonsGoalParts(loon, nth, kinds)).toEqual({ parts: [1], holds: true });
+    const binned = level([
+      { type: 23, y: 300 },
+      { type: 23, y: 14, fixed: false },
+    ]);
+    expect(toonsGoalParts(binned, nth, kinds)).toEqual({ parts: [1], holds: true, player: "bin" });
   });
 });

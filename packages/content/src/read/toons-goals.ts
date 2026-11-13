@@ -11,7 +11,7 @@
  */
 import { TOONS_IDS } from "../part-ids.ts";
 import { describeGoal, type GoalNames } from "./describe-goals.ts";
-import { summariseGoal } from "./goal-conditions.ts";
+import { summariseGoal, type GoalCondition } from "./goal-conditions.ts";
 import type { ProgramGoals } from "./program-goals.ts";
 import {
   farWord,
@@ -341,8 +341,8 @@ export function readToonsListKinds(exe: Uint8Array): Map<number, number> {
  * back. That routine keeps the list sorted by the type record's word at 0x02 (`kinds`), lowest first, and goes along
  * the parts of the same word until one starts higher up (its `savedPositionY` smaller), or at the same height further
  * left; the new part goes before that one. A rope or a part of type 76 goes before the first part of its word, and
- * so does a part right after one of those. The places are the file's: a part the player moves goes where its new
- * place puts it. Empty for a list the file doesn't have.
+ * so does a part right after one of those. The places are the file's: a part the player puts on the board from the
+ * bin goes where its new place puts it (see `toonsGoalParts`). Empty for a list the file doesn't have.
  */
 export function toonsListOrder(level: Level, lists: string, kinds: ReadonlyMap<number, number>): number[] {
   const group = lists === "the fixed list" ? "static" : lists === "the moving list" ? "moving" : undefined;
@@ -369,4 +369,126 @@ export function toonsListOrder(level: Level, lists: string, kinds: ReadonlyMap<n
     list.splice(k, 0, part);
   }
   return list.map((p) => p.index);
+}
+
+/** Bit 0x40 of the third flag word: the part stays where the file puts it, and the player can neither move nor change it. */
+const FIXED_IN_PLACE = 0x40;
+
+/**
+ * Which rope places of each part hold a rope once the level is read, by part index. TOONS.EXE's level reader (file
+ * offset `0x24e0a`) gives each rope it reads a record of its own, puts it in the rope's own place, and puts it at the
+ * place the rope ties on each of its two parts: the word at 0x6f for the first place, 0x71 for the second.
+ */
+export function toonsRopePlaces(level: Level): Map<number, [boolean, boolean]> {
+  const places = new Map<number, [boolean, boolean]>();
+  const tie = (part: number | null, place: number) => {
+    if (part === null || place > 1) return;
+    const own = places.get(part) ?? [false, false];
+    own[place] = true;
+    places.set(part, own);
+  };
+  for (const part of level.parts)
+    part.ropes.forEach((place, n) => {
+      const rope = place.rope;
+      if (!rope) return;
+      tie(part.index, n);
+      rope.parts.forEach((end, k) => tie(end, rope.slots[k]!));
+    });
+  return places;
+}
+
+/** The level parts a Toons goal condition is about when the puzzle starts, as far as the level decides them. */
+export interface ToonsGoalParts {
+  /** The parts, by index in the level; empty when the list has none that fits. */
+  parts: number[];
+  /** Whether the condition holds when the puzzle starts, when the level alone decides it. */
+  holds?: boolean;
+  /**
+   * What the player can change that may make it other parts: `bin` when parts from the bin can go before them on the
+   * list (where the player puts them decides), `ropes` when it depends on the ropes, which the puzzle lets the
+   * player move.
+   */
+  player?: "bin" | "ropes";
+}
+
+/**
+ * The level part a condition of a Toons goal is about, when the level decides it: the n-th part of a type on a list
+ * (`nth`), or the first part of a type, or of any type, on a list whose rope places and type pass the condition's
+ * `where` (`first`); and for `every` and `first`, whether tests of only the rope places and the type hold as the
+ * puzzle starts. Undefined for a condition it can't place.
+ *
+ * The lists are in the order the level loader leaves them (`toonsListOrder`). When a run starts, TOONS.EXE doesn't
+ * sort them again: it puts the parts back where they were and only moves Al and Sid from the fixed list to the moving
+ * list and the rug the other way (file offset `0xec1e`), which none of the shipped levels needs. A part the player
+ * puts on the board from the bin goes into its list by the place the player gives it (`0x27f87`, `0x280c4`), so when
+ * a part from the bin could come before the found one, `player` is `bin`. The rope places are the level's
+ * (`toonsRopePlaces`); the puzzle setup clears every rope's fixed bit (`0x25892`), so a condition on them is `ropes`.
+ */
+export function toonsGoalParts(
+  level: Level,
+  condition: GoalCondition,
+  kinds: ReadonlyMap<number, number>,
+): ToonsGoalParts | undefined {
+  const c = condition;
+  const group = c.lists === "the fixed list" ? "static" : c.lists === "the moving list" ? "moving" : undefined;
+  if (!group || (c.types?.length ?? 0) > 1) return undefined;
+  const type = c.types?.[0]?.type;
+  const order = toonsListOrder(level, c.lists!, kinds);
+  const ofType = type === undefined ? order : order.filter((index) => level.parts[index]?.type === type);
+  const ropes = toonsRopePlaces(level);
+  // A test of a rope place or of the type, as the condition says it, against a part; undefined for any other test.
+  const test = (text: string): ((index: number) => boolean) | undefined => {
+    const rope = /^rope([12]) ([=≠]) 0$/.exec(text);
+    if (rope) return (index) => (ropes.get(index)?.[Number(rope[1]) - 1] ?? false) === (rope[2] === "≠");
+    const named = /^type (is|isn't) (.+)$/.exec(text);
+    if (named) return (index) => (TOONS_IDS[level.parts[index]!.type] === named[2]) === (named[1] === "is");
+    return undefined;
+  };
+  const decided = (texts: readonly string[]) => {
+    const tests = texts.map(test);
+    // Tests that held at some step, or of the part a field holds, aren't the part's as the puzzle starts.
+    if (c.once || c.ago || c.via) return undefined;
+    return tests.every((t) => t) ? (index: number) => tests.every((t) => t!(index)) : undefined;
+  };
+  const onRopes = (texts: readonly string[]) => texts.some((t) => t.startsWith("rope"));
+  // A part from the bin that could come before the found one: one of its type, or, for any type, one sorted no later.
+  const fromBin = (found: number | undefined) => {
+    const kind = found === undefined ? Infinity : (kinds.get(level.parts[found]!.type) ?? 0);
+    return level.parts.some(
+      (p) =>
+        p.group === group &&
+        !((p.flags[2] ?? 0) & FIXED_IN_PLACE) &&
+        (type === undefined ? (kinds.get(p.type) ?? 0) <= kind : p.type === type),
+    );
+  };
+  const player = (texts: readonly string[], found: number | undefined): Pick<ToonsGoalParts, "player"> =>
+    onRopes(texts) ? { player: "ropes" } : fromBin(found) ? { player: "bin" } : {};
+
+  if (c.kind === "nth") {
+    if (type === undefined) return undefined;
+    const found = ofType[c.nth! - 1];
+    const holds = decided(c.tests);
+    return {
+      parts: found === undefined ? [] : [found],
+      ...(holds && found !== undefined ? { holds: holds(found) } : {}),
+      ...player(c.tests, found),
+    };
+  }
+  if (c.kind === "first") {
+    const where = (c.where ?? []).map(test);
+    if (!where.every((t) => t)) return undefined;
+    const found = ofType.find((index) => where.every((t) => t!(index)));
+    const holds = decided(c.tests);
+    return {
+      parts: found === undefined ? [] : [found],
+      ...(holds && found !== undefined ? { holds: holds(found) } : {}),
+      ...player([...(c.where ?? []), ...c.tests], found),
+    };
+  }
+  if (c.kind === "every" && !c.where?.length && type !== undefined) {
+    const holds = decided(c.tests);
+    if (!holds) return undefined;
+    return { parts: ofType, holds: ofType.every(holds), ...player(c.tests, undefined) };
+  }
+  return undefined;
 }

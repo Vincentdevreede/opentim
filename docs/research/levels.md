@@ -412,7 +412,10 @@ the player neither move nor change a part with it (the routine that says what th
 early), and it walks both lists and puts every part without it back to state 0, unmirrored and at its own size, as a
 part in the bin is, ropes and belts excepted. So the Lab puts the parts without the bit in the bin, and the Solution
 box shows them where the file puts them. CAKE15 ("Use a tunnel to help Al get to the bubble gum") then has its two
-tunnels in the bin. That the routine is the start of a puzzle is read from what it does, not from where it is called.
+tunnels in the bin. That the routine (file offset `0x25829`) is the start of a puzzle is read from what it does, not
+from where it is called. For a rope or a belt it only clears the bit (`0x25892`) and leaves the part on its list, so
+the player may move it; none of the shipped ropes and belts has the bit. The Lab still puts them in the bin with the
+other parts without it (below).
 
 **Drawing.** The Lab draws a Toons level with the `toons` list: frames by state, walls and the ladder as tiles by
 TOONS.EXE's rule ([file formats](file-formats.md#toonsexe)), the rope and the belt as lines.
@@ -575,7 +578,12 @@ every part of a type they look at. The places are the file's: for a part in the 
   a balloon (n = 0 gives that part only when it is of the type) or no balloon has a rope, the goal keeps 0, and reading
   through 0 finds the data segment's first words: Borland's copyright text, whose drawing flags word has bit 0x2000. The
   goal is then met at once, which the conditions say as two more ways. In LOON7 both balloons come first on the moving
-  list and the top one has the rope.
+  list (their sort word is 1, the lowest), the lower one, #40, first. The level's rope #2 ties the upper one, #41, at
+  its first place to eye-hook #4 (both fixed in place), so the goal is about balloon #41: the Lab numbers it and rings
+  only it. Neither other way holds as the puzzle starts (the first part on the moving list is a balloon, and #41 has a
+  rope), which the Lab says with a chip and doesn't ring. Which balloon it is depends on the ropes, though: TOONS.EXE's
+  puzzle setup (`0x25829`) clears the fixed bit of every rope and belt (`0x25892`) and leaves them on their list, so
+  the player may move them, and the Lab says so in a chip.
 - Al's and Sid's action is named by its sheet ("action = 50 (CATFISH)"), and a state by its frame in the sheet of the
   action tested with it ("state = 417 (CATFISH frame 16 of 16)"). That a state is the frame drawn is read from the
   drawing code ([Al and Sid](#toons-levels)); which action's frames it is in comes from the action tables. CAKE26
@@ -590,6 +598,8 @@ A Toons part's record is 0xb3 bytes: the level reader and two other places alloc
 - **The goal's parts during a run.** The goals find their parts in the first step of a run, from the lists as they
   are then. Whether anything in a run takes a part off a list and puts it back (which would sort it again by where it
   is then) isn't read; the Lab says the order of the parts where the file puts them.
-- **LOON7's balloon** is ringed with every balloon: which balloon has a rope at its first place is in the level (the
-  ropes' records), but the Lab doesn't work it out for the condition yet.
+- **Ropes and belts in the bin.** TOONS.EXE leaves every rope and belt on its list when a puzzle starts, and the
+  Lab puts them in the bin. 56 of the 121 shipped ropes and 15 of the 50 belts tie two parts that stay on the board;
+  the others tie a part that goes to the bin, and how TOONS.EXE then draws them, or whether it takes them off later,
+  isn't read.
 - **A step's time** in Toons isn't read, so the countdown is said in steps, not seconds.

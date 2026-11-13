@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { conditionText, type GoalCondition, type PuzzleGoal } from "@opentim/content";
+import { conditionText, type GoalCondition, type PuzzleGoal, type ToonsGoalParts } from "@opentim/content";
 import { computed } from "vue";
 import { goalMarkWords, tidyWords } from "../../behaviour.ts";
 import LabBadge from "../LabBadge.vue";
@@ -29,6 +29,8 @@ const props = defineProps<{
   typeCounts?: ReadonlyMap<number, number>;
   /** For a condition on the n-th part of a type, the level part it is, by the game's order of its lists. */
   partNumbers?: ReadonlyMap<GoalCondition, number>;
+  /** For a Toons condition, its parts as the puzzle starts: whether it holds then, and what the player can change. */
+  atStart?: ReadonlyMap<GoalCondition, ToonsGoalParts>;
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
@@ -111,6 +113,25 @@ const ordinal = (n: number) =>
 /** Whether the level has fewer parts of the type than the one the condition is about: the goal finds none then. */
 const missing = (c: GoalCondition) =>
   c.kind === "nth" && !!props.typeCounts && (props.typeCounts.get(c.types?.[0]?.type ?? -1) ?? 0) < c.nth!;
+const ROPES = "The ropes are as the level ties them; the puzzle frees every rope for the player to move.";
+/** What the level says of a condition as the puzzle starts, said in a chip, with why in its tip. */
+const atStart = (c: GoalCondition) => {
+  const found = props.atStart?.get(c);
+  if (!found) return undefined;
+  if (found.holds === false)
+    return {
+      label: "not at the start",
+      title: `This doesn't hold as the puzzle starts.${found.player === "ropes" ? ` ${ROPES}` : ""}`,
+    };
+  if (found.player === "ropes") return { label: "ropes", title: `The part this is depends on the ropes. ${ROPES}` };
+  if (found.player === "bin")
+    return {
+      label: "bin parts",
+      title:
+        "A part from the bin could come before this one: the game sorts it into the list by where the player puts it.",
+    };
+  return undefined;
+};
 const TIME = { "so far": "of the run so far, this one included", before: "before this one" } as const;
 /** When a condition's tests held, said in a chip, with what the goal keeps for it in the chip's tip. */
 const history = (c: GoalCondition) => {
@@ -168,6 +189,7 @@ const countOf = (c: GoalCondition) => {
                   <LabChip v-if="missing(c)" tone="error" title="The level has fewer parts of this type, bin included"
                     >not in this level</LabChip
                   >
+                  <LabChip v-if="atStart(c)" tone="faint" :title="atStart(c)!.title">{{ atStart(c)!.label }}</LabChip>
                 </template>
               </span>
               <!-- What the condition tests goes on a line of its own, so it is never cut off by the names. -->
