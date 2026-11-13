@@ -102,8 +102,8 @@ The biggest file of the Lab. In order:
   (an unplugged switch, an anvil whose rope went to the bin, the latter a decided assumption in
   [Toons: assumptions](../research/levels.md#toons-assumptions)), the scene notes the plugs it pulls out, and the
   Structure panel tags a part's plugs and state with what the start makes of them. For TIM 2 the frame a state picks
-  (`Part.states`) and the wall, tile pattern and colour block routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`);
-  without its type table the scene draws frames and notes it. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
+  (`Part.states`) and the wall, tile pattern and colour block routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`),
+  the mirror rule (`tim2MirrorSide`), the background colour and the notes' pictures; without its type table the scene draws frames and notes it. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
   tables `readToonsDrawing` reads and the message machine's font.
 - **Audio**: banks and samples, played as samples or as music through emulated Sound Blaster Pro or AdLib FM, in a
   worker.

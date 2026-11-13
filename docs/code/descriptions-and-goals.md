@@ -188,8 +188,9 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
   `part` for an entry about one part.
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
   draws as walls, tile patterns or colour blocks. Nothing stands in for it: the Lab needs TIM2.EXE.
+  `readPar` reads a part's `.PAR` file; `tim2MirrorSide` says where TIM2.EXE measures a mirrored part from.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
-  lists.
+  lists, and the game's line routine (`tim2LinePixels`).
 - `toons.ts`: Toons' program (`loadImage`), its type table of 70-byte records (`findToonsTypeTable`,
   `readToonsTypes`, `TOONS_RECORD_FIELDS`) and Al's and Sid's actions (`readToonsActions`); `readToonsParts` in
   `parts.ts` makes the `toons` list from it.

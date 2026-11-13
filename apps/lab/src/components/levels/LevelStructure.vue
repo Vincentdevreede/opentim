@@ -132,6 +132,16 @@ const MEANING: Record<string, { status: "decoded" | "hypothesis" | "unsupported"
     label: "scroll",
     title: "How far the view scrolls down, in the same way.",
   },
+  spareByte: {
+    status: "decoded",
+    label: "kept",
+    title: "TIM2.EXE keeps this byte and writes it back when it saves the level, and uses it for nothing else.",
+  },
+  background: {
+    status: "decoded",
+    label: "colour",
+    title: "The palette colour TIM2.EXE fills the play area with, behind the parts. A new level gets 3.",
+  },
   binFlag: {
     status: "decoded",
     label: "bin switch",
