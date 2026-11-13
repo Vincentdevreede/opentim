@@ -18,7 +18,7 @@ import { parseArgs } from "node:util";
 import { readBehaviourInSteps } from "../src/read/behaviour.ts";
 import { describeBehaviour } from "../src/read/describe-behaviour.ts";
 import { readProgramGoals } from "../src/read/program-goals.ts";
-import { GAME_PROGRAMS, readBuild, type Game } from "./builds.ts";
+import { PROGRAMS, readBuild, type Game } from "./builds.ts";
 
 /** A short hash of a value: objects with sorted keys, Maps and Sets in their order, cycles marked. */
 export function hashOf(value: unknown): string {
@@ -65,7 +65,7 @@ export function hashOf(value: unknown): string {
 const { values } = parseArgs({
   options: { game: { type: "string" }, folder: { type: "string" }, loops: { type: "boolean", default: false } },
 });
-if (!values.game || !Object.hasOwn(GAME_PROGRAMS, values.game) || !values.folder) {
+if (!values.game || !Object.hasOwn(PROGRAMS, values.game) || !values.folder) {
   console.error("Usage: fingerprint-behaviour --game tim1|evenmore|tim2|toons --folder <game folder> [--loops]");
   process.exit(1);
 }

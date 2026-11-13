@@ -19,9 +19,18 @@ import {
   type AssumptionTable,
 } from "../src/read/behaviour-assumption-list.ts";
 import { readBehaviour } from "../src/read/behaviour.ts";
-import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder, type Game } from "./builds.ts";
+import {
+  buildFolders,
+  folderOptions,
+  GAMES,
+  inEachBuild,
+  jobsOption,
+  readBuild,
+  type BuildFolder,
+  type Game,
+} from "./builds.ts";
 
-export function inBuild(build: BuildFolder) {
+export function inBuild(build: BuildFolder<Game>) {
   const { program, parts } = readBuild(build);
   return collectAssumptions(readBehaviour(program, parts));
 }
@@ -33,14 +42,11 @@ if (isMainThread) {
       out: { type: "string" },
       check: { type: "string" },
       jobs: { type: "string" },
-      tim1: { type: "string", multiple: true },
-      evenmore: { type: "string", multiple: true },
-      tim2: { type: "string", multiple: true },
-      toons: { type: "string", multiple: true },
+      ...folderOptions(GAMES),
     },
   });
   const given = [values.out, values.check].filter((value) => value !== undefined);
-  const folders = buildFolders(values);
+  const folders = buildFolders(values, GAMES);
   if (given.length !== 1 || !given[0] || !folders.length)
     throw new Error(
       "Give either --out or --check <document> and at least one --tim1, --evenmore, --tim2 or --toons <game folder>",
@@ -48,7 +54,7 @@ if (isMainThread) {
 
   const table: AssumptionTable = new Map();
   const builds: Record<Game, number> = { tim1: 0, evenmore: 0, tim2: 0, toons: 0 };
-  await inEachBuild<ReturnType<typeof inBuild>>(
+  await inEachBuild<ReturnType<typeof inBuild>, Game>(
     import.meta.url,
     folders,
     (uses, { game, folder }) => {

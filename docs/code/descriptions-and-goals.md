@@ -99,7 +99,9 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
    goal, and `remembered`, the words the goal keeps between steps. When a goal doesn't fit, `problem` says why in
    plain words. `conditionText` says one condition in a line.
 
-`check-goals` compares `runGoal` with the game's own routine in the emulator on random worlds (`goal-check.ts`).
+`check-goals` compares `runGoal` with the game's own routine in the emulator on random worlds (`goal-check.ts`). It
+checks every game it is given the same way and prints the same lines for each: TIM 1 and Even More by `checkGoals`,
+Toons by `checkToonsGoals` and TIM 2 by `checkTim2Goals` (below).
 `runGoal` gives a far word (`FAR_WORDS` and up) to its memory as it is, and a break in a loop's test part leaves the
 loop.
 
@@ -185,7 +187,9 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).
 - `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
-  `part` for an entry about one part.
+  `part` for an entry about one part. `runTim2Goal` tests the entries on given parts lists as TIM2.EXE's one goal
+  routine does, quirks and all, and `findTim2GoalRoutine` finds that routine and the words it reads in TIM2.EXE laid
+  out with its overlays (`readToonsMemory`).
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
   draws as walls, tile patterns or colour blocks. Nothing stands in for it: the Lab needs TIM2.EXE.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
@@ -212,7 +216,10 @@ Node only and not exported from the package; the scripts import it by path. See
 - `goal-check.ts`: `checkGoals`, the random-world comparison of the goal reader with the game.
 - `toons-goal-check.ts`: `checkToonsGoals`, the same for Toons, with TOONS.EXE's memory loaded straight into a `Cpu`
   (no DOS), parts of 0xb3 bytes, and the far segment compared too; `toonsLists` reads the parts lists from the list
-  head routine. Run by `check-toons-goals`.
+  head routine. Run by `check-goals --toons`.
+- `tim2-goal-check.ts`: `checkTim2Goals`, the same for TIM 2: each level's goal entries and made-up parts lists laid
+  into TIM2.EXE's memory, the goal routine run on a `Cpu` (no DOS) next to `runTim2Goal`, and the answer and every
+  word compared. `madeUpTim2Goals` gives goals with what no shipped level has. Run by `check-goals --tim2`.
 
 ## The package's exports
 

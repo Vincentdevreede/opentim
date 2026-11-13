@@ -14,10 +14,17 @@ import { Worker } from "node:worker_threads";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
 import { readProgramParts, readTim2ProgramParts, readToonsParts, type ProgramParts } from "../src/read/parts.ts";
 
-export type Game = "tim1" | "evenmore" | "tim2" | "toons";
+/** The games whose program is TIM.EXE, which most scripts read. */
+export type TimGame = "tim1" | "evenmore";
+/** Every game a script can be given: TIM 1, Even More, TIM 2 and Toons. */
+export type Game = TimGame | "tim2" | "toons";
 
-/** The games in the order the scripts read them, and the name of each game's program. */
-export const GAME_PROGRAMS: Record<Game, string> = {
+/** The games in the order the scripts read them. */
+export const GAMES = ["tim1", "evenmore", "tim2", "toons"] as const satisfies readonly Game[];
+export const TIM_GAMES = ["tim1", "evenmore"] as const satisfies readonly TimGame[];
+
+/** Each game's program, in its game folder. */
+export const PROGRAMS: Record<Game, string> = {
   tim1: "TIM.EXE",
   evenmore: "TIM.EXE",
   tim2: "TIM2.EXE",
@@ -25,18 +32,32 @@ export const GAME_PROGRAMS: Record<Game, string> = {
 };
 
 /** One game folder given to a script, with its place among the folders given for its game. */
-export interface BuildFolder {
-  game: Game;
+export interface BuildFolder<G extends Game = TimGame> {
+  game: G;
   folder: string;
   index: number;
+}
+
+/** The `parseArgs` options for the folders of `games`: `--tim1`, `--evenmore`, `--tim2` and `--toons`, each repeatable. */
+export function folderOptions<G extends Game>(games: readonly G[]) {
+  return Object.fromEntries(games.map((game) => [game, { type: "string", multiple: true }])) as Record<
+    G,
+    { type: "string"; multiple: true }
+  >;
 }
 
 /** About the most one build's reading holds in memory (an Even More build peaks at 1.7 GB). */
 const MEMORY_PER_BUILD = 2.5 * 2 ** 30;
 
-/** The folders in the order the scripts always read them: TIM 1, Even More, TIM 2, then Toons. */
-export function buildFolders(values: Partial<Record<Game, string[]>>): BuildFolder[] {
-  return (Object.keys(GAME_PROGRAMS) as Game[]).flatMap((game) =>
+/**
+ * The folders of `games` (TIM 1 and Even More unless it says more) in the order the scripts always read them: TIM 1,
+ * Even More, TIM 2, then Toons.
+ */
+export function buildFolders<G extends Game = TimGame>(
+  values: { [K in Game]?: string[] },
+  games: readonly G[] = TIM_GAMES as readonly TimGame[] as readonly G[],
+): BuildFolder<G>[] {
+  return GAMES.filter((game): game is G & typeof game => (games as readonly Game[]).includes(game)).flatMap((game) =>
     (values[game] ?? []).map((folder, index) => ({ game, folder: resolve(folder), index })),
   );
 }
@@ -50,18 +71,27 @@ export function readResources(folder: string): Map<string, Uint8Array> {
   return files;
 }
 
-/** A build's program, its resource files and its parts. */
-export function readBuild({ game, folder }: BuildFolder) {
-  const program = readFileSync(join(folder, GAME_PROGRAMS[game]));
-  const files = readResources(folder);
+/** A build's program: TIM.EXE, TIM2.EXE or TOONS.EXE. */
+export function readProgram({ game, folder }: BuildFolder<Game>): Uint8Array {
+  return new Uint8Array(readFileSync(join(folder, PROGRAMS[game])));
+}
+
+/**
+ * A build's program, its resource files and its parts: for TIM 1 and Even More from TIM.EXE, for TIM 2 from its
+ * resources with TIM2.EXE's type records, for Toons from TOONS.EXE. TIM 2 and Toons parts without an id get one, so a
+ * new part never stops a read.
+ */
+export function readBuild(build: BuildFolder<Game>) {
+  const program = readProgram(build);
+  const files = readResources(build.folder);
   const spriteCount = (sheet: string) => {
     const data = files.get(`${sheet}.BMP`);
     return data && decodeImage(data).frames.length;
   };
   let parts: ProgramParts;
-  if (game === "tim2") parts = readTim2ProgramParts(program, (name) => files.get(name), { keepUnknown: true });
-  else if (game === "toons") parts = readToonsParts(program, spriteCount, { keepUnknown: true });
-  else parts = readProgramParts(game, program, spriteCount, (sheet) => files.get(`${sheet}.BMP`));
+  if (build.game === "tim2") parts = readTim2ProgramParts(program, (name) => files.get(name), { keepUnknown: true });
+  else if (build.game === "toons") parts = readToonsParts(program, spriteCount, { keepUnknown: true });
+  else parts = readProgramParts(build.game, program, spriteCount, (sheet) => files.get(`${sheet}.BMP`));
   return { program, files, parts };
 }
 
@@ -76,16 +106,16 @@ export function defaultJobs(): number {
  * the results in the builds' order, each as soon as it and every build before it are read, so a script's output
  * reads as if it read the builds one after another. Fails with the build's folder when a worker fails.
  */
-export async function inEachBuild<T>(
+export async function inEachBuild<T, G extends Game = TimGame>(
   script: string | URL,
-  builds: readonly BuildFolder[],
-  onResult: (result: T, build: BuildFolder) => void,
+  builds: readonly BuildFolder<G>[],
+  onResult: (result: T, build: BuildFolder<G>) => void,
   { jobs = defaultJobs(), given }: { jobs?: number; given?: unknown } = {},
 ): Promise<void> {
   const results: { done: boolean; value?: T }[] = builds.map(() => ({ done: false }));
   let reported = 0;
   let next = 0;
-  const read = (build: BuildFolder) =>
+  const read = (build: BuildFolder<G>) =>
     new Promise<T>((done, fail) => {
       const worker = new Worker(new URL("./build-worker.ts", import.meta.url), {
         workerData: { script: String(script), build, given },

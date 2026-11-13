@@ -17,7 +17,16 @@ import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { readBehaviourInSteps, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
 import { partSemantics } from "../src/read/behaviour-build-comparison.ts";
-import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder } from "./builds.ts";
+import {
+  buildFolders,
+  folderOptions,
+  GAMES,
+  inEachBuild,
+  jobsOption,
+  readBuild,
+  type BuildFolder,
+  type Game,
+} from "./builds.ts";
 
 function timingSemantics(timing: BehaviourReport["timing"]) {
   return {
@@ -98,7 +107,7 @@ function partSummary(part: BehaviourReport["parts"][number], report: BehaviourRe
 }
 
 /** Reads one build and writes its report and metrics into `out`; gives what the summary needs, or the failure. */
-export function inBuild(build: BuildFolder, out: string) {
+export function inBuild(build: BuildFolder<Game>, out: string) {
   const { game: listId, folder, index } = build;
   try {
     const { program, parts } = readBuild(build);
@@ -138,20 +147,17 @@ if (isMainThread) {
     options: {
       out: { type: "string" },
       jobs: { type: "string" },
-      tim1: { type: "string", multiple: true },
-      evenmore: { type: "string", multiple: true },
-      tim2: { type: "string", multiple: true },
-      toons: { type: "string", multiple: true },
+      ...folderOptions(GAMES),
     },
   });
-  const folders = buildFolders(values);
+  const folders = buildFolders(values, GAMES);
   if (!values.out || !folders.length)
     throw new Error("Give --out <report folder> and at least one --tim1, --evenmore, --tim2 or --toons <game folder>");
   const out = resolve(values.out);
   mkdirSync(out, { recursive: true });
   const failures: { listId: string; folder: string; error: string }[] = [];
   const results: NonNullable<ReturnType<typeof inBuild>["result"]>[] = [];
-  await inEachBuild<ReturnType<typeof inBuild>>(
+  await inEachBuild<ReturnType<typeof inBuild>, Game>(
     import.meta.url,
     folders,
     (answer) => {
