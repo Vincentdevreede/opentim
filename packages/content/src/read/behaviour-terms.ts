@@ -110,7 +110,9 @@ export const writesRegister = (i: Instruction, name: string) =>
     registersOverlap(i.operands[0].name, name) &&
     !["cmp", "test", "push"].includes(i.mnemonic)) ||
   (["pop", "xchg"].includes(i.mnemonic) && i.operands.some((o) => isRegister(o) && registersOverlap(o.name, name))) ||
-  (IMPLICIT_WRITES[i.mnemonic] ?? []).some((written) => registersOverlap(written, name));
+  // Only the one operand form of imul writes ax and dx; `imul bx, cx, 2` writes just its first operand.
+  ((i.mnemonic !== "imul" || i.operands.length === 1) &&
+    (IMPLICIT_WRITES[i.mnemonic] ?? []).some((written) => registersOverlap(written, name)));
 /** A 16-bit register operand, and the one named `name` when given. */
 export const isWordRegister = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
   o?.kind === "register" && o.width === 16 && (name === undefined || o.name === name);
