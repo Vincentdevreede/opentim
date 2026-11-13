@@ -240,7 +240,7 @@ pointers, so the fields after them move up (`TOONS_RECORD_FIELDS`):
 | 0x1c   | 4    | Positions: two signed bytes per state, or 0.                                                                            |
 | 0x20   | 4    | Sizes: a width and height word per state, or 0. The program sets a part's size from it, else from the state's sprite.   |
 | 0x26   | 1×2  | The layers the type is drawn on, 0xff when unused.                                                                      |
-| 0x2a   | 2    | Unknown: mostly the type's own number; the inclines 47 to 51 have 48.                                                   |
+| 0x2a   | 2    | Sorts the bin: TOONS.EXE writes the type's place in a table here at start (the file has mostly the type's number).      |
 | 0x2c   | 2    | How many middle tiles take turns when the part is drawn as tiles (the low byte).                                        |
 | 0x2e   | 4×6  | Far pointers to the type's code, most into the overlay stubs, where TIM 1 has its six callbacks.                        |
 

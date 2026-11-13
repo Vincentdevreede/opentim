@@ -415,20 +415,31 @@ routine is the start of a puzzle is read from what it does, not from where it is
 - The setup walks the moving list and then the fixed list, in the order the level loader leaves them. It puts each
   part without the bit back to state 0, unmirrored and at its own size, and then into the bin through the same routine
   as the player's bin handle (`0x281c9`), with the words that routine reads set as for a drop in the bin (`0x25a24`).
-- That routine first takes off what the part holds (`0xbb07`, called after the part is on the third list): a belt round
-  the part is untied from both its parts and goes to the bin too (`0xb88c`, which puts it there at `0xb8f8`), and a
-  rope tied to the part is untied from both its parts, which clears their rope places, and goes to the bin
-  (`0xb902`, at `0xbabf`). A part plugged into it, or that it is plugged into, is unplugged and stays where it is
-  (`0xb7b3`).
+- That routine puts the part on the third list (`0xbe19`) and then takes off what the part holds (`0xbb07`), in this
+  order: its plugs (below), a belt round the part, which is untied from both its parts and goes to the bin too
+  (`0xb88c`, which puts it there at `0xb8f8`), and the ropes tied to the part, its first rope place first, each untied
+  from both its parts, which clears their rope places, and put in the bin (`0xb902`, at `0xbabf`). Untying a rope runs
+  the type routine of both parts it ties (the record's far pointer at 0x36) and clears the links of the pulleys
+  between its first end and its second.
+- **Plugs** (`0xb7b3`, called for a part with bit 0x1 or 0x2 of its third flag word). Bit 0x2 marks a part that takes
+  plugs (the electric switch in every shipped level), bit 0x1 one that plugs into another (the hair drier, the timer
+  and the vacuum). For a part with 0x1, the routine takes the part it is plugged into (its first plug word), clears
+  that part's plug at this part's plug place and this part's own plug word, runs the type routine of both, keeps the
+  other part's state as the one it starts from (`0x99` from `0x0e`) and marks it to be drawn again. For a part with
+  0x2 it clears both its plugs and the first plug word of each part in them, and runs their type routines and its
+  own. The part's plug place byte isn't cleared. So the part that stays on the board is unplugged where it stands.
 - A tunnel takes the tunnel at its other end with it: that one is taken off its list and freed (`0x28253`, `0x23fa8`).
   So the bin holds one tunnel of a pair, and when the player puts it on the board TOONS.EXE makes a copy at its other
   end (`0x27fbb`), which the player places next.
 - The setup skips ropes and belts themselves: for them it only clears the bit (`0x25892`). So a rope or a belt between
   two parts that stay on the board stays there, tied as the level ties it. None of the shipped ropes and belts has the
   bit.
-- Before it puts a pulley in the bin, the setup follows the pulley's links to the end of the rope that runs over it and
-  puts that rope in the bin first (`0x258ac`). No shipped level has a pulley without the bit under a rope whose two
-  ends stay.
+- Before it puts a pulley in the bin, the setup follows the pulley's first links to a part whose link leads back to
+  the last pulley, and puts the rope tied at that link's rope place in the bin first (`0x258ac`). No shipped level has
+  a pulley without the bit under a rope whose two ends stay.
+- When the part before the one it looked at went to the bin meanwhile (a rope or a belt the part held), the walk
+  starts its list again from the head (`0x25a38`). That doesn't change the order: the parts it meets again are on the
+  board or are ropes and belts, which it skips.
 
 So in the 100 shipped puzzles, 699 of the 3,439 parts start in the bin: 65 of the 121 ropes and 35 of the 50 belts,
 each because a part it ties goes there. The other 56 ropes and 15 belts stay on the board, and 7 tunnels are taken
@@ -438,6 +449,39 @@ panel and in a note. Which tunnel of a pair goes to the bin follows the lists' o
 it is loaded; the shipped levels give the same tunnels by place alone. The Solution box shows every part where the
 file puts it. CAKE15 ("Use a tunnel to help Al get to the bubble gum") has one of its two tunnels in the bin and the
 other taken off. In LOON7, rope #2 between balloon #41 and eye-hook #4 is now drawn on the board.
+
+**The bin's order.** The bin is the third list, which the insertion routine (`0xbcd1`) keeps sorted by the type
+record's word at 0x2a, lowest first: it compares that word only when the list's head is the third list's (`0x4923`)
+and puts the new part before the first one whose word is higher (a signed compare), so parts with the same word stay
+in the order they were put there. The word isn't the file's: a start-up routine (`0x25b9c`, called at `0x26004` among
+the routines that load the program's resources) goes along a table of the 85 types in the data (`0x3b6a:0x48`) and
+writes each type's place in it into the record's word at 0x2a. The table starts with Al, Sid and the dragon and ends
+with the walls and the inclines. That the routine runs once at start is inferred from where it is called; what it
+writes is read. So in the bin the types come in the table's order, and a type's parts in the order the setup put them
+there: the moving list's before the fixed list's, each list in its order, and a rope or a belt when the part it holds
+goes. `readToonsBinKinds` reads the table, and `toonsPuzzleStart` gives the bin in this order (`binOrder`).
+
+**Checked on the CPU.** The puzzle setup itself, run on the CPU over part records built from each of the 100 level
+files as the level reader builds them (each list put together with the game's insertion routine in file order), gives
+the same bin in the same order, the same tunnels taken off, the same plugs and the same states on the board as
+`toonsPuzzleStart`, in all 100 puzzles. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
+trans-roto-matic #18, skeleto-bobbin #19, bomb #46, baseball #45 and tunnel #20; the file has them in the order 0, 1,
+18, 19, 20, 42, 43, 45, 46. Without TOONS.EXE the Lab sorts by the type's number, which gives another order in 78
+puzzles.
+
+**Unplugged as the puzzle starts.** The setup pulls out 22 plugs in 19 puzzles. In 13 both parts go to the bin. In
+the other 9, in 8 puzzles, the part plugged in goes to the bin and the electric switch it was in stays on the board,
+unplugged: BRAN14 (timer #22 from switch #5), CAKE12 (vacuum #6 from #2), CAKE21 (timer #1 from #0), HARD19 (hair
+drier #0 and timer #18 from #1), HARD25 (vacuum #29 from #28), LOON12 (timer #26 from #6), LOON15 (hair drier #0 from
+#5) and LOON2 (timer #37 from #6). The switch's type routine (file offset `0x6f3f2`) sets its state again: bit 4 stays
+(on or off), and 1 is for a plug in its first place, 2 for one in its second (`0x6f461`). So the switches start with
+state 4 or 0 instead of 5, 1 or 3. Untying a rope runs the anvil's routine too, which gives it state 1 while a rope is
+tied at its first place and else 0 (`0x5382b`): the anvils #24 in HARD19, #66 in LOON1 and #32 in LOON12 lose their
+rope to the bin and start with state 0, which is the frame TOONS.EXE draws them with (the drawing routine `0x1df79`
+reads the state at 0x0e). The anvil's routine doesn't keep it as the state the part starts from (`0x99` stays 1);
+what a run does with that isn't read. These are the only parts on the board whose state
+the setup changes in the shipped levels. The Lab draws the switches and the anvils with these states, and says in the
+Structure panel which plugs are pulled out.
 
 **Ropes and belts the player can change.** Clearing the bit is what lets the player change a rope or a belt that is
 tied when the puzzle starts. Read from code: the routine that says what the player may do with a part (`0xab37`) gives
@@ -481,7 +525,7 @@ The Lab's Structure panel names them:
   word (`0x279a9`). In the shipped levels the links come in pairs that point at each other.
 - **The plug place**, a byte from version `0x106` (`0x24f76`): which of the plugged part's two plug places the part
   takes. When the player unplugs a part, TOONS.EXE clears that place of the part it was plugged into, and plugging it
-  in again sets both (`0xb665`). In all 70 shipped parts that have a plug, the plugged part's plug at this place is
+  in again sets both (`0xb665`). The puzzle setup unplugs a part it puts in the bin the same way (`0xb7b3`, above). In all 70 shipped parts that have a plug, the plugged part's plug at this place is
   the part itself; two timers take the second place.
 - **The setting**, the last word. The reader keeps it twice, as the part's setting and as the one it starts from, and
   only the code of some types reads it:
@@ -569,7 +613,8 @@ fixed types a number of their own from 1000 up), lowest first. Among parts with 
 the first one that starts higher up (`savedPositionY` smaller) or at the same height further left (`savedPositionX`
 smaller), so lower parts come first, then the ones further right, and a part at the same place as an earlier one after
 it. A rope or a part of type 76 goes before the first part with its word, and so does a part right after one of those
-(the eye-hooks after the ropes). The third list is sorted by the record's word at 0x2a instead. `toonsListOrder`
+(the eye-hooks after the ropes). The third list is sorted by the record's word at 0x2a instead, the type's place in
+a table TOONS.EXE writes there when it starts (see the bin's order above). `toonsListOrder`
 follows this, and the emulator agrees: the insertion routine run on the CPU with made-up parts builds the same lists
 in 3,000 trials. So the Lab can say which level part a condition is about: in LOON1 the 1st al-e-cat is the lowest
 one, #60. It numbers the part in the condition ("al-e-cat #60") and rings it on the drawing, where TIM 1's goals ring

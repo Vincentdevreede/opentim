@@ -157,9 +157,13 @@ condition is about the part a field of the n-th part holds.
 
 `toonsListOrder` (`toons-goals.ts`) puts a Toons level's list in TOONS.EXE's order, so the Lab can say which level part
 "the 1st al-e-cat on the moving list" is; `readToonsListKinds` reads the type table's word it sorts by.
-`toonsPuzzleStart` says where TOONS.EXE's puzzle setup (`0x25829`) leaves each part: in the bin every part without the
-fixed bit with the ropes and belts tied to it, taken off (`gone`) the other end of a tunnel it puts in the bin, and on
-the board the rest, ropes and belts between two parts that stay included. `toonsRopePlaces` says which rope places of
+`toonsPuzzleStart` follows TOONS.EXE's puzzle setup (`0x25829`) call by call and says where it leaves each part: in
+the bin every part without the fixed bit with the ropes and belts tied to it, taken off (`gone`) the other end of a
+tunnel it puts in the bin, and on the board the rest, ropes and belts between two parts that stay included. It also
+gives the bin in TOONS.EXE's order (`binOrder`: sorted by the word `readToonsBinKinds` reads, a type's parts in the
+order the setup puts them there), the plugs it pulls out (`unplugged`, `plugs`) and the states it leaves on the board
+(`states`, for the electric switch and the anvil, whose routines are read). The setup run on the CPU agrees in all 100
+puzzles (a scratch check, not a script in the repo). `toonsRopePlaces` says which rope places of
 each part hold a rope, as the level reader puts each rope's record in both parts it ties, and with a `start` leaves out
 the ropes the setup puts in the bin. `toonsGoalParts` places a condition on the level as the puzzle starts, on the
 lists less the parts in the bin: the n-th part, the first part whose rope places and type pass `where` (LOON7's

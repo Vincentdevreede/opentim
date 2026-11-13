@@ -204,6 +204,7 @@ export { TIM2_STEP_MS } from "./read/tim2.ts";
 export { readToonsDrawing, readToonsMemory, type ToonsDrawing, type ToonsMemory } from "./read/toons-drawing.ts";
 export {
   findToonsGoalTable,
+  readToonsBinKinds,
   readToonsGoals,
   readToonsListKinds,
   toonsGoalParts,
@@ -213,4 +214,5 @@ export {
   type ToonsGoalParts,
   type ToonsPuzzleStart,
   type ToonsGoalTable,
+  type ToonsUnplug,
 } from "./read/toons-goals.ts";

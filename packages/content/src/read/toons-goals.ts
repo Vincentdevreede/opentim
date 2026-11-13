@@ -22,7 +22,7 @@ import {
   type GoalValue,
 } from "./puzzle-goals.ts";
 import { readToonsMemory, type ToonsMemory } from "./toons-drawing.ts";
-import type { Level, RopeSlot } from "./level.ts";
+import type { Level } from "./level.ts";
 import { findToonsTypeTable, loadImage, readToonsActions, TOONS_RECORD_SIZE } from "./toons.ts";
 
 const ANY = -1;
@@ -334,6 +334,37 @@ export function readToonsListKinds(exe: Uint8Array): Map<number, number> {
   }
 }
 
+/** Where the type record keeps the word the parts bin is sorted by. */
+const BIN_KIND = 0x2a;
+
+/**
+ * The word of each type's record the parts bin (the third list) is sorted by, as TOONS.EXE sets it when it starts: a
+ * start-up routine (file offset `0x25b9c`, called at `0x26004` among the routines that load the program's resources)
+ * goes along a table of the 85 types in the data (`0x3b6a:0x48`) and writes each type's place in it into the type's
+ * record at 0x2a, over the number the file has there (mostly the type's own). So the bin is sorted by that table:
+ * Al, Sid and the dragon first, the inclines last. Found by the routine's code: `mov ax, segment; mov es, ax; mov ax,
+ * es:[bx + table]; mov dx, 70; imul dx; ...; mov es:[bx + record + 0x2a], cx`. Empty when it isn't found.
+ */
+export function readToonsBinKinds(exe: Uint8Array): Map<number, number> {
+  try {
+    const image = loadImage(exe);
+    const { start, count } = findToonsTypeTable(image);
+    // prettier-ignore
+    const code = [0xb8, ANY, ANY, 0x8e, 0xc0, 0x26, 0x8b, 0x87, ANY, ANY, 0xba, 0x46, 0x00, 0xf7, 0xea, 0xba, ANY, ANY,
+      0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x89, 0x8f, ANY, ANY];
+    for (let at = find(image, code); at >= 0; at = find(image, code, at + 1)) {
+      if (u16(image, at + 16) * 16 + u16(image, at + 25) - BIN_KIND !== start) continue;
+      const table = u16(image, at + 1) * 16 + u16(image, at + 8);
+      const kinds = new Map<number, number>();
+      for (let place = 0; place < count; place++) kinds.set(u16(image, table + 2 * place), place);
+      return kinds;
+    }
+  } catch {
+    // No type table: no sort words.
+  }
+  return new Map();
+}
+
 /**
  * A Toons level's list in the order TOONS.EXE keeps it, as level part indices, so a goal's "the 1st al-e-cat on the
  * moving list" is a part of the level. The level loader (file offset `0x2507c`) reads the parts of each list in file
@@ -376,68 +407,263 @@ const FIXED_IN_PLACE = 0x40;
 
 /** The Toons types the puzzle setup treats on their own. */
 const TOONS_BELT = 1;
+const TOONS_SWITCH = 2;
 const TOONS_ROPE = 14;
 const TOONS_PULLEY = 17;
 const TOONS_TUNNEL = 46;
+const TOONS_ANVIL = 61;
+/** Bits 0x1 and 0x2 of the third flag word: the part plugs into another (0x1) or takes plugs itself (0x2). */
+const PLUGS_IN = 0x1;
+const TAKES_PLUGS = 0x2;
+
+/** A plug the puzzle setup pulls out: `part` was plugged into place `place` (0 or 1) of `into`. */
+export interface ToonsUnplug {
+  part: number;
+  into: number;
+  place: number;
+}
 
 /** Where the parts are when a Toons puzzle starts, as TOONS.EXE's puzzle setup leaves them. */
 export interface ToonsPuzzleStart {
   /** The parts in the bin, by index in the level. Every other part is on the board, except the `gone` ones. */
   bin: Set<number>;
+  /** The bin in the order TOONS.EXE keeps it, the third list. */
+  binOrder: number[];
   /** Tunnels the setup takes off the board and frees: the other end of a tunnel it puts in the bin. */
   gone: Set<number>;
-}
-
-/** The pulleys a rope runs over, from its first part towards its second, as the parts' links lead. */
-function ropePulleys(level: Level, rope: NonNullable<RopeSlot["rope"]>): number[] {
-  const [from, to] = rope.parts;
-  if (from === null) return [];
-  const pulleys: number[] = [];
-  let next = level.parts[from]?.links[rope.slots[0]];
-  while (next !== null && next !== undefined && next !== to && !pulleys.includes(next)) {
-    const part = level.parts[next];
-    if (part?.type !== TOONS_PULLEY) break;
-    pulleys.push(next);
-    next = part.links[0];
-  }
-  return pulleys;
+  /** The plugs the setup pulls out, in the order it pulls them. */
+  unplugged: ToonsUnplug[];
+  /** Each part's two plugs after the setup, for the parts whose plugs it changes. */
+  plugs: Map<number, [number | null, number | null]>;
+  /**
+   * The state the setup leaves a part on the board with, where it changes it: the frame the part is drawn with while
+   * the player builds. Only the types whose routine is read: the electric switch and the anvil.
+   */
+  states: Map<number, number>;
 }
 
 /**
- * Which parts TOONS.EXE has in the bin when a puzzle starts. Its puzzle setup (file offset `0x25829`) walks the moving
- * list and then the fixed list, in the order the level loader leaves them (`toonsListOrder`), and puts every part
- * without bit 0x40 of its third flag word in the bin through the routine of the player's bin handle (`0x281c9`). That
- * routine takes off what the part holds (`0xbb07`): a belt round it is untied at both ends and goes to the bin too
- * (`0xb88c`, which puts it there at `0xb8f8`), and so does a rope tied to it (`0xb902`, at `0xbabf`). A tunnel takes
- * the tunnel at its other end with it: that one is taken off its list and freed (`0x28253`, `0x23fa8`), so the bin
- * holds one tunnel of the pair, and when the player puts it on the board TOONS.EXE makes a new other end (`0x27fbb`).
+ * Which parts TOONS.EXE has in the bin when a puzzle starts, in its order, and what that changes on the board. Its
+ * puzzle setup (file offset `0x25829`) walks the moving list and then the fixed list, in the order the level loader
+ * leaves them (`toonsListOrder`), and puts every part without bit 0x40 of its third flag word in the bin through the
+ * routine of the player's bin handle (`0x281c9`). That routine puts the part on the third list (`0xbe19`) and then
+ * takes off what the part holds (`0xbb07`), in this order:
  *
- * The setup skips ropes and belts themselves (`0x25892`), so a rope or a belt whose two parts stay on the board stays
- * there, tied. Before it puts a pulley in the bin, it follows the pulley's links to the end of the rope that runs over
- * it and puts that rope in the bin first (`0x258ac`); this follows the rope's route instead, which finds the same rope.
- * The order only decides which tunnel of a pair goes to the bin; without `kinds` it is the order by place alone.
+ * - the plugs (`0xb7b3`, for a part with bit 0x1 or 0x2 of its third flag word). A part that plugs into another is
+ *   pulled out: the other's plug at the part's plug place and the part's own plug are cleared. A part that takes plugs
+ *   lets go of both. The part on the board stays where it is; its type's routine (the record's far pointer at 0x36)
+ *   sets its state again, and the routine keeps that state as the one it starts from;
+ * - a belt round it, untied at both ends and put in the bin (`0xb88c`, which puts it there at `0xb8f8`);
+ * - the ropes tied to it, its first rope place first, each untied at both ends and put in the bin (`0xb902`, at
+ *   `0xbabf`). Untying runs the type routine of both parts the rope ties, and clears the links of the pulleys between
+ *   the first end and the second.
+ *
+ * A tunnel first takes the tunnel at its other end off its list and frees it (`0x28253`, `0x23fa8`), so the bin holds
+ * one tunnel of the pair, and when the player puts it on the board TOONS.EXE makes a new other end (`0x27fbb`). The
+ * setup skips ropes and belts themselves (`0x25892`), so a rope or a belt whose two parts stay on the board stays
+ * there, tied. Before it puts a pulley in the bin, it follows the pulley's first links to a part linked back to the
+ * last pulley and puts the rope tied there in the bin first (`0x258ac`).
+ *
+ * The third list is kept sorted by the type record's word at 0x2a (`binKinds`, `readToonsBinKinds`), lowest first;
+ * the insertion routine (`0xbcd1`) puts a part before the first one with a higher word, so parts of a type stay in the
+ * order the setup puts them there. Without `binKinds` the type's number stands in for the word, which is the file's
+ * own word for most types but not the one TOONS.EXE sorts by. `kinds` (the list's sort words) only decide the order
+ * the setup walks the lists in; without them it is the order by place alone.
+ *
+ * The type routines that set a state again are read for two types: the electric switch takes 1 for a plug in its first
+ * place and 2 for one in its second, and keeps bit 4 (file offset `0x6f461`); the anvil takes 1 while a rope is tied at
+ * its first place, else 0 (`0x5382b`). These are the only parts on the board whose state the setup changes in the
+ * shipped levels, as the setup run on the CPU shows.
  */
-export function toonsPuzzleStart(level: Level, kinds: ReadonlyMap<number, number> = new Map()): ToonsPuzzleStart {
+export function toonsPuzzleStart(
+  level: Level,
+  kinds: ReadonlyMap<number, number> = new Map(),
+  binKinds?: ReadonlyMap<number, number>,
+): ToonsPuzzleStart {
+  const parts = level.parts;
   const bin = new Set<number>();
+  const inserted: number[] = [];
   const gone = new Set<number>();
+  const unplugged: ToonsUnplug[] = [];
+  const states = new Map<number, number>();
+  const tunnels = new Map(parts.map((p) => [p.index, p.tunnel ?? null]));
+  const links = new Map(parts.map((p) => [p.index, [...p.links] as (number | null)[]]));
+  const plugs = new Map(parts.map((p) => [p.index, [...(p.plugs ?? [null, null])] as [number | null, number | null]]));
+  const changedPlugs = new Set<number>();
+  // The rope at each rope place of each part, as the rope part that owns the rope's record, and each record's ends.
+  const ropeAt = new Map<number, (number | null)[]>(parts.map((p) => [p.index, [null, null]]));
+  const ends = new Map<string, { parts: (number | null)[]; slots: number[] }>();
+  // The belt part whose belt runs round each part.
+  const beltAt = new Map<number, number>();
+  for (const p of parts) {
+    p.ropes.forEach((place, k) => {
+      if (!place.rope) return;
+      ropeAt.get(p.index)![k] = p.index;
+      ends.set(`${p.index}.${k}`, { parts: [...place.rope.parts], slots: [...place.rope.slots] });
+      place.rope.parts.forEach((end, j) => {
+        const at = end === null ? undefined : ropeAt.get(end);
+        if (at && place.rope!.slots[j]! < 2) at[place.rope!.slots[j]!] = p.index;
+      });
+    });
+    if (p.type === TOONS_BELT && p.belt.parts)
+      for (const end of p.belt.parts) if (end !== null) beltAt.set(end, p.index);
+  }
+  // A pulley keeps the rope over it at its second rope place: the level reader takes the record at the first place of
+  // the part the pulley's field names (`0x24f3c`).
+  for (const p of parts)
+    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined)
+      ropeAt.get(p.index)![1] = ropeAt.get(p.pulley)?.[0] ?? null;
+  const state = (index: number) => states.get(index) ?? parts[index]!.state[0];
+  const fixed = (index: number) => ((parts[index]!.flags[2] ?? 0) & FIXED_IN_PLACE) !== 0;
+  const toBin = (index: number) => {
+    if (bin.has(index)) return;
+    bin.add(index);
+    inserted.push(index);
+  };
+  // The type routine at the record's far pointer 0x36, for the types it is read for.
+  const look = (index: number) => {
+    if (bin.has(index)) return;
+    const part = parts[index]!;
+    if (part.type === TOONS_SWITCH) {
+      const [first, second] = plugs.get(index)!;
+      states.set(index, (state(index) & 4) | (first !== null ? 1 : 0) | (second !== null ? 2 : 0));
+    } else if (part.type === TOONS_ANVIL) states.set(index, ropeAt.get(index)![0] !== null ? 1 : 0);
+  };
+  const unplug = (index: number) => {
+    const own = plugs.get(index)!;
+    if ((parts[index]!.flags[2] ?? 0) & TAKES_PLUGS) {
+      own.forEach((other, place) => {
+        if (other === null) return;
+        own[place] = null;
+        plugs.get(other)![0] = null;
+        changedPlugs.add(index).add(other);
+        unplugged.push({ part: other, into: index, place });
+        look(other);
+      });
+      look(index);
+      return;
+    }
+    const into = own[0];
+    if (into === null) return;
+    const place = parts[index]!.plugPlace ?? 0;
+    plugs.get(into)![place] = null;
+    own[0] = null;
+    changedPlugs.add(index).add(into);
+    unplugged.push({ part: index, into, place });
+    look(index);
+    look(into);
+  };
+  const untieRope = (rope: number) => {
+    for (const k of [0, 1]) {
+      const record = ends.get(`${rope}.${k}`);
+      if (!record) continue;
+      const [first, second] = record.parts;
+      if (first !== null && first !== undefined) {
+        const place = record.slots[0]!;
+        if (place < 2) ropeAt.get(first)![place] = null;
+        const own = links.get(first)!;
+        let pulley = own[place] ?? null;
+        own[place] = null;
+        const seen = new Set<number>();
+        while (pulley !== null && parts[pulley]?.type === TOONS_PULLEY && !seen.has(pulley)) {
+          seen.add(pulley);
+          const next = links.get(pulley)![0] ?? null;
+          links.set(pulley, [null, null]);
+          ropeAt.get(pulley)![1] = null;
+          pulley = next;
+        }
+        look(first);
+      }
+      if (second !== null && second !== undefined) {
+        const place = record.slots[1]!;
+        if (place < 2) ropeAt.get(second)![place] = null;
+        links.get(second)![place] = null;
+        look(second);
+      }
+      record.parts = [null, null];
+      toBin(rope);
+    }
+  };
+  // The routine of the bin handle, for a part that is neither a rope nor a belt.
+  const putInBin = (index: number) => {
+    const part = parts[index]!;
+    const other = tunnels.get(index);
+    if (part.type === TOONS_TUNNEL && other !== null && other !== undefined) {
+      tunnels.set(index, null);
+      tunnels.set(other, null);
+      gone.add(other);
+    }
+    toBin(index);
+    if ((part.flags[2] ?? 0) & (PLUGS_IN | TAKES_PLUGS)) unplug(index);
+    const belt = beltAt.get(index);
+    if (belt !== undefined) {
+      for (const end of parts[belt]!.belt.parts ?? []) if (end !== null) beltAt.delete(end);
+      toBin(belt);
+    }
+    if (part.type === TOONS_PULLEY) {
+      // The parts on either side of the pulley are linked to each other.
+      const [a, b] = links.get(index)!;
+      if (a !== null && a !== undefined) {
+        const own = links.get(a)!;
+        const k = own.indexOf(index);
+        if (k >= 0) own[k] = b ?? null;
+      }
+      if (b !== null && b !== undefined) {
+        const own = links.get(b)!;
+        const k = own.indexOf(index);
+        if (k >= 0) own[k] = a ?? null;
+      }
+      links.set(index, [null, null]);
+      ropeAt.get(index)![1] = null;
+      return;
+    }
+    for (const k of [0, 1]) {
+      const rope = ropeAt.get(index)![k];
+      if (rope !== null && rope !== undefined) untieRope(rope);
+    }
+  };
+  // The rope over a pulley, as the setup finds it: along the first links to a part linked back.
+  const ropeOver = (pulley: number): number | undefined => {
+    const seen = new Set<number>();
+    for (let at = pulley; parts[at]?.type === TOONS_PULLEY && !seen.has(at);) {
+      seen.add(at);
+      const next = links.get(at)![0];
+      if (next === null || next === undefined) return undefined;
+      const back = links.get(next) ?? [];
+      const rope = back[1] === at ? ropeAt.get(next)?.[1] : back[0] === at ? ropeAt.get(next)?.[0] : undefined;
+      if (rope !== null && rope !== undefined) return rope;
+      at = next;
+    }
+    return undefined;
+  };
+
   const order = [...toonsListOrder(level, "the moving list", kinds), ...toonsListOrder(level, "the fixed list", kinds)];
   for (const index of order) {
-    const part = level.parts[index]!;
-    if (gone.has(index) || part.type === TOONS_ROPE || part.type === TOONS_BELT) continue;
-    if ((part.flags[2] ?? 0) & FIXED_IN_PLACE) continue;
-    const other = part.tunnel;
-    if (part.type === TOONS_TUNNEL && other !== null && other !== undefined && other !== index) gone.add(other);
-    bin.add(index);
+    const part = parts[index]!;
+    if (gone.has(index) || bin.has(index) || part.type === TOONS_ROPE || part.type === TOONS_BELT || fixed(index))
+      continue;
+    if (part.type === TOONS_PULLEY) {
+      const rope = ropeOver(index);
+      if (rope !== undefined && !bin.has(rope)) untieRope(rope);
+    }
+    putInBin(index);
   }
-  const off = (index: number | null | undefined) =>
-    index !== null && index !== undefined && (bin.has(index) || gone.has(index));
-  for (const part of level.parts) {
-    if (part.type === TOONS_BELT && part.belt.parts?.some(off)) bin.add(part.index);
-    if (part.type !== TOONS_ROPE) continue;
-    const tied = part.ropes.flatMap((place) => (place.rope ? [place.rope] : []));
-    if (tied.some((rope) => rope.parts.some(off) || ropePulleys(level, rope).some(off))) bin.add(part.index);
+  const binKind = (index: number) => binKinds?.get(parts[index]!.type) ?? parts[index]!.type;
+  const binOrder: number[] = [];
+  for (const index of inserted) {
+    const k = binOrder.findIndex((other) => binKind(index) < binKind(other));
+    binOrder.splice(k < 0 ? binOrder.length : k, 0, index);
   }
-  return { bin, gone };
+  for (const index of [...states.keys()])
+    if (bin.has(index) || states.get(index) === parts[index]!.state[0]) states.delete(index);
+  return {
+    bin,
+    binOrder,
+    gone,
+    unplugged,
+    plugs: new Map([...changedPlugs].sort((a, b) => a - b).map((index) => [index, plugs.get(index)!])),
+    states,
+  };
 }
 
 /**

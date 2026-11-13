@@ -14,6 +14,7 @@ import type { ToonsMemory } from "../src/read/toons-drawing.ts";
 import type { Level } from "../src/read/level.ts";
 import {
   findToonsGoalTable,
+  readToonsBinKinds,
   toonsGoalParts,
   toonsListOrder,
   toonsPuzzleStart,
@@ -673,6 +674,11 @@ describe("toonsPuzzleStart", () => {
     belt?: [number, number];
     links?: [number | null, number | null];
     tunnel?: number;
+    state?: number;
+    plugs?: [number | null, number | null];
+    plugPlace?: number;
+    /** Bits 0x1 and 0x2 of the third flag word: plugs into a part, takes plugs. */
+    plug?: number;
   };
   const level = (specs: Spec[]) =>
     ({
@@ -680,8 +686,11 @@ describe("toonsPuzzleStart", () => {
         index,
         group: p.group ?? "static",
         type: p.type,
-        flags: [0, 0, p.fixed === false ? 0 : FIXED],
+        flags: [0, 0, (p.fixed === false ? 0 : FIXED) | (p.plug ?? 0)],
+        state: [p.state ?? 0, 0],
         position: { x: p.x ?? 0, y: 0 },
+        ...(p.plugs ? { plugs: p.plugs } : {}),
+        ...(p.plugPlace === undefined ? {} : { plugPlace: p.plugPlace }),
         ropes: [
           { at: { x: 0, y: 0 }, ...(p.tie ? { rope: { parts: p.tie, slots: [0, 0] } } : {}) },
           { at: { x: 0, y: 0 } },
@@ -710,13 +719,73 @@ describe("toonsPuzzleStart", () => {
   });
 
   it("puts a rope in the bin with a pulley it runs over", () => {
+    // The rope runs from #0 over the pulley to #1, which links back to the pulley.
     const l = level([
       { type: 15, links: [2, null] },
-      { type: 15 },
+      { type: 15, links: [2, null] },
       { type: 17, fixed: false, links: [1, null] },
       { type: 14, fixed: false, tie: [0, 1] },
     ]);
     expect(start(l)).toEqual({ bin: [2, 3], gone: [] });
+  });
+
+  it("sorts the bin by the type's word, keeping parts of a type in the order the setup puts them there", () => {
+    // The moving list first: the balloons #3 and #2 (further right first), then the fixed list's hook #0, whose rope
+    // #4 goes with it. The sort words put the rope first and the hooks before the balloons.
+    const l = level([
+      { type: 15, fixed: false },
+      { type: 15 },
+      { type: 23, x: 10, group: "moving", fixed: false },
+      { type: 23, x: 90, group: "moving", fixed: false },
+      { type: 14, fixed: false, tie: [0, 1] },
+    ]);
+    const binKinds = new Map([
+      [14, 0],
+      [15, 1],
+      [23, 2],
+    ]);
+    expect(toonsPuzzleStart(l, new Map(), binKinds).binOrder).toEqual([4, 0, 3, 2]);
+    // Without the words, the type's number stands in.
+    expect(toonsPuzzleStart(l).binOrder).toEqual([4, 0, 3, 2]);
+    expect(toonsPuzzleStart(l, new Map(), new Map([[23, -1]])).binOrder).toEqual([3, 2, 4, 0]);
+  });
+
+  it("pulls a part's plug out of the switch on the board, and the switch shows its plugs again", () => {
+    // Switch #0 (state 7: on, both places taken) stays; drier #1 in its first place goes to the bin, timer #2 in its
+    // second place stays.
+    const l = level([
+      { type: 2, state: 7, plug: 2, plugs: [1, 2] },
+      { type: 52, fixed: false, plug: 1, plugs: [0, null], plugPlace: 0 },
+      { type: 38, plug: 1, plugs: [0, null], plugPlace: 1 },
+    ]);
+    const s = toonsPuzzleStart(l);
+    expect([...s.bin]).toEqual([1]);
+    expect(s.unplugged).toEqual([{ part: 1, into: 0, place: 0 }]);
+    expect([...s.plugs]).toEqual([
+      [0, [null, 2]],
+      [1, [null, null]],
+    ]);
+    expect([...s.states]).toEqual([[0, 6]]);
+  });
+
+  it("lets go of both plugs when the switch goes to the bin", () => {
+    const l = level([
+      { type: 2, fixed: false, state: 3, plug: 2, plugs: [1, null] },
+      { type: 52, plug: 1, plugs: [0, null], plugPlace: 0 },
+    ]);
+    const s = toonsPuzzleStart(l);
+    expect(s.unplugged).toEqual([{ part: 1, into: 0, place: 0 }]);
+    expect(s.plugs.get(1)).toEqual([null, null]);
+    expect(s.states.size).toBe(0);
+  });
+
+  it("gives an anvil on the board state 0 when the rope at its first place goes to the bin", () => {
+    const l = level([
+      { type: 61, state: 1 },
+      { type: 23, fixed: false },
+      { type: 14, fixed: false, tie: [0, 1] },
+    ]);
+    expect([...toonsPuzzleStart(l).states]).toEqual([[0, 0]]);
   });
 
   it("puts the first tunnel of a pair in the bin and takes the other end off", () => {
@@ -728,5 +797,41 @@ describe("toonsPuzzleStart", () => {
       { type: 46, x: 70, tunnel: 2 },
     ]);
     expect(start(l)).toEqual({ bin: [1], gone: [0] });
+  });
+});
+
+describe("readToonsBinKinds", () => {
+  /**
+   * A made-up program: code that reaches a table of three type records at segment 0x10 and walks it, and the start-up
+   * code that writes each type's place in a table at segment 0x20 into the records at 0x2a.
+   */
+  function program() {
+    const image = new Uint8Array(0x400);
+    const put = (at: number, bytes: number[]) => image.set(bytes, at);
+    // mov ax, si; mov dx, 70; imul dx; add ax, 0x0000; mov word [bp-0x28], 0x0010; inc si; cmp si, 3; jl back
+    put(0x10, [0x8b, 0xc6, 0xba, 0x46, 0x00, 0xf7, 0xea, 0x05, 0x00, 0x00, 0xc7, 0x46, 0xd8, 0x10, 0x00]);
+    put(0x1f, [0x46, 0x83, 0xfe, 0x03, 0x7c, 0x10 - 0x25]);
+    // mov ax, 0x20; mov es, ax; mov ax, es:[bx+0x08]; mov dx, 70; imul dx; mov dx, 0x10; mov bx, ax; mov es, dx;
+    // mov es:[bx+0x2a], cx
+    put(0x40, [0xb8, 0x20, 0x00, 0x8e, 0xc0, 0x26, 0x8b, 0x87, 0x08, 0x00, 0xba, 0x46, 0x00, 0xf7, 0xea]);
+    put(0x4f, [0xba, 0x10, 0x00, 0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x89, 0x8f, 0x2a, 0x00]);
+    // The table: type 2 first, then 0, then 1.
+    put(0x208, [2, 0, 0, 0, 1, 0]);
+    const header = new Uint8Array(32);
+    const size = header.length + image.length;
+    header.set([0x4d, 0x5a, size % 512, 0, Math.ceil(size / 512), 0, 0, 0, 2, 0]);
+    return Uint8Array.from([...header, ...image]);
+  }
+
+  it("gives each type its place in the table the start-up code writes into the records", () => {
+    expect([...readToonsBinKinds(program())].sort()).toEqual([
+      [0, 1],
+      [1, 2],
+      [2, 0],
+    ]);
+  });
+
+  it("is empty for a program without the code", () => {
+    expect(readToonsBinKinds(new Uint8Array(64)).size).toBe(0);
   });
 });
