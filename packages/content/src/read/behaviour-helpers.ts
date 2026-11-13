@@ -317,10 +317,22 @@ function directFootprint(code: RoutineCode, dataSegment: number): { writes: Engi
     if (previous !== undefined && previous !== key) changed.add(dest.name);
     definitions.set(dest.name, key);
   }
+  // A frame slot the routine stores to more than once, or an argument it replaces, holds no one pointer: a register
+  // loaded from it is not tied to anything.
+  const slotStores = code.instructions.flatMap((i) => {
+    const dest = i.operands[0];
+    return explicitWrite(i) && stackMemory(dest)
+      ? [{ from: dest.displacement, to: dest.displacement + dest.width / 8 }]
+      : [];
+  });
+  const replaced = (slot: number) =>
+    slotStores.filter((store) => store.from < slot + 2 && slot < store.to).length > (slot >= argumentOffset ? 0 : 1);
   for (const i of code.instructions) {
     const [dest, source] = i.operands;
     if (i.mnemonic === "mov" && isRegister(dest)) {
-      if (stackMemory(source) && source.displacement >= argumentOffset) {
+      if (stackMemory(source) && replaced(source.displacement)) {
+        bindings.delete(dest.name);
+      } else if (stackMemory(source) && source.displacement >= argumentOffset) {
         bindings.set(dest.name, { argument: source.displacement, path: [], displacement: 0 });
       } else if (stackMemory(source) && locals.has(source.displacement)) {
         bindings.set(dest.name, locals.get(source.displacement)!);

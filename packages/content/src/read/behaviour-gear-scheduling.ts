@@ -168,7 +168,7 @@ function dispatch(
     operand.width !== 32 ||
     operand.base.join() !== "bx" ||
     operand.direct ||
-    call.prefixes.some((p) => p !== "es") ||
+    call.prefixes.length !== 0 ||
     !plain(cleanup, "pop") ||
     !reg(cleanup!.operands[0], "cx") ||
     !plain(advance, "mov") ||

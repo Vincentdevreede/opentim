@@ -89,7 +89,9 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
     dispatches.set(field, [...(dispatches.get(field) ?? []), at]);
   }
   const fields = [...dispatches.keys()].sort((a, b) => a - b);
-  if (fields.length !== 6 || fields.some((f, i) => i > 0 && f !== fields[i - 1]! + 4)) {
+  // The roles are named by their order only when the six slots are next to each other.
+  const contiguous = fields.length === 6 && fields.every((f, i) => i === 0 || f === fields[i - 1]! + 4);
+  if (!contiguous) {
     result.diagnostics.push(
       `Expected six contiguous far callback fields dispatched through the discovered table; found ${fields.map((f) => `0x${f.toString(16)}`).join(", ") || "none"}.`,
     );
@@ -99,7 +101,7 @@ export function discoverBehaviourLayout(image: Uint8Array, table: number, typeCo
     const sites = dispatches.get(field)!;
     result.callbacks.push({
       field,
-      role: fields.length === 6 ? roles[index]! : `callback at record +0x${field.toString(16)}`,
+      role: contiguous ? roles[index]! : `callback at record +0x${field.toString(16)}`,
       sites,
       confidence: "inferred",
       evidence: sites.flatMap((at) => instructionEvidence(image, windows.get(at)!.start, windows.get(at)!.end)),

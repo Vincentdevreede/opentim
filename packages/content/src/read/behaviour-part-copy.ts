@@ -4,10 +4,11 @@
  * uses it to split a brick or wood wall. Checked against its complete instruction graph, its summary says it changes
  * no existing part or record, so a caller keeps every field it knew.
  */
-import { discoverConstructorCleanup } from "./behaviour-owned-constructors.ts";
+import { discoverConstructorCleanup, proveFactoryAllocation } from "./behaviour-owned-constructors.ts";
 import { matchHeapRoutine } from "./behaviour-heap-release.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
+import type { Finding } from "./behaviour.ts";
 import { partCopyPatterns } from "./behaviour-part-copy-patterns.ts";
 import { routineEvidence } from "./behaviour-terms.ts";
 
@@ -16,15 +17,17 @@ export const PART_COPY_ASSUMPTIONS = [
   "Releasing a copy that was never linked, after one of its allocations failed, frees only the copy and the records it made for it, and changes nothing else.",
 ];
 /** The size of a part, the block the copy allocates for itself. */
-const PART_SIZE = 0xa2;
+export const PART_SIZE = 0xa2;
 /** The fields of the copy its release frees: the outline buffer, the belt record and the rope record. */
-const RELEASED_FIELDS = [0x82, 0x54, 0x66];
+export const RELEASED_FIELDS = [0x82, 0x54, 0x66];
 
 /** Adds the part copy's summary where its graph matches and its allocator and release are the ones the proof needs. */
 export function addPartCopySummary(
   codes: Map<number, RoutineCode>,
   summaries: Map<number, EngineSummary>,
   patterns: string[] = partCopyPatterns,
+  clearedAllocation: (allocate: number) => Finding | undefined = (allocate) =>
+    factoryClearedAllocation(allocate, codes, summaries),
 ): void {
   for (const code of codes.values()) {
     if (code.status !== "complete") continue;
@@ -32,14 +35,17 @@ export function addPartCopySummary(
     if (!bound) continue;
     const allocate = summaries.get(bound.get("allocate")!);
     if (allocate?.kind !== "nullable-allocation" || allocate.returnPointerClass !== "nullable-fresh") continue;
+    // The copy's release relies on the block being zero filled, so that fill must be proved on every nonnull return.
+    const cleared = clearedAllocation(allocate.address);
+    if (!cleared) continue;
     // The release frees the copy's outline, belt and rope records, each only when set, and then the copy. The copy
     // sets them only from its own allocations, and the zero filled block holds zero in the others. That the release
     // changes nothing else is the second assumption.
     const releaseCode = codes.get(bound.get("release")!);
     const cleanup = releaseCode && discoverConstructorCleanup(releaseCode, PART_SIZE);
     if (!cleanup || cleanup.releaseFields.some((field, n) => field !== RELEASED_FIELDS[n])) continue;
-    const evidence = [...routineEvidence(code), ...allocate.evidence, ...cleanup.evidence];
-    const assumptions = [...new Set([...PART_COPY_ASSUMPTIONS, ...allocate.assumptions])];
+    const evidence = [...routineEvidence(code), ...allocate.evidence, ...cleared.evidence, ...cleanup.evidence];
+    const assumptions = [...new Set([...PART_COPY_ASSUMPTIONS, ...allocate.assumptions, ...cleared.assumptions])];
     const note = "Allocating and releasing change the heap's own records and globals.";
     summaries.set(code.address, {
       confidence: "inferred",
@@ -86,5 +92,18 @@ export function addPartCopySummary(
         unknownGlobalEffects: [note],
       },
     });
+  }
+}
+
+/** The proof that an allocator a part factory calls fills every block it returns with zero, when there is one. */
+function factoryClearedAllocation(
+  allocate: number,
+  codes: Map<number, RoutineCode>,
+  summaries: Map<number, EngineSummary>,
+): Finding | undefined {
+  for (const factory of summaries.values()) {
+    if (!factory.factory) continue;
+    const proof = proveFactoryAllocation(factory, codes, summaries);
+    if (proof?.allocate === allocate) return proof.cleared;
   }
 }

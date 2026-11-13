@@ -212,9 +212,16 @@ function sparseJumpTable(image: Uint8Array, jump: Instruction, instructions: Ins
 
 /**
  * Resolves a compiler switch only when its unsigned range check, scaling and table access agree. The bound must
- * guard the table path. A plausible run of words in the image alone is never sufficient to create code targets.
+ * guard the table path: the range check is the only way into the shift, and the shift the only way into the jump.
+ * A plausible run of words in the image alone is never sufficient to create code targets.
  */
-function jumpTable(image: Uint8Array, jump: Instruction, instructions: Instruction[]): JumpTable | undefined {
+function jumpTable(
+  image: Uint8Array,
+  jump: Instruction,
+  instructions: Instruction[],
+  edges: RoutineEdge[],
+  entry: number,
+): JumpTable | undefined {
   const operand = jump.operands[0];
   if (operand?.kind !== "memory" || operand.segment !== "cs" || operand.width !== 16 || operand.base.length !== 1)
     return undefined;
@@ -268,6 +275,16 @@ function jumpTable(image: Uint8Array, jump: Instruction, instructions: Instructi
         fallback.target.address !== shift.address &&
         fallback.target.address !== jump.address;
     } else continue;
+    // The routine's entry is a way in too, though no edge leads to it.
+    const onlyWayIn = (to: number, from: number) =>
+      to !== entry && edges.every((edge) => edge.to !== to || edge.from === from);
+    // The range check holds only when every way to the shift goes through the comparison and then the branch.
+    if (
+      !onlyWayIn(branch.address, compare.address) ||
+      !onlyWayIn(shift.address, branch.address) ||
+      !onlyWayIn(jump.address, shift.address)
+    )
+      return undefined;
     if (!guarded || count <= 0 || count > 256) return undefined;
     const destinations: JumpTable["destinations"] = [];
     for (let index = 0; index < count; index++) {
@@ -313,6 +330,7 @@ export function readRoutineCode(image: Uint8Array, entry: CodeAddress, dataSegme
   const seen = new Set<string>();
   const occupied = new Map<number, number>();
   const unresolvedJumps = new Map<number, Instruction>();
+  const guardedJumps: Instruction[] = [];
   const add = (from: Instruction, to: CodeAddress, kind: RoutineEdge["kind"], condition?: string) => {
     result.edges.push({ from: from.address, to: to.address, kind, ...(condition ? { condition } : {}) });
     pending.push(to);
@@ -325,10 +343,10 @@ export function readRoutineCode(image: Uint8Array, entry: CodeAddress, dataSegme
     if (!pending.length) {
       let resolved = false;
       for (const [address, instruction] of unresolvedJumps) {
-        const table =
-          jumpTable(image, instruction, result.instructions) ??
-          sparseJumpTable(image, instruction, result.instructions);
+        const guarded = jumpTable(image, instruction, result.instructions, result.edges, entry.address);
+        const table = guarded ?? sparseJumpTable(image, instruction, result.instructions);
         if (!table) continue;
+        if (guarded) guardedJumps.push(instruction);
         resolved = true;
         unresolvedJumps.delete(address);
         for (const destination of table.destinations) {
@@ -447,6 +465,10 @@ export function readRoutineCode(image: Uint8Array, entry: CodeAddress, dataSegme
     result.edges.push({ from: address, to: null, kind: "unresolved" });
     uncertain(`Indirect jump at ${location(address)} has no structurally established table bound`);
   }
+  // Code read after a table was accepted may have found another way into its shift or jump.
+  for (const jump of guardedJumps)
+    if (!jumpTable(image, jump, result.instructions, result.edges, entry.address))
+      uncertain(`The range check before the jump table at ${location(jump.address)} can be bypassed`);
   result.instructions.sort((a, b) => a.address - b.address);
   const addresses = [...occupied.keys()].sort((a, b) => a - b);
   for (const address of addresses) {

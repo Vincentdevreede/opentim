@@ -26,11 +26,31 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
     return out;
   }
 
+  /**
+   * Where a looping sound is after playing for some seconds: it plays up to the loop's end once, then repeats the part
+   * between the loop's start and end, as Web Audio does. A loop that isn't one (end not after start) is the whole sound.
+   */
+  function looped(t: number): number {
+    const [start, end] = loopBounds();
+    return t < end || end <= start ? t : start + ((t - start) % (end - start));
+  }
+
+  /**
+   * The loop's start and end in seconds, with an end past the sound cut to the sound's end, as Web Audio does. A loop
+   * that isn't one is the whole sound.
+   */
+  function loopBounds(): [number, number] {
+    const s = sample.value;
+    const start = s ? s.loopStart / s.rate : 0;
+    const end = Math.min(s ? s.loopEnd / s.rate : 0, length.value);
+    return start >= 0 && end > start ? [start, end] : [0, length.value];
+  }
+
   /** Where playback is now, wrapping around while it loops. */
   function now(): number {
     if (!context || !playing.value) return position.value;
     const t = context.currentTime - startedAt;
-    return loop.value && length.value ? t % length.value : Math.min(t, length.value);
+    return loop.value && length.value ? looped(t) : Math.min(t, length.value);
   }
 
   function tick() {
@@ -59,6 +79,9 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
     buffer ??= audioBuffer(context, s);
     stopSource();
     if (from >= length.value) from = 0;
+    // Web Audio starts a looping sound that is asked to start past the loop's end at the loop's end.
+    const end = loopBounds()[1];
+    if (loop.value && from > end) from = end;
     const node = context.createBufferSource();
     node.buffer = buffer;
     node.loop = loop.value;
@@ -101,11 +124,11 @@ export function useSamplePlayer(sample: Ref<Pcm | undefined>) {
   });
   watch(volume, (v) => gain && (gain.gain.value = v));
   watch(loop, (on) => {
-    if (!source) return;
-    // Turning the loop off while past the loop's end would stop at once; restart from where playback is instead.
-    const at = now();
+    if (!source || !context) return;
     source.loop = on;
-    if (!on) startedAt = (context?.currentTime ?? 0) - at;
+    // Turning the loop off while past the loop's end would stop at once; restart from where playback is instead.
+    // The loop is already off here, so work out that place as for a sound that loops.
+    if (!on && length.value) startedAt = context.currentTime - looped(context.currentTime - startedAt);
   });
 
   onBeforeUnmount(() => {

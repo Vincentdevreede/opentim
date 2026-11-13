@@ -39,6 +39,9 @@ function routines(belt?: number) {
   );
 }
 const pattern = ["push bp", "mov bp,sp", "callf $allocate", "callf $release", "pop bp", "retf"].join("\n");
+/** Stands in for the proof that the allocator zero fills every block it returns. */
+const CLEARED = { ...fact, assumptions: ["Every nonnull return is zero filled."] };
+const cleared = (address: number) => (address === ALLOCATE ? CLEARED : undefined);
 function allocator(kind = "nullable-allocation"): Map<number, EngineSummary> {
   return new Map([
     [
@@ -68,7 +71,7 @@ function allocator(kind = "nullable-allocation"): Map<number, EngineSummary> {
 describe("the part copy", () => {
   it("returns a fresh part or zero and changes no existing part", () => {
     const summaries = allocator();
-    addPartCopySummary(routines(), summaries, [pattern]);
+    addPartCopySummary(routines(), summaries, [pattern], cleared);
     const summary = summaries.get(COPY)!;
     expect(summary.kind).toBe("part-copy");
     expect(summary.returnPointerClass).toBe("nullable-fresh");
@@ -79,15 +82,24 @@ describe("the part copy", () => {
       preservesPartState: true,
     });
     expect(summary.returns.map((returned) => returned.pointer?.kind)).toEqual(["fresh", "constant"]);
-    expect(summary.assumptions).toEqual(expect.arrayContaining(PART_COPY_ASSUMPTIONS));
+    expect(summary.assumptions).toEqual(expect.arrayContaining([...PART_COPY_ASSUMPTIONS, ...CLEARED.assumptions]));
   });
 
   it("is not summarised when the allocator or the release isn't the one the proof needs", () => {
     const other = allocator("call-wrapper");
-    addPartCopySummary(routines(), other, [pattern]);
+    addPartCopySummary(routines(), other, [pattern], cleared);
     expect(other.has(COPY)).toBe(false);
     const summaries = allocator();
-    addPartCopySummary(routines(0x56), summaries, [pattern]);
+    addPartCopySummary(routines(0x56), summaries, [pattern], cleared);
+    expect(summaries.has(COPY)).toBe(false);
+  });
+
+  it("is not summarised when no proof says its allocator clears the block", () => {
+    const summaries = allocator();
+    addPartCopySummary(routines(), summaries, [pattern], () => undefined);
+    expect(summaries.has(COPY)).toBe(false);
+    // Without a part factory there is no proof either.
+    addPartCopySummary(routines(), summaries, [pattern]);
     expect(summaries.has(COPY)).toBe(false);
   });
 });

@@ -130,6 +130,10 @@ export interface RoutineOutcome extends Finding {
   keepsState?: true;
   condition: Predicate;
   fields: FieldWrite[];
+  /** The globals the path leaves, for a caller to compose. */
+  globals?: FieldWrite[];
+  /** Something on the path may have changed any global, so a caller forgets the globals it knew before the call. */
+  forgetsGlobals?: true;
   returnValue: Expression;
   returnConfidence?: Confidence;
   returnPointer?: { object: string; displacement: number };
@@ -328,6 +332,7 @@ const selectedWrite = (effect: { offset: number; width: number }, i: Instruction
     unresolved: true,
   }) as Expression;
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
+const FRESH_OBJECT = /^(nullable allocation|fresh object) returned at 0x[0-9a-f]+$/;
 const signed = (n: number, width: number) => {
   const u = unsigned(n, width);
   return u >= 2 ** (width - 1) ? u - 2 ** width : u;
@@ -1001,6 +1006,11 @@ const clone = (s: AbstractState): AbstractState => ({
   findFirst: s.findFirst && new Set(s.findFirst),
   ownerMayBeListed: s.ownerMayBeListed && new Set(s.ownerMayBeListed),
 });
+/** Forgets every global the path knew, after something at `address` may have changed any of them. */
+function forgetGlobals(s: AbstractState, address: number) {
+  for (const key of s.memory.keys()) if (key.startsWith("data:")) s.memory.delete(key);
+  s.globalHavocAt = address;
+}
 const wordOfByte: Record<string, string> = {
   al: "ax",
   ah: "ax",
@@ -1362,16 +1372,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       // LES/LDS explicitly associates the segment register with the same far pointer.
       const paired = seg.kind === "pointer" && seg.object === pointer.value.object;
       if (!validSegment && !paired) return undefined;
+      const offset =
+        pointer.value.displacement +
+        operand.displacement +
+        addressBases
+          .filter((v) => v !== pointer)
+          .reduce((n, v) => n + (v.value.kind === "constant" ? v.value.value : 0), 0);
       return {
         object: pointer.value.object,
-        offset: unsigned(
-          pointer.value.displacement +
-            operand.displacement +
-            addressBases
-              .filter((v) => v !== pointer)
-              .reduce((n, v) => n + (v.value.kind === "constant" ? v.value.value : 0), 0),
-          16,
-        ),
+        // Frame cells are kept at signed offsets from BP, so a pointer to a local reaches the cell BP reaches.
+        offset: pointer.value.object === "stack" ? signed(offset, 16) : unsigned(offset, 16),
         width: operand.width,
         uncertain: pointer.value.object !== "part",
         evidence: base.flatMap((v) => v.evidence),
@@ -1421,34 +1431,35 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       return cached;
     }
-    if (
-      l &&
-      !["stack", "data"].includes(l.object) &&
-      (s.havoc ||
-        s.partMemoryHavocAt !== undefined ||
-        s.fieldHavoc?.some((f) => l.offset < f.offset + f.width / 8 && f.offset < l.offset + l.width / 8))
-    ) {
-      // A partial store supersedes an earlier field version even when no exact-width cell remains cached.
-      for (const [key, cell] of [...s.memory].reverse()) {
+    if (l) {
+      // A store at another width or offset that overlaps the read supersedes the version the routine started with.
+      let latest: { offset: number; width: number; cell: Tracked } | undefined;
+      for (const [key, cell] of s.memory) {
         const parts = key.split(":"),
           width = Number(parts.pop()),
           offset = Number(parts.pop()),
           object = parts.join(":");
         if (
-          object !== l.object ||
-          cell.writtenAt === undefined ||
-          offset >= l.offset + l.width / 8 ||
-          l.offset >= offset + width / 8
+          object === l.object &&
+          cell.writtenAt !== undefined &&
+          offset < l.offset + l.width / 8 &&
+          l.offset < offset + width / 8
         )
-          continue;
+          latest = { offset, width, cell };
+      }
+      if (latest) {
+        const { offset, width, cell } = latest;
         if (offset <= l.offset && offset + width / 8 >= l.offset + l.width / 8 && cell.value.kind === "constant")
           return tracked(
             constant(unsigned(cell.value.value >>> ((l.offset - offset) * 8), l.width), l.width),
             cell.evidence,
           );
+        // A local mixed from stores of other widths is no pointer the analysis can follow.
+        if (l.object === "stack")
+          return tracked(unknown(`Local mixed from a store at ${hex(cell.writtenAt!)}`, l.width), cell.evidence);
         return tracked(
           {
-            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt)}`, l.offset, l.width),
+            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt!)}`, l.offset, l.width),
             unresolved: true,
           } as Expression,
           cell.evidence,
@@ -1536,6 +1547,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           ]);
         }
       }
+      // Every read through an unknown address would have the same text, and could pass for one value of the run.
+      if (index.kind === "unknown")
+        return tracked(
+          unknown(`Read through an unknown address: ${index.reason}`, operand.width),
+          base.flatMap((v) => v.evidence),
+        );
       return tracked(
         { kind: "table", segment: seg.value, offset: operand.displacement, index, width: operand.width },
         base.flatMap((v) => v.evidence),
@@ -1667,7 +1684,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const expr = asExpression(value.value);
     const f = finding(expr, condition, s, [...e, ...l.evidence]);
     if (l.uncertain) f.confidence = "unresolved";
-    if (!["stack", "data"].includes(l.object))
+    if (l.object !== "stack")
       writes.push({
         ...f,
         object: l.object,
@@ -1840,7 +1857,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (expression.kind === "field") {
       if (expression.object.startsWith("address of ")) {
         const pointer = formalObject(expression.object.slice("address of ".length), args, base, s, ownerOffset);
-        return tracked(asExpression(pointer.value), pointer.evidence);
+        // The caller's pointer stays one, so a store through a copy of it, like one kept in a global, reaches its object.
+        return pointer.value.kind === "pointer" ? pointer : tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
       // Whether a helper's allocation found room, like the wall split's copy: only the run knows, so it is named.
@@ -1877,6 +1895,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (expression.kind === "binary") {
       const left = formalValue(expression.left, args, base, s, ownerOffset, budget);
       const right = formalValue(expression.right, args, base, s, ownerOffset, budget);
+      // A pointer moved by a constant stays a pointer, so a store through it, like `[pointer-0x14]`, reaches its object.
+      if (
+        left.value.kind === "pointer" &&
+        right.value.kind === "constant" &&
+        (expression.operator === "+" || expression.operator === "-")
+      )
+        return tracked(
+          {
+            ...left.value,
+            displacement:
+              left.value.displacement + (expression.operator === "+" ? right.value.value : -right.value.value),
+          },
+          uniqueEvidence([...left.evidence, ...right.evidence]),
+        );
       return tracked(
         binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width, budget),
         uniqueEvidence([...left.evidence, ...right.evidence]),
@@ -3084,7 +3116,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       : null;
     if (from?.length === 0 || !possible(condition)) return;
     const f = finding(to, condition, s, [...(value?.evidence ?? []), evidenceOf(i)]);
-    const updates: FieldWrite[] = [];
+    const updates: FieldWrite[] = [],
+      globals: FieldWrite[] = [];
     for (const [key, final] of s.memory) {
       const split = key.lastIndexOf(":");
       const before = key.slice(0, split);
@@ -3092,9 +3125,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const object = before.slice(0, separator);
       const offset = Number(before.slice(separator + 1));
       const width = Number(key.slice(split + 1));
-      if (object === "stack" || object === "data") continue;
+      if (object === "stack") continue;
       const expression = asExpression(final.value);
-      updates.push({
+      (object === "data" ? globals : updates).push({
         object,
         offset,
         width,
@@ -3137,6 +3170,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ...(!s.uncertain && s.partMemoryHavocAt !== undefined ? { keepsState: true as const } : {}),
       condition,
       fields: updates,
+      ...(globals.length ? { globals } : {}),
+      ...(s.globalHavocAt !== undefined ? { forgetsGlobals: true as const } : {}),
       returnValue: asExpression(returned.value),
       ...(returned.value.kind === "pointer"
         ? { returnPointer: { object: returned.value.object, displacement: returned.value.displacement } }
@@ -3295,13 +3330,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         // A listed member's field is never the owner's: the scan's summary lists every field it may write on the owner
         // as the owner's own (a query that may list the owner, or a global list), and otherwise the owner is not on the
         // list (the query's checked test against the part that asks, or the external list's contract).
-        if (s.fieldHavoc?.length && !["stack", "data", "buffer"].includes(effect.object))
-          s.fieldHavoc.push({
-            offset: effect.offset,
-            width: effect.width,
-            address: i.address,
-            exceptOwner: effect.object !== "part",
-          });
+        if (!["stack", "data", "buffer"].includes(effect.object))
+          s.fieldHavoc = [
+            ...(s.fieldHavoc ?? []),
+            { offset: effect.offset, width: effect.width, address: i.address, exceptOwner: effect.object !== "part" },
+          ];
         if (effect.object === "stack" && effect.operand) {
           if (
             list.possibleFields.indexOf(effect) !==
@@ -3660,13 +3693,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 if (!["part", "stack", "data"].includes(parts.join(":"))) s.memory.delete(key);
               }
             } else if (effect.object !== "data") {
-              if (s.fieldHavoc?.length)
-                s.fieldHavoc.push({
+              s.fieldHavoc = [
+                ...(s.fieldHavoc ?? []),
+                {
                   offset: effect.offset,
                   width: effect.width,
                   address: i.address,
                   exceptOwner: effect.preservesOwnerValue ?? false,
-                });
+                },
+              ];
               // Related-object aliases can change a field of the owner, but the invariant excludes the state.
               for (const [key] of s.memory) {
                 const parts = key.split(":");
@@ -4025,13 +4060,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         const third = read(i.operands[2], s);
         write(dest, tracked(binary("*", bv, asExpression(third.value)), [...e, ...third.evidence]), s, i);
       } else {
-        const ax = registerRead(
-          dest?.kind === "memory" || dest?.kind === "register" ? (dest.width === 8 ? "al" : "ax") : "ax",
-          s,
-        );
+        const bytes = (dest?.kind === "memory" || dest?.kind === "register") && dest.width === 8;
+        const ax = registerRead(bytes ? "al" : "ax", s);
+        // A signed product of bytes fills AX, so both bytes are widened with their sign first, as CBW does.
+        const widen = (value: Expression) =>
+          bytes && i.mnemonic === "imul" ? binary(">>", binary("<<", value, constant(8), 16), constant(8), 16) : value;
         write(
           { kind: "register", name: "ax", width: 16 },
-          tracked(binary("*", asExpression(ax.value), av, 16), [...ax.evidence, ...e]),
+          tracked(binary("*", widen(asExpression(ax.value)), widen(av), 16), [...ax.evidence, ...e]),
           s,
           i,
         );
@@ -4687,7 +4723,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             summary.objectPointer.argumentOffset,
           );
           if (!possible(conjunction([...s.conditions, condition]))) continue;
-          const mapped = outcome.fields.map((effect) => ({
+          const mapped = [...outcome.fields, ...(outcome.globals ?? [])].map((effect) => ({
             effect,
             pointer: formalObject(
               effect.object,
@@ -4711,15 +4747,17 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           branch.conditions.push(condition);
           branch.assumptions = [...new Set([...branch.assumptions, ...outcome.assumptions])];
           branch.evidence.push(evidenceOf(i), ...outcome.evidence);
+          if (outcome.forgetsGlobals) forgetGlobals(branch, i.address);
           for (const item of mapped) {
+            const global = item.effect.object === "data";
             branch.registers.set("__summary_owner", item.pointer);
             write(
               {
                 kind: "memory",
                 segment: "ds",
-                base: ["__summary_owner"],
+                base: global ? [] : ["__summary_owner"],
                 displacement: item.effect.offset,
-                direct: false,
+                direct: global,
                 width: item.effect.width === 8 ? 8 : 16,
               },
               tracked(
@@ -4888,6 +4926,50 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             tracked(unknown(`Unresolved side effects of call at ${hex(i.address)}`), [evidenceOf(i)]),
           );
           s.stateWritten = true;
+        }
+      }
+      // A helper's stores to globals or through another pointer, like a local whose address the caller passed or an
+      // object the part points to, may have been made: what they reach is no longer known.
+      if (summary && !summary.uncertainEffects) {
+        if (summary.outcomes?.some((outcome) => outcome.forgetsGlobals)) forgetGlobals(s, i.address);
+        const base = summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset;
+        for (const effect of summary.writes) {
+          // Storage the helper allocated is new: nothing the caller knew can be in it. The part's fields are composed
+          // above when the caller passes its own part; any other first argument is reached like any other pointer.
+          if (effect.object === "stack" || (effect.object === "part" && passesPart) || FRESH_OBJECT.test(effect.object))
+            continue;
+          const global = effect.object === "data";
+          const pointer = global
+            ? tracked(constant(0))
+            : formalObject(effect.object, args, base, s, summary.objectPointer.argumentOffset);
+          if (global || pointer.value.kind === "pointer") {
+            s.registers.set("__summary_other", pointer);
+            write(
+              {
+                kind: "memory",
+                segment: "ds",
+                base: global ? [] : ["__summary_other"],
+                displacement: effect.offset,
+                direct: global,
+                width: effect.width === 8 ? 8 : 16,
+              },
+              tracked(unknown(`Possible effect of helper ${hex(summary.address)} on ${effect.object}`), [
+                evidenceOf(i),
+                ...effect.evidence,
+              ]),
+              s,
+              i,
+            );
+            s.registers.delete("__summary_other");
+            continue;
+          }
+          s.uncertain = true;
+          uncertainEffects = true;
+          const passesLocal = args.some((arg) => arg.value.kind === "pointer" && arg.value.object === "stack");
+          for (const key of s.memory.keys())
+            if (key.startsWith("stack:") ? passesLocal && Number(key.split(":")[1]) < 0 : !key.startsWith("part:"))
+              s.memory.delete(key);
+          diagnostics.add(`Effects of call at ${hex(i.address)} on ${effect.object} are not fully composed`);
         }
       }
       for (const name of ["ax", "bx", "cx", "dx", "es"])
@@ -5343,6 +5425,11 @@ export function readBehaviourInSteps(
 ): { report: BehaviourReport; readLoopsPerType(onProgress?: ReadProgress): void } {
   /** The loops over found parts to read once for each type, after the rest. */
   const loopsPerType: (() => void)[] = [];
+  /** Starts the routines' reads over. A loop queued for a read that is forgotten would be read again for nothing. */
+  const forgetSummaries = () => {
+    summaries.clear();
+    loopsPerType.length = 0;
+  };
   const image = unpackLzexe(program);
   for (const record of list.records) {
     if (!record.bytes.every((byte, index) => image[record.at + index] === byte))
@@ -5815,9 +5902,9 @@ export function readBehaviourInSteps(
             )
             .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
         : undefined;
-      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, () => summaries.clear());
+      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, forgetSummaries);
     }
-    summaries.clear();
+    forgetSummaries();
   }
   for (const [address, code] of codes)
     if (!summaries.has(address))
@@ -6171,7 +6258,7 @@ export function readBehaviourInSteps(
     timing,
     helpers: helpers.sort((a, b) => a.address - b.address),
     lifecycle,
-    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment),
+    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment, codes),
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),

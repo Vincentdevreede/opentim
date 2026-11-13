@@ -54,8 +54,8 @@ export function useSpriteKeys(
       if (e.target.closest("[data-item]"))
         void nextTick(() => document.querySelector<HTMLElement>('[data-item="selected"]')?.focus());
     } else if (e.key === " ") {
-      // A focused button already presses itself on Space.
-      if (e.target.closest("button")) return;
+      // A focused button presses itself on Space, and a disclosure's summary opens.
+      if (e.target.closest("button, summary")) return;
       e.preventDefault();
       if (!e.repeat && count.value > 1) player.playing.value = !player.playing.value;
     } else if (ZOOMS.includes(Number(e.key))) zoom.value = Number(e.key);
