@@ -1,6 +1,8 @@
 # The behaviour reader
 
-`packages/content/src/read` reads what each part type does from TIM.EXE (TIM 1 and Even More) without running it.
+`packages/content/src/read` reads what each part type does from TIM.EXE (TIM 1 and Even More) without running it. It
+also runs on TIM2.EXE and TOONS.EXE, with a profile per game for what differs (see below and
+[the research](../research/behaviour/tim2-and-toons.md)); most of their routines are only read in part so far.
 The result is a `BehaviourReport`. [descriptions-and-goals.md](descriptions-and-goals.md) covers what turns the report
 into words and walks; [the research](../research/behaviour/README.md) says what the reader found, part by part.
 
@@ -12,8 +14,12 @@ hard-codes an address of one build; comments name example addresses "in Even Mor
 - `readBehaviourInSteps(program, parts, onProgress?)` in `behaviour.ts` returns `{ report, readLoopsPerType }`.
   `readLoopsPerType(onProgress?)` does the slow extra step later and changes the report's routines in place.
 - `readBehaviour(program, parts)` does both at once.
-- `program` is the packed TIM.EXE; `parts` is a `ProgramParts` from `readProgramParts` (`parts.ts`): the part list, the
-  58-byte type records, the type table's address and the data segment.
+- `program` is the game's program as it ships; `parts` is a `ProgramParts` (`parts.ts`): the part list, the type
+  records, the type table's address and the data segment. `readProgramParts` gives it for TIM 1 and Even More,
+  `readTim2ProgramParts` for TIM 2 and `readToonsParts` for Toons.
+- The part list's id picks the game's `BehaviourProfile` (`behaviour-program.ts`): how the program is stored (LZEXE or
+  overlays), the record size, how the code finds a record (by multiplying or through a table of near pointers), whether
+  a part is a near or a far pointer, and the record's routines after the six callbacks. Any other id reads as TIM.EXE.
 
 The Lab runs it in a worker (see [lab.md](lab.md)); `extract-behaviour` runs it without the per-type loops, because
 those would make a saved report too large.
@@ -22,9 +28,13 @@ those would make a saved report too large.
 
 In order (all in `behaviour.ts` unless named):
 
-1. **Unpack**: `unpackLzexe` (`lzexe.ts`) gives the load image. Each type record is checked against it.
+1. **Unpack**: `loadBehaviourImage` (`behaviour-program.ts`) gives the image: `unpackLzexe` (`lzexe.ts`) for TIM.EXE,
+   or `loadOverlaidProgram` for TIM2.EXE and TOONS.EXE, which lays out every overlay and leads far calls through the
+   overlay stubs to the routines. Each type record is checked against the load image as the file holds it.
 2. **Layout**: `discoverBehaviourLayout` (`behaviour-layout.ts`) proves the six callback slots of a type record and
-   their roles: 0 bounce, 1 run, 2 reset, 3 flip, 4 resize, 5 rope. It also finds where the object argument sits on
+   their roles: 0 bounce, 1 run, 2 reset, 3 flip, 4 resize, 5 rope. It finds the calls the profile's way (TIM2.EXE
+   through its table of record pointers) and the state either from TIM.EXE's frame drawing or from TOONS.EXE's, which
+   reaches the record through a far pointer. It also finds where the object argument sits on
    the stack and names part fields (`type`, `state`, `drawingFlags`, …); `behaviour-fields.ts` names more by how
    they are used. The read stops if this can't be proved.
 3. **Timing**: `findBehaviourTiming` (`behaviour-timing.ts`): the PIT setting and the wait loop.
@@ -140,7 +150,7 @@ bindings)` in `behaviour-heap-release.ts`, and `matchFirst(code, patterns)` in `
 
 ## The files by role
 
-**Core**: `lzexe.ts` (unpack), `x86.ts` (decoder), `type-table.ts` and `parts.ts` (data segment, type records, part
+**Core**: `lzexe.ts` (unpack), `behaviour-program.ts` (the profiles and the overlay layout), `x86.ts` (decoder), `type-table.ts` and `parts.ts` (data segment, type records, part
 lists), `behaviour-code.ts` (graphs), `behaviour.ts` (pipeline, `analyseRoutine`, expression algebra),
 `behaviour-terms.ts` (shared small helpers), `behaviour-layout.ts`, `behaviour-fields.ts`, `behaviour-timing.ts`,
 `behaviour-scalars.ts`, `behaviour-geometry-relations.ts`.

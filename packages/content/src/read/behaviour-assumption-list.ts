@@ -46,9 +46,14 @@ export function collectAssumptions(report: BehaviourReport): Map<string, Assumpt
   return uses;
 }
 
-type Game = "tim1" | "evenmore";
+type Game = "tim1" | "evenmore" | "tim2" | "toons";
+const GAMES: Game[] = ["tim1", "evenmore", "tim2", "toons"];
+const GAME_NAMES: Record<Game, string> = { tim1: "TIM 1", evenmore: "Even More", tim2: "TIM 2", toons: "Toons" };
+/** The games the list always has a column for; the others get one when builds of theirs were read. */
+const ALWAYS_SHOWN: Game[] = ["tim1", "evenmore"];
+type GameUse = { builds: number; findings: number; parts: Set<string> };
 /** The uses of each assumption in the builds of each game. */
-export type AssumptionTable = Map<string, Record<Game, { builds: number; findings: number; parts: Set<string> }>>;
+export type AssumptionTable = Map<string, Partial<Record<Game, GameUse>>>;
 
 /** Adds one build's uses to the table. */
 export function addBuild(table: AssumptionTable, game: Game, uses: Map<string, AssumptionUse>): void {
@@ -57,9 +62,10 @@ export function addBuild(table: AssumptionTable, game: Game, uses: Map<string, A
       tim1: { builds: 0, findings: 0, parts: new Set<string>() },
       evenmore: { builds: 0, findings: 0, parts: new Set<string>() },
     };
-    row[game].builds++;
-    row[game].findings = Math.max(row[game].findings, use.findings);
-    for (const part of use.parts) row[game].parts.add(part);
+    const cell = (row[game] ??= { builds: 0, findings: 0, parts: new Set<string>() });
+    cell.builds++;
+    cell.findings = Math.max(cell.findings, use.findings);
+    for (const part of use.parts) cell.parts.add(part);
     table.set(key, row);
   }
 }
@@ -79,11 +85,15 @@ function partsText(parts: Set<string>): string {
 }
 
 /** The generated list, from the table of every build read. */
-export function renderAssumptions(table: AssumptionTable, builds: Record<Game, number>): string {
+export function renderAssumptions(table: AssumptionTable, builds: Partial<Record<Game, number>>): string {
   const decided = new Set(DECIDED_ASSUMPTIONS.flatMap((group) => group.assumptions).map(assumptionKey));
+  const games = GAMES.filter((game) => ALWAYS_SHOWN.includes(game) || builds[game]);
   const use = (row: NonNullable<ReturnType<AssumptionTable["get"]>>, game: Game) =>
-    row[game].builds ? `${row[game].findings.toLocaleString("en-GB")} · ${row[game].builds}/${builds[game]}` : "–";
-  const total = (key: string) => table.get(key)!.tim1.findings + table.get(key)!.evenmore.findings;
+    row[game]?.builds
+      ? `${row[game].findings.toLocaleString("en-GB")} · ${row[game].builds}/${builds[game] ?? 0}`
+      : "–";
+  const total = (key: string) => games.reduce((n, game) => n + (table.get(key)![game]?.findings ?? 0), 0);
+  const counts = games.map((game) => `${builds[game] ?? 0} ${GAME_NAMES[game]}`);
   const lines = [
     "# All behaviour assumptions",
     "",
@@ -104,16 +114,16 @@ export function renderAssumptions(table: AssumptionTable, builds: Record<Game, n
     "findings stating the assumption in one build, then in how many of the builds read it appears. Parts are those whose",
     "own findings or routines state it; `none, shared` means only shared helpers and report-wide findings do.",
     "",
-    `Read from ${builds.tim1} TIM 1 and ${builds.evenmore} Even More builds: ${table.size} assumptions, most used first.`,
+    `Read from ${counts.slice(0, -1).join(", ")} and ${counts.at(-1)} builds: ${table.size} assumptions, most used first.`,
     "",
-    "| Assumption | TIM 1 | Even More | Parts |",
-    "| --- | --- | --- | --- |",
+    `| Assumption | ${games.map((game) => GAME_NAMES[game]).join(" | ")} | Parts |`,
+    `| --- | ${games.map(() => "---").join(" | ")} | --- |`,
   ];
   for (const key of [...table.keys()].sort((a, b) => total(b) - total(a) || a.localeCompare(b))) {
     const row = table.get(key)!;
-    const parts = partsText(new Set([...row.tim1.parts, ...row.evenmore.parts]));
+    const parts = partsText(new Set(games.flatMap((game) => [...(row[game]?.parts ?? [])])));
     lines.push(
-      `| ${decided.has(key) ? "**decided** " : ""}${cell(key)} | ${use(row, "tim1")} | ${use(row, "evenmore")} | ${parts} |`,
+      `| ${decided.has(key) ? "**decided** " : ""}${cell(key)} | ${games.map((game) => use(row, game)).join(" | ")} | ${parts} |`,
     );
   }
   return lines.join("\n") + "\n";

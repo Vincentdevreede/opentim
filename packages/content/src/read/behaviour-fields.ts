@@ -90,8 +90,17 @@ export function discoverObjectFieldRoles(
   typeCount: number,
   callbacks: { field: number; role: string; objectSource?: { path: number[]; evidence: LayoutField["evidence"] } }[],
   known: LayoutField[],
+  {
+    records,
+    recordSize = RECORD_SIZE,
+    routine: follow = (segment, offset) => ({ segment, offset, address: segment * 16 + offset }),
+  }: {
+    records?: number[];
+    recordSize?: number;
+    routine?: (segment: number, offset: number) => { segment: number; offset: number; address: number };
+  } = {},
 ): LayoutField[] {
-  if (!Number.isInteger(typeCount) || typeCount < 0 || table < 0 || table + RECORD_SIZE * typeCount > image.length)
+  if (!Number.isInteger(typeCount) || typeCount < 0 || table < 0 || table + recordSize * typeCount > image.length)
     throw new Error("Object field discovery needs an in-image type table and its checked record count");
   const ds = findDataSegment(image);
   const word = (at: number) => image[at]! | (image[at + 1]! << 8);
@@ -99,11 +108,10 @@ export function discoverObjectFieldRoles(
   const pending: { address: number; segment: number; offset: number }[] = [];
   for (let partType = 0; partType < typeCount; partType++)
     for (const callback of callbacks) {
-      const at = table + partType * RECORD_SIZE + callback.field;
-      const offset = word(at),
-        segment = word(at + 2),
-        address = segment * 16 + offset;
-      if ((!offset && !segment) || address >= image.length) continue;
+      const at = (records?.[partType] ?? table + partType * recordSize) + callback.field;
+      if (!word(at) && !word(at + 2)) continue;
+      const { segment, offset, address } = follow(word(at + 2), word(at));
+      if (address >= image.length) continue;
       let routine = routines.get(address);
       if (!routine) {
         routine = { code: readRoutineCode(image, { address, segment, offset }, ds), uses: [] };

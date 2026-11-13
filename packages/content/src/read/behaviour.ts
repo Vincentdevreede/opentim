@@ -17,7 +17,7 @@ import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-sc
 import type { GearConflictValue } from "./behaviour-gear-model.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
-import { unpackLzexe } from "./lzexe.ts";
+import { behaviourProfile, loadBehaviourImage } from "./behaviour-program.ts";
 import { findSpeedLimitSetup, type SpeedLimitSetup } from "./behaviour-speed-limits.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
@@ -970,6 +970,8 @@ export interface RoutineOptions {
   engineSummaries?: Map<number, EngineSummary>;
   objectArgument?: "part" | "collider";
   ownerLink?: number;
+  /** How the program passes a part: TIM.EXE and TOONS.EXE as a near pointer, TIM2.EXE as a far one. */
+  partPointer?: "near" | "far";
   /** Summaries of callees already found by following code references. */
   summaries?: Map<number, RoutineAnalysis>;
   /**
@@ -3841,12 +3843,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         options.tableReads && l?.object === "stack"
           ? read({ ...source, displacement: source.displacement + 2, width: 16 }, s)
           : undefined;
+      // A far part pointer: the argument itself, or (in a bounce callback) the touched part's link to the owner.
       const object =
         l?.object === "stack" && l.offset + 2 === argumentOffset
-          ? "part"
-          : l
-            ? `referenced-by(${l.object}+${hex(l.offset)})`
-            : undefined;
+          ? (options.objectArgument ?? "part")
+          : l?.object === "collider" && l.offset === options.ownerLink
+            ? "part"
+            : l
+              ? `referenced-by(${l.object}+${hex(l.offset)})`
+              : undefined;
       // A far pointer with a constant segment addresses a table there: the register gets its offset word.
       const ptr =
         segmentWord?.value.kind === "constant"
@@ -5144,7 +5149,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       registers: [...pointerRegisters],
       confidence: pointerRegisters.size ? "inferred" : "unresolved",
       assumptions: [
-        `The first argument is a near part pointer at frame offset ${argumentOffset}, conditional on the caller passing that pointer.`,
+        options.partPointer === "far"
+          ? `The first argument is a far part pointer at frame offsets ${argumentOffset} and ${argumentOffset + 2}, conditional on the caller passing that pointer.`
+          : `The first argument is a near part pointer at frame offset ${argumentOffset}, conditional on the caller passing that pointer.`,
         "Callees preserve SI, DI, BP and DS; volatile registers are discarded.",
       ],
       evidence: uniqueEvidence(pointerEvidence),
@@ -5430,12 +5437,18 @@ export function readBehaviourInSteps(
     summaries.clear();
     loopsPerType.length = 0;
   };
-  const image = unpackLzexe(program);
+  const profile = behaviourProfile(list.list.id);
+  const loaded = loadBehaviourImage(program, profile);
+  const image = loaded.image;
   for (const record of list.records) {
-    if (!record.bytes.every((byte, index) => image[record.at + index] === byte))
+    if (!record.bytes.every((byte, index) => loaded.loadImage[record.at + index] === byte))
       throw new Error(`Type record ${record.type} does not belong to this program at ${hex(record.at)}`);
   }
-  const layout = discoverBehaviourLayout(image, list.table, list.records.length);
+  const layout = discoverBehaviourLayout(image, list.table, list.records.length, {
+    profile,
+    records: list.records.map((record) => record.at),
+    routine: loaded.routine,
+  });
   if (
     layout.callbacks.length !== 6 ||
     layout.objectArgument.offset === undefined ||
@@ -5454,9 +5467,7 @@ export function readBehaviourInSteps(
   for (const record of list.records) {
     const callbacks = Array.from({ length: 6 }, (_, slot): CallbackReference => {
       const at = callbackFields[slot]!;
-      const offset = u16(record.bytes, at);
-      const segment = u16(record.bytes, at + 2);
-      const address = segment * 16 + offset;
+      const { segment, offset, address } = loaded.routine(u16(record.bytes, at + 2), u16(record.bytes, at));
       if (address >= image.length)
         throw new Error(
           `Type ${record.type} callback ${hex(at)} points outside the image: ${hex(segment)}:${hex(offset)}`,
@@ -5637,6 +5648,7 @@ export function readBehaviourInSteps(
       engineSummaries,
       codes,
       layout,
+      ...(profile.partPointer === "far" ? { partPointer: "far" as const } : {}),
       ...(externalList ? { externalList } : {}),
       ...(callbackSlots.get(address)?.size === 1 &&
       callbackSlots.get(address)!.has(0) &&
