@@ -10,7 +10,18 @@
  * isn't 0, so a field that is always 0 doesn't look found. A field that names another part by its index in the file
  * is compared with the place of that part's record, and -1 with 0.
  *
- *   pnpm --filter @opentim/content check-level-fields --game <game folder> [--jobs 1] [--puzzles 1-20]
+ * TIM 2 and Toons: TIM2.EXE and TOONS.EXE don't start in the emulator (they ask for EMS memory), so their own level
+ * loader runs on its own (`src/run/level-start.ts`), on every level the build ships. Their loader keeps a table of the
+ * parts in the file's order, so each part pairs with the record the table holds for it; a link to another part is
+ * that part's near place (Toons) or the offset of its far pointer (TIM 2). The files keep no bin.
+ *
+ * A TIM 1 or Even More build the level recorder doesn't know (`GAME_BUILDS`) isn't checked, and the output says so.
+ *
+ *   pnpm --filter @opentim/content check-level-fields --tim1 <game folder> --evenmore <game folder>
+ *     --tim2 <game folder> --toons <game folder> [--jobs 1] [--puzzles 1-20] [--by-type]
+ *
+ * `--game <game folder>` still names a TIM 1 or Even More folder. `--puzzles` counts the levels of TIM 2 and Toons
+ * from 1 in the order of their names.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -18,7 +29,16 @@ import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { readLevel, type LevelPart } from "../src/read/level.ts";
 import { exeHash, GAME_BUILDS, loadPuzzle, PART_RECORD } from "../src/run/game.ts";
-import { readResources } from "./builds.ts";
+import {
+  buildFolders,
+  folderOptions,
+  GAMES,
+  readProgram,
+  readResources,
+  type BuildFolder,
+  type Game,
+} from "./builds.ts";
+import { gameMachine } from "./game-machine.ts";
 
 /** For one field of the file: the record offsets that held its value in every pair so far. */
 interface FieldTally {
@@ -35,6 +55,8 @@ interface FieldTally {
 
 interface PuzzleResult {
   puzzle: number;
+  /** The level's name, for TIM 2 and Toons. */
+  name?: string;
   error?: string;
   /** Each number of the file's header, with the words of the data segment that hold it after loading. */
   header: [string, number, number[]][];
@@ -180,44 +202,109 @@ function runOne(folder: string, level: Uint8Array, puzzle: number, byType: boole
   return result;
 }
 
-if (!isMainThread) {
-  const { folder, jobs, byType } = workerData as {
-    folder: string;
-    jobs: { puzzle: number; level: Uint8Array }[];
-    byType: boolean;
-  };
-  for (const { puzzle, level } of jobs) parentPort!.postMessage(runOne(folder, level, puzzle, byType));
-} else {
-  const { values } = parseArgs({
-    options: {
-      game: { type: "string" },
-      jobs: { type: "string" },
-      puzzles: { type: "string" },
-      "by-type": { type: "boolean", default: false },
-    },
+/**
+ * TIM 2 and Toons: every level of the build loaded by the game's own loader, each part paired with the record the
+ * loader's table holds for it.
+ */
+function runLoader(build: BuildFolder<"toons" | "tim2">, byType: boolean, range?: [number, number]) {
+  const found = gameMachine(build);
+  if ("problem" in found) return { problem: found.problem };
+  const { machine, start, program } = found;
+  const files = readResources(build.folder);
+  const names = [...files.keys()].filter((name) => /\.LEV$/i.test(name)).sort();
+  const results: PuzzleResult[] = [];
+  const data = program.dataSegment * 16;
+  const header = new Map<string, number[]>();
+  names.forEach((name, k) => {
+    if (range && (k + 1 < range[0] || k + 1 > range[1])) return;
+    const result: PuzzleResult = {
+      puzzle: k + 1,
+      name: name.replace(/\.LEV$/i, ""),
+      header: [],
+      parts: 0,
+      paired: 0,
+      bin: 0,
+      binInOrder: true,
+      pairs: [],
+    };
+    results.push(result);
+    try {
+      const file = readLevel(files.get(name)!, { layout: build.game, name });
+      const { loaded } = machine.run(files.get(name)!, name, file.parts.length, null);
+      const memory = loaded.memory;
+      const word = (at: number) => memory[at]! | (memory[at + 1]! << 8);
+      result.parts = file.parts.length;
+      for (const part of file.parts) {
+        const at = loaded.pool[part.index];
+        const record = at ? loaded.records.get(at) : undefined;
+        // By type alone, a part pairs only with the one record of its type.
+        if (!at || !record || (byType && file.parts.filter((p) => p.type === part.type).length > 1)) continue;
+        if ((record[start.game === "tim2" ? 8 : 4]! | (record[start.game === "tim2" ? 9 : 5]! << 8)) !== part.type)
+          continue;
+        result.paired++;
+        result.pairs.push({
+          index: part.index,
+          type: part.type,
+          group: part.group,
+          fields: part.fields
+            .filter((f) => typeof f.value === "number" && f.size <= 2)
+            .map(
+              (f) => [f.key, (f.value as number) & (f.size === 1 ? 0xff : 0xffff), f.size] as [string, number, number],
+            ),
+          record: [...record],
+          at: loaded.pointers[part.index]!,
+          through: [],
+        });
+      }
+      // The header's numbers in the data segment's words, below the runner's own file, name and stack. Only the
+      // words that held each number in every level so far are kept, for every level, so memory stays small.
+      for (const f of file.fields)
+        if (typeof f.value === "number" && f.size === 2 && !["magic", "version"].includes(f.key)) {
+          const value = f.value & 0xffff;
+          const before = header.get(f.key) ?? Array.from({ length: 0xe000 }, (_, address) => address);
+          const at = before.filter((address) => word(data + address) === value);
+          header.set(f.key, at);
+          result.header.push([f.key, value, at]);
+        }
+      for (const r of results) for (const entry of r.header) entry[2] = header.get(entry[0]) ?? entry[2];
+      // A link kept one record further: a near pointer (Toons) or a far one (TIM 2) in the record.
+      const places = new Map(result.pairs.map((pair) => [pair.index, pair.at]));
+      for (const pair of result.pairs) {
+        const own = loaded.pool[pair.index]!;
+        for (const [key, value] of pair.fields) {
+          if (!LINK.test(key) || value === 0xffff || !places.has(value)) continue;
+          const target = places.get(value)!;
+          const found: string[] = [];
+          for (let offset = 0; offset < start.partSize - 1; offset++) {
+            // A near pointer into the data segment, and in TIM 2 also a far one.
+            const ways: [string, number][] = [["", word(own + offset) >= 0x100 ? data + word(own + offset) : 0]];
+            if (start.far && offset < start.partSize - 3)
+              ways.push([" far", word(own + offset + 2) * 16 + word(own + offset)]);
+            for (const [kind, pointer] of ways) {
+              if (!pointer || pointer + 0x10 > memory.length) continue;
+              for (let k = 0; k < 0x10; k += 2)
+                if (word(pointer + k) === target) found.push(`0x${offset.toString(16)}+${k}${kind}`);
+            }
+          }
+          pair.through.push([key, found]);
+        }
+      }
+    } catch (problem) {
+      result.error = problem instanceof Error ? problem.message : String(problem);
+    }
   });
-  if (!values.game) throw new Error("--game <game folder> is needed");
-  const folder = resolve(values.game);
-  const program = readFileSync(join(folder, "TIM.EXE"));
-  const build = GAME_BUILDS.get(exeHash(program));
-  if (!build) throw new Error(`${folder}: the level recorder doesn't know this TIM.EXE (${exeHash(program)})`);
-  const count = (option: string, text: string) => {
-    const n = Number(text);
-    if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
-    return n;
-  };
-  // One emulator at a time unless told: a run with four at once took a machine down.
-  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
+  return { results, size: start.partSize };
+}
+
+/** TIM 1 and Even More: the shipped puzzles of a build the recorder knows, loaded on worker threads. */
+async function runRecorder(folder: string, jobs: number, byType: boolean, range?: [number, number]) {
   const files = readResources(folder);
   let puzzles = [...files.keys()]
     .map((name) => /^L(\d+)\.LEV$/i.exec(name)?.[1])
     .filter((n): n is string => n !== undefined)
     .map(Number)
     .sort((a, b) => a - b);
-  if (values.puzzles) {
-    const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
-    puzzles = puzzles.filter((p) => p >= from! && p <= to!);
-  }
+  if (range) puzzles = puzzles.filter((p) => p >= range[0] && p <= range[1]);
   if (!puzzles.length) throw new Error("no puzzles to load");
   const level = (puzzle: number) => files.get(`L${puzzle}.LEV`)!;
   const results: PuzzleResult[] = [];
@@ -231,11 +318,7 @@ if (!isMainThread) {
       (share) =>
         new Promise<void>((done) => {
           const worker = new Worker(new URL(import.meta.url), {
-            workerData: {
-              folder,
-              jobs: share.map((puzzle) => ({ puzzle, level: level(puzzle) })),
-              byType: values["by-type"],
-            },
+            workerData: { folder, jobs: share.map((puzzle) => ({ puzzle, level: level(puzzle) })), byType },
           });
           worker.on("message", (result: PuzzleResult) => results.push(result));
           worker.once("error", (error) => workerErrors.push(error));
@@ -244,12 +327,18 @@ if (!isMainThread) {
     ),
   );
   results.sort((a, b) => a.puzzle - b.puzzle);
+  return { results, puzzles, workerErrors };
+}
 
+const hex = (n: number) => `0x${n.toString(16)}`;
+
+/** Prints where each field went, the bin, the header's words and the links kept further; gives the failures. */
+function report(results: PuzzleResult[], size: number, hasBin: boolean, headerLimit: string, packed = false): number {
   const tallies = new Map<string, FieldTally>();
   for (const r of results) {
     const places = new Map(r.pairs.map((pair) => [pair.index, pair.at]));
     for (const pair of r.pairs)
-      for (const [field, value, size] of pair.fields) {
+      for (const [field, value, width] of pair.fields) {
         // A link to another part is that part's record, when it is paired; -1 is none.
         const link = LINK.test(field);
         if (link && value !== 0xffff && !places.has(value)) continue;
@@ -258,8 +347,9 @@ if (!isMainThread) {
         const key = link && value === 0xffff ? `${field} (none)` : field;
         let tally = tallies.get(key);
         if (!tally) {
-          const step = size === 1 ? 1 : 2;
-          const offsets = Array.from({ length: PART_RECORD / step }, (_, k) => k * step);
+          // TIM 1 keeps its words at even places; Toons' and TIM 2's records are packed, so a word can start anywhere.
+          const step = width === 1 || packed ? 1 : 2;
+          const offsets = Array.from({ length: Math.floor((size - (width - 1)) / step) }, (_, k) => k * step);
           tally = { pairs: 0, nonZero: 0, values: [], offsets, agree: new Map(offsets.map((o) => [o, 0])) };
           tallies.set(key, tally);
         }
@@ -267,7 +357,7 @@ if (!isMainThread) {
         if (value && value !== 0xffff) tally.nonZero++;
         if (tally.values.length < 6 && !tally.values.includes(value)) tally.values.push(value);
         const at = (offset: number) =>
-          size === 1 ? pair.record[offset]! : pair.record[offset]! | (pair.record[offset + 1]! << 8);
+          width === 1 ? pair.record[offset]! : pair.record[offset]! | ((pair.record[offset + 1] ?? 0) << 8);
         tally.offsets = tally.offsets.filter((offset) => at(offset) === expected);
         for (const offset of tally.agree.keys())
           if (at(offset) === expected) tally.agree.set(offset, tally.agree.get(offset)! + 1);
@@ -301,16 +391,7 @@ if (!isMainThread) {
       }
     }
   const failed = results.filter((r) => r.error);
-  const parts = results.reduce((n, r) => n + r.parts, 0);
-  const paired = results.reduce((n, r) => n + r.paired, 0);
-  console.log(
-    `${build.name}: ${results.length - failed.length} puzzles loaded, ${paired} of ${parts} placed parts paired`,
-  );
-  for (const r of failed) console.error(`Puzzle ${r.puzzle}: ${r.error}`);
-  const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
-  if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
-  for (const error of workerErrors) console.error("A worker failed:", error);
-  const hex = (n: number) => `0x${n.toString(16)}`;
+  for (const r of failed) console.error(`${r.name ?? `Puzzle ${r.puzzle}`}: ${r.error}`);
   for (const [key, tally] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
     const nearest = [...tally.agree]
       .filter(([, n]) => n >= tally.pairs / 2)
@@ -327,13 +408,15 @@ if (!isMainThread) {
         `values ${tally.values.map(hex).join(" ")}${tally.values.length >= 6 ? " ..." : ""}: in the record at ${where}`,
     );
   }
-  const binParts = results.reduce((n, r) => n + r.bin, 0);
-  const binOut = results.filter((r) => !r.error && !r.binInOrder);
-  console.log(
-    `Parts bin: ${binParts} parts; the parts bin list holds the file's bin in its order in ${results.length - failed.length - binOut.length} puzzles` +
-      (binOut.length ? `, not in ${binOut.map((r) => r.puzzle).join(", ")}` : ""),
-  );
-  console.log("Header numbers in the data segment's words (below 0x8000) after loading:");
+  if (hasBin) {
+    const binParts = results.reduce((n, r) => n + r.bin, 0);
+    const binOut = results.filter((r) => !r.error && !r.binInOrder);
+    console.log(
+      `Parts bin: ${binParts} parts; the parts bin list holds the file's bin in its order in ${results.length - failed.length - binOut.length} puzzles` +
+        (binOut.length ? `, not in ${binOut.map((r) => r.puzzle).join(", ")}` : ""),
+    );
+  } else console.log("Parts bin: the files keep no bin; check-puzzle-start checks what the puzzle start puts there.");
+  console.log(`Header numbers in the data segment's words (below ${headerLimit}) after loading:`);
   for (const [key, tally] of header) {
     const where = tally.at.length
       ? tally.at.slice(0, 6).map(hex).join(", ") + (tally.at.length > 6 ? `, ... (${tally.at.length})` : "")
@@ -356,5 +439,85 @@ if (!isMainThread) {
         }`
       }`,
     );
-  if (failed.length || missing.length || workerErrors.length) process.exitCode = 1;
+  return failed.length;
+}
+
+if (!isMainThread) {
+  const { folder, jobs, byType } = workerData as {
+    folder: string;
+    jobs: { puzzle: number; level: Uint8Array }[];
+    byType: boolean;
+  };
+  for (const { puzzle, level } of jobs) parentPort!.postMessage(runOne(folder, level, puzzle, byType));
+} else {
+  const { values } = parseArgs({
+    args: process.argv.slice(2).filter((arg, i) => i > 0 || arg !== "--"),
+    options: {
+      game: { type: "string", multiple: true },
+      jobs: { type: "string" },
+      puzzles: { type: "string" },
+      "by-type": { type: "boolean", default: false },
+      ...folderOptions(GAMES),
+    },
+  });
+  const count = (option: string, text: string) => {
+    const n = Number(text);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
+    return n;
+  };
+  // One emulator at a time unless told: a run with four at once took a machine down.
+  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
+  let range: [number, number] | undefined;
+  if (values.puzzles) {
+    const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
+    range = [from!, to!];
+  }
+  // `--game` is a TIM 1 or Even More folder; which of the two the recorder says.
+  const named = (values.game ?? []).map((folder): BuildFolder<Game> => {
+    const known = GAME_BUILDS.get(exeHash(readFileSync(join(resolve(folder), "TIM.EXE"))));
+    return { game: known?.name.startsWith("Even More") ? "evenmore" : "tim1", folder: resolve(folder), index: 0 };
+  });
+  const builds = [...buildFolders(values, GAMES), ...named];
+  if (!builds.length) throw new Error("Give at least one --tim1, --evenmore, --tim2 or --toons folder");
+  let problems = 0;
+  for (const build of builds) {
+    if (build.game === "tim2" || build.game === "toons") {
+      const run = runLoader(build as BuildFolder<"tim2" | "toons">, values["by-type"], range);
+      if ("problem" in run) {
+        console.error(`${build.folder}: ${run.problem}, so the levels aren't loaded.`);
+        problems++;
+        continue;
+      }
+      const { results, size } = run;
+      const parts = results.reduce((n, r) => n + r.parts, 0);
+      const paired = results.reduce((n, r) => n + r.paired, 0);
+      console.log(
+        `${build.folder}: ${results.filter((r) => !r.error).length} levels loaded by the game's loader, ` +
+          `${paired} of ${parts} parts paired`,
+      );
+      problems += report(results, size, false, "0xe000", true);
+      continue;
+    }
+    const program = readProgram(build);
+    const known = GAME_BUILDS.get(exeHash(program));
+    if (!known) {
+      console.log(
+        `${build.folder}: the level recorder doesn't know this TIM.EXE (${exeHash(program)}), so its loader isn't checked.`,
+      );
+      continue;
+    }
+    const { results, puzzles, workerErrors } = await runRecorder(build.folder, jobs, values["by-type"], range);
+    const failed = results.filter((r) => r.error);
+    const parts = results.reduce((n, r) => n + r.parts, 0);
+    const paired = results.reduce((n, r) => n + r.paired, 0);
+    console.log(
+      `${known.name}: ${results.length - failed.length} puzzles loaded, ${paired} of ${parts} placed parts paired`,
+    );
+    problems += report(results, PART_RECORD, true, "0x8000");
+    const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
+    if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
+    for (const error of workerErrors) console.error("A worker failed:", error);
+    problems += missing.length + workerErrors.length;
+  }
+  if (problems) process.exitCode = 1;
 }

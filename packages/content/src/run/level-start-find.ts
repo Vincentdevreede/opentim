@@ -14,6 +14,8 @@
  *   solution) puts the parts in the bin;
  * - Toons sorts its bin by a word of each type's record that a start-up routine writes (`readToonsBinKinds`), so that
  *   routine runs first;
+ * - TIM 2 takes the record of a belt or a rope from the near `calloc` (`push size; push 1; call far calloc` in the
+ *   loader's code), and gives it back with `free` (`push word es:[bx + 0x5e]; call far free` where it frees a part);
  * - TIM 2 keeps its part records in a store the game makes when it starts: the routine that allocates
  *   `count * size` bytes (`imul ax, ax, size`) with the far allocation, called with the count (`push count`).
  */
@@ -205,6 +207,17 @@ function fromLoader(
       }
   } else {
     start.push({ ...begin, args: ["name", TIM2_MODES.puzzle] });
+    // The near `calloc` the loader takes a belt's or a rope's record from: `push size; push 1; call far calloc`.
+    const from = loader.segment * 16;
+    for (let at = from; at + 9 <= Math.min(memory.length, from + 0x10000) && !calloc; at++)
+      if (memory[at] === 0x6a && memory[at + 2] === 0x6a && memory[at + 3] === 0x01 && memory[at + 4] === 0x9a)
+        calloc = { segment: u16(memory, at + 7), offset: u16(memory, at + 5) };
+    // Its `free`: the routine that frees a part frees a belt's record with it, `push word es:[bx + 0x5e]; call far`.
+    for (let at = 0; at + 9 <= memory.length; at++)
+      if (u16(memory, at) === 0xff26 && u16(memory, at + 2) === 0x5e77 && memory[at + 4] === 0x9a) {
+        free.push({ segment: u16(memory, at + 7), offset: u16(memory, at + 5) });
+        break;
+      }
     // The store of part records: `imul ax, ax, size` and the far allocation, called with the count.
     for (let at = 0; at + 4 <= memory.length && partSize === undefined; at++) {
       if (memory[at] !== 0x69 || memory[at + 1] !== 0xc0) continue;

@@ -64,12 +64,16 @@ export interface GameParts {
   /** The record of each part of the file, by its index, as the loader's table holds it (0 when it has none). */
   pool: number[];
   records: Map<number, Uint8Array>;
+  /** The word another record holds to point at each part, by its index: the near offset, or a far pointer's offset. */
+  pointers: number[];
+  /** The memory below 640 KB, for what the records point at. */
+  memory: Uint8Array;
 }
 
 export interface LevelStartRun {
   /** The parts right after the level loader. */
   loaded: GameParts;
-  /** The parts after the puzzle start. */
+  /** The parts after the puzzle start (the loaded ones when it wasn't run). */
   started: GameParts;
   /** The requests the runner doesn't answer, like an interrupt nothing handles, with how many times. */
   unknown: Map<string, number>;
@@ -286,7 +290,8 @@ export class GameMachine {
     const records = new Map<number, Uint8Array>();
     for (const at of [...pool, ...lists.moving, ...lists.fixed, ...lists.bin])
       if (at && !records.has(at)) records.set(at, cpu.memory.slice(at, at + this.start.partSize));
-    return { lists, pool, records };
+    const pointers = Array.from({ length: count }, (_, k) => (table ? word(table + k * step) : 0));
+    return { lists, pool, records, pointers, memory: cpu.memory.slice(0, 0xa0000) };
   }
 
   private reset(level: Uint8Array, name: string): void {
@@ -303,16 +308,20 @@ export class GameMachine {
 
   /**
    * Loads `level` (the bytes of the file called `name`) with the game's loader, and again from the start with the
-   * puzzle start; `count` is the number of parts in the file, for the loader's table.
+   * puzzle start (`calls`, the game's own unless given; none leaves `started` out); `count` is the number of parts in
+   * the file, for the loader's table.
    */
-  run(level: Uint8Array, name: string, count: number): LevelStartRun {
+  run(level: Uint8Array, name: string, count: number, calls: StartCall[] | null = this.start.start): LevelStartRun {
     this.unknown.clear();
     this.reset(level, name);
     this.call({ ...this.start.loader, args: ["name"] });
     const loaded = this.parts(count);
-    this.reset(level, name);
-    for (const call of this.start.start) this.call(call);
-    const started = this.parts(count);
+    let started = loaded;
+    if (calls) {
+      this.reset(level, name);
+      for (const call of calls) this.call(call);
+      started = this.parts(count);
+    }
     return { loaded, started, unknown: new Map(this.unknown) };
   }
 }
