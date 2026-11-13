@@ -12,9 +12,17 @@ import { availableParallelism, freemem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Worker } from "node:worker_threads";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
-import { readProgramParts } from "../src/read/parts.ts";
+import { readProgramParts, readTim2ProgramParts, readToonsParts, type ProgramParts } from "../src/read/parts.ts";
 
-export type Game = "tim1" | "evenmore";
+export type Game = "tim1" | "evenmore" | "tim2" | "toons";
+
+/** The games in the order the scripts read them, and the name of each game's program. */
+export const GAME_PROGRAMS: Record<Game, string> = {
+  tim1: "TIM.EXE",
+  evenmore: "TIM.EXE",
+  tim2: "TIM2.EXE",
+  toons: "TOONS.EXE",
+};
 
 /** One game folder given to a script, with its place among the folders given for its game. */
 export interface BuildFolder {
@@ -26,9 +34,9 @@ export interface BuildFolder {
 /** About the most one build's reading holds in memory (an Even More build peaks at 1.7 GB). */
 const MEMORY_PER_BUILD = 2.5 * 2 ** 30;
 
-/** The folders in the order the scripts always read them: TIM 1 first, then Even More. */
-export function buildFolders(values: { tim1?: string[]; evenmore?: string[] }): BuildFolder[] {
-  return (["tim1", "evenmore"] as const).flatMap((game) =>
+/** The folders in the order the scripts always read them: TIM 1, Even More, TIM 2, then Toons. */
+export function buildFolders(values: Partial<Record<Game, string[]>>): BuildFolder[] {
+  return (Object.keys(GAME_PROGRAMS) as Game[]).flatMap((game) =>
     (values[game] ?? []).map((folder, index) => ({ game, folder: resolve(folder), index })),
   );
 }
@@ -44,17 +52,16 @@ export function readResources(folder: string): Map<string, Uint8Array> {
 
 /** A build's program, its resource files and its parts. */
 export function readBuild({ game, folder }: BuildFolder) {
-  const program = readFileSync(join(folder, "TIM.EXE"));
+  const program = readFileSync(join(folder, GAME_PROGRAMS[game]));
   const files = readResources(folder);
-  const parts = readProgramParts(
-    game,
-    program,
-    (sheet) => {
-      const data = files.get(`${sheet}.BMP`);
-      return data && decodeImage(data).frames.length;
-    },
-    (sheet) => files.get(`${sheet}.BMP`),
-  );
+  const spriteCount = (sheet: string) => {
+    const data = files.get(`${sheet}.BMP`);
+    return data && decodeImage(data).frames.length;
+  };
+  let parts: ProgramParts;
+  if (game === "tim2") parts = readTim2ProgramParts(program, (name) => files.get(name), { keepUnknown: true });
+  else if (game === "toons") parts = readToonsParts(program, spriteCount, { keepUnknown: true });
+  else parts = readProgramParts(game, program, spriteCount, (sheet) => files.get(`${sheet}.BMP`));
   return { program, files, parts };
 }
 

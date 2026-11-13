@@ -6,6 +6,9 @@
  *
  *   pnpm --filter @opentim/content fingerprint-behaviour --game evenmore --folder <game folder> [--loops]
  *
+ * The game is tim1, evenmore, tim2 or toons. The goals are read from TIM.EXE only, so TIM 2 and Toons have no goals
+ * hash.
+ *
  * Compare two runs from the same commit's tree each time: a checkout that another session is editing gives a mixed
  * result. One build takes a few minutes with `--loops`.
  */
@@ -15,7 +18,7 @@ import { parseArgs } from "node:util";
 import { readBehaviourInSteps } from "../src/read/behaviour.ts";
 import { describeBehaviour } from "../src/read/describe-behaviour.ts";
 import { readProgramGoals } from "../src/read/program-goals.ts";
-import { readBuild, type Game } from "./builds.ts";
+import { GAME_PROGRAMS, readBuild, type Game } from "./builds.ts";
 
 /** A short hash of a value: objects with sorted keys, Maps and Sets in their order, cycles marked. */
 export function hashOf(value: unknown): string {
@@ -62,18 +65,17 @@ export function hashOf(value: unknown): string {
 const { values } = parseArgs({
   options: { game: { type: "string" }, folder: { type: "string" }, loops: { type: "boolean", default: false } },
 });
-if ((values.game !== "tim1" && values.game !== "evenmore") || !values.folder) {
-  console.error("Usage: fingerprint-behaviour --game tim1|evenmore --folder <game folder> [--loops]");
+if (!values.game || !Object.hasOwn(GAME_PROGRAMS, values.game) || !values.folder) {
+  console.error("Usage: fingerprint-behaviour --game tim1|evenmore|tim2|toons --folder <game folder> [--loops]");
   process.exit(1);
 }
+const game = values.game as Game;
 const started = performance.now();
-const { program, parts } = readBuild({ game: values.game as Game, folder: resolve(values.folder), index: 0 });
+const { program, parts } = readBuild({ game, folder: resolve(values.folder), index: 0 });
 const steps = readBehaviourInSteps(program, parts);
-const out: Record<string, string> = {
-  report: hashOf(steps.report),
-  goals: hashOf(readProgramGoals(program, steps.report)),
-  description: hashOf(describeBehaviour(steps.report)),
-};
+const out: Record<string, string> = { report: hashOf(steps.report) };
+if (game === "tim1" || game === "evenmore") out.goals = hashOf(readProgramGoals(program, steps.report));
+out.description = hashOf(describeBehaviour(steps.report));
 if (values.loops) {
   steps.readLoopsPerType();
   out.reportLoops = hashOf(steps.report);

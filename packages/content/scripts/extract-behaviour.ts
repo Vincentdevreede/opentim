@@ -6,6 +6,8 @@
  * time in its metrics file is then measured while the others run, so give `--jobs 1` to compare times.
  *
  *   pnpm --filter @opentim/content extract-behaviour --out <folder> --tim1 <game folder> --evenmore <game folder>
+ *
+ * `--tim2 <game folder>` and `--toons <game folder>` read TIM 2 and Toons builds as well.
  */
 import { createHash } from "node:crypto";
 import { createEvidenceWriter } from "../src/read/behaviour-evidence.ts";
@@ -138,17 +140,20 @@ if (isMainThread) {
       jobs: { type: "string" },
       tim1: { type: "string", multiple: true },
       evenmore: { type: "string", multiple: true },
+      tim2: { type: "string", multiple: true },
+      toons: { type: "string", multiple: true },
     },
   });
-  if (!values.out || (!values.tim1?.length && !values.evenmore?.length))
-    throw new Error("Give --out <report folder> and at least one --tim1 <game folder> or --evenmore <game folder>");
+  const folders = buildFolders(values);
+  if (!values.out || !folders.length)
+    throw new Error("Give --out <report folder> and at least one --tim1, --evenmore, --tim2 or --toons <game folder>");
   const out = resolve(values.out);
   mkdirSync(out, { recursive: true });
   const failures: { listId: string; folder: string; error: string }[] = [];
   const results: NonNullable<ReturnType<typeof inBuild>["result"]>[] = [];
   await inEachBuild<ReturnType<typeof inBuild>>(
     import.meta.url,
-    buildFolders(values),
+    folders,
     (answer) => {
       if (answer.failure) {
         failures.push(answer.failure);

@@ -4,6 +4,8 @@
  *
  *   pnpm --filter @opentim/content list-assumptions --out <document> --tim1 <game folder> --evenmore <game folder>
  *   pnpm --filter @opentim/content list-assumptions --check <document> --tim1 <game folder> --evenmore <game folder>
+ *
+ * `--tim2 <game folder>` and `--toons <game folder>` add TIM 2 and Toons builds, each with a column of its own.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -17,7 +19,7 @@ import {
   type AssumptionTable,
 } from "../src/read/behaviour-assumption-list.ts";
 import { readBehaviour } from "../src/read/behaviour.ts";
-import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder } from "./builds.ts";
+import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder, type Game } from "./builds.ts";
 
 export function inBuild(build: BuildFolder) {
   const { program, parts } = readBuild(build);
@@ -33,17 +35,22 @@ if (isMainThread) {
       jobs: { type: "string" },
       tim1: { type: "string", multiple: true },
       evenmore: { type: "string", multiple: true },
+      tim2: { type: "string", multiple: true },
+      toons: { type: "string", multiple: true },
     },
   });
   const given = [values.out, values.check].filter((value) => value !== undefined);
-  if (given.length !== 1 || !given[0] || (!values.tim1?.length && !values.evenmore?.length))
-    throw new Error("Give either --out or --check <document> and at least one --tim1 or --evenmore <game folder>");
+  const folders = buildFolders(values);
+  if (given.length !== 1 || !given[0] || !folders.length)
+    throw new Error(
+      "Give either --out or --check <document> and at least one --tim1, --evenmore, --tim2 or --toons <game folder>",
+    );
 
   const table: AssumptionTable = new Map();
-  const builds = { tim1: 0, evenmore: 0 };
+  const builds: Record<Game, number> = { tim1: 0, evenmore: 0, tim2: 0, toons: 0 };
   await inEachBuild<ReturnType<typeof inBuild>>(
     import.meta.url,
-    buildFolders(values),
+    folders,
     (uses, { game, folder }) => {
       addBuild(table, game, uses);
       builds[game]++;
