@@ -186,8 +186,9 @@ export class Cpu {
     const at = this.linear(this.cs, this.ip);
     const cached = this.decoded.get(at);
     if (cached && cached.segment === this.cs) return cached;
-    if (cached) this.cover(at, cached, -1);
     const instruction = decodeInstruction(this.memory, at, this.cs);
+    // The old instruction stays covered until the new one decodes, so a failed decode leaves the cache as it was.
+    if (cached) this.cover(at, cached, -1);
     this.decoded.set(at, instruction);
     this.cover(at, instruction, 1);
     this.longest = Math.max(this.longest, instruction.size);
