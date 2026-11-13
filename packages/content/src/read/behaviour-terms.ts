@@ -82,6 +82,37 @@ export function matchFirst(code: RoutineCode, patterns: string[]): Map<string, n
 /** A register operand, and the one named `name` when given. */
 export const isRegister = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
   o?.kind === "register" && (name === undefined || o.name === name);
+/** Whether two register names share bits, like `ax` and `al`. */
+const registersOverlap = (a: string, b: string) =>
+  a === b ||
+  (/^[abcd][xlh]$/.test(a) &&
+    /^[abcd][xlh]$/.test(b) &&
+    a[0] === b[0] &&
+    (a[1] === "x" || b[1] === "x" || a[1] === b[1]));
+/** The registers that instructions write whatever their operands say. */
+const IMPLICIT_WRITES: Record<string, string[]> = {
+  cwd: ["dx"],
+  cbw: ["ax"],
+  mul: ["ax", "dx"],
+  imul: ["ax", "dx"],
+  div: ["ax", "dx"],
+  idiv: ["ax", "dx"],
+  lodsw: ["ax"],
+  lodsb: ["ax"],
+  in: ["ax"],
+};
+/**
+ * Whether the instruction may change the register or one that shares its bits: as its first operand, as either
+ * operand of `xchg` or `pop`, or as a register that multiplies, divides, sign extensions and string loads write.
+ */
+export const writesRegister = (i: Instruction, name: string) =>
+  (isRegister(i.operands[0]) &&
+    registersOverlap(i.operands[0].name, name) &&
+    !["cmp", "test", "push"].includes(i.mnemonic)) ||
+  (["pop", "xchg"].includes(i.mnemonic) && i.operands.some((o) => isRegister(o) && registersOverlap(o.name, name))) ||
+  // Only the one operand form of imul writes ax and dx; `imul bx, cx, 2` writes just its first operand.
+  ((i.mnemonic !== "imul" || i.operands.length === 1) &&
+    (IMPLICIT_WRITES[i.mnemonic] ?? []).some((written) => registersOverlap(written, name)));
 /** A 16-bit register operand, and the one named `name` when given. */
 export const isWordRegister = (o: Operand | undefined, name?: string): o is Extract<Operand, { kind: "register" }> =>
   o?.kind === "register" && o.width === 16 && (name === undefined || o.name === name);
