@@ -1,6 +1,6 @@
-import { createSSRApp, h } from "vue";
+import { createRenderer, createSSRApp, h, ssrContextKey, type Component } from "vue";
 import { renderToString } from "vue/server-renderer";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { PROFILES, type Edition } from "../../../src/edition.ts";
 import { phase, staging, type GameFile, type Staging } from "../../../src/library.ts";
 import ImportStart from "../../../src/components/import/ImportStart.vue";
@@ -38,12 +38,29 @@ const continueDisabled = (html: string) => {
   return /\sdisabled[\s>=]/.test(tag);
 };
 
+// A renderer without a browser is enough to mount the component and press its buttons through their handlers.
+const renderer = createRenderer<object, object>({
+  createElement: () => ({}),
+  createText: () => ({}),
+  createComment: () => ({}),
+  insert: () => {},
+  remove: () => {},
+  setText: () => {},
+  setElementText: () => {},
+  parentNode: () => null,
+  nextSibling: () => null,
+  patchProp: () => {},
+});
+
 const render = async () => {
   const html = await renderToString(createSSRApp({ render: () => h(ImportStart) }));
   return { html, text: visibleText(html) };
 };
 
+let unmount = () => {};
 afterEach(() => {
+  unmount();
+  vi.unstubAllGlobals();
   staging.value = undefined;
   phase.value = "empty";
 });
@@ -73,4 +90,19 @@ it("continues once the program is there", async () => {
   const { html, text } = await render();
   expect(text).not.toContain("is missing");
   expect(continueDisabled(html)).toBe(false);
+});
+
+it("offers the catalog entry to copy by hand when the browser has no clipboard", async () => {
+  vi.stubGlobal("navigator", {});
+  staging.value = { files: [] } as unknown as Staging;
+  const start: Component = { ...ImportStart, render: () => null };
+  const app = renderer.createApp(start);
+  app.provide(ssrContextKey, { modules: new Set() });
+  app.mount({});
+  unmount = () => app.unmount();
+  const state = (app as unknown as { _instance: { setupState: Record<string, unknown> } })._instance.setupState;
+
+  await (state.copyEntry as () => Promise<void>)();
+  expect(state.copied).toBe(false);
+  expect(state.copyFailed).toBe(true);
 });

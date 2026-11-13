@@ -152,6 +152,7 @@ watch(
     playing.value = false;
     hidden.clear();
     spread.value = 0;
+    detailPalette.value = AUTO;
   },
   { immediate: true },
 );

@@ -60,3 +60,13 @@ describe("static integer division relations", () => {
     expect(result.transitions.some((transition) => transition.confidence === "unresolved")).toBe(true);
   });
 });
+
+describe("static byte multiplication", () => {
+  it("multiplies bytes with their sign for imul and without it for mul", () => {
+    // mov al,ff; mov bl,2; imul bl (or mul bl); mov [si+0c],ax
+    const product = (operation: number) =>
+      divide([0xb0, 0xff, 0xb3, 2, 0xf6, operation, 0x89, 0x44, 0x0c]).transitions.map((t) => t.to);
+    expect(product(0xeb)).toEqual([constant(0xfffe)]);
+    expect(product(0xe3)).toEqual([constant(0x01fe)]);
+  });
+});

@@ -69,9 +69,17 @@ const attention = computed(() => {
 const programToAdd = computed(() => (staging.value ? missingProgram(staging.value) : undefined));
 
 const copied = ref(false);
+/** True when the browser couldn't copy the entry, which is then shown to copy by hand. */
+const copyFailed = ref(false);
 async function copyEntry() {
   if (!staging.value) return;
-  await navigator.clipboard.writeText(catalogEntry(staging.value.files));
+  try {
+    // Without a secure context the browser has no clipboard, and a refused permission fails too.
+    await navigator.clipboard.writeText(catalogEntry(staging.value.files));
+  } catch {
+    copyFailed.value = true;
+    return;
+  }
   copied.value = true;
   setTimeout(() => (copied.value = false), 2000);
 }
@@ -391,6 +399,19 @@ const counts = computed(() => {
                   <span class="font-mono">apps/lab/src/version-catalog.json</span> in a pull request.</span
                 >
               </div>
+              <template v-if="copyFailed">
+                <p class="text-ui text-muted">
+                  This browser couldn’t copy it. Select the entry below and copy it yourself.
+                </p>
+                <textarea
+                  readonly
+                  rows="8"
+                  aria-label="Catalog entry"
+                  class="w-full resize-y rounded-[5px] border border-line-strong bg-sunken p-2 font-mono text-meta text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                  :value="catalogEntry(staging.files)"
+                  @focus="($event.target as HTMLTextAreaElement).select()"
+                ></textarea>
+              </template>
             </div>
           </LabDisclosure>
         </section>

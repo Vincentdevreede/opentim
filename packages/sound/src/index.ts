@@ -1,7 +1,9 @@
 export {
   AdlibDriver,
+  prefersSameInstrument,
   readAdlibBank,
   type AdlibBank,
+  type DriverOptions,
   type FmCard,
   type Instrument,
   type Operator,

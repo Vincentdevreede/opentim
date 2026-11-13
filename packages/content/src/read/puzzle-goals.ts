@@ -372,6 +372,9 @@ class RoutineReader {
   constructor(image: Uint8Array, address: number, segment: number, calls: Set<string>, reading: GoalReading = {}) {
     this.calls = calls;
     this.reading = reading;
+    // The reading starts past `push bp; mov bp, sp`: a routine without them would lose its first instructions.
+    if (!startsRoutine(image, address))
+      throw new Unreadable(address, "a routine that doesn't start with push bp; mov bp, sp");
     this.graph = new RoutineGraph(image, address, segment);
   }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import { discoverCreationDefaults } from "../src/read/behaviour-creation.ts";
 import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
@@ -126,6 +127,17 @@ describe("creation defaults", () => {
     }
   });
 
+  it("reads a factory that crosses a 64K boundary in its own segment", () => {
+    const f = fixture([...prefix, 0xb8, 28, 0, 0x89, 0x44, 0x30, ...suffix]);
+    const image = new Uint8Array(0x21000);
+    image.set(f.image);
+    image.set(f.image.subarray(0x100, 0x112), 0x1fff8);
+    f.engine.address = 0x1fff8;
+    const graphs = new Map([[0x1fff8, readRoutineCode(image, { address: 0x1fff8, segment: 0x1fff, offset: 8 }, 0)]]);
+    const [created] = discoverCreationDefaults(image, f.helpers, f.layout, 0, graphs);
+    expect(created?.fields.map((field) => [field.name, field.value])).toEqual([["state", 28]]);
+  });
+
   it("starts the constructor from every word the cleared allocation leaves zero, named or not", () => {
     const f = fixture([...prefix, 0xb8, 28, 0, 0x89, 0x44, 0x70, ...suffix]);
     f.engine.factory!.noConstructor.zeroWords = [0x12, 0x30, 0x54, 0x70];
@@ -209,6 +221,34 @@ describe("creation defaults", () => {
     expect(discoverCreationDefaults(f.image, f.helpers, f.layout, 0)[0]?.fields.map((field) => field.name)).toEqual([
       "state",
     ]);
+  });
+
+  it("does not place a helper's write through another argument on the part", () => {
+    // lea ax, [si+0x30]; push ax; push si; call far 0000:0600; pop cx; pop cx
+    const f = fixture([...prefix, 0x8d, 0x44, 0x30, 0x50, 0x56, 0x9a, 0, 6, 0, 0, 0x59, 0x59, ...suffix]);
+    // mov bx, [bp+8]; mov word [bx], 5
+    f.image.set([0x55, 0x8b, 0xec, 0x8b, 0x5e, 0x08, 0xc7, 0x07, 0x05, 0x00, 0x5d, 0xcb], 0x600);
+    f.helpers.push(
+      helper(0x600, {
+        kind: "argument-buffer-update",
+        footprint: { ...preserved, preservesArgumentMemory: false, preservesPartState: false },
+        writes: [
+          {
+            ...finding,
+            argumentOffset: 8,
+            root: "argument",
+            path: [],
+            offset: 0,
+            width: 16,
+            value: { kind: "unknown", reason: "Store through the second argument.", width: 16 },
+            condition: { kind: "true" },
+          },
+        ],
+      }),
+    );
+    const [created] = discoverCreationDefaults(f.image, f.helpers, f.layout, 0);
+    expect(created?.fields.map((field) => field.name)).not.toContain("state");
+    expect(created?.uncertainties.some((u) => u.includes("may replace state"))).toBe(true);
   });
 
   it("proves narrow related-buffer helpers separately from owner stores", () => {

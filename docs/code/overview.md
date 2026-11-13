@@ -59,7 +59,7 @@ Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side b
 | `validate-behaviour`        | Checks saved reports against v25's callback measurements.                                                      |
 | `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.             |
 | `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                        |
-| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair that is neither described nor ruled out.              |
+| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                  |
 | `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions.                         |
 | `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the goal reader against the game's routine in the emulator.           |
 | `check-toons-goals`         | Checks the Toons goal reader against TOONS.EXE's goal routines in the emulator (`--toons <folder>`).           |
@@ -69,8 +69,9 @@ Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side b
 | `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                      |
 
 The emulator scripts (`record-level`, `check-level-fields`, `check-moving-list`, `check-goals`) only know the two
-recorded builds (`GAME_BUILDS` in `src/run/game.ts`). Run `check-level-fields` with
-`--jobs 1`, one build at a time and in the background: a run with `--jobs 4` once took the machine down.
+recorded builds (`GAME_BUILDS` in `src/run/game.ts`). `check-level-fields` and `check-moving-list` run one emulator
+at a time unless `--jobs` says more. Run `check-level-fields` one build at a time and in the background: a run with
+`--jobs 4` once took the machine down.
 
 ## Deploy
 

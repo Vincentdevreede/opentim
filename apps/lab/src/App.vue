@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import labIcon from "@opentim/theme/icon.svg";
 import ReadProgress from "./components/ReadProgress.vue";
 import { readProgress } from "./read-progress.ts";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
@@ -156,19 +157,7 @@ const activeClass =
     <div class="flex min-h-0 flex-1">
       <nav aria-label="Views" class="flex w-[72px] shrink-0 flex-col gap-1 border-r border-line bg-sunken pt-2.5 pb-2">
         <div class="mb-1.5 flex flex-col items-center gap-1 border-b border-line pt-0.5 pb-3">
-          <svg
-            width="27"
-            height="27"
-            viewBox="0 0 9 9"
-            shape-rendering="crispEdges"
-            role="img"
-            aria-label="OpenTIM Lab"
-          >
-            <path
-              class="fill-accent"
-              d="M3 0h3v1H3zM1 1h1v1H1zM3 1h3v1H3zM7 1h1v1H7zM2 2h5v1H2zM0 3h4v1H0zM5 3h4v1H5zM0 4h3v1H0zM6 4h3v1H6zM0 5h4v1H0zM5 5h4v1H5zM2 6h5v1H2zM1 7h1v1H1zM3 7h3v1H3zM7 7h1v1H7zM3 8h3v1H3z"
-            />
-          </svg>
+          <img :src="labIcon" alt="OpenTIM Lab" width="27" height="27" class="size-[27px]" />
           <span class="font-pixel text-[10px] tracking-[.04em]">LAB</span>
         </div>
 
