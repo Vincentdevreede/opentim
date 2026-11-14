@@ -351,7 +351,10 @@ parts on the one at `[0x64a7]`).
 - With a count of 0 the entry is about its own part. With a count of N, the routine walks the list its part is on
   again from its first part and needs N parts of the part's type that pass; then it goes on after the entry's own
   part. When the list ends first the goal isn't met, except when the entry's own part is the last on its list: then
-  nothing marks the count as running, and the routine just forgets the entry (see below).
+  nothing marks the count as running, and the routine just forgets the entry (see below). The routine keeps the
+  counted type in a word that holds -1 while no entry counts, so a counted part of type 0xffff never starts its count:
+  each visit to it walks the list again from the start, and the routine runs on forever unless an entry before it
+  fails. No shipped level has a part of that type (the highest is 280); `runTim2Goal` throws `Tim2GoalRunsOn` there.
 - The routine looks a part's entry up from the first entry to the first one without a part, so an entry after a gap
   is never tested. No shipped level has a gap.
 - The routine answers 0 when the first word is 0, 1 when the goal isn't met and 2 when it is. A part in the bin
