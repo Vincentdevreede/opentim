@@ -11,6 +11,7 @@ import {
   flagWords,
   listFlagWords,
   partWordsOf,
+  startingListFlags,
   FIXED_LIST_ASSUMPTION,
   OWN_TOUCH_ASSUMPTION,
   predicateForType,
@@ -963,5 +964,18 @@ describe("TIM.EXE's words by place", () => {
     expect(flagWords(tim, 0x08, 0x2000, true, "its", false)).toBe("sets its out-of-play flag 0x2000 in drawing flags");
     expect(contactRecordWords(tim, 0x86)).toBe("contact side byte at 0x86");
     expect(contactRecordWords(tim, 0x06)).toBe("contact flags in its list flags at 0x06");
+  });
+
+  it("place the flag bits and the starting list flags by the game's words, not by fixed offsets", () => {
+    const moved = { ...partWordsOf({ listId: "tim1" })!, drawingFlags: 0x0c, listFlags: 0x02 };
+    expect(flagWords(moved, 0x0c, 0x2000, true, "its", false)).toBe(
+      "sets its out-of-play flag 0x2000 in drawing flags",
+    );
+    expect(flagWords(moved, 0x08, 0x2000, true, "its", false)).toBeUndefined();
+    const factory = { kind: "part-factory", factory: { startingWords: [{ field: 0x06, values: [0x4000] }] } };
+    const report = (listId: string) => ({ listId, helpers: [factory] }) as unknown as BehaviourReport;
+    expect(startingListFlags(report("tim1"))).toEqual({ field: 0x06, values: [0x4000] });
+    expect(startingListFlags(report("tim2"))).toBeUndefined();
+    expect(startingListFlags(report("toons"))).toBeUndefined();
   });
 });
