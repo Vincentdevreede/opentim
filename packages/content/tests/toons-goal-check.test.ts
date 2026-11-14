@@ -45,6 +45,7 @@ describe("checkToonsGoals", () => {
       memory,
       dataSegment: DATA,
       codeSegments: [0],
+      overlays: [],
       resolve: (segment, offset) => ({ segment, offset }),
       fileOffset: (address) => address,
     };

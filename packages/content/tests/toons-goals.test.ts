@@ -259,6 +259,7 @@ describe("findToonsGoalTable", () => {
       memory,
       dataSegment: 0x100,
       codeSegments: [0],
+      overlays: [],
       resolve: (segment, offset) => ({ segment, offset }),
       fileOffset: (address) => address + 0x200,
     };

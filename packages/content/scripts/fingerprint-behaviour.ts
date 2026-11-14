@@ -15,7 +15,7 @@ import { parseArgs } from "node:util";
 import { readBehaviourInSteps } from "../src/read/behaviour.ts";
 import { describeBehaviour } from "../src/read/describe-behaviour.ts";
 import { readProgramGoals } from "../src/read/program-goals.ts";
-import { readBuild, type Game } from "./builds.ts";
+import { readBuild, type TimGame } from "./builds.ts";
 
 /** A short hash of a value: objects with sorted keys, Maps and Sets in their order, cycles marked. */
 export function hashOf(value: unknown): string {
@@ -67,7 +67,7 @@ if ((values.game !== "tim1" && values.game !== "evenmore") || !values.folder) {
   process.exit(1);
 }
 const started = performance.now();
-const { program, parts } = readBuild({ game: values.game as Game, folder: resolve(values.folder), index: 0 });
+const { program, parts } = readBuild({ game: values.game as TimGame, folder: resolve(values.folder), index: 0 });
 const steps = readBehaviourInSteps(program, parts);
 const out: Record<string, string> = {
   report: hashOf(steps.report),

@@ -50,6 +50,7 @@ describe("readToonsMemory", () => {
     const toons = readToonsMemory(program());
     expect(toons.dataSegment).toBe(0x10);
     expect(toons.codeSegments).toEqual([0]);
+    expect(toons.overlays).toEqual([0x20]);
     expect(toons.memory.length).toBe(0x206);
     // The fixup turned the 0x10 the code keeps (entry 2 times 8) into the stub's segment, 0x18.
     expect([...toons.memory.subarray(0x200, 0x206)]).toEqual([0x90, 0x90, 0xb8, 0x18, 0x00, 0xcb]);
