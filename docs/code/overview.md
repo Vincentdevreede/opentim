@@ -43,7 +43,8 @@ build their inputs by hand (assembled x86 bytes, synthetic archives), except `ru
 with committed DOSBox results, and the tests that read a doc (`behaviour-assumptions.test.ts`) or `theme.css`.
 
 Checking the analysis against the real games is done with the scripts below and real game folders. A game folder holds
-`TIM.EXE`, with the `RESOURCE.*` files there or one folder up (the French and German builds of TIM 1 have the
+the game's program (`TIM.EXE` for TIM 1 and Even More, `TIM2.EXE` for TIM 2, `TOONS.EXE` for Toons), with the
+`RESOURCE.*` files there or one folder up (the French and German builds of TIM 1 have the
 language in a subfolder). The research uses the five TIM 1 and six Even More builds; the two with recordings and emulator support are Even More (English floppy) and TIM 1 (French).
 
 ## Scripts of the content package

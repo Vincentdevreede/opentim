@@ -802,6 +802,18 @@ describe("toonsPuzzleStart", () => {
     ]);
   });
 
+  it("gives a pulley no rope over it when it names a part read before it whose rope comes after it", () => {
+    // Pulley #1 names hook #0, whose first place holds rope #2, read after the pulley. The rope runs from the hook over
+    // the pulley to balloon #3, which goes to the bin and takes the rope with it.
+    const l = level([
+      { type: 15, links: [1, null] },
+      { type: 17, links: [3, 0], pulley: 0 },
+      { type: 14, fixed: false, tie: [0, 3] },
+      { type: 23, fixed: false },
+    ]);
+    expect(toonsPuzzleStart(l, none, none).untied).toEqual([[0, 0]]);
+  });
+
   it("sorts the bin by the type's word, keeping parts of a type in the order the setup puts them there", () => {
     // The moving list first: the balloons #3 and #2 (further right first), then the fixed list's hook #0, whose rope
     // #4 goes with it. The sort words put the rope first and the hooks before the balloons.

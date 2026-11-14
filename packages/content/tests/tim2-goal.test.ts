@@ -5,6 +5,8 @@ import {
   findTim2GoalRoutine,
   runTim2Goal,
   summariseTim2Goal,
+  tim2GoalWords,
+  Tim2GoalRunsOn,
   type Tim2GoalPart,
   type Tim2GoalWorld,
 } from "../src/read/tim2-goal.ts";
@@ -95,6 +97,13 @@ describe("TIM 2 goals", () => {
       where: ["its middle inside x 100 to 150, y 200 to 240"],
       count: { op: ">=", value: 3 },
     });
+  });
+});
+
+describe("tim2GoalWords", () => {
+  it("gives an entry of six words its one state limit twice, as TIM2.EXE's loader does, and keeps seven as they are", () => {
+    expect(tim2GoalWords([4, 0, 100, 200, 50, 40])).toEqual([4, 4, 0, 100, 200, 50, 40]);
+    expect(tim2GoalWords([1, 5, 2, 100, 200, 50, 40])).toEqual([1, 5, 2, 100, 200, 50, 40]);
   });
 });
 
@@ -201,6 +210,15 @@ describe("runTim2Goal", () => {
     const both = world({ entries: [entry(lamp, 1, 5), entry(balls[3]!, 1, 1, 3)], static: [lamp, ...balls] });
     expect(runTim2Goal(both).answer).toBe(2);
     expect(runTim2Goal({ ...both, static: [...balls, lamp] }).answer).toBe(1);
+  });
+
+  it("runs on, as the routine does, when a counted part has type 0xffff, the word's value for no count", () => {
+    const odd = p(0xffff, 1);
+    const goal = world({ entries: [entry(odd, 1, 1, 2)], static: [p(9), odd, p(9)] });
+    expect(() => runTim2Goal(goal)).toThrow(Tim2GoalRunsOn);
+    // A failing entry before it on the list still ends the walk.
+    const lamp = p(29, 3);
+    expect(runTim2Goal({ ...goal, entries: [...goal.entries, entry(lamp, 1, 2)], static: [lamp, odd] }).answer).toBe(1);
   });
 
   it("holds a met goal back until the last word's number of checks", () => {
