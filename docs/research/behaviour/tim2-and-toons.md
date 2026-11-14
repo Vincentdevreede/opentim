@@ -222,7 +222,7 @@ TIM.EXE's resource service assumption (`SCALAR_SERVICE_ASSUMPTION`), and the han
 `HANDLER_TABLE_ASSUMPTION` (`behaviour-scalar-loaders.ts`, the profile's `scalarLoaders`, on for TIM 2 and Toons). TIM 2
 has eight such loaders. The routines they call now count as bounded by the loader, as in Even More, so fewer routines
 count as read fully, while unresolved calls went from 1134 to 1058 and loops from 164 to 135. The frame chain behind the
-loader was then still blocked one step up; see the next item.
+loader was then still blocked one step up; see "A helper whose first argument is a number" below.
 
 **The bounce calls by the passed part's own type.** TIM2.EXE's dispatcher (`0x511f5`) first calls the bounce code of the
 part's own type, when bits 0x06 of its flag byte at `+0x0a` are set and it is a cupid, Mel Schlemming, super ball or
