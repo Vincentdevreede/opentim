@@ -49,11 +49,17 @@ status bar. The parts page, the levels page and `load` all share one read.
 The biggest file of the Lab. In order:
 
 - **Types** the worker sends: `PartSummary`, `Walk`, `OtherEffect`, `Doing`, `RestSummary`, `BehaviourSummary`, …
-- **Names**: `PART_FIELDS` (part record offset to name), `LINKS` (what a field points to), `ROPE_ARGUMENTS`,
-  `NAMED_TERMS` (the Lab's own names with their raw form and meaning, for tips), `ROPE_FIELDS` (the rope record).
-- **Flag bits**: `FLAG_BITS` names every used bit of the three flag words (list flags 0x06, drawing flags 0x08, marks
-  0x0a) as set and clear words; `flagWords` and `recordName` use them. The table with what the game does with each
-  bit is in [the research](../research/behaviour/in-the-lab.md#flag-bits).
+- **Names**: `RecordNames` is what one game's part record can be named with: the report's layout fields (for TIM 2
+  and Toons also the fields their own routines show) and, for TIM 1 and Even More only, TIM.EXE's words by place (the
+  game profile's `partWords`, from `partWordsOf`). `recordNamesOf(report)` gives it; the writer, `tidyWords`,
+  `goalMarkWords`, `flagWords` and `recordName` all take it. The Lab's tables of TIM.EXE's places, `PART_FIELDS`
+  (part record offset to name), `LINKS` (what a field points to), `ROPE_ARGUMENTS` and `ROPE_FIELDS` (the rope
+  record), only apply with those words, so a TIM 2 or Toons word the analysis doesn't name reads by its offset.
+  `NAMED_TERMS` has the Lab's own names with their raw form and meaning, for tips.
+- **Flag bits**: `FLAG_BITS` names every used bit of TIM.EXE's three flag words (`lists`, `drawingFlags` and `marks`,
+  placed by `partWords`) as set and clear words, for TIM 1 and Even More; another game's bits read by the names the
+  analysis gives them (the mirror bits). The table with what the game does with each bit is in
+  [the research](../research/behaviour/in-the-lab.md#flag-bits).
 - **`tidyWords`**: rewrites the analysis's own sentences without hex (drops `& 0xffff` unless a number is past a word,
   "rounded down to 16", flag tests as names, no code addresses, fields by name, rope record fields).
 - **Goals**: `goalMarkSetters` (which parts set which goal mark) and `goalMarkWords` ("marked by cat").
@@ -131,9 +137,11 @@ scratch script.
 - Colours and sizes come from the theme tokens (`text-ink`, `bg-surface`, `text-meta`, confidence colours `decoded`,
   `partial`, `hypothesis`, `error`).
 
-**To add a name**: a part record word goes in `PART_FIELDS` (and `LINKS` when it points somewhere); the analysis's
-own field names win in the writer, but `tidyWords` only knows `PART_FIELDS`. A flag bit goes in `FLAG_BITS` and the
-flag bits table of the research. A rope record field goes in `ROPE_FIELDS`. Each needs a test in `behaviour.test.ts`.
+**To add a name**: a word every game has goes in the content package, where the analysis names it per game (the
+layout, or a game's `fieldForms`). A TIM.EXE word the analysis doesn't name goes in `PART_FIELDS` (and `LINKS` when it
+points somewhere); it then names TIM 1 and Even More only. The analysis's own field names win in the writer, but
+`tidyWords` only knows `PART_FIELDS`. A TIM.EXE flag bit goes in `FLAG_BITS` and the flag bits table of the research.
+A rope record field goes in `ROPE_FIELDS`. Each needs a test in `behaviour.test.ts`.
 
 **To add a tab** to a part: add it to `sideTabs` in `PartDetail.vue` and add its panel branch; `LabTabs` with
 `tabPanel()` from `components/tabs.ts` does the keys and ARIA.

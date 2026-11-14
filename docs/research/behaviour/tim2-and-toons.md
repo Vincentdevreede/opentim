@@ -376,7 +376,14 @@ Toons part's word at 0x0a read as TIM.EXE's goal marks ("sets its goal mark 0x01
 record words were read 58 bytes apart instead of 70. They are now TIM.EXE's profile's `partWords`, and the descriptions
 and the per-type re-read use them only when the profile has them: for TIM 2 and Toons they say nothing of those words,
 the decided assumptions about them (the fixed list, the bullet, the lightable parts) don't apply, and type record words
-aren't settled. TIM 1 and Even More read and describe the same as before.
+aren't settled. TIM 1 and Even More read and describe the same as before. The part factory's starting list flags
+(which types are fixed) and the flag bits the descriptions name follow the same words, so TIM 2 and Toons no longer
+take them from 0x06, 0x08 and 0x0a either.
+
+**In the Lab.** The lab's own names for TIM.EXE's words (the history, links, sockets, ropes, belt, fuse, found list,
+flag bits, rope records and rope callback words) follow the same rule: only a game with `partWords` gets them. A TIM 2
+or Toons word reads by the name from the fields above, or by its offset. See
+[names by game](in-the-lab.md#names-by-game).
 
 ## What is left
 

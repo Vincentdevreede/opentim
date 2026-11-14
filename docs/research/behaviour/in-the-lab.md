@@ -82,15 +82,33 @@ the rest when it is opened.
   "reached" (a part through a rope, belt or pulley), "the centre angle", "the gear jam", "next in the list after
   the insertion", and a value a test picks as "3 if state == 2, else 5".
 
+## Names by game
+
+The names above are TIM.EXE's. The analysis names some fields itself (its layout: `positionX`, `state`,
+`contactAngle` and so on), and the lab adds names of its own for the words the analysis doesn't name, by their place
+in TIM.EXE's part record: `lists`, `marks`, `relayByte`, the fine position, the history, the links and sockets, the
+rope and belt words, `found`, `overlapX`, `fuseX`, `extra` and `heat`, the flag bits below, the rope record's fields
+and the words the rope code passes a rope callback. TIM2.EXE and TOONS.EXE keep their part records otherwise (TIM 2's
+fields are 4 bytes further on, Toons' at their own offsets), so those places are TIM.EXE's only: the lab uses them
+for TIM 1 and Even More, whose game profile has TIM.EXE's words (`partWords`), and for no other game. A TIM 2 or Toons
+word reads by the name the analysis gives it, from that game's own routines (see
+[the part fields](tim2-and-toons.md#the-part-fields)), and otherwise by its offset (`part+0x5a`, `field 0x28`). Their
+flag bits read by the names the analysis gives the bits, which so far are the two mirror bits of the drawing flags;
+any other bit keeps its mask. A goal of a game without TIM.EXE's words keeps its flag tests and fields as the goal
+reader writes them.
+
+The lab reads behaviour from TIM.EXE only so far, so these names show for TIM 2 and Toons once their behaviour is read
+in the lab. Today only their level goals pass through the same words, and those now keep TIM.EXE's names out.
+
 ## Flag bits
 
-A part has three flag words: the list flags at `0x06`, the drawing flags at `0x08` and the marks at `0x0a`. Of their
-48 bits the program uses 40 on parts; each has a name in the lab (`FLAG_BITS` in `apps/lab/src/behaviour.ts`). The
-level file keeps all three words and the loader puts them back ([what the loader keeps](../levels.md#what-the-loader-keeps)),
-so a level shows the bits as they were saved. The bits were found by going over every test, set and clear of the three
-words in the routines the analysis decodes and the routines they call, with the starting words of the part factory,
-the constructors and the shipped levels. Addresses are Even More (English floppy); TIM 1 (French) has the same tests
-at its own addresses, but not the editor lock and the goal marks.
+A TIM 1 or Even More part has three flag words: the list flags at `0x06`, the drawing flags at `0x08` and the marks at
+`0x0a`. Of their 48 bits the program uses 40 on parts; each has a name in the lab (`FLAG_BITS` in
+`apps/lab/src/behaviour.ts`). The level file keeps all three words and the loader puts them back ([what the loader
+keeps](../levels.md#what-the-loader-keeps)), so a level shows the bits as they were saved. The bits were found by going
+over every test, set and clear of the three words in the routines the analysis decodes and the routines they call, with
+the starting words of the part factory, the constructors and the shipped levels. Addresses are Even More (English
+floppy); TIM 1 (French) has the same tests at its own addresses, but not the editor lock and the goal marks.
 
 The list flags:
 
