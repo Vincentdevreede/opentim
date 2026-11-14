@@ -195,7 +195,7 @@ const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefin
   if (current.value?.kind !== "level") return undefined;
   if (level.value?.layout === "tim2") {
     const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name]));
-    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`);
+    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`, tim2Start.value);
     return read
       ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
       : { status: "none", why: "This level has no goal entries." };

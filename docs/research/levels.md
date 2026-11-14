@@ -466,10 +466,39 @@ that runs out after the last part, or looking past a gap in the entries each mak
 to go on from there when the count is reached, and it fails the goal when the list ends while it keeps one. When the
 entry's part is the last on its list there is no part after it, so running out of parts doesn't fail the goal: the
 entry is skipped, and the goal can be met with too few parts. Ten levels of the floppy and CD count parts (ELEV8,
-HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2. In the files'
-order none of the counted parts is the last of its group; whether one can end last on its list in a game depends on
-how the game orders the lists, which isn't read yet. Until then the Lab marks every TIM 2 count with "can pass with
-fewer".
+HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2.
+
+None of those counts can pass with fewer parts, because none of the counted parts can be last on its list. How
+TIM2.EXE keeps the lists (addresses of the CD build):
+
+- **Only two routines change a list**: the insertion routine (`0x1a31:0x2a58`,
+  [above](#tim-2-the-loaders-records-and-the-puzzle-start)) and the one that takes a part off (`0x1a31:0x2a22`). Their
+  callers are the level loader, the puzzle start and the bin (`0x1a31:0x2ca1`), the player, and the type routines of
+  the parts the machine makes (ten places in `0x2354`, from `0x2354:0x0a09` to `0x2354:0xa834`). Those type routines
+  only put a part they make on a list (and mark it with bit `0x10` of its first flag word), after taking off the one
+  of the same type they made before (`0x1436:0x11a8`). When the machine stops, the parts it made are taken off again
+  (`0x1a31:0x4a44`). Nothing sorts a list while the machine runs, so the parts keep the order they were put in.
+- **When the player drops a part** on the board, TIM2.EXE sets its start place (0xa4, 0xa6) to where it is and puts it
+  on its list again (`0x624a:0x0fa0` calls `0x1a31:0x2d4c`, which takes it off and inserts it on the fixed list when
+  bit `0x4000` of its first flag word is set, else on the moving list), with 0 for the insertion routine's last word.
+  So a dropped part goes by the same rules as the loader's, except that a part with bit `0x1000` goes before the first
+  part that has it too instead of after every part.
+- **The parts that stay on the board** (bit `0x40`) are the puzzle's own: the routine that gives a part its handles
+  (`0x1a31:0x12a2`, kept in `[0x6885]` for the code that draws them) stops at that bit (`0x1a31:0x12f9`) before any
+  handle but the editor's, so the player can't move or turn them, and nothing takes them off. So they keep the order
+  the start leaves them in, and a part after the counted one stays after it.
+- **The word the lists sort by** (0x38 of the type's record) is 0 for every type in all three builds, so on each list
+  the parts go from the lowest on the screen to the highest, with the ropes first and the parts with bit `0x1000` of the
+  third flag word last.
+
+Every counted part of the shipped goals stays on the board, and a part higher on the screen stays on the board on the
+same list: the last on the list is ELEV8 #44, HH14 #22, HH18 #67, HH7 #60 (for all four counts), MLEV2 #68, TLEV17
+#29, TLEV2 #51, TLEV3 #28, TLEV4 #23, TLEV6 #18 and the demo's ELEV2 #34. `tim2LastOnList` (`src/read/tim2-start.ts`)
+works this out for a part, also for one from the bin (last when the player puts it higher than every part of its list
+with its word, unless a part on the board must come after it), and the Lab marks a count with "can pass with fewer"
+only when its part can be last, with the reason. No shipped count gets the mark. Without TIM2.EXE's tables every count
+gets it. `check-puzzle-start --tim2` compares the order of the moving and fixed lists the Lab gives with the game's,
+after the loader and after the start: they agree in every level of the three builds.
 
 **The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
 (the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving

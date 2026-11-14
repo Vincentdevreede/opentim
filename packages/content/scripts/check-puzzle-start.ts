@@ -2,7 +2,8 @@
  * Checks what the Lab says each puzzle starts with (`puzzleStart` in `src/read/puzzle-start.ts`) against what the game's
  * own puzzle start does in the emulator, for every puzzle of every game folder it is given, each the same way: which
  * parts are in the bin and in what order, which stay on the board, which are taken off, and the states, plugs, ropes
- * and belts the start changes on the board.
+ * and belts the start changes on the board. For TIM 2 also the order of the moving and fixed lists after the loader
+ * and after the start, which decides which part the goal routine finds last on its list.
  *
  * - TIM 2 and Toons: TIM2.EXE and TOONS.EXE run their level loader and then their puzzle start on the level
  *   (`src/run/level-start.ts`, found in the program by `src/run/level-start-find.ts`). TIM 2 is also started for the
@@ -30,7 +31,13 @@ import { readTim2StartTables } from "../src/read/tim2-start.ts";
 import { readToonsBinKinds, readToonsListKinds } from "../src/read/toons-goals.ts";
 import { exeHash, GAME_BUILDS, loadPuzzle } from "../src/run/game.ts";
 import { tim2Solution } from "../src/run/level-start-find.ts";
-import { gameStartResult, startDifferences, TIM2_START_FIELDS, TOONS_START_FIELDS } from "../src/run/start-check.ts";
+import {
+  gameStartResult,
+  startDifferences,
+  TIM2_START_FIELDS,
+  tim2ListDifferences,
+  TOONS_START_FIELDS,
+} from "../src/run/start-check.ts";
 import {
   buildFolders,
   folderOptions,
@@ -108,10 +115,11 @@ function checkWithLoader(build: BuildFolder<"tim2" | "toons">, range: Range): Bu
     try {
       const run = machine.run(data, file, level.parts.length);
       for (const what of run.unknown.keys()) unknown.set(what, (unknown.get(what) ?? new Set()).add(name));
-      puzzles.push({
-        name,
-        differences: startDifferences(level, puzzleStart(level, { sort, tim2 }), gameStartResult(run, fields)),
-      });
+      const ours = puzzleStart(level, { sort, tim2 });
+      const differences = startDifferences(level, ours, gameStartResult(run, fields));
+      // TIM 2's goal routine walks the lists in their order, so it is checked too.
+      if (tim2) differences.push(...tim2ListDifferences(level, tim2, ours, run));
+      puzzles.push({ name, differences });
       if (build.game === "tim2") {
         const solved = machine.run(data, file, level.parts.length, tim2Solution(start));
         const ours = puzzleStart(level, { solution: true, tim2 });

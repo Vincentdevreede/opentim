@@ -136,6 +136,50 @@ export function tim2ListOrder(level: Level, group: "moving" | "static", tables: 
   return list.map((p) => p.index);
 }
 
+/**
+ * Whether a part of a TIM 2 puzzle can be the last part on its list while the machine runs, which decides whether
+ * TIM2.EXE's goal routine can forget a count about it (see `summariseTim2Goal`).
+ *
+ * The lists only change by the insertion routine and the routine that takes a part off (`0x1a31:0x2a22` in the CD
+ * build): the loader, the puzzle start, the player and the parts the machine makes. When the player puts a part on
+ * the board, TIM2.EXE sets its start place to where it is and puts it on its list again (`0x1a31:0x2d4c`, called
+ * from `0x624a:0x0fa0`), by the same rules with 0 for the routine's last word. While the machine runs, nothing else
+ * moves a part on a list: the type routines only put the parts they make on the lists, and take off one they made
+ * before. So the parts that stay on the board (bit 0x40) keep the order the start leaves them in, and the player can
+ * neither move nor take one away.
+ *
+ * - A part on the board when the puzzle starts can be last only when it is last then: a part after it stays after it.
+ *   `behind` is the last part of its list.
+ * - A part from the bin goes, as the player drops it, before the first part of its list it should come before. It is
+ *   never last when a part on the board has a higher word, when it has bit 0x1000 and a part on the board has too,
+ *   or when it is a rope type and a part on the board has its word; else it is last when the player puts it higher on
+ *   the screen than every part of its list with its word (`above`).
+ */
+export function tim2LastOnList(
+  level: Level,
+  index: number,
+  tables: Tim2StartTables,
+): { can: false; behind: number } | { can: true; above: number[] } {
+  const part = level.parts[index]!;
+  const start = tim2PuzzleStart(level, tables);
+  const board = (i: number) => !start.bin.includes(i) && !start.gone.has(i);
+  const list = tim2ListOrder(level, part.group === "moving" ? "moving" : "static", tables).filter(board);
+  const key = (i: number) => tables.listKeys.get(level.parts[i]!.type) ?? 0;
+  if (board(index)) {
+    const last = list.at(-1)!;
+    return last === index ? { can: true, above: [] } : { can: false, behind: last };
+  }
+  const third = (i: number) => tim2Third(level.parts[i]!, tables);
+  const first = (test: (i: number) => boolean) => list.find(test);
+  const blocker =
+    third(index) & LAST
+      ? first((i) => (third(i) & LAST) !== 0)
+      : (first((i) => key(i) > key(index)) ??
+        (FIRST_OF_THEIR_WORD.includes(part.type) ? first((i) => key(i) === key(index)) : undefined));
+  if (blocker !== undefined) return { can: false, behind: blocker };
+  return { can: true, above: third(index) & LAST ? [] : list.filter((i) => key(i) === key(index)) };
+}
+
 /** Puts `index` on the bin as TIM2.EXE's insertion routine does. */
 export function tim2BinInsert(bin: number[], index: number, level: Level, tables: Tim2StartTables): void {
   const type = level.parts[index]!.type;

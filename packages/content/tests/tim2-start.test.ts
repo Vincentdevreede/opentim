@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Level } from "../src/read/level.ts";
-import { tim2BinInsert, tim2ListOrder, tim2PuzzleStart, type Tim2StartTables } from "../src/read/tim2-start.ts";
+import { summariseTim2Goal } from "../src/read/tim2-goal.ts";
+import {
+  tim2BinInsert,
+  tim2LastOnList,
+  tim2ListOrder,
+  tim2PuzzleStart,
+  type Tim2StartTables,
+} from "../src/read/tim2-start.ts";
 
 type Spec = {
   type: number;
@@ -123,5 +130,67 @@ describe("TIM 2's puzzle start", () => {
   it("leaves the parts without bit 0x100 on the board for the solution", () => {
     const l = level([{ type: 1 }, { type: 2, third: 0x100 }]);
     expect(tim2PuzzleStart(l, tables, true).bin).toEqual([1]);
+  });
+});
+
+describe("which part can be the last on its list", () => {
+  it("lets a part on the board be last only when it is last as the puzzle starts", () => {
+    // Type 1 parts sort by height, the lowest first; the one put in the bin leaves the list.
+    const l = level([
+      { type: 1, third: FIXED, y: 50 },
+      { type: 1, third: FIXED, y: 10 },
+      { type: 1, y: 5 },
+    ]);
+    expect(tim2LastOnList(l, 0, tables)).toEqual({ can: false, behind: 1 });
+    expect(tim2LastOnList(l, 1, tables)).toEqual({ can: true, above: [] });
+  });
+
+  it("lets a part from the bin be last when put higher than the parts of its word, unless a part must come after", () => {
+    const l = level([
+      { type: 1, third: FIXED, y: 50 },
+      { type: 1, y: 70 },
+      { type: 3, third: FIXED, y: 90 },
+      { type: 3, y: 70 },
+    ]);
+    // A part with a higher word comes after type 1 wherever the player puts it.
+    expect(tim2LastOnList(l, 1, tables)).toEqual({ can: false, behind: 2 });
+    expect(tim2LastOnList(l, 3, tables)).toEqual({ can: true, above: [2] });
+    // A rope goes before the first part of its word.
+    const rope = level([
+      { type: 1, third: FIXED, y: 50 },
+      { type: 10, y: 70 },
+    ]);
+    expect(tim2LastOnList(rope, 1, tables)).toEqual({ can: false, behind: 0 });
+  });
+
+  it("puts a part with bit 0x1000 from the bin before the first such part on the board", () => {
+    // The bit comes from the type, as the loader keeps it.
+    const last = { ...tables, third: new Map([[2, 0x1000]]) };
+    const l = level([{ type: 2, third: FIXED }, { type: 2 }, { type: 3 }]);
+    expect(tim2LastOnList(l, 1, last)).toEqual({ can: false, behind: 0 });
+    const alone = level([{ type: 1, third: FIXED, y: 9 }, { type: 2 }]);
+    expect(tim2LastOnList(alone, 1, last)).toEqual({ can: true, above: [] });
+  });
+
+  it("warns that a count can pass with fewer parts only when its part can be last", () => {
+    const l = level([
+      { type: 1, third: FIXED, y: 50 },
+      { type: 1, third: FIXED, y: 10 },
+      { type: 1, third: FIXED, y: 90 },
+    ]);
+    const goal = (part: number) => {
+      const withGoal = {
+        ...l,
+        tim2: {
+          notes: [],
+          ignored: [0, 0],
+          spare: 0,
+          goal: { first: 1, last: 0, entries: [{ part, values: [0, 9, 2, 0, 0, 0, 0] }] },
+        },
+      } as unknown as Level;
+      return summariseTim2Goal(withGoal, () => "Thing", tables)!.summary.ways[0]![0]!;
+    };
+    expect(goal(0).caution).toBeUndefined();
+    expect(goal(1).caution).toMatch(/#1 is the last part on its list when the puzzle starts.*fewer than 2/);
   });
 });
