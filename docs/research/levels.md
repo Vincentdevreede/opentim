@@ -373,15 +373,28 @@ floppy, 8 of 8 in the demo, and the designer's solutions too.
   explosives (55) name each other in their second link: when either goes, the remote control goes to the bin and the
   explosives are taken off and freed, as Toons takes off a tunnel's other end. That is why the remote controls ELEV22
   #10, HLEV6 #3 and MLEV21 #9 go to the bin although they have bit 0x40: their explosives don't.
-- **Plugs and states.** A part plugged into one that goes to the bin is unplugged by the routine that pulls a plug out
-  (`0x21b4f`): it clears both plug words, calls the type routine at 0x08 of each part's type record, and keeps the
-  board part's new state as the one it starts from (0xa8). Read from those routines: the electric switch (21,
-  `2354:0x28b8`) and the electrical outlet (120, `2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the
-  first place and 2 for one in the second; the generator (26, `2354:0x2f6c`) and the solar panel (38, `2354:0x4f9b`)
-  take only those two bits; the laser-activated plug (96, `2354:0x9fcd`) takes the state's remainder by 7, plus 7 for
-  a plug in the first place and 14 for one in the second. These five are the only types the shipped puzzles unplug on
+- **Plugs and states.** The routine that pulls a plug out (`0x21b4f`, `0x1a31:0x243f`) runs for a part that goes to
+  the bin only when its type has bit 1 (a plug) or bit 2 (places to plug into) of its third flag word
+  (`0x1a31:0x2833`). In all three builds bit 2 is the electric switch (21), the generator (26), the solar panel (38),
+  the laser-activated plug (96) and the electrical outlet (120), and bit 1 the fan (24), Santa Claus (34), the electric
+  motor (50), the vacuum cleaner (51), the can opener (67), the toaster (81), the three lasers (91 to 93) and the
+  electric mixer (107). For a part with places it clears both places and the plug of each part plugged in there, and
+  calls the type routine at 0x08 of each of those parts' records; for a part with a plug it clears its plug and the
+  place it takes, calls that routine for the part it was plugged into, and keeps that part's new state as the one it
+  starts from (0xa8). Read from those routines: the electric switch (`2354:0x28b8`) and the electrical outlet
+  (`2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the first place and 2 for one in the second; the
+  generator (`2354:0x2f6c`) and the solar panel (`2354:0x4f9b`) take only those two bits; the laser-activated plug
+  (`2354:0x9fcd`) takes the state's remainder by 7, plus 7 for a plug in the first place and 14 for one in the second.
+  The types with a plug keep their state: their routines (the fan `2354:0x2c3a`, Santa Claus `2354:0x4057`, the
+  motor `2354:0x621b`, the vacuum cleaner `2354:0x6356`, the can opener `2354:0x7e02`, the toaster `2354:0x948a`, the
+  lasers `6658:0x18f2` and the mixer the routine most types share, `1a31:0x4e61`) only pick the outline for the
+  part's side and work out its shape, and the lasers their beam. The shipped puzzles unplug only parts with places on
   the board. A part that names a binned part as its plug while that part doesn't name it back keeps its plug (HLEV1
-  #45, MLEV15 #7).
+  #45, MLEV15 #7). `check-puzzle-start --tim2` also starts 200 made-up levels, made from the first shipped level with
+  a part plugged into another: the two parts take every pair of a type with places and a type with a plug, one or the
+  other goes to the bin, and the one with places starts in two states (or the one the loader gives it for its plugs,
+  as it does for the laser-activated plug). All 200 start as the Lab says in the floppy and the CD build; the demo has
+  no level with a part plugged into another.
 - **A pulley before its rope** in the file has no rope over it, as in Toons: the loader takes the rope's record as it
   reads the pulley.
 
@@ -594,9 +607,6 @@ What isn't worked out yet, and what the Lab does meanwhile:
 - **The colours.** TIM2.EXE runs in 16 colours and reads only the `BIN:` chunks of its pictures
   ([the screen](file-formats.md#animations-anm)); which 16 colours it sets isn't read, and the Lab draws the pictures in
   256 colours, from the `BIN:` and `VGA:` chunks.
-- **Unplugging other types.** Only the routines of the five types the shipped puzzles unplug are read
-  ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); for another type the Lab leaves the state as the file has
-  it.
 
 ## Toons levels
 

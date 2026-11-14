@@ -224,20 +224,30 @@ const KEEPS_BIT_4 = [21, 120];
 const PLUG_BITS = [26, 38];
 /** The laser-activated plug: seven states for each way its places are taken. */
 const LASER_PLUG = 96;
+/** Bits 1 and 2 of the third flag word: a part with a plug, and one with places to plug into. */
+const HAS_PLUG = 0x1;
+const TAKES_PLUGS = 0x2;
 
 /**
  * The state a part on the board takes when the start pulls a plug out of it. The routine that pulls a plug out
- * (file offset `0x21b4f` in the CD build) clears both plug words and calls the type routine at 0x08 of the type's
- * record for both parts, and keeps the state as the one the part starts from (0xa8). The routines of the types the
- * shipped levels unplug, read from TIM2.EXE (in the CD build):
+ * (file offset `0x21b4f` in the CD build, `0x1a31:0x243f`) runs only for a part with bit 1 or 2 of its third flag word
+ * (`0x1a31:0x2833`); every type has those bits of its own, from its record. For a part with places to plug into (bit
+ * 2: the electric switch, the generator, the solar panel, the laser-activated plug and the electrical outlet) it clears
+ * both places and the plug of each part plugged in there, and calls the type routine at 0x08 of each of those parts'
+ * records; for a part with a plug (bit 1: the fan, Santa Claus, the electric motor, the vacuum cleaner, the can opener,
+ * the toaster, the three lasers and the electric mixer) it clears its plug and the place it takes, and calls that
+ * routine for the part it was plugged into, which then starts from its new state (0xa8). The routines, read from
+ * TIM2.EXE (in the CD build):
  *
  * - the electric switch (`2354:0x28b8`) and the electrical outlet (`2354:0xb119`): bit 4 of the state stays, 1 for a
  *   plug in the first place, 2 for one in the second;
  * - the generator (`2354:0x2f6c`) and the solar panel (`2354:0x4f9b`): 1 and 2 for the two places, nothing else;
  * - the laser-activated plug (`2354:0x9fcd`): the state's remainder by 7, 7 more for a plug in the first place and 14
- *   more for one in the second.
- *
- * Another type's routine isn't read, so its state is left as the file has it.
+ *   more for one in the second;
+ * - the types with a plug keep their state: their routines (the fan `2354:0x2c3a`, Santa Claus `2354:0x4057`, the
+ *   electric motor `2354:0x621b`, the vacuum cleaner `2354:0x6356`, the can opener `2354:0x7e02`, the toaster
+ *   `2354:0x948a`, the lasers `6658:0x18f2` and the mixer the shared `1a31:0x4e61`) only pick the outline of the
+ *   part's side and work out its shape, and the lasers their beam.
  */
 function unpluggedState(part: LevelPart, plugs: [number | null, number | null]): number {
   const state = part.state[0];
@@ -303,7 +313,9 @@ export function tim2PuzzleStart(level: Level, tables: Tim2StartTables, solution 
     if (part.type === PULLEY && part.pulley !== null && part.pulley !== undefined && !inBin.has(index))
       if (put(part.pulley)) untie(part.pulley);
     if (!put(index)) return;
-    for (const other of plugs.get(index)!) {
+    // Only a part with a plug or places to plug into is unplugged.
+    const plugged = tim2Third(part, tables) & (HAS_PLUG | TAKES_PLUGS) ? plugs.get(index)! : [];
+    for (const other of plugged) {
       const own = other === null ? undefined : plugs.get(other);
       if (other === null || !own?.includes(index)) continue;
       own.forEach((p, k) => p === index && (own[k] = null));

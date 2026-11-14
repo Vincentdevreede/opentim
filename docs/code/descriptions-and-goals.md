@@ -196,7 +196,7 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
   and the bin's table of types; `tim2ListOrder` and `tim2BinInsert` keep a list and the bin as TIM2.EXE's insertion
   routine does, and `tim2PuzzleStart` follows its puzzle start: the bin, the belts, ropes and remote controls that go
   with a part, the explosives taken off, the plugs pulled out and the states the type routines of the unplugged parts
-  set (`unpluggedState`, read for the five types the shipped puzzles unplug). The Lab lays its puzzles out with it
+  set (`unpluggedState`, read for every type with a plug or places to plug into, bits 1 and 2 of the third flag word). The Lab lays its puzzles out with it
   (`levelStart` in `apps/lab/src/levels.ts`), and `check-puzzle-start` compares it with the games. `tim2LastOnList`
   says whether a part can be the last on its list while the machine runs (a board part only when it is last as the
   puzzle starts, a bin part by where the player puts it), which decides the goal's "can pass with fewer".

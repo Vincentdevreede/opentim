@@ -53,22 +53,22 @@ Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side b
 its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`; the behaviour scripts read only TIM 1 and Even More
 (`readBuild`).
 
-| Script                      | What it does                                                                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `extract-parts`             | Writes the committed part lists `src/lists/*.json` from the builds (also TIM 2).                                                                       |
-| `extract-behaviour`         | Writes behaviour reports (without the per-type loops) and a cross-build comparison to `--out`.                                                         |
-| `compare-behaviour`         | Compares saved reports with a baseline and the descriptions with the saved recordings (the v25 oracle).                                                |
-| `validate-behaviour`        | Checks saved reports against v25's callback measurements.                                                                                              |
-| `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.                                                     |
-| `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                                                                |
-| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                                                          |
-| `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions (TIM 1 and Even More; notes only for TIM 2 and Toons).           |
-| `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the read goals against the game's goal routines in the emulator. Both take TIM 1, Even More, TIM 2 and Toons. |
-| `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)).                                         |
-| `check-level-fields`        | Finds where the level loader puts each field of a level file. Takes all four games.                                                                    |
-| `check-moving-list`         | Checks decided assumption 22 in the game's own run; for TIM 2 and Toons at the puzzle start. Takes all four games.                                     |
-| `check-puzzle-start`        | Checks what the Lab says each puzzle starts with (`puzzleStart`) against the game's own puzzle start in the emulator. Takes all four games.            |
-| `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                                                              |
+| Script                      | What it does                                                                                                                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extract-parts`             | Writes the committed part lists `src/lists/*.json` from the builds (also TIM 2).                                                                                                                                            |
+| `extract-behaviour`         | Writes behaviour reports (without the per-type loops) and a cross-build comparison to `--out`.                                                                                                                              |
+| `compare-behaviour`         | Compares saved reports with a baseline and the descriptions with the saved recordings (the v25 oracle).                                                                                                                     |
+| `validate-behaviour`        | Checks saved reports against v25's callback measurements.                                                                                                                                                                   |
+| `fingerprint-behaviour`     | Hashes everything one build's read gives; same hashes before and after a change mean same results.                                                                                                                          |
+| `list-assumptions`          | Writes (`--out`) or checks (`--check`) `docs/assumptions/behaviour-assumptions-all.md`.                                                                                                                                     |
+| `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                                                                                                                               |
+| `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions (TIM 1 and Even More; notes only for TIM 2 and Toons).                                                                                |
+| `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the read goals against the game's goal routines in the emulator. Both take TIM 1, Even More, TIM 2 and Toons.                                                                      |
+| `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)).                                                                                                              |
+| `check-level-fields`        | Finds where the level loader puts each field of a level file. Takes all four games.                                                                                                                                         |
+| `check-moving-list`         | Checks decided assumption 22 in the game's own run; for TIM 2 and Toons at the puzzle start. Takes all four games.                                                                                                          |
+| `check-puzzle-start`        | Checks what the Lab says each puzzle starts with (`puzzleStart`) against the game's own puzzle start in the emulator, for TIM 2 also the lists' order and made-up levels that unplug every plug type. Takes all four games. |
+| `record-cpu-cases`          | Runs CPU test programs in DOSBox and saves the results the emulator's tests compare with.                                                                                                                                   |
 
 The level checks (`check-level-fields`, `check-level-frames`, `check-moving-list`, `check-puzzle-start`) take every
 game and print the same lines for each: a line per build, then what was checked, then notes and differences. Where a

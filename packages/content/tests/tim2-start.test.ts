@@ -59,7 +59,13 @@ const tables: Tim2StartTables = {
     [10, 4],
     [22, 5],
   ]),
-  third: new Map(),
+  // The sockets have places to plug into (bit 2), type 2 has a plug (bit 1).
+  third: new Map([
+    [21, 2],
+    [26, 2],
+    [96, 2],
+    [2, 1],
+  ]),
 };
 
 describe("TIM 2's puzzle start", () => {
@@ -98,7 +104,7 @@ describe("TIM 2's puzzle start", () => {
     expect(start.untied).toEqual([[2, 0]]);
   });
 
-  it("sets an unplugged part's state again by its type's routine, and leaves a type whose routine isn't read", () => {
+  it("sets an unplugged part's state again by its type's routine, and a part with a plug keeps its state", () => {
     const l = level([
       { type: 96, third: FIXED, plugs: [3, 4], state: 23 },
       { type: 26, third: FIXED, plugs: [5, 6], state: 3 },
@@ -110,7 +116,7 @@ describe("TIM 2's puzzle start", () => {
       { type: 2, plugs: [2, null] },
     ]);
     // The laser-activated plug keeps 23 mod 7 = 2 and its second place, 14 more; the generator its first place, 1;
-    // type 99 stays as the file has it.
+    // type 99, which has no routine that sets it, stays as the file has it.
     expect([...tim2PuzzleStart(l, tables).states]).toEqual([
       [0, 16],
       [1, 1],
@@ -192,5 +198,29 @@ describe("which part can be the last on its list", () => {
     };
     expect(goal(0).caution).toBeUndefined();
     expect(goal(1).caution).toMatch(/#1 is the last part on its list when the puzzle starts.*fewer than 2/);
+  });
+});
+
+describe("pulling plugs out at the start", () => {
+  it("unplugs only a part whose type has a plug or places to plug into", () => {
+    // Type 3 has neither bit: going to the bin, it leaves the switch as it is.
+    const l = level([
+      { type: 21, third: FIXED, plugs: [1, 2], state: 7 },
+      { type: 3, plugs: [0, null] },
+      { type: 2, plugs: [0, null] },
+    ]);
+    const start = tim2PuzzleStart(l, tables);
+    expect([...start.plugs]).toEqual([[0, [1, null]]]);
+    expect([...start.states]).toEqual([[0, 5]]);
+  });
+
+  it("leaves the state of a part with a plug when the part it is plugged into goes to the bin", () => {
+    const l = level([
+      { type: 2, third: FIXED, plugs: [1, null], state: 3 },
+      { type: 21, plugs: [0, null], state: 1 },
+    ]);
+    const start = tim2PuzzleStart(l, tables);
+    expect([...start.plugs]).toEqual([[0, [null, null]]]);
+    expect(start.states.size).toBe(0);
   });
 });
