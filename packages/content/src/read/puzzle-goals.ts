@@ -719,14 +719,15 @@ class RoutineReader {
       this.es = segment;
       return [];
     }
-    // A segment loaded into a register only to go into `es` next is no word of the goal's: it is kept, not said.
+    // A segment loaded into a register only to go into `es` next is no word of the goal's: it is kept, not said, unless
+    // the goal reads the register again.
     if (this.reading.farWords && i.mnemonic === "mov" && a?.kind === "register" && b?.kind === "immediate") {
       for (let at = i.address + i.size, n = 0; n < 3; n++) {
         const next = this.graph.instructions.get(at);
         if (!next || next.flow !== "next") break;
         const [to, from] = next.operands;
         if (next.mnemonic === "mov" && to?.kind === "register" && to.name === "es") {
-          if (from?.kind === "register" && from.name === a.name) {
+          if (from?.kind === "register" && from.name === a.name && !this.readLater(a.name, at + next.size)) {
             this.constants.set(a.name, b.value & 0xffff);
             return [];
           }
@@ -747,6 +748,48 @@ class RoutineReader {
         this.es = undefined;
       }
     return statements;
+  }
+
+  /**
+   * Whether the goal may read a word register from `from` on before it sets it again. A called routine has registers
+   * of its own and leaves ax and dx changed. The routine's end isn't counted as reading ax: Toons' dispatcher drops a
+   * goal's ax, and only the goals themselves load `es`, no routine they call.
+   */
+  private readLater(name: string, from: number): boolean {
+    const [low, high] = [`${name[0]}l`, `${name[0]}h`];
+    const names = [name, low, high];
+    const named = (o: Operand) =>
+      (o.kind === "register" && names.includes(o.name)) || (o.kind === "memory" && o.base.includes(name));
+    const seen = new Set<number>();
+    const pending = [from];
+    while (pending.length) {
+      const at = pending.pop()!;
+      if (at === EXIT || seen.has(at)) continue;
+      seen.add(at);
+      const i = this.graph.instructions.get(at);
+      if (!i) return true;
+      const [to, ...rest] = i.operands;
+      // `mov dl, byte; mov dh, 0` sets dx as one load does.
+      const next = this.graph.instructions.get(at + i.size);
+      const [nextTo, nextFrom] = next?.operands ?? [];
+      const pair =
+        to?.kind === "register" &&
+        to.name === low &&
+        next?.mnemonic === "mov" &&
+        nextTo?.kind === "register" &&
+        nextTo.name === high &&
+        nextFrom?.kind === "immediate";
+      const sets =
+        to?.kind === "register" &&
+        (to.name === name || pair) &&
+        ((["mov", "lea", "pop"].includes(i.mnemonic) && !rest.some(named)) ||
+          (i.mnemonic === "xor" && rest[0]?.kind === "register" && rest[0].name === name));
+      if (sets) continue;
+      if (i.operands.some(named) || (["cwd", "idiv"].includes(i.mnemonic) && ["ax", "dx"].includes(name))) return true;
+      if (i.flow === "call" && (name === "ax" || name === "dx")) continue;
+      pending.push(...(this.graph.successors.get(at) ?? []));
+    }
+    return false;
   }
 
   private statements(i: Instruction): GoalStatement[] {

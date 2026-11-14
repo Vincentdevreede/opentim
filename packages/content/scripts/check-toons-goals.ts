@@ -1,8 +1,9 @@
 /**
  * Reads every Toons puzzle's goal routine from TOONS.EXE (`src/read/toons-goals.ts`) and checks each against the
  * routine itself in the emulator (`src/run/toons-goal-check.ts`), as `check-goals` does for TIM. Fails when the goal
- * table isn't found, a routine can't be read, or a read goal leaves a word different from the game's routine. The parts
- * lists are the ones the list head routine the finder calls picks by each bit of its mask.
+ * table isn't found, a routine can't be read, a read goal leaves a word different from the game's routine, or a goal
+ * isn't compared in any trial. The parts lists are the ones the list head routine the finder calls picks by each bit of
+ * its mask.
  *
  *   pnpm --filter @opentim/content check-toons-goals --toons <game folder> [--trials 1000]
  */
@@ -61,7 +62,13 @@ note("Reads a value it never set (puzzles, trials)", (r) => r.unset);
 note("Divides by 0 (puzzles, trials)", (r) => r.dividesByZero);
 note("Runs on in both (puzzles, trials)", (r) => r.runOn);
 for (const r of differ) console.error(`  ${r.name ?? `Puzzle ${r.puzzle}`} differs: ${r.firstDifference}`);
-if (unread.length || differ.length) {
-  console.error(`${unread.length + differ.length} problems: routines not read, or goals that differ from the game.`);
+// A goal whose every trial stopped before its words were compared isn't checked at all.
+const unchecked = results.filter((r) => !r.compared);
+for (const r of unchecked) console.error(`  ${r.name ?? `Puzzle ${r.puzzle}`} isn't compared in any trial`);
+if (unread.length || differ.length || unchecked.length) {
+  console.error(
+    `${unread.length + differ.length + unchecked.length} problems: routines not read, goals that differ from the ` +
+      `game, or goals not compared.`,
+  );
   process.exitCode = 1;
 } else console.log("Every goal routine is read, and every read goal does what the game's routine does.");

@@ -153,9 +153,9 @@ than TIM's (17 is the pulley, 46 the tunnel).
 
 - **Frames** come from `TOONS.EXE`'s type table (`readToonsParts`, see [the file formats](file-formats.md#toonsexe)): a
   type with a frame list shows its pieces, else state N shows sprite N of its sheet, at the record's position for N.
-  A type is a part when it has a `PART` sheet; 36 and 37, Al and Sid, have none and no frames in the list, since
-  TOONS.EXE draws them from the `CAT` and `SID` sheet of what they are doing. The ten other types without a sheet
-  (66, 67, 70 to 74, 76, 79 and 81) have empty records.
+  A type is a part when it has a `PART` sheet; 36 and 37, Al and Sid, have none, but they are in the list too, with
+  frames from the `CAT` and `SID` sheet of what they are doing, which TOONS.EXE draws them from. The ten other types
+  without a sheet (66, 67, 70 to 74, 76, 79 and 81) have empty records.
 - **Tiles**: a part a level draws as tiles (walls, the ladder) keeps the tile width and the number of middle tiles in
   `tiles`, which the Levels page uses.
 - **Ids** are in `TOONS_IDS` in `part-ids.ts`, chosen from the sprites and the levels that use each part. The least

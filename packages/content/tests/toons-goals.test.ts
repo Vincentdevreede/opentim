@@ -61,6 +61,15 @@ describe("readGoalRoutines for Toons", () => {
     });
   });
 
+  it("says the segment's load when the routine reads the register again", () => {
+    // mov bx, 0x340f; mov es, bx; mov ax, es:[0x7514]; mov [0x10], bx
+    const code = "558becbb0f348ec326a11475891e10005dcb";
+    const routines = readGoalRoutines(image(0x20, [[0, code]]), 0, 0, new Map(), { farWords: true });
+    const memory = new Map<number, number>();
+    runGoal(routines, 0, { read: (a) => memory.get(a) ?? 0, write: (a, v) => void memory.set(a, v) });
+    expect(memory.get(0x10)).toBe(0x340f);
+  });
+
   it("reads a loop whose test leaves early, as `while (di < n && si)` is compiled", () => {
     // xor di, di; mov si, [bp+6]; jmp test; body: mov si, [si]; inc di; test: cmp di, [bp+8]; jge out; or si, si;
     // jne body; out: mov ax, di
@@ -207,6 +216,26 @@ describe("describeGoal for Toons", () => {
       "word 0x340f:7514 = the 1st al-e-cat on the moving list, or 0 if there is none",
       "the goal is met, and the run ends 10 steps later",
     ]);
+  });
+
+  it("keeps a register the finder's type comes from, which the call doesn't change", () => {
+    const si = { kind: "register", name: "si" } as const;
+    const ax = { kind: "register", name: "ax" } as const;
+    const constant = (value: number) => ({ kind: "constant", value }) as const;
+    // ax = 0x1000; push ax; ax = 1; push ax; si = 36; push si; call the finder; [0x10] = ax; [0x12] = si
+    const body: GoalStatement[] = [
+      { kind: "set", target: ax, value: constant(0x1000) },
+      { kind: "set", target: { kind: "local", offset: -2 }, value: ax },
+      { kind: "set", target: ax, value: constant(1) },
+      { kind: "set", target: { kind: "local", offset: -4 }, value: ax },
+      { kind: "set", target: si, value: constant(36) },
+      { kind: "set", target: { kind: "local", offset: -6 }, value: si },
+      { kind: "call", routine: 0x262d, segment: 0, offset: 0x262d, stack: -6 },
+      { kind: "set", target: { kind: "word", address: constant(0x10) }, value: ax },
+      { kind: "set", target: { kind: "word", address: constant(0x12) }, value: si },
+    ];
+    const routines = new Map([[0, { address: 0, segment: 0, offset: 0, body }]]);
+    expect(describeGoal(routines, 0, names)).toContain("si = 36");
   });
 });
 

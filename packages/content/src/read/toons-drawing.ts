@@ -66,6 +66,8 @@ export function readToonsMemory(exe: Uint8Array): ToonsMemory {
       const file = base + u32(image, stub + 4);
       const size = u16(image, stub + 8);
       const fixups = u16(image, stub + 10);
+      if (file + size + fixups > exe.length)
+        throw new Error("TOONS.EXE's overlay or its fixups run past the end of the file");
       const code = Uint8Array.from(exe.subarray(file, file + size));
       for (let k = 0; k < fixups / 2; k++) {
         const at = u16(exe, file + size + 2 * k);

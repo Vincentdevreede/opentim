@@ -738,11 +738,16 @@ export function layoutScene(
   };
 }
 
-/** The parts a goal's condition looks at: the one part it names, or else every part of its types. */
-export const goalPartsOf = (condition: GoalCondition, parts: readonly DrawnPart[]): DrawnPart[] =>
-  condition.part !== undefined
-    ? parts.filter((d) => d.part.index === condition.part)
+/**
+ * The parts a goal's condition looks at: the one part it names, or `one`, the part the level decides it is about (like
+ * the n-th part of a type in a Toons goal), or else every part of its types.
+ */
+export const goalPartsOf = (condition: GoalCondition, parts: readonly DrawnPart[], one?: number): DrawnPart[] => {
+  const index = condition.part ?? one;
+  return index !== undefined
+    ? parts.filter((d) => d.part.index === index)
     : parts.filter((d) => condition.types?.some((t) => t.type === d.part.type));
+};
 
 /** The topmost part at a point of the level, for clicks. Lines can't be picked; their part shows in the structure. */
 export function partAt(scene: Scene, point: Point): DrawnPart | undefined {

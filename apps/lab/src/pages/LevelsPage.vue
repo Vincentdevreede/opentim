@@ -236,9 +236,11 @@ const goalAreas = computed(() => {
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
-    // position is in range, from the part the condition names or one of the same type in the level. Without one it is
-    // the range of positions.
-    const looked = c.part !== undefined || c.types?.length ? goalPartsOf(c, s.parts) : s.parts;
+    // position is in range, from the part the condition is about or one of the same type in the level. Without one it
+    // is the range of positions.
+    const one = goalParts.value.get(c);
+    const looked =
+      c.part !== undefined || one !== undefined || c.types?.length ? goalPartsOf(c, s.parts, one) : s.parts;
     const like = looked.find((d) => d.box.width && d.box.height);
     const at = like
       ? {

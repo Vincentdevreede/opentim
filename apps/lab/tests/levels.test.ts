@@ -610,5 +610,8 @@ describe("goalPartsOf", () => {
     expect(indexes({ kind: "part", part: 1, types: [lamp], tests: [] })).toEqual([1]);
     expect(indexes({ kind: "count", types: [lamp], tests: [] })).toEqual([0, 1]);
     expect(indexes({ kind: "word", tests: [] })).toEqual([]);
+    // The second lamp a Toons goal's n-th selection picks, out of the two.
+    const second = { kind: "nth", nth: 2, types: [lamp], tests: [] } as Parameters<typeof goalPartsOf>[0];
+    expect(goalPartsOf(second, parts, 1).map((d) => d.part.index)).toEqual([1]);
   });
 });

@@ -66,4 +66,9 @@ describe("readToonsMemory", () => {
     exe.set([0x00, 0x10, 0, 0], count);
     expect(() => readToonsMemory(exe)).toThrow("runs past the end of the file");
   });
+
+  it("rejects an overlay whose fixups run past the end of the file", () => {
+    const exe = program();
+    expect(() => readToonsMemory(exe.subarray(0, exe.length - 1))).toThrow("run past the end of the file");
+  });
 });
