@@ -3,6 +3,11 @@
   "source": "the titles and goals of Toons' levels, and the game's other words: GENERIC.RES and the link map TOONS.BMP",
   "names": [
     {
+      "id": "splat",
+      "name": "Splat",
+      "from": "TOONS.EXE: its code plays the sound the bank calls splat1 (the game has no name for it, so it is named for the project)"
+    },
+    {
       "id": "conveyor-belt",
       "name": "Conveyor Belt",
       "from": "CAKE13 \"Conveyors and Gears\": \"Feed Al the fish on the conveyor belt.\""
@@ -114,7 +119,7 @@
     },
     {
       "id": "rainbow-ball",
-      "name": "Ball",
+      "name": "Rainbow Ball",
       "from": "CAKE26 \"Pop Goes the Pistol\": \"Drop the ball.\" (the level's only ball)"
     },
     {

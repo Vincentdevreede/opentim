@@ -177,8 +177,9 @@ than TIM's (17 is the pulley, 46 the tunnel).
   of a level that has a part of that type, like "Teeter-Totter" from the level of that name (CAKE18) or "Ball
   Bearing" from "bop Al with the ball bearing" (BRAN4); a message in `GENERIC.RES` ("bogus eyehooks"); or a routine's
   name in `TOONS.BMP`. `toons-names.json` keeps, for every name, the level or file and the words it comes from; a
-  test checks that every name belongs to a part of the list. 54 of the 75 parts have a name; the others show their
-  id.
+  test checks that every name belongs to a part of the list. Two names are chosen for the project: "Rainbow Ball",
+  since CAKE26 only says "the ball", and "Splat" (4), after the sound its code plays, which nothing in the game
+  names. 55 of the 75 parts have a name; the others show their id.
 - **The link map**: the archive entry `TOONS.BMP` is no image but the linker's map of another build of TOONS.EXE,
   with every routine's name. Its parts' code (`PARTS`) lists each part's callbacks module by module, like
   `_balloon_reinit`, `_balloon_bounce`, `_balloon_internal`, `_balloon_rope`. The shipped TOONS.EXE has the same
