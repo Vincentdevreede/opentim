@@ -188,8 +188,13 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
   [the levels research](../research/levels.md)).
 - `puzzle-start.ts`: `puzzleStart(level, { solution, sort })` says what a puzzle starts with in every game: the bin in
   the game's order, the parts taken off, and the states, plugs, rope places and belts the start changes on the board.
-  TIM 1 keeps the file's bin; TIM 2 puts the parts without bit 0x40 in the bin in the file's order (for the solution,
-  those with 0x100 too); Toons follows `toonsPuzzleStart`, filtered to the board. The Lab lays its puzzles out with it
+  TIM 1 keeps the file's bin; TIM 2 follows `tim2PuzzleStart` with TIM2.EXE's tables (`tim2-start.ts`, below), or
+  without them puts the parts without bit 0x40 in the bin in the file's order; Toons follows `toonsPuzzleStart`,
+  filtered to the board.
+- `tim2-start.ts`: `readTim2StartTables` reads from TIM2.EXE the lists' sort word and the third flag bits of each type
+  and the bin's table of types; `tim2ListOrder` and `tim2BinInsert` keep a list and the bin as TIM2.EXE's insertion
+  routine does, and `tim2PuzzleStart` follows its puzzle start: the bin, the belts, ropes and remote controls that go
+  with a part, the explosives taken off, the plugs pulled out and the states that follows. The Lab lays its puzzles out with it
   (`levelStart` in `apps/lab/src/levels.ts`), and `check-puzzle-start` compares it with the games.
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).

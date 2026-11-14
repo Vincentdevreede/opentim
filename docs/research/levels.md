@@ -345,23 +345,41 @@ part of the file pairs with its record; all 8,583 parts of the CD's 206 levels d
 The size and the base size aren't in any one word of every record: the type sets them from its pictures, which the
 check doesn't give it.
 
-**The puzzle start does more than the Lab says.** With the mode of a puzzle (any but 1 and 6, which keep every part
-where it is, and 9), the start routine (`0x68817`) walks the moving list and then the fixed list and puts each part
-without bit 0x40 of its third flag word in the bin, as the Lab has it. But in 195 of the CD's 206 puzzles it starts
-otherwise than the Lab says:
+**The puzzle start.** With the mode of a puzzle (any but 1 and 6, which keep every part where it is, and 9), the start
+routine (`0x68817`) walks the moving list and then the fixed list and puts each part without bit 0x40 of its third
+flag word in the bin. The Lab first put those parts in the bin in the file's order and changed nothing else; in 195 of
+the CD's 206 puzzles the game started otherwise. `puzzleStart` now follows TIM2.EXE (`tim2PuzzleStart` in
+`src/read/tim2-start.ts`), and every puzzle of the three builds starts as the game does: 206 of 206 on the CD and the
+floppy, 8 of 8 in the demo, and the designer's solutions too.
 
-- **The bin's order** (72 puzzles differ only in this): the bin isn't in the file's order. Parts of a type come
-  together, in the reverse of the order the start reaches them, and the types in an order of their own, as in Toons;
-  where that order comes from isn't read yet.
-- **Ropes and belts go with their parts**: a rope or a belt tied to a part that goes to the bin goes there too (18
-  ropes and 27 belts of the CD's levels), and the ropes and belts of the parts on the board are untied from it.
-- **The explosives of a remote control are taken off** (37 in the CD's levels), as Toons takes off a tunnel's other
-  end; three remote controls with bit 0x40 go to the bin too (ELEV22 #10, HLEV6 #3, MLEV21 #9).
-- **Plugs are pulled out and states change** on the board: in 44 puzzles a part on the board loses its plug, and its
-  state changes, most often to 0.
+- **The third flag word** the start tests is the loader's: the type's own bits (the word at 0x28 of the type's record,
+  for the types below 0x119) with the file's bits 0x140. So the type decides most of it, not the file.
+- **The order it walks in** is the lists' order, which the insertion routine (`0x221e2`, `0x1a31:0x2a58`) keeps as the
+  loader puts the parts there in the file's order: by the word at 0x38 of the type's record, lowest first; among parts
+  with the same word the rope, the rope end (49) and the steel cable (76) first, then the lowest on the screen first (a
+  larger y at 0xa6), at the same height the one further right; type 11 the other way up. The loader asks for a part
+  with bit 0x1000 of its third flag word to go last. `tim2ListOrder` gives the same lists as the game for every level.
+- **The bin's order** comes from the same routine: for the bin it asks a routine (`0x59ac4`, `0x541d:0x154`) which of
+  two types comes first in a table in the data (`0x422b:0x1f0`, ended by -1), and puts the new part before the first
+  part of its own type or of a later one. A type the table doesn't have goes after the others. So the types come in
+  the table's order, and a type's parts in the reverse of the order the start put them there (`tim2BinInsert`).
+- **What goes with a part.** A part that goes to the bin takes with it the belt round it (a belt part whose two parts
+  name it) and the ropes tied to it (a rope, rope end or steel cable whose record names it), also when those have bit
+  0x40; their other ends on the board are untied. A belt or a rope the start reaches on its own goes too, and is untied
+  from both ends. Before a pulley it takes the rope over it (the pulley's field). A remote control (22) and its
+  explosives (55) name each other in their second link: when either goes, the remote control goes to the bin and the
+  explosives are taken off and freed, as Toons takes off a tunnel's other end. That is why the remote controls ELEV22
+  #10, HLEV6 #3 and MLEV21 #9 go to the bin although they have bit 0x40: their explosives don't.
+- **Plugs and states.** A part plugged into one that goes to the bin is unplugged, and its type's routine sets its
+  state again: the electric switch (21) and the electrical outlet (120) keep bit 4 and take 1 for a plug in their
+  first place and 2 for one in their second, the laser-activated plug (96) goes from state 7 and up to 7 less, and
+  the others take 0. These were read from what the start does in the emulator, for every shipped level, not from the
+  type routines' code. A part that names a binned part as its plug while that part doesn't name it back keeps its
+  plug (HLEV1 #45, MLEV15 #7).
+- **A pulley before its rope** in the file has no rope over it, as in Toons: the loader takes the rope's record as it
+  reads the pulley.
 
-For the designer's solution (mode 9) the parts with bit 0x100 stay in the bin and the rest come on the board, as the
-Lab says; only the bin's order differs, in 58 of the 206.
+For the designer's solution (mode 9) the same happens to the parts with bit 0x100; the others stay on the board.
 
 ### TIM 2 goals
 
@@ -504,9 +522,9 @@ What isn't worked out yet, and what the Lab does meanwhile:
 - **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
   with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
 - **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
-- **The puzzle start.** The Lab puts the parts without bit 0x40 in the bin in the file's order and changes nothing on
-  the board; TIM2.EXE also sorts the bin, takes ropes, belts and explosives with their parts and pulls plugs
-  ([above](#tim-2-the-loaders-records-and-the-puzzle-start)). `check-puzzle-start --tim2` lists every difference.
+- **The plug states** of the switch, the outlet and the laser-activated plug are read from what the puzzle start does,
+  not from their type routines ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); a part plugged into
+  another that the shipped levels don't unplug may take another state.
 
 ## Toons levels
 
