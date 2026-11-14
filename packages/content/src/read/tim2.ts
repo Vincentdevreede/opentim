@@ -166,46 +166,69 @@ export function readAnimation(anm: Uint8Array): Animation {
 }
 
 /**
- * The pixels of a line as TIM2.EXE's VGA driver (the `VGA:` file in `VM.OVL`) draws it, in the order it draws them.
- * The game sorts the ends so the line runs to the right. A line wider than tall then steps across from the left end and
- * moves up or down one row when its running error, which starts at 2 × height - width, isn't below 0. A line taller
- * than wide always runs down from its top end, the same way with width and height swapped. Lines as wide as tall, and
- * straight ones, are plain runs.
+ * The pixels of a line as TIM2.EXE draws it, in the order it draws them, with x and y on the screen. TIM2.EXE always
+ * asks for the 16 colour `HEG:` driver of `VM.OVL` (see the file formats research), whose line function cuts the line
+ * into runs by division and joins two runs with a pixel in the corner, so every pixel touches the one before it by a
+ * side. The game sorts the ends so the line runs to the right, and the driver draws it from the left end:
+ *
+ * - a line wider than tall in runs across, one row after the other: the first run is width ÷ (height + 1) + 1 pixels
+ *   long, each other one that many less 1, or 1 more when the running sum of the remainder's share, kept in 16 bits,
+ *   overflows; the last run stops at the right end;
+ * - a line taller than wide the same way in runs down (or up), with width and height swapped;
+ * - a line as wide as tall a pixel right and then a pixel down (or up), for each column; the last pixel isn't drawn
+ *   when the right end is at a multiple of 8 across, where the driver moves on to the next byte of the screen.
  */
 export function tim2LinePixels(x1: number, y1: number, x2: number, y2: number): { x: number; y: number }[] {
   if (x1 > x2) [x1, y1, x2, y2] = [x2, y2, x1, y1];
   const across = x2 - x1;
   const down = Math.abs(y2 - y1);
-  const pixels = [{ x: x1, y: y1 }];
-  if (across >= down) {
-    // From the left end: every step moves right, and down or up when the error says so.
-    const up = y2 < y1 ? -1 : 1;
-    let error = 2 * down - across;
-    for (let x = x1, y = y1, i = 0; i < across; i++) {
-      x++;
-      if (error < 0) error += 2 * down;
-      else {
-        y += up;
-        error += 2 * down - 2 * across;
-      }
-      pixels.push({ x, y });
+  const step = y2 > y1 ? 1 : -1;
+  let x = x1;
+  let y = y1;
+  const pixels = [{ x, y }];
+  const dot = () => pixels.push({ x, y });
+  if (across === 0 || down === 0) {
+    for (let i = 0; i < across + down; i++) {
+      if (across) x++;
+      else y += step;
+      dot();
     }
     return pixels;
   }
-  // From the top end: every step moves down, and left or right when the error says so.
-  const [x, y, sideways] = y2 < y1 ? [x2, y2, -1] : [x1, y1, 1];
-  pixels[0] = { x, y };
-  let error = 2 * across - down;
-  for (let cx = x, cy = y, i = 0; i < down; i++) {
-    cy++;
-    if (error < 0) error += 2 * across;
-    else {
-      cx += sideways;
-      error += 2 * across - 2 * down;
+  if (across === down) {
+    for (let i = 1; i <= across; i++) {
+      x++;
+      dot();
+      if (i === across && x % 8 === 0) break;
+      y += step;
+      dot();
     }
-    pixels.push({ x: cx, y: cy });
+    return pixels;
   }
-  return pixels;
+  // Runs along the longer side, each followed by one pixel along the shorter one.
+  const long = Math.max(across, down);
+  const runs = Math.min(across, down) + 1;
+  const length = Math.floor(long / runs);
+  const share = Math.floor(((long % runs) * 0x10000) / runs);
+  const along = () => (across > down ? x++ : (y += step));
+  const aside = () => (across > down ? (y += step) : x++);
+  let left = long;
+  let sum = 0;
+  let run = length + 1;
+  for (;;) {
+    if (left - run < 0) run = left;
+    left -= run;
+    for (let i = 0; i < run; i++) {
+      along();
+      dot();
+    }
+    if (left === 0) return pixels;
+    aside();
+    dot();
+    sum += share;
+    run = length + (sum > 0xffff ? 1 : 0);
+    sum &= 0xffff;
+  }
 }
 
 const FLIPS: Record<number, Placement["flip"]> = { 1: "v", 2: "h", 3: "hv" };

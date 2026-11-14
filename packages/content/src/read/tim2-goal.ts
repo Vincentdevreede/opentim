@@ -24,6 +24,7 @@
 
 import type { GoalCondition, GoalSummary } from "./goal-conditions.ts";
 import type { Level } from "./level.ts";
+import { tim2LastOnList, type Tim2StartTables } from "./tim2-start.ts";
 import type { ToonsMemory } from "./toons-drawing.ts";
 import { decodeInstruction, type Instruction, type Operand } from "./x86.ts";
 
@@ -44,8 +45,32 @@ export function tim2GoalWords(values: readonly number[]): readonly number[] {
   return values.length === 6 ? [values[0]!, ...values] : values;
 }
 
-/** The goal of a TIM 2 level as conditions, or undefined for a level without one. */
-export function summariseTim2Goal(level: Level, nameOf: (type: number) => string): Tim2Goal | undefined {
+/**
+ * Why a count can pass with fewer parts, or undefined when it can't: TIM2.EXE's goal routine forgets a count whose
+ * part is the last on its list (see `runTim2Goal`), and whether the part can be last comes from how the game keeps its
+ * lists (`tim2LastOnList`). Without TIM2.EXE's tables the order isn't known, so every count gets the caution.
+ */
+function countCaution(level: Level, index: number, count: number, tables?: Tim2StartTables): string | undefined {
+  const forgets = `TIM2.EXE forgets this entry, so the goal can be met with fewer than ${count}`;
+  if (!tables)
+    return `When #${index} is the last part on its list, ${forgets}. Whether it can be last depends on the order of the lists, which TIM2.EXE gives.`;
+  const last = tim2LastOnList(level, index, tables);
+  if (!last.can) return undefined;
+  if (!last.above.length)
+    return `#${index} is the last part on its list when the puzzle starts, and then ${forgets}, until a part the player puts or the machine makes comes after it.`;
+  const others = last.above.map((i) => `#${i}`).join(", ");
+  return `When the player puts #${index} higher on the screen than ${others}, it is the last part on its list, and then ${forgets}.`;
+}
+
+/**
+ * The goal of a TIM 2 level as conditions, or undefined for a level without one. With TIM2.EXE's start tables a count
+ * is marked as one that can pass with fewer parts only when its part can be the last on its list.
+ */
+export function summariseTim2Goal(
+  level: Level,
+  nameOf: (type: number) => string,
+  tables?: Tim2StartTables,
+): Tim2Goal | undefined {
   const goal = level.tim2?.goal;
   if (!goal) return undefined;
   const lines = [`first word ${goal.first}, last word ${goal.last}`];
@@ -79,10 +104,9 @@ export function summariseTim2Goal(level: Level, nameOf: (type: number) => string
         lists: moving ? "the moving list" : "the static list",
         where: [test],
         count: { op: ">=", value: count },
-        caution:
-          `When #${part.index} is the last part on its list, TIM2.EXE forgets this entry, so the goal can be met with ` +
-          `fewer than ${count}. Whether it can end last depends on how the game orders the lists, which isn't read yet.`,
       });
+      const caution = countCaution(level, part.index, count, tables);
+      if (caution) condition.caution = caution;
       delete condition.part;
       if (fromBin) condition.tests.push(`#${part.index} out of the parts bin`);
     } else {

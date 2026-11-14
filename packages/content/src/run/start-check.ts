@@ -6,6 +6,7 @@
  */
 import type { Level } from "../read/level.ts";
 import type { PuzzleStart } from "../read/puzzle-start.ts";
+import { tim2ListOrder, type Tim2StartTables } from "../read/tim2-start.ts";
 import type { GameParts, LevelStartRun } from "./level-start.ts";
 
 /** Where a game's part record keeps what the start can change, as `check-level-fields` finds it. */
@@ -88,7 +89,7 @@ export function gameStartResult(run: LevelStartRun, fields: StartFields): GameSt
   return { bin, board, gone, states, plugs, untied, unbelted };
 }
 
-const list = (indexes: Iterable<number>) => [...indexes].map((i) => `#${i}`).join(", ") || "none";
+const partList = (indexes: Iterable<number>) => [...indexes].map((i) => `#${i}`).join(", ") || "none";
 const plugText = ([a, b]: [number | null, number | null]) =>
   `${a === null ? "none" : `#${a}`} and ${b === null ? "none" : `#${b}`}`;
 
@@ -105,16 +106,16 @@ export function startDifferences(level: Level, ours: PuzzleStart, game: GameStar
     const sameParts = only(ours.bin, game.bin).length === 0 && only(game.bin, ours.bin).length === 0;
     out.push(
       sameParts
-        ? `the bin's order: ours ${list(ours.bin)}, the game's ${list(game.bin)}`
-        : `the bin: ours ${list(ours.bin)}, the game's ${list(game.bin)}`,
+        ? `the bin's order: ours ${partList(ours.bin)}, the game's ${partList(game.bin)}`
+        : `the bin: ours ${partList(ours.bin)}, the game's ${partList(game.bin)}`,
     );
   }
   const onBoard = only(oursBoard, game.board);
   const offBoard = only(game.board, oursBoard);
-  if (onBoard.length) out.push(`on the board by ours only: ${list(onBoard)}`);
-  if (offBoard.length) out.push(`on the board by the game only: ${list(offBoard)}`);
+  if (onBoard.length) out.push(`on the board by ours only: ${partList(onBoard)}`);
+  if (offBoard.length) out.push(`on the board by the game only: ${partList(offBoard)}`);
   if (only(ours.gone, game.gone).length || only(game.gone, ours.gone).length)
-    out.push(`taken off: ours ${list(ours.gone)}, the game's ${list(game.gone)}`);
+    out.push(`taken off: ours ${partList(ours.gone)}, the game's ${partList(game.gone)}`);
   for (const index of new Set([...ours.states.keys(), ...game.states.keys()]))
     if (ours.states.get(index) !== game.states.get(index))
       out.push(
@@ -134,6 +135,35 @@ export function startDifferences(level: Level, ours: PuzzleStart, game: GameStar
   if (only(oursUntied, gameUntied).length || only(gameUntied, oursUntied).length)
     out.push(`ropes untied: ours ${oursUntied.join(", ") || "none"}, the game's ${gameUntied.join(", ") || "none"}`);
   if (only(ours.unbelted, game.unbelted).length || only(game.unbelted, ours.unbelted).length)
-    out.push(`belts taken off: ours ${list(ours.unbelted)}, the game's ${list(game.unbelted)}`);
+    out.push(`belts taken off: ours ${partList(ours.unbelted)}, the game's ${partList(game.unbelted)}`);
+  return out;
+}
+
+/**
+ * TIM 2: the moving and fixed lists in the order the Lab says (`tim2ListOrder`), after the loader and, less the parts
+ * that went to the bin or were taken off, after the start, against the game's lists. The goal routine walks the lists
+ * in that order, so it decides which part is last on its list (`tim2LastOnList`). Empty when they agree.
+ */
+export function tim2ListDifferences(
+  level: Level,
+  tables: Tim2StartTables,
+  ours: PuzzleStart,
+  run: LevelStartRun,
+): string[] {
+  const out: string[] = [];
+  const board = (i: number) => !ours.bin.includes(i) && !ours.gone.has(i);
+  for (const [when, parts] of [
+    ["after the loader", run.loaded],
+    ["after the start", run.started],
+  ] as const)
+    for (const [list, group] of [
+      ["moving", "moving"],
+      ["fixed", "static"],
+    ] as const) {
+      const order = tim2ListOrder(level, group, tables).filter((i) => when === "after the loader" || board(i));
+      const game = parts.lists[list].map((at) => parts.pool.indexOf(at));
+      if (order.length !== game.length || order.some((i, k) => game[k] !== i))
+        out.push(`the ${list} list ${when}: ours ${partList(order)}, the game's ${partList(game)}`);
+    }
   return out;
 }

@@ -2,7 +2,8 @@
  * Checks what the Lab says each puzzle starts with (`puzzleStart` in `src/read/puzzle-start.ts`) against what the game's
  * own puzzle start does in the emulator, for every puzzle of every game folder it is given, each the same way: which
  * parts are in the bin and in what order, which stay on the board, which are taken off, and the states, plugs, ropes
- * and belts the start changes on the board.
+ * and belts the start changes on the board. For TIM 2 also the order of the moving and fixed lists after the loader
+ * and after the start, which decides which part the goal routine finds last on its list.
  *
  * - TIM 2 and Toons: TIM2.EXE and TOONS.EXE run their level loader and then their puzzle start on the level
  *   (`src/run/level-start.ts`, found in the program by `src/run/level-start-find.ts`). TIM 2 is also started for the
@@ -24,13 +25,19 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
-import { readLevel, type Level } from "../src/read/level.ts";
+import { readLevel, type Level, type LevelPart } from "../src/read/level.ts";
 import { puzzleStart } from "../src/read/puzzle-start.ts";
-import { readTim2StartTables } from "../src/read/tim2-start.ts";
+import { readTim2StartTables, type Tim2StartTables } from "../src/read/tim2-start.ts";
 import { readToonsBinKinds, readToonsListKinds } from "../src/read/toons-goals.ts";
 import { exeHash, GAME_BUILDS, loadPuzzle } from "../src/run/game.ts";
 import { tim2Solution } from "../src/run/level-start-find.ts";
-import { gameStartResult, startDifferences, TIM2_START_FIELDS, TOONS_START_FIELDS } from "../src/run/start-check.ts";
+import {
+  gameStartResult,
+  startDifferences,
+  TIM2_START_FIELDS,
+  tim2ListDifferences,
+  TOONS_START_FIELDS,
+} from "../src/run/start-check.ts";
 import {
   buildFolders,
   folderOptions,
@@ -113,10 +120,11 @@ function checkWithLoader(build: BuildFolder<"tim2" | "toons">, range: Range): Bu
     try {
       const run = machine.run(data, file, level.parts.length);
       for (const what of run.unknown.keys()) unknown.set(what, (unknown.get(what) ?? new Set()).add(name));
-      puzzles.push({
-        name,
-        differences: startDifferences(level, puzzleStart(level, { sort, tim2 }), gameStartResult(run, fields)),
-      });
+      const ours = puzzleStart(level, { sort, tim2 });
+      const differences = startDifferences(level, ours, gameStartResult(run, fields));
+      // TIM 2's goal routine walks the lists in their order, so it is checked too.
+      if (tim2) differences.push(...tim2ListDifferences(level, tim2, ours, run));
+      puzzles.push({ name, differences });
       if (build.game === "tim2") {
         const solved = machine.run(data, file, level.parts.length, tim2Solution(start));
         const ours = puzzleStart(level, { solution: true, tim2 });
@@ -131,12 +139,96 @@ function checkWithLoader(build: BuildFolder<"tim2" | "toons">, range: Range): Bu
   });
   report(check, "puzzles", puzzles);
   if (build.game === "tim2") report(check, "solutions", solutions);
+  const made = tim2 ? plugLevels(files, names, tim2) : [];
+  // A build whose levels have no part plugged into another (the demo) has nothing to make the levels from.
+  if (tim2 && !made.length)
+    check.lines.push({
+      error: false,
+      text: "  No shipped level has a part plugged into another, so there are no made-up levels to check.",
+    });
+  if (tim2 && made.length) {
+    const results = made.map(({ name, data, socket, stateAt }) => {
+      try {
+        let level = readLevel(data, { layout: "tim2", name });
+        let run = machine.run(data, name, level.parts.length);
+        // The loader lets some types set their state by their plugs, so the file takes the state the loader leaves.
+        const record = run.loaded.records.get(run.loaded.pool[socket]!)!;
+        const loaded = record[fields.state]! | (record[fields.state + 1]! << 8);
+        if (loaded !== (level.parts[socket]!.state[0] & 0xffff)) {
+          new DataView(data.buffer).setUint16(stateAt, loaded, true);
+          level = readLevel(data, { layout: "tim2", name });
+          run = machine.run(data, name, level.parts.length);
+        }
+        return {
+          name,
+          differences: startDifferences(level, puzzleStart(level, { tim2 }), gameStartResult(run, fields)),
+        };
+      } catch (problem) {
+        return { name, differences: [`the game's code stopped: ${(problem as Error).message}`] };
+      }
+    });
+    report(check, "made-up levels that unplug every type with a plug or places to plug into", results);
+  }
   for (const [what, levels] of unknown)
     check.lines.push({
       error: false,
       text: `  Not answered, ${what}: ${[...levels].slice(0, 8).join(", ")}${levels.size > 8 ? ", ..." : ""}`,
     });
   return check;
+}
+
+/**
+ * TIM 2: made-up levels for the routine that pulls a plug out. The first shipped level with a part plugged into
+ * another, neither of them tied by a rope or a belt, is changed in its bytes: the two parts take every pair of a type
+ * with places to plug into and a type with a plug (bits 2 and 1 of the type's third flag word), the one or the other
+ * goes to the bin (bit 0x40 of the third flag word in the file), and the one with places starts in two states, or the
+ * state the loader gives it for its plugs. The loader reads nothing more for these types, so only the type, the flag
+ * word and the state change.
+ */
+function plugLevels(
+  files: Map<string, Uint8Array>,
+  names: string[],
+  tables: Tim2StartTables,
+): { name: string; data: Uint8Array; socket: number; stateAt: number }[] {
+  const bits = (type: number) => tables.third.get(type) ?? 0;
+  const sockets = [...tables.third.keys()].filter((t) => bits(t) & 2);
+  const withPlugs = [...tables.third.keys()].filter((t) => bits(t) & 1 && !(bits(t) & 2));
+  const loose = (p: LevelPart) => !p.belt.parts && !p.ropes.some((r) => r.rope);
+  for (const file of names) {
+    const data = files.get(file)!;
+    const level = readLevel(data, { layout: "tim2", name: file });
+    const tied = new Set(level.parts.flatMap((p) => [...(p.ropes[0].rope?.parts ?? []), ...(p.belt.parts ?? [])]));
+    const socket = level.parts.find(
+      (s) =>
+        bits(s.type) & 2 &&
+        loose(s) &&
+        !tied.has(s.index) &&
+        s.plugs?.some((i) => i !== null && level.parts[i]!.plugs?.[0] === s.index && !tied.has(i)),
+    );
+    if (!socket) continue;
+    const plug = level.parts[socket.plugs!.find((i) => i !== null && level.parts[i]!.plugs?.[0] === socket.index)!]!;
+    const at = (part: LevelPart, key: string) => part.fields.find((f) => f.key === key)!.offset;
+    const out: { name: string; data: Uint8Array; socket: number; stateAt: number }[] = [];
+    for (const socketType of sockets)
+      for (const plugType of withPlugs)
+        for (const binned of ["socket", "plug"] as const)
+          for (const state of [2, 13]) {
+            const made = Uint8Array.from(data);
+            const view = new DataView(made.buffer);
+            const set = (part: LevelPart, type: number, fixed: boolean) => {
+              view.setUint16(at(part, "type"), type, true);
+              const third = view.getUint16(at(part, "flags.2"), true) & ~0x140;
+              view.setUint16(at(part, "flags.2"), fixed ? third | 0x40 : third, true);
+            };
+            set(socket, socketType, binned === "plug");
+            set(plug, plugType, binned === "socket");
+            view.setInt16(at(socket, "state.0"), state, true);
+            const name = `${file.replace(/\.LEV$/i, "")} ${socketType}+${plugType} ${binned} binned, state ${state}`;
+            out.push({ name, data: made, socket: socket.index, stateAt: at(socket, "state.0") });
+          }
+    return out;
+  }
+  return [];
 }
 
 /** Opens the game's files from its folder and the folder above, as DOS would find them. */

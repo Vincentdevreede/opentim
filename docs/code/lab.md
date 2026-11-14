@@ -77,6 +77,12 @@ The biggest file of the Lab. In order:
 - **Sprites**: images and screens with palettes and frames (`components/sprites/ImageDetail.vue`). The automatic
   palette (`autoPalette` in `sprites.ts`) is the one a TTM script loads with the image (Toons), else the one with the
   image's name, else the game's main palette.
+- **TIM 2's colours**: `components/tim2-colours.ts` holds the Colours setting that Sprites, Parts and Levels share
+  and show only for TIM 2: 16 colours as TIM2.EXE's `HEG:` driver shows them (the default), or the palette's own 256.
+  It reads the driver from `VM.OVL` (`readTim2Driver`); without it each page says so in an error note and shows the
+  palette's own colours. In 16 colours `usePalettes().colorsOf` gives each palette as `tim2SixteenColours` makes it,
+  and `compositionCanvas` and `LevelCanvas` fill a box in a colour of 16 or more with the driver's pattern
+  (`patternCanvas`, by `tim2FillColour`).
 - **Parts**: part cards; `PartDetail.vue` has a stage with frames and sprites, and side tabs Frame or Sprite,
   Behaviour (`BehaviourPanel`, three layouts), Interactions (`InteractionLists`) and Type (`RecordPanel`, the 58-byte
   type record, or Toons' 70-byte one). `readLoadedParts` in `parts.ts` reads the parts from `TIM.EXE`, `INFO.RES` or

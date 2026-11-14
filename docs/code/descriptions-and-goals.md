@@ -196,12 +196,15 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
   and the bin's table of types; `tim2ListOrder` and `tim2BinInsert` keep a list and the bin as TIM2.EXE's insertion
   routine does, and `tim2PuzzleStart` follows its puzzle start: the bin, the belts, ropes and remote controls that go
   with a part, the explosives taken off, the plugs pulled out and the states the type routines of the unplugged parts
-  set (`unpluggedState`, read for the five types the shipped puzzles unplug). The Lab lays its puzzles out with it
-  (`levelStart` in `apps/lab/src/levels.ts`), and `check-puzzle-start` compares it with the games.
+  set (`unpluggedState`, read for every type with a plug or places to plug into, bits 1 and 2 of the third flag word). The Lab lays its puzzles out with it
+  (`levelStart` in `apps/lab/src/levels.ts`), and `check-puzzle-start` compares it with the games. `tim2LastOnList`
+  says whether a part can be the last on its list while the machine runs (a board part only when it is last as the
+  puzzle starts, a bin part by where the player puts it), which decides the goal's "can pass with fewer".
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).
 - `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
-  `part` for an entry about one part. `runTim2Goal` tests the entries on given parts lists as TIM2.EXE's one goal
+  `part` for an entry about one part. Given TIM2.EXE's start tables, it gives a count a `caution` only when its part
+  can be last on its list (`tim2LastOnList`); without them every count gets one. `runTim2Goal` tests the entries on given parts lists as TIM2.EXE's one goal
   routine does, quirks and all, and `findTim2GoalRoutine` finds that routine and the words it reads in TIM2.EXE laid
   out with its overlays (`readToonsMemory`).
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
@@ -249,8 +252,9 @@ Node only and not exported from the package; the scripts import it by path. See
   come from the goal readers (`scripts/game-machine.ts`). `tim2Solution` starts a TIM 2 puzzle for the solution.
 - `start-check.ts`: `gameStartResult` reads what a start did from the records before and after it (`StartFields`:
   the state, plugs, rope records and belt record of `TOONS_START_FIELDS` and `TIM2_START_FIELDS`), and
-  `startDifferences` says each way it differs from `puzzleStart`. Run by `check-puzzle-start`, which for TIM 1 and Even
-  More compares with `loadPuzzle` instead.
+  `startDifferences` says each way it differs from `puzzleStart`; `tim2ListDifferences` compares TIM 2's moving and
+  fixed lists with `tim2ListOrder` after the loader and after the start. Run by `check-puzzle-start`, which for TIM 1
+  and Even More compares with `loadPuzzle` instead.
 
 ## The package's exports
 
