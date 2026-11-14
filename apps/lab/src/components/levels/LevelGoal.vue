@@ -198,8 +198,11 @@ const countOf = (c: GoalCondition) => {
               <span v-if="c.where?.length" class="font-mono text-meta break-words text-muted"
                 ><span class="font-sans">where</span> {{ say(c.where.join(", "), typeNumbers(c)) }}</span
               >
-              <span v-if="c.kind === 'count'" class="font-mono text-meta text-soft">{{ countOf(c) }}</span>
-              <span v-else-if="c.tests.length" class="font-mono text-meta break-words text-soft">{{
+              <span v-if="c.kind === 'count'" class="flex min-w-0 items-center gap-2">
+                <span class="font-mono text-meta text-soft">{{ countOf(c) }}</span>
+                <LabChip v-if="c.caution" tone="error" :title="c.caution">can pass with fewer</LabChip>
+              </span>
+              <span v-if="c.tests.length" class="font-mono text-meta break-words text-soft">{{
                 say(c.tests.join(" · "), typeNumbers(c))
               }}</span>
             </span>

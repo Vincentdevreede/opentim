@@ -195,7 +195,12 @@ describe("level files", () => {
       gravity: 272,
       music: 1001,
     });
-    expect(level.tim2).toMatchObject({ bytes: [0, 3], notes: [{ x: 300, y: 40, z: 1, text: "A hint." }], spare: 0 });
+    expect(level.tim2).toMatchObject({
+      spareByte: 0,
+      background: 3,
+      notes: [{ x: 300, y: 40, z: 1, text: "A hint." }],
+      spare: 0,
+    });
     expect(level.tim2!.goal!.entries[0]).toEqual({ part: 1, values: [0, 0, 0, -1, -1, -1, -1] });
     expect(level.parts.map((p) => [p.group, p.type])).toEqual([
       ["static", 1],

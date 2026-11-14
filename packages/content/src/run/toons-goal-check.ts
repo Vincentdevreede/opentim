@@ -19,7 +19,7 @@ import {
   type GoalValue,
 } from "../read/puzzle-goals.ts";
 import type { ToonsMemory } from "../read/toons-drawing.ts";
-import { Cpu } from "./cpu.ts";
+import { Cpu, CpuRunsOn } from "./cpu.ts";
 import type { GoalCheckResult, PartList } from "./goal-check.ts";
 
 /** A Toons part's record size: TOONS.EXE allocates it with `calloc(1, 0xb3)`. */
@@ -128,6 +128,9 @@ function survey(routines: ReadonlyMap<number, GoalRoutine | GoalProblem>, start:
   return { fields: [...fields], constants: [...constants], tests };
 }
 
+/** A goal's check; `compared` counts the trials whose words were compared, after both ran to their end. */
+export type ToonsGoalCheckResult = GoalCheckResult & { name?: string; compared: number };
+
 /**
  * Checks each goal of `goals` against its read program. `lists` are the parts lists, `steps` the step count word,
  * which is 0 in half the trials so the goals' first step is tried too.
@@ -139,7 +142,7 @@ export function checkToonsGoals(
   lists: readonly PartList[],
   steps: number,
   { trials = 1000, seed = 1 }: { trials?: number; seed?: number } = {},
-): (GoalCheckResult & { name?: string })[] {
+): ToonsGoalCheckResult[] {
   const cpu = new Cpu();
   cpu.memory.set(toons.memory.subarray(0, Math.min(toons.memory.length, cpu.memory.length)));
   const clean = cpu.memory.slice();
@@ -148,8 +151,13 @@ export function checkToonsGoals(
     const far = farWord(address);
     return far ? far.segment * 16 + far.offset : data + (address & 0xffff);
   };
+  // The place of a word's second byte: like the processor, a word at offset 0xffff ends at offset 0 of its segment.
+  const second = (address: number) => {
+    const far = farWord(address);
+    return far ? address - far.offset + ((far.offset + 1) & 0xffff) : (address + 1) & 0xffff;
+  };
   const heads = new Set(lists.map((l) => l.head));
-  const results: (GoalCheckResult & { name?: string })[] = [];
+  const results: ToonsGoalCheckResult[] = [];
 
   for (const goal of goals) {
     const rng = random(seed + goal.puzzle);
@@ -174,7 +182,12 @@ export function checkToonsGoals(
       ours[at] = value & 0xff;
       ours[at + 1] = (value >> 8) & 0xff;
     };
-    const result: GoalCheckResult & { name?: string } = {
+    const readWord = (a: number) => ours[linear(a)]! | (ours[linear(second(a))]! << 8);
+    const writeWord = (a: number, value: number) => {
+      ours[linear(a)] = value & 0xff;
+      ours[linear(second(a))] = (value >> 8) & 0xff;
+    };
+    const result: ToonsGoalCheckResult = {
       puzzle: goal.puzzle,
       ...(goal.name ? { name: goal.name } : {}),
       trials: 0,
@@ -182,6 +195,7 @@ export function checkToonsGoals(
       dividesByZero: 0,
       runOn: 0,
       differ: 0,
+      compared: 0,
       tests: tests.size,
       bothWays: 0,
     };
@@ -201,21 +215,14 @@ export function checkToonsGoals(
           put(data + place, places[k + 1] ?? 0);
         });
       }
-      for (const w of words) put(linear(w), w === steps && rng() < 0.5 ? 0 : someValue());
+      for (const w of words) writeWord(w, w === steps && rng() < 0.5 ? 0 : someValue());
       cpu.memory.set(ours);
       result.trials++;
       const seen = new Set<string>();
       let ranOn = false;
       try {
-        runGoal(
-          routines,
-          goal.address,
-          {
-            read: (a) => ours[linear(a)]! | (ours[linear(a) + 1]! << 8),
-            write: (a, v) => put(linear(a), v),
-          },
-          200_000,
-          (test, holds) => seen.add(`${ids.get(test)}:${holds}`),
+        runGoal(routines, goal.address, { read: readWord, write: writeWord }, 200_000, (test, holds) =>
+          seen.add(`${ids.get(test)}:${holds}`),
         );
       } catch (problem) {
         if (problem instanceof UnsetValue) {
@@ -236,7 +243,13 @@ export function checkToonsGoals(
       let gameRanOn = false;
       try {
         cpu.callFar(goal.segment, goal.offset, [], 300_000);
-      } catch {
+      } catch (problem) {
+        // Only the limit counts as running on. Anything else, like a divide error, is the game doing something else.
+        if (!(problem instanceof CpuRunsOn)) {
+          result.differ++;
+          result.firstDifference ??= `trial ${trial}: the game stopped: ${(problem as Error).message}`;
+          continue;
+        }
         gameRanOn = true;
       }
       if (ranOn || gameRanOn) {
@@ -247,6 +260,7 @@ export function checkToonsGoals(
         }
         continue;
       }
+      result.compared++;
       for (const from of regions) {
         const theirs = cpu.memory.subarray(from, from + 0x10000);
         if (Buffer.compare(ours.subarray(from, from + 0x10000), theirs) === 0) continue;

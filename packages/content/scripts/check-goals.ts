@@ -11,7 +11,8 @@
  * - Toons: the goal routines of TOONS.EXE (`src/read/toons-goals.ts`), checked the same way
  *   (`src/run/toons-goal-check.ts`), with the parts lists the list head routine the finder calls picks.
  *
- * Fails when a game's goals aren't found, a goal can't be read, or a read goal does something other than the game.
+ * Fails when a game's goals aren't found, a goal can't be read, a read goal does something other than the game, or
+ * a Toons goal isn't compared in any trial.
  *
  *   pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder>
  *     --toons <game folder> [--trials n]
@@ -159,7 +160,12 @@ function checkToons(build: BuildFolder<"toons">, trials: number): BuildCheck {
     error("  The parts lists aren't found from the finder's list head routine, so the goals aren't checked.");
     return { ...check, problems: check.problems + 1 };
   }
-  report(check, checkToonsGoals(toons, routines, table.routines, lists, table.words.steps, { trials }));
+  const results = checkToonsGoals(toons, routines, table.routines, lists, table.words.steps, { trials });
+  report(check, results);
+  // A goal whose every trial stopped before its words were compared isn't checked at all.
+  const unchecked = results.filter((r) => !r.compared);
+  for (const r of unchecked) error(`  ${r.name ?? `Puzzle ${r.puzzle}`} isn't compared in any trial`);
+  check.problems += unchecked.length;
   return check;
 }
 
@@ -271,7 +277,9 @@ if (isMainThread) {
     { jobs: jobsOption(values.jobs), given: trials === undefined ? {} : { trials } },
   );
   if (problems) {
-    console.error(`${problems} problems: goals not found, routines not read, or goals that differ from the game.`);
+    console.error(
+      `${problems} problems: goals not found, routines not read, goals that differ from the game, or goals not compared.`,
+    );
     process.exitCode = 1;
   } else console.log("Every goal is read, and every read goal does what the game's routine does.");
 }

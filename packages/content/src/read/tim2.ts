@@ -53,8 +53,11 @@ export type AnimationCommand =
   | { kind: "line"; x1: number; y1: number; x2: number; y2: number; colour: number }
   /** Plays a sound, by the number in its file name: 3019 is `SX_3019.RAW`. */
   | { kind: "sound"; sound: number }
-  /** A command the shipped animations don't use, kept with its words. */
-  | { kind: "other"; command: number; words: number[] };
+  /**
+   * Stops the sound with that number if it is playing: TIM2.EXE's command 5 calls the same routine to stop a sound
+   * before it starts it again. No shipped animation uses it.
+   */
+  | { kind: "stop"; sound: number };
 
 export interface AnimationFrame {
   /** The frame's box, relative to the animation's origin. */
@@ -127,22 +130,26 @@ export function readAnimation(anm: Uint8Array): Animation {
     sequence: word(at + i * 4 + 2),
   }));
   const commands = at + sequenceCount * 4;
-  if (commands + size > data.length) throw new Error(`The commands end past the animation, at byte ${commands + size}`);
+  const end = commands + size;
+  if (end > data.length) throw new Error(`The commands end past the animation, at byte ${end}`);
+  // Every command of a frame, its closing 0 too, lies in the commands the header gives the size of.
+  const past = (c: number) => new Error(`A frame's commands run past the commands' end, at byte ${c}`);
   const frames = boxes.map(({ start, ...box }): AnimationFrame => {
     const list: AnimationCommand[] = [];
     for (let c = commands + start * 2; ;) {
+      if (c + 2 > end) throw past(c);
       const command = word(c);
       if (command === 0) break;
       const length = COMMAND_WORDS[command];
       if (!length) throw new Error(`Unknown command ${command} at byte ${c}`);
+      if (c + length * 2 > end) throw past(c);
       const w = (n: number) => signed(c + n * 2);
       if (command === 2) list.push({ kind: "sprite", sheet: w(1), sprite: w(2), x: w(3), y: w(4), flags: w(5) });
       else if (command === 3)
         list.push({ kind: "box", x: w(1), y: w(2), width: w(3), height: w(4), colour: w(5), other: word(c + 12) });
       else if (command === 4) list.push({ kind: "line", x1: w(1), y1: w(2), x2: w(3), y2: w(4), colour: w(5) });
       else if (command === 5) list.push({ kind: "sound", sound: word(c + 2) });
-      else if (command !== 1)
-        list.push({ kind: "other", command, words: Array.from({ length: length - 1 }, (_, i) => word(c + 2 + i * 2)) });
+      else if (command === 6) list.push({ kind: "stop", sound: word(c + 2) });
       c += length * 2;
     }
     return { ...box, commands: list };
@@ -156,6 +163,49 @@ export function readAnimation(anm: Uint8Array): Animation {
     sequences,
     sheets: animationSheetNumbers(anm),
   };
+}
+
+/**
+ * The pixels of a line as TIM2.EXE's VGA driver (the `VGA:` file in `VM.OVL`) draws it, in the order it draws them.
+ * The game sorts the ends so the line runs to the right. A line wider than tall then steps across from the left end and
+ * moves up or down one row when its running error, which starts at 2 × height - width, isn't below 0. A line taller
+ * than wide always runs down from its top end, the same way with width and height swapped. Lines as wide as tall, and
+ * straight ones, are plain runs.
+ */
+export function tim2LinePixels(x1: number, y1: number, x2: number, y2: number): { x: number; y: number }[] {
+  if (x1 > x2) [x1, y1, x2, y2] = [x2, y2, x1, y1];
+  const across = x2 - x1;
+  const down = Math.abs(y2 - y1);
+  const pixels = [{ x: x1, y: y1 }];
+  if (across >= down) {
+    // From the left end: every step moves right, and down or up when the error says so.
+    const up = y2 < y1 ? -1 : 1;
+    let error = 2 * down - across;
+    for (let x = x1, y = y1, i = 0; i < across; i++) {
+      x++;
+      if (error < 0) error += 2 * down;
+      else {
+        y += up;
+        error += 2 * down - 2 * across;
+      }
+      pixels.push({ x, y });
+    }
+    return pixels;
+  }
+  // From the top end: every step moves down, and left or right when the error says so.
+  const [x, y, sideways] = y2 < y1 ? [x2, y2, -1] : [x1, y1, 1];
+  pixels[0] = { x, y };
+  let error = 2 * across - down;
+  for (let cx = x, cy = y, i = 0; i < down; i++) {
+    cy++;
+    if (error < 0) error += 2 * across;
+    else {
+      cx += sideways;
+      error += 2 * across - 2 * down;
+    }
+    pixels.push({ x: cx, y: cy });
+  }
+  return pixels;
 }
 
 const FLIPS: Record<number, Placement["flip"]> = { 1: "v", 2: "h", 3: "hv" };
@@ -202,6 +252,7 @@ export function animationFrames(animation: Animation): Frame[] {
           after: sprites.length,
         });
     }
-    return shapes.length ? { id, sprites, shapes } : { id, sprites };
+    const box = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    return shapes.length ? { id, sprites, shapes, box } : { id, sprites, box };
   });
 }
