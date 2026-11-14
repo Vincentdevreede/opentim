@@ -235,8 +235,10 @@ export const TIM2_IDS: Record<number, string> = {
 
 /**
  * Sid & Al's Incredible Toons has its own numbers and its own ids: a Toons part keeps its id only in the Toons lists,
- * even where TIM has a similar object. The game names none of its parts in its files, so the ids say what each part is
- * in Toons, from its sprites and the levels that use it. 36 and 37, Al and Sid, have no PART sheet. Types without a
+ * even where TIM has a similar object. The game has no list of its parts' names, so the ids say what each part is in
+ * Toons, from its sprites, the levels that use it and the game's own words where they say more (see
+ * `toons-names.json`): 24 runs the code the link map `TOONS.BMP` calls `tramp`, 29 makes the log cabin of CAKE27,
+ * the hen lays 55 as her eggs, and 63 is the pin of BRAN12. 36 and 37, Al and Sid, have no PART sheet. Types without a
  * sheet and without frames (66, 67, 70 to 74, 76, 79 and 81) have empty records and aren't parts.
  */
 export const TOONS_IDS: Record<number, string> = {
@@ -264,12 +266,12 @@ export const TOONS_IDS: Record<number, string> = {
   21: "bullet",
   22: "catapult",
   23: "balloon",
-  24: "cushion",
+  24: "trampoline",
   25: "ant-motor",
   26: "red-brick-wall",
   27: "pink-wall",
   28: "stone-wall",
-  29: "red-rock-wall",
+  29: "log-wall",
   30: "magnifying-glass",
   31: "ball-bearing",
   32: "rainbow-ball",
@@ -295,7 +297,7 @@ export const TOONS_IDS: Record<number, string> = {
   52: "hair-drier",
   53: "magic-lamp",
   54: "bubble-gum",
-  55: "yellow-ball",
+  55: "egg",
   56: "fish",
   57: "cheese",
   58: "peanut",
@@ -303,7 +305,7 @@ export const TOONS_IDS: Record<number, string> = {
   60: "piano",
   61: "anvil",
   62: "missile",
-  63: "hanging-string",
+  63: "pin",
   64: "pencil",
   65: "mallet",
   68: "eunice-elephant",

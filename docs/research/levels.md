@@ -374,15 +374,28 @@ floppy, 8 of 8 in the demo, and the designer's solutions too.
   explosives (55) name each other in their second link: when either goes, the remote control goes to the bin and the
   explosives are taken off and freed, as Toons takes off a tunnel's other end. That is why the remote controls ELEV22
   #10, HLEV6 #3 and MLEV21 #9 go to the bin although they have bit 0x40: their explosives don't.
-- **Plugs and states.** A part plugged into one that goes to the bin is unplugged by the routine that pulls a plug out
-  (`0x21b4f`): it clears both plug words, calls the type routine at 0x08 of each part's type record, and keeps the
-  board part's new state as the one it starts from (0xa8). Read from those routines: the electric switch (21,
-  `2354:0x28b8`) and the electrical outlet (120, `2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the
-  first place and 2 for one in the second; the generator (26, `2354:0x2f6c`) and the solar panel (38, `2354:0x4f9b`)
-  take only those two bits; the laser-activated plug (96, `2354:0x9fcd`) takes the state's remainder by 7, plus 7 for
-  a plug in the first place and 14 for one in the second. These five are the only types the shipped puzzles unplug on
+- **Plugs and states.** The routine that pulls a plug out (`0x21b4f`, `0x1a31:0x243f`) runs for a part that goes to
+  the bin only when its type has bit 1 (a plug) or bit 2 (places to plug into) of its third flag word
+  (`0x1a31:0x2833`). In all three builds bit 2 is the electric switch (21), the generator (26), the solar panel (38),
+  the laser-activated plug (96) and the electrical outlet (120), and bit 1 the fan (24), Santa Claus (34), the electric
+  motor (50), the vacuum cleaner (51), the can opener (67), the toaster (81), the three lasers (91 to 93) and the
+  electric mixer (107). For a part with places it clears both places and the plug of each part plugged in there, and
+  calls the type routine at 0x08 of each of those parts' records; for a part with a plug it clears its plug and the
+  place it takes, calls that routine for the part it was plugged into, and keeps that part's new state as the one it
+  starts from (0xa8). Read from those routines: the electric switch (`2354:0x28b8`) and the electrical outlet
+  (`2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the first place and 2 for one in the second; the
+  generator (`2354:0x2f6c`) and the solar panel (`2354:0x4f9b`) take only those two bits; the laser-activated plug
+  (`2354:0x9fcd`) takes the state's remainder by 7, plus 7 for a plug in the first place and 14 for one in the second.
+  The types with a plug keep their state: their routines (the fan `2354:0x2c3a`, Santa Claus `2354:0x4057`, the
+  motor `2354:0x621b`, the vacuum cleaner `2354:0x6356`, the can opener `2354:0x7e02`, the toaster `2354:0x948a`, the
+  lasers `6658:0x18f2` and the mixer the routine most types share, `1a31:0x4e61`) only pick the outline for the
+  part's side and work out its shape, and the lasers their beam. The shipped puzzles unplug only parts with places on
   the board. A part that names a binned part as its plug while that part doesn't name it back keeps its plug (HLEV1
-  #45, MLEV15 #7).
+  #45, MLEV15 #7). `check-puzzle-start --tim2` also starts 200 made-up levels, made from the first shipped level with
+  a part plugged into another: the two parts take every pair of a type with places and a type with a plug, one or the
+  other goes to the bin, and the one with places starts in two states (or the one the loader gives it for its plugs,
+  as it does for the laser-activated plug). All 200 start as the Lab says in the floppy and the CD build; the demo has
+  no level with a part plugged into another.
 - **A pulley before its rope** in the file has no rope over it, as in Toons: the loader takes the rope's record as it
   reads the pulley.
 
@@ -470,10 +483,39 @@ that runs out after the last part, or looking past a gap in the entries each mak
 to go on from there when the count is reached, and it fails the goal when the list ends while it keeps one. When the
 entry's part is the last on its list there is no part after it, so running out of parts doesn't fail the goal: the
 entry is skipped, and the goal can be met with too few parts. Ten levels of the floppy and CD count parts (ELEV8,
-HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2. In the files'
-order none of the counted parts is the last of its group; whether one can end last on its list in a game depends on
-how the game orders the lists, which isn't read yet. Until then the Lab marks every TIM 2 count with "can pass with
-fewer".
+HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2.
+
+None of those counts can pass with fewer parts, because none of the counted parts can be last on its list. How
+TIM2.EXE keeps the lists (addresses of the CD build):
+
+- **Only two routines change a list**: the insertion routine (`0x1a31:0x2a58`,
+  [above](#tim-2-the-loaders-records-and-the-puzzle-start)) and the one that takes a part off (`0x1a31:0x2a22`). Their
+  callers are the level loader, the puzzle start and the bin (`0x1a31:0x2ca1`), the player, and the type routines of
+  the parts the machine makes (ten places in `0x2354`, from `0x2354:0x0a09` to `0x2354:0xa834`). Those type routines
+  only put a part they make on a list (and mark it with bit `0x10` of its first flag word), after taking off the one
+  of the same type they made before (`0x1436:0x11a8`). When the machine stops, the parts it made are taken off again
+  (`0x1a31:0x4a44`). Nothing sorts a list while the machine runs, so the parts keep the order they were put in.
+- **When the player drops a part** on the board, TIM2.EXE sets its start place (0xa4, 0xa6) to where it is and puts it
+  on its list again (`0x624a:0x0fa0` calls `0x1a31:0x2d4c`, which takes it off and inserts it on the fixed list when
+  bit `0x4000` of its first flag word is set, else on the moving list), with 0 for the insertion routine's last word.
+  So a dropped part goes by the same rules as the loader's, except that a part with bit `0x1000` goes before the first
+  part that has it too instead of after every part.
+- **The parts that stay on the board** (bit `0x40`) are the puzzle's own: the routine that gives a part its handles
+  (`0x1a31:0x12a2`, kept in `[0x6885]` for the code that draws them) stops at that bit (`0x1a31:0x12f9`) before any
+  handle but the editor's, so the player can't move or turn them, and nothing takes them off. So they keep the order
+  the start leaves them in, and a part after the counted one stays after it.
+- **The word the lists sort by** (0x38 of the type's record) is 0 for every type in all three builds, so on each list
+  the parts go from the lowest on the screen to the highest, with the ropes first and the parts with bit `0x1000` of the
+  third flag word last.
+
+Every counted part of the shipped goals stays on the board, and a part higher on the screen stays on the board on the
+same list: the last on the list is ELEV8 #44, HH14 #22, HH18 #67, HH7 #60 (for all four counts), MLEV2 #68, TLEV17
+#29, TLEV2 #51, TLEV3 #28, TLEV4 #23, TLEV6 #18 and the demo's ELEV2 #34. `tim2LastOnList` (`src/read/tim2-start.ts`)
+works this out for a part, also for one from the bin (last when the player puts it higher than every part of its list
+with its word, unless a part on the board must come after it), and the Lab marks a count with "can pass with fewer"
+only when its part can be last, with the reason. No shipped count gets the mark. Without TIM2.EXE's tables every count
+gets it. `check-puzzle-start --tim2` compares the order of the moving and fixed lists the Lab gives with the game's,
+after the loader and after the start: they agree in every level of the three builds.
 
 **The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
 (the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving
@@ -541,10 +583,25 @@ in that table. When the table isn't found, the Lab draws walls and patterns by t
   its own size.
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
-  has all of bits `0x1480` in its type's third flag word; the Lab knows it from TIM2.EXE's type table.
+  has all of bits `0x1480` in its type's third flag word; the Lab knows it from TIM2.EXE's type table. A colour of 16
+  or more, which 29 blocks in 14 levels have, is filled with a pattern of the colour's two halves by the 16 colour
+  driver ([the 16 colours](file-formats.md#animations-anm)); in the palette's own 256 colours it would be black.
+- **In a bucket.** The usual draw routine (`0x1562:0x2fbe` in the CD build) draws the rocket (36), Aladdin's lamp
+  (45) and the missile (70) cut off below a row the part's record keeps (0xae) when bit `0x10` of their third flag
+  word is set: it lowers the bottom of the drawing window to that row for the one part. Only one place sets that bit
+  (`0x1a31:0x566d`), in the routine (`0x1a31:0x54f1`) the run loop's step (`0x4ee4:0x1c6b`, called from the run loop
+  at `0x4ee4:0x0043`) calls for every bucket (17) and leaky bucket (108): a moving part whose bottom middle is in the
+  bucket's opening (for the rocket the point 42, 61 and for the missile 47, 74 of its box instead) gets the bit and
+  the bucket's top plus 20 as its row, so it looks as if it stands in the bucket. The same step first clears the bit
+  on every moving part (`0x4ee4:0x1e2d`). No type has the bit of its own and the loader doesn't keep it from the
+  file, so nothing is cut off before the machine runs: the Lab, which shows a puzzle as it starts, draws them whole,
+  as the game does then. The floppy and the demo have the same code.
 
-The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
-and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
+The play area is 640 × 400: the goal routine counts a part off the screen when its middle is outside it, and the
+interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. It is the top of the
+screen, which TIM2.EXE sets to 640 × 480 in 16 colours with its `HEG:` driver ([the screen](file-formats.md#animations-anm));
+the 256 colour `VGA:` driver, 320 pixels a row, is never used. Its 16 colours are the palette's first 16, and the
+Lab shows them so unless the Colours setting asks for the palette's own 256 ([the 16 colours](file-formats.md#animations-anm)). While a
 puzzle is set up, the control panel covers x 0 to 48 and the parts bin x 560 to 640, both 377 high; that is why most
 levels keep their parts between 0 and 568 across and above 377.
 
@@ -554,15 +611,6 @@ What isn't worked out yet, and what the Lab does meanwhile:
 
 - **The demo** has few `.PAR` files, so a mirrored part whose type takes its mirror size from the `.PAR` file is
   mirrored in its own size.
-- **Cut off pictures.** The usual draw routine draws types 36, 45 and 70 with bit `0x10` of the third flag word cut off
-  at a row the part's record keeps (offset `0xae`). What sets that row isn't read, and the Lab draws them whole.
-- **Screen width.** The 256 colour `VGA:` driver in `VM.OVL` addresses rows 320 pixels wide in a 400 line mode, while
-  the play area is taken as 640 by 400 from the goal check and the panel animations. How the two fit (a doubled pixel,
-  or another mode for the play area) isn't settled. The line rule is the same at any width, so drawing lines doesn't
-  depend on it.
-- **Unplugging other types.** Only the routines of the five types the shipped puzzles unplug are read
-  ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); for another type the Lab leaves the state as the file has
-  it.
 
 ## Toons levels
 
