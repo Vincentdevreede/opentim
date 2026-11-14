@@ -22,8 +22,15 @@ export function frameCanvas(frame: Frame, palette: Uint8Array = greys, highlight
   return canvas;
 }
 
-/** A canvas with a frame of a part: its sprites put together, at its own size. */
-export function compositionCanvas(composition: Composition, palette: Uint8Array = greys): HTMLCanvasElement {
+/**
+ * A canvas with a frame of a part: its sprites put together, at its own size. `screenX` is where the part's 0 is across
+ * the screen: TIM2.EXE leaves out the last pixel of some lines by where they end on the screen (`tim2LinePixels`).
+ */
+export function compositionCanvas(
+  composition: Composition,
+  palette: Uint8Array = greys,
+  screenX = 0,
+): HTMLCanvasElement {
   const { placed, bounds } = composition;
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, bounds.width);
@@ -32,7 +39,7 @@ export function compositionCanvas(composition: Composition, palette: Uint8Array 
   if (!context) return canvas;
   const shapes = composition.shapes ?? [];
   const drawShapes = (after: number) => {
-    for (const s of shapes) if (s.after === after) drawShape(context, s, bounds, palette);
+    for (const s of shapes) if (s.after === after) drawShape(context, s, bounds, palette, screenX);
   };
   drawShapes(0);
   for (const [k, { placement, image, x, y }] of placed.entries()) {
@@ -47,7 +54,7 @@ export function compositionCanvas(composition: Composition, palette: Uint8Array 
     context.restore();
     drawShapes(k + 1);
   }
-  for (const s of shapes) if (s.after > placed.length) drawShape(context, s, bounds, palette);
+  for (const s of shapes) if (s.after > placed.length) drawShape(context, s, bounds, palette, screenX);
   return canvas;
 }
 
@@ -55,8 +62,14 @@ export function compositionCanvas(composition: Composition, palette: Uint8Array 
 const css = (palette: Uint8Array, index: number) =>
   `rgb(${palette[index * 3] ?? 0} ${palette[index * 3 + 1] ?? 0} ${palette[index * 3 + 2] ?? 0})`;
 
-/** Draws a box or a line of a frame in whole pixels, the line as TIM2.EXE's VGA driver does. */
-function drawShape(context: CanvasRenderingContext2D, s: Shape, at: { x: number; y: number }, palette: Uint8Array) {
+/** Draws a box or a line of a frame in whole pixels, the line as TIM2.EXE's 16 colour driver does. */
+function drawShape(
+  context: CanvasRenderingContext2D,
+  s: Shape,
+  at: { x: number; y: number },
+  palette: Uint8Array,
+  screenX: number,
+) {
   const dot = (x: number, y: number) => context.fillRect(x - at.x, y - at.y, 1, 1);
   const line = (x1: number, y1: number, x2: number, y2: number) => {
     const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
@@ -65,7 +78,7 @@ function drawShape(context: CanvasRenderingContext2D, s: Shape, at: { x: number;
   };
   if (s.kind === "line") {
     context.fillStyle = css(palette, s.colour);
-    for (const p of tim2LinePixels(s.x1, s.y1, s.x2, s.y2)) dot(p.x, p.y);
+    for (const p of tim2LinePixels(s.x1 + screenX, s.y1, s.x2 + screenX, s.y2)) dot(p.x - screenX, p.y);
     return;
   }
   if (s.fill !== undefined) {

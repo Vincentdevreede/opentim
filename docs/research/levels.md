@@ -578,8 +578,10 @@ in that table. When the table isn't found, the Lab draws walls and patterns by t
   file, so nothing is cut off before the machine runs: the Lab, which shows a puzzle as it starts, draws them whole,
   as the game does then. The floppy and the demo have the same code.
 
-The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
-and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
+The play area is 640 × 400: the goal routine counts a part off the screen when its middle is outside it, and the
+interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. It is the top of the
+screen, which TIM2.EXE sets to 640 × 480 in 16 colours with its `HEG:` driver ([the screen](file-formats.md#animations-anm));
+the 256 colour `VGA:` driver, 320 pixels a row, is never used. While a
 puzzle is set up, the control panel covers x 0 to 48 and the parts bin x 560 to 640, both 377 high; that is why most
 levels keep their parts between 0 and 568 across and above 377.
 
@@ -589,10 +591,9 @@ What isn't worked out yet, and what the Lab does meanwhile:
 
 - **The demo** has few `.PAR` files, so a mirrored part whose type takes its mirror size from the `.PAR` file is
   mirrored in its own size.
-- **Screen width.** The 256 colour `VGA:` driver in `VM.OVL` addresses rows 320 pixels wide in a 400 line mode, while
-  the play area is taken as 640 by 400 from the goal check and the panel animations. How the two fit (a doubled pixel,
-  or another mode for the play area) isn't settled. The line rule is the same at any width, so drawing lines doesn't
-  depend on it.
+- **The colours.** TIM2.EXE runs in 16 colours and reads only the `BIN:` chunks of its pictures
+  ([the screen](file-formats.md#animations-anm)); which 16 colours it sets isn't read, and the Lab draws the pictures in
+  256 colours, from the `BIN:` and `VGA:` chunks.
 - **Unplugging other types.** Only the routines of the five types the shipped puzzles unplug are read
   ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); for another type the Lab leaves the state as the file has
   it.

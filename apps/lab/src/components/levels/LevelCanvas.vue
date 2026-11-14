@@ -43,6 +43,7 @@ const pictures = computed(
                 compositionCanvas(
                   d.composition,
                   props.paletteOf(d.composition.placed[0]?.placement.sheet ?? `PART${d.part.type}`),
+                  d.part.position.x,
                 ),
               ],
             ]

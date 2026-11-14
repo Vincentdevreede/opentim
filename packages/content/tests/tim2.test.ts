@@ -144,30 +144,22 @@ describe("TIM 2", () => {
     expect(TIM2_STEP_MS).toBeCloseTo(33.8, 1);
   });
 
-  it("draws a line as TIM2.EXE's VGA driver does, from the left end or, when it is steep, from the top", () => {
+  it("draws a line as TIM2.EXE's 16 colour driver does: runs from the left end, joined in the corners", () => {
     const at = (x1: number, y1: number, x2: number, y2: number) =>
-      tim2LinePixels(x1, y1, x2, y2).map((p) => [p.x, p.y]);
-    // An error of 0 steps the row at once, also going up.
-    expect(at(4, 0, 0, 2)).toEqual([
-      [0, 2],
-      [1, 1],
-      [2, 1],
-      [3, 0],
-      [4, 0],
-    ]);
-    // A steep line going up is drawn from its top end, stepping left.
-    expect(at(0, 4, 2, 0)).toEqual([
-      [2, 0],
-      [1, 1],
-      [1, 2],
-      [0, 3],
-      [0, 4],
-    ]);
-    expect(at(3, 3, 3, 3)).toEqual([[3, 3]]);
-    expect(at(0, 0, 2, 2)).toEqual([
-      [0, 0],
-      [1, 1],
-      [2, 2],
-    ]);
+      tim2LinePixels(x1, y1, x2, y2)
+        .map((p) => `${p.x},${p.y}`)
+        .join(" ");
+    // Runs of 10 ÷ 4 = 2 pixels and 1 more for the first, and for the others when the remainder's share overflows.
+    expect(at(10, 10, 20, 13)).toBe(
+      "10,10 11,10 12,10 13,10 13,11 14,11 15,11 15,12 16,12 17,12 18,12 18,13 19,13 20,13",
+    );
+    // Drawn from the left end, also when it is given the other way round, going up.
+    expect(at(4, 0, 0, 2)).toBe("0,2 1,2 2,2 2,1 3,1 3,0 4,0");
+    expect(at(0, 4, 2, 0)).toBe("0,4 0,3 0,2 1,2 1,1 2,1 2,0");
+    expect(at(0, 5, 0, 2)).toBe("0,5 0,4 0,3 0,2");
+    expect(at(3, 3, 3, 3)).toBe("3,3");
+    // As wide as tall: across, then down. Ending at x 8, the next byte of the screen, it leaves the last pixel out.
+    expect(at(0, 0, 2, 2)).toBe("0,0 1,0 1,1 2,1 2,2");
+    expect(at(4, 0, 8, 4)).toBe("4,0 5,0 5,1 6,1 6,2 7,2 7,3 8,3");
   });
 });

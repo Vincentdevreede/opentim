@@ -362,18 +362,36 @@ table and draws a frame by running them in order. Positions are from the frame's
 | 6       | 2     | Stops the sound with that number if it is playing. No shipped file uses it.                                                                                                                                                                        |
 
 The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
-palette, and a line pixel for pixel as the game does (`tim2LinePixels`).
+palette, and a line pixel for pixel as the game does (`tim2LinePixels`, see below).
+
+**The screen.** TIM2.EXE's video drivers are in `VM.OVL`, an `OVL:` chunk with a chunk per driver packed like a `BIN:`
+chunk: `VGA:` for 256 colours and `HEG:` for 16. The routine that loads a driver (`0x0add:0x731f` in the CD build)
+picks it and the screen's height by a mode number: 12, 13 and 14 load `HEG:` with 350, 480 and 400 lines, 15 and 16
+load `VGA:` with 400 and 240 lines. TIM2.EXE asks for mode 13 when it starts, in all three builds (`push 0x0d` before
+the call at `0x1436:0x010d` in the CD build); on a VGA card the routine keeps that mode (`0x0add:0x5f24`, by the BIOS's
+display code). So the game runs with the `HEG:` driver, which sets the BIOS's mode 12h: 640 × 480 in 16 colours, four
+planes of 80 bytes a row, and writes 640 as the screen's width into the word the game keeps it in (`[0x4c3a]`, the
+driver's own data starts at `0x4550` of the data segment). The `VGA:` driver, which TIM2.EXE never asks for, sets mode
+13h and unchains it (320 pixels a row, 80 bytes in four planes) with 200, 240 or 400 lines; that is the 320 wide 400
+line mode the levels research wondered about, and it isn't the game's. Only the `VGA:` driver marks the screen as one
+of 256 colours (it adds 1 to byte 0x1f of its data, the game's `[0x456f]`), and only then does TIM2.EXE read the
+`VGA:` chunks of the `.BMP` and `.SCR` files (`0x0add:0x8129`, `0x0add:0x7c3c`), the high 4 bits of each pixel. So
+the game shows its pictures in 16 colours, from their `BIN:` chunks. The Lab still draws them in 256 colours; which 16
+colours the game sets for them isn't read yet.
 
 **Lines.** Command 4 calls TIM2.EXE's line routine (file offset `0x15302` in the floppy build), which cuts the line
 off at the edges of the area being drawn, sorts its ends so it runs to the right and hands it to the video driver's
-line function, the third entry of the driver's table. The drivers are in `VM.OVL`, an `OVL:` chunk with a chunk per
-driver packed like a `BIN:` chunk: `VGA:` for 256 colours and `HEG:` for 16. The VGA driver draws a straight line as a
-run, and any other with Bresenham's rule: a line wider than tall (or as wide as tall) steps right from its left end
-and moves one row up or down when its error, which starts at 2 × height − width, isn't below 0, adding 2 × height,
-or 2 × height − 2 × width when it moves. A line taller than wide always runs down from its top end, the same way with
-width and height swapped. So a tie moves at once, and the same line can come out a pixel different from the one drawn
-from the other end. The 16 colour driver works its runs out by division instead; the Lab follows the VGA one,
-whose palette it draws with.
+line function, the third entry of the driver's table: `HEG:` offset `0x99b`, unpacked. That function draws a straight
+line as a run and any other from its left end in runs worked out by division, joined by a pixel in the corner, so each
+pixel touches the one before it by a side. A line wider than tall runs across one row after the other: the first run
+is width ÷ (height + 1) + 1 pixels, each other one that many less 1, or 1 more when a running sum of the remainder's
+share (in 65,536ths, kept in 16 bits) overflows, and the last run stops at the line's end. A line taller than wide does
+the same down (or up) with width and height swapped. A line as wide as tall moves a pixel right and then a pixel down
+(or up) for each column, and when its right end is at a multiple of 8 across the driver moves on to the next byte of
+the screen at the last column and leaves the last pixel out. The Lab follows it (`tim2LinePixels`), which gives the
+same pixels as the driver's own code run in the emulator for 5,908 lines all over the screen; on the Levels page it
+takes each part's place across for that last pixel, and on the Parts page a part at x 0. The `VGA:` driver draws a
+line with Bresenham's rule instead, which the Lab followed before.
 
 **Sequences.** A sequence's number is a name for a run of steps that only the code of its part (or screen) knows:
 nothing in the file says more. TIM2.EXE keeps the sequences as a table that ends with number 0, so no sequence is 0.
