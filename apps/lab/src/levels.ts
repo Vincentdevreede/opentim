@@ -24,6 +24,7 @@ import {
   type ToonsPuzzleStart,
   type PuzzleStart,
   type ToonsSort,
+  type Tim2StartTables,
   puzzleStart,
 } from "@opentim/content";
 import type { Font } from "@opentim/resources";
@@ -182,16 +183,27 @@ export type StartGroup = LevelPart["group"] | "gone";
 
 export type { ToonsSort };
 
-const starts = new WeakMap<Level, { solution: boolean; sort?: ToonsSort; start: PuzzleStart }[]>();
-/** What a level's puzzle starts with (`puzzleStart`), worked out once per level, solution and sort words. */
-export function levelStart(level: Level, solution = false, sort?: ToonsSort): PuzzleStart {
+const starts = new WeakMap<
+  Level,
+  { solution: boolean; sort?: ToonsSort; tim2?: Tim2StartTables; start: PuzzleStart }[]
+>();
+/**
+ * What a level's puzzle starts with (`puzzleStart`), worked out once per level, solution and the program's tables:
+ * TOONS.EXE's sort words (`sort`) or TIM2.EXE's list and bin tables (`tim2`).
+ */
+export function levelStart(level: Level, solution = false, sort?: ToonsSort, tim2?: Tim2StartTables): PuzzleStart {
   const known = starts.get(level) ?? [];
   const found = known.find(
-    (k) => k.solution === solution && k.sort?.kinds === sort?.kinds && k.sort?.binKinds === sort?.binKinds,
+    (k) =>
+      k.solution === solution &&
+      k.sort?.kinds === sort?.kinds &&
+      k.sort?.binKinds === sort?.binKinds &&
+      k.tim2 === tim2,
   );
   if (found) return found.start;
-  const start = puzzleStart(level, { solution, ...(sort ? { sort } : {}) });
-  starts.set(level, [...known.slice(-3), { solution, ...(sort ? { sort } : {}), start }]);
+  const tables = { ...(sort ? { sort } : {}), ...(tim2 ? { tim2 } : {}) };
+  const start = puzzleStart(level, { solution, ...tables });
+  starts.set(level, [...known.slice(-3), { solution, ...tables, start }]);
   return start;
 }
 
@@ -212,8 +224,14 @@ export function toonsStart(level: Level, sort: ToonsSort): ToonsPuzzleStart {
  * pair goes to the bin, so a Toons puzzle needs them. Where the file puts the parts is the solution. The bits that are
  * 0x100 in TIM 2 aren't set in Toons' levels.
  */
-export const groupOf = (level: Level, part: LevelPart, solution = false, sort?: ToonsSort): StartGroup => {
-  const start = levelStart(level, solution, sort);
+export const groupOf = (
+  level: Level,
+  part: LevelPart,
+  solution = false,
+  sort?: ToonsSort,
+  tim2?: Tim2StartTables,
+): StartGroup => {
+  const start = levelStart(level, solution, sort, tim2);
   return start.bin.includes(part.index) ? "bin" : start.gone.has(part.index) ? "gone" : part.group;
 };
 
@@ -616,15 +634,23 @@ export function layoutScene(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  { solution = false, toons, toonsSort }: { solution?: boolean; toons?: ToonsCode; toonsSort?: ToonsSort } = {},
+  {
+    solution = false,
+    toons,
+    toonsSort,
+    tim2Start,
+  }: { solution?: boolean; toons?: ToonsCode; toonsSort?: ToonsSort; tim2Start?: Tim2StartTables } = {},
 ): Scene {
-  const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsSort)]));
+  const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsSort, tim2Start)]));
   const board = level.parts.filter((p) => groups.get(p) !== "bin" && groups.get(p) !== "gone");
-  // A Toons puzzle starts with the bin in TOONS.EXE's order and the parts on the board as its setup leaves them.
+  // A Toons or TIM 2 puzzle starts with the bin in the program's order and the parts on the board as its start leaves
+  // them.
   const start = level.layout === "toons" && !solution && toonsSort ? toonsStart(level, toonsSort) : undefined;
+  const tim2 = level.layout === "tim2" && tim2Start ? levelStart(level, solution, undefined, tim2Start) : undefined;
+  const changes = start ?? tim2;
   const atStart = (p: LevelPart): LevelPart => {
-    const state = start?.states.get(p.index);
-    const plugs = start?.plugs.get(p.index);
+    const state = changes?.states.get(p.index);
+    const plugs = changes?.plugs.get(p.index);
     if (state === undefined && !plugs) return p;
     return { ...p, ...(state === undefined ? {} : { state: [state, p.state[1]] }), ...(plugs ? { plugs } : {}) };
   };
@@ -668,8 +694,15 @@ export function layoutScene(
   if (gone.length)
     notes.push({
       status: "decoded",
-      title: `${plural(gone.length, "tunnel")} taken off.`,
-      detail: `${gone.map((p) => `#${p.index}`).join(", ")}: the other end of a tunnel in the bin. TOONS.EXE takes it off as the puzzle starts and makes a new one when the player puts the tunnel on the board.`,
+      ...(level.layout === "tim2"
+        ? {
+            title: `${plural(gone.length, "explosive")} taken off.`,
+            detail: `${gone.map((p) => `#${p.index}`).join(", ")}: the explosives of a remote control in the bin. TIM2.EXE takes them off as the puzzle starts; the remote control comes with its explosives when the player puts it on the board.`,
+          }
+        : {
+            title: `${plural(gone.length, "tunnel")} taken off.`,
+            detail: `${gone.map((p) => `#${p.index}`).join(", ")}: the other end of a tunnel in the bin. TOONS.EXE takes it off as the puzzle starts and makes a new one when the player puts the tunnel on the board.`,
+          }),
     });
   // The plugs the setup pulls out of a part that stays on the board, and the states it changes there.
   const pulled = start?.unplugged.filter((u) => !start.bin.has(u.into) || !start.bin.has(u.part)) ?? [];
@@ -679,18 +712,28 @@ export function layoutScene(
       title: `${plural(pulled.length, "plug")} pulled out.`,
       detail: `${pulled.map((u) => `#${u.part} from #${u.into}`).join(", ")}: the puzzle start unplugs what it puts in the bin.`,
     });
-  if (start?.states.size)
+  if (tim2?.plugs.size)
     notes.push({
       status: "decoded",
-      title: `${plural(start.states.size, "part")} with another state.`,
-      detail: `${[...start.states].map(([i, state]) => `#${i} ${state}`).join(", ")}: drawn with the state the puzzle start leaves them in.`,
+      title: `${plural(tim2.plugs.size, "part")} unplugged.`,
+      detail: `${[...tim2.plugs.keys()].map((i) => `#${i}`).join(", ")}: the puzzle start pulls out the plugs of what it puts in the bin.`,
+    });
+  if (changes?.states.size)
+    notes.push({
+      status: "decoded",
+      title: `${plural(changes.states.size, "part")} with another state.`,
+      detail: `${[...changes.states].map(([i, state]) => `#${i} ${state}`).join(", ")}: drawn with the state the puzzle start leaves them in.`,
     });
   const knot = compose([KNOT], spriteOf);
   return {
     area: PLAY_AREAS[level.layout],
     parts,
     lines,
-    bin: start ? start.binOrder.map((i) => level.parts[i]!) : level.parts.filter((p) => groups.get(p) === "bin"),
+    bin: start
+      ? start.binOrder.map((i) => level.parts[i]!)
+      : tim2
+        ? tim2.bin.map((i) => level.parts[i]!)
+        : level.parts.filter((p) => groups.get(p) === "bin"),
     notes,
     knot,
   };

@@ -26,6 +26,7 @@ import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { readLevel, type Level } from "../src/read/level.ts";
 import { puzzleStart } from "../src/read/puzzle-start.ts";
+import { readTim2StartTables } from "../src/read/tim2-start.ts";
 import { readToonsBinKinds, readToonsListKinds } from "../src/read/toons-goals.ts";
 import { exeHash, GAME_BUILDS, loadPuzzle } from "../src/run/game.ts";
 import { tim2Solution } from "../src/run/level-start-find.ts";
@@ -78,6 +79,7 @@ function checkWithLoader(build: BuildFolder<"tim2" | "toons">, range: Range): Bu
   const exe = readProgram(build);
   const sort =
     build.game === "toons" ? { kinds: readToonsListKinds(exe), binKinds: readToonsBinKinds(exe) } : undefined;
+  const tim2 = build.game === "tim2" ? readTim2StartTables(exe) : undefined;
   const fields = build.game === "toons" ? TOONS_START_FIELDS : TIM2_START_FIELDS;
   const files = readResources(build.folder);
   const names = [...files.keys()].filter((name) => /\.LEV$/i.test(name)).sort();
@@ -108,11 +110,11 @@ function checkWithLoader(build: BuildFolder<"tim2" | "toons">, range: Range): Bu
       for (const what of run.unknown.keys()) unknown.set(what, (unknown.get(what) ?? new Set()).add(name));
       puzzles.push({
         name,
-        differences: startDifferences(level, puzzleStart(level, { sort }), gameStartResult(run, fields)),
+        differences: startDifferences(level, puzzleStart(level, { sort, tim2 }), gameStartResult(run, fields)),
       });
       if (build.game === "tim2") {
         const solved = machine.run(data, file, level.parts.length, tim2Solution(start));
-        const ours = puzzleStart(level, { solution: true });
+        const ours = puzzleStart(level, { solution: true, tim2 });
         const game = gameStartResult(solved, fields);
         // Only where the parts are: the solution is for looking at.
         const differences = startDifferences(level, ours, game).filter((d) => /^(the bin|on the board)/.test(d));

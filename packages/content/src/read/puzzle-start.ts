@@ -12,6 +12,7 @@
  *   tunnel's other end off.
  */
 import type { Level, LevelPart } from "./level.ts";
+import { tim2PuzzleStart, type Tim2StartTables } from "./tim2-start.ts";
 import { toonsPuzzleStart, type ToonsPuzzleStart } from "./toons-goals.ts";
 
 /** Bit 0x40 of TIM 2's third flag word: the part stays on the board when the puzzle starts. */
@@ -57,7 +58,7 @@ function inBin(level: Level, part: LevelPart, solution: boolean): boolean {
  */
 export function puzzleStart(
   level: Level,
-  { solution = false, sort }: { solution?: boolean; sort?: ToonsSort } = {},
+  { solution = false, sort, tim2 }: { solution?: boolean; sort?: ToonsSort; tim2?: Tim2StartTables } = {},
 ): PuzzleStart {
   const none = { gone: new Set<number>(), states: new Map(), plugs: new Map(), untied: [], unbelted: [] };
   if (level.layout === "toons") {
@@ -79,5 +80,6 @@ export function puzzleStart(
       toons: start,
     };
   }
+  if (level.layout === "tim2" && tim2) return tim2PuzzleStart(level, tim2, solution);
   return { bin: level.parts.filter((p) => inBin(level, p, solution)).map((p) => p.index), ...none };
 }

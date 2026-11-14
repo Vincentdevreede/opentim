@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest";
+import type { Level } from "../src/read/level.ts";
+import { tim2BinInsert, tim2ListOrder, tim2PuzzleStart, type Tim2StartTables } from "../src/read/tim2-start.ts";
+
+type Spec = {
+  type: number;
+  group?: "static" | "moving";
+  third?: number;
+  x?: number;
+  y?: number;
+  state?: number;
+  tie?: [number, number];
+  belt?: [number, number];
+  links?: [number | null, number | null];
+  plugs?: [number | null, number | null];
+  pulley?: number;
+};
+const level = (specs: Spec[]) =>
+  ({
+    layout: "tim2",
+    parts: specs.map((p, index) => ({
+      index,
+      group: p.group ?? "static",
+      type: p.type,
+      flags: [0, 0, p.third ?? 0],
+      state: [p.state ?? 0, 0],
+      position: { x: p.x ?? 0, y: p.y ?? 0 },
+      plugs: p.plugs ?? [null, null],
+      ropes: [
+        { at: { x: 0, y: 0 }, ...(p.tie ? { rope: { parts: p.tie, slots: [0, 0] } } : {}) },
+        { at: { x: 0, y: 0 } },
+      ],
+      links: p.links ?? [null, null],
+      belt: { at: { x: 0, y: 0 }, width: 0, ...(p.belt ? { parts: p.belt } : {}) },
+      ...(p.pulley === undefined ? {} : { pulley: p.pulley }),
+    })),
+  }) as unknown as Level;
+const FIXED = 0x40;
+
+/** Types 1 and 2 sort before 3 on the lists; the bin's table has 3, then 1, then 2. */
+const tables: Tim2StartTables = {
+  listKeys: new Map([
+    [1, 0],
+    [2, 0],
+    [3, 5],
+  ]),
+  binRank: new Map([
+    [3, 0],
+    [1, 1],
+    [2, 2],
+    [8, 3],
+    [10, 4],
+    [22, 5],
+  ]),
+  third: new Map(),
+};
+
+describe("TIM 2's puzzle start", () => {
+  it("keeps a list by the type's word, the lowest part first, and a part with bit 0x1000 last", () => {
+    const l = level([
+      { type: 3 },
+      { type: 1, y: 10 },
+      { type: 1, y: 50 },
+      { type: 2, third: 0x1000 },
+      { type: 2, y: 50, x: 9 },
+    ]);
+    expect(tim2ListOrder(l, "static", tables)).toEqual([4, 2, 1, 0, 3]);
+  });
+
+  it("puts a part in the bin before the first of its type or of a later type, so a type's parts come reversed", () => {
+    const l = level([{ type: 1 }, { type: 2 }, { type: 1 }, { type: 3 }, { type: 99 }]);
+    const bin: number[] = [];
+    for (const index of [0, 1, 2, 3, 4]) tim2BinInsert(bin, index, l, tables);
+    expect(bin).toEqual([3, 2, 0, 1, 4]);
+  });
+
+  it("takes belts and ropes with a part, unties them on the board, and unplugs the parts plugged into it", () => {
+    const l = level([
+      { type: 1, third: FIXED, plugs: [1, null], state: 3 },
+      { type: 2, plugs: [0, null] },
+      { type: 3, third: FIXED },
+      { type: 8, third: FIXED, belt: [1, 2] },
+      { type: 10, third: FIXED, tie: [1, 2] },
+    ]);
+    const start = tim2PuzzleStart(l, tables);
+    expect(start.bin).toEqual([1, 3, 4]);
+    expect([...start.plugs]).toEqual([[0, [null, null]]]);
+    expect([...start.states]).toEqual([[0, 0]]);
+    expect(start.unbelted).toEqual([2]);
+    expect(start.untied).toEqual([[2, 0]]);
+  });
+
+  it("puts a remote control in the bin and takes its explosives off when either goes", () => {
+    const l = level([
+      { type: 22, third: FIXED, links: [null, 1] },
+      { type: 55, links: [null, 0] },
+    ]);
+    const start = tim2PuzzleStart(l, tables);
+    expect(start.bin).toEqual([0]);
+    expect([...start.gone]).toEqual([1]);
+  });
+
+  it("leaves the parts without bit 0x100 on the board for the solution", () => {
+    const l = level([{ type: 1 }, { type: 2, third: 0x100 }]);
+    expect(tim2PuzzleStart(l, tables, true).bin).toEqual([1]);
+  });
+});
