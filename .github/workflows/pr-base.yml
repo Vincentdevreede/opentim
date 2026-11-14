@@ -1,0 +1,27 @@
+name: PR base
+
+# Pull requests go into develop. Only develop itself and hotfix branches go into main, so a pull request opened
+# against main from any other branch is moved to develop. It runs from main's copy of this file, because a
+# pull_request_target workflow runs from the base branch, and it never checks out the pull request's code.
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  move-to-develop:
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      (github.event.pull_request.head.ref != 'develop' && !startsWith(github.event.pull_request.head.ref, 'hotfix/'))
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X PATCH "repos/$REPO/pulls/$PR" -f base=develop --silent
+          gh api "repos/$REPO/issues/$PR/comments" --silent -f body="Pull requests go into develop, so this one now does. Only develop and hotfix branches go into main."
