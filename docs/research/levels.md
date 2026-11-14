@@ -268,6 +268,13 @@ on the other count. Where the game calls `0x0ecc:0x1ee2` isn't read yet.
 
     pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]
 
+**As the puzzle starts.** `check-puzzle-start` loads every shipped puzzle of the two recorded builds the same way and
+compares it with what the Lab says the puzzle starts with (`puzzleStart`): the bin list holds the file's bin in its
+order, and every placed part that pairs keeps the file's saved state (0x90), plugs (0x62, 0x64) and first rope place
+(0x66, set in the rope and in each part it ties at its first place). All 160 puzzles of Even More (English floppy) and
+all 87 of TIM 1 (French) start as the Lab says; 73 and 49 placed parts don't pair and aren't compared. The other TIM
+builds aren't known to the recorder, so the script says it doesn't check them.
+
 ### In the Lab
 
 The Lab's Structure panel of a level says under each field of a TIM 1 or Even More part where the loader keeps it,
