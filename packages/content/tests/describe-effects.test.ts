@@ -6,6 +6,7 @@ import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import {
   ANSWER_ASSUMPTION,
   effectsFromOthers,
+  finePosition,
   FIXED_LIST_ASSUMPTION,
   OWN_TOUCH_ASSUMPTION,
   predicateForType,
@@ -905,5 +906,32 @@ describe("the tests a line from another part says", () => {
     const lines = effectsFromOthers(data, evaluateBehaviourCondition).get(4)!.effects;
     expect(lines).toHaveLength(1);
     expect(lines[0]!.description).toContain("Only when |its velocityY| is above 100.");
+  });
+});
+
+describe("the fine position", () => {
+  const layout = (positionX?: number) =>
+    ({
+      layout: { fields: positionX === undefined ? [] : [{ name: "positionX", offset: positionX }] },
+    }) as unknown as Pick<BehaviourReport, "layout">;
+
+  it("sits 8 bytes before positionX, so it moves with it from game to game", () => {
+    // TIM.EXE: positionX at 0x1e, the longs at 0x16 and 0x1a; the same when positionX isn't named.
+    for (const report of [layout(0x1e), layout()]) {
+      expect(finePosition(report, 0x16)).toEqual({ words: "fine horizontal position (low word)", axis: "positionX" });
+      expect(finePosition(report, 0x1c)).toEqual({ words: "fine vertical position (high word)", axis: "positionY" });
+    }
+    // TIM2.EXE: positionX at 0x22, so 0x16 is another word (its stateDelta) and the longs are at 0x1a and 0x1e.
+    expect(finePosition(layout(0x22), 0x16)).toBeUndefined();
+    expect(finePosition(layout(0x22), 0x1a)).toEqual({
+      words: "fine horizontal position (low word)",
+      axis: "positionX",
+    });
+    expect(finePosition(layout(0x22), 0x1e)).toEqual({ words: "fine vertical position (low word)", axis: "positionY" });
+    // TOONS.EXE: positionX at 0x1f, the longs at 0x17 and 0x1b.
+    expect(finePosition(layout(0x1f), 0x19)).toEqual({
+      words: "fine horizontal position (high word)",
+      axis: "positionX",
+    });
   });
 });

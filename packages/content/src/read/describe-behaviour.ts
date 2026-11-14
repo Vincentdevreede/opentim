@@ -10,7 +10,7 @@ import {
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import {
   CONTACT_RECORD,
-  FINE_POSITION,
+  finePosition,
   changedBits,
   effectsFromOthers,
   flagWords,
@@ -3525,17 +3525,19 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       CONTACT_RECORD[write.offset] ??
       (name === "contactPart" || name === "contactAngle" || name === "contactEdge"
         ? `contact record (${name})`
-        : (FINE_POSITION[write.offset] ?? (name ? name : `field ${offsetText}`)));
+        : (finePosition(report, write.offset)?.words ?? (name ? name : `field ${offsetText}`)));
     return `May change ${subject} ${what} through the contact search it runs on it; what that search finds there, only the run knows.`;
   }
-  if (FINE_POSITION[write.offset]) {
+  const fine = finePosition(report, write.offset);
+  if (fine) {
     // The trampoline and the teeter-totter set the long from the whole position: `(positionY << 9)` in its two words.
+    const position = report.layout.fields.find((field) => field.name === fine.axis)?.offset;
     const whole =
       write.value.kind === "binary" &&
       JSON.stringify(write.value).includes(
-        `"object":${JSON.stringify(write.object)},"offset":${write.offset < 0x1a ? 0x1e : 0x20}`,
+        `"object":${JSON.stringify(write.object)},"offset":${position ?? (fine.axis === "positionX" ? 0x1e : 0x20)}`,
       );
-    return `${whole ? "Puts" : "Updates"} ${subject} ${FINE_POSITION[write.offset]}${whole ? ` on its whole ${write.offset < 0x1a ? "positionX" : "positionY"}, in 1/512 pixels` : ", in 1/512 pixels"}.`;
+    return `${whole ? "Puts" : "Updates"} ${subject} ${fine.words}${whole ? ` on its whole ${fine.axis}, in 1/512 pixels` : ", in 1/512 pixels"}.`;
   }
   if (name === "previousX" || name === "previousY")
     return `Updates ${subject} previous position, which the contact search sweeps from to the position.`;

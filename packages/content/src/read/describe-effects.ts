@@ -380,6 +380,21 @@ export const FINE_POSITION: Record<number, string> = {
   0x1c: "fine vertical position (high word)",
 };
 /**
+ * The fine position word at `offset` of a part of the report's game, as `FINE_POSITION` names TIM.EXE's: the longs sit
+ * 8 bytes before positionX in every game, so they move with it. TIM2.EXE keeps them at 0x1a and 0x1e (its level reset
+ * sets them from the position shifted left by 9, `0x1eda1` in the CD build), TOONS.EXE at 0x17 and 0x1b (`0x1ac6`).
+ * Undefined for any other word. `axis` is the whole position the long holds.
+ */
+export function finePosition(
+  report: Pick<BehaviourReport, "layout">,
+  offset: number,
+): { words: string; axis: "positionX" | "positionY" } | undefined {
+  const positionX = report.layout.fields.find((field) => field.name === "positionX")?.offset;
+  const key = offset - (positionX === undefined ? 0 : positionX - 0x1e);
+  const words = FINE_POSITION[key];
+  return words ? { words, axis: key < 0x1a ? "positionX" : "positionY" } : undefined;
+}
+/**
  * The contact record a contact search fills in on the part it moves (`0x09eb` to `0x0a06`): the part it touched at
  * `0x84`, two side bytes at `0x86` and `0x87` (`0x0db5`, `0x0dcc`, and the helper at `0x04b0`), the angle at `0x88` and
  * the edge at `0x8a`. The contact flags `0x0002` and `0x0004` at `0x06` say which response route follows (`0x09af` to
@@ -1411,7 +1426,8 @@ export function effectsFromOthers(
           JSON.stringify(longPart(s.value)) === JSON.stringify(part && { ...part, high: true }),
       );
       if (!part || part.high || !high || low.kind !== "expression") continue;
-      const fine = FINE_POSITION[low.offset] ? (low.offset < 0x1a ? "horizontal" : "vertical") : undefined;
+      const axis = finePosition(report, low.offset)?.axis;
+      const fine = axis && (axis === "positionX" ? "horizontal" : "vertical");
       longs.set(
         low,
         `sets ${fine ? `its fine ${fine} position (the long at 0x${low.offset.toString(16)}, in 1/512 pixels)` : `the long at 0x${low.offset.toString(16).padStart(2, "0")}`} to ${formula(part.word, { field: fieldName, of: (_, what) => what })} × ${2 ** part.shift}`,
