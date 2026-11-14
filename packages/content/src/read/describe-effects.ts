@@ -28,7 +28,7 @@ import {
   TYPE_RECORD_WRITTEN,
 } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
-import { behaviourProfile, TIM_PART_WORDS, type PartWords } from "./behaviour-program.ts";
+import { behaviourProfile, type PartWords } from "./behaviour-program.ts";
 import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
@@ -58,17 +58,24 @@ import {
 import { conjunction, constant, uniqueEvidence, unsigned } from "./behaviour-terms.ts";
 
 /**
- * The list flags of a part at `0x06`: the routine that puts a part on a list (`0x6469` in Even More, English floppy)
- * gives it `0x1000` and the moving list when its starting flags lack `0x4000`, and `0x2000` and the fixed list
- * otherwise.
- */
-export const LIST_FLAGS = TIM_PART_WORDS.listFlags;
-/**
  * The words of TIM.EXE's records the descriptions know by place (the profile's `partWords`), for the report's game.
  * Undefined for TIM 2 and Toons, whose records are kept otherwise: the descriptions then say nothing about those words.
  */
 export const partWordsOf = (report: Pick<BehaviourReport, "listId">): PartWords | undefined =>
   behaviourProfile(report.listId ?? "").partWords;
+/**
+ * The starting list flags the part factory gives each type, in the report's game's list flags (`partWords.listFlags`,
+ * `0x06` in TIM.EXE): the routine that puts a part on a list (`0x6469` in Even More, English floppy) gives it `0x1000`
+ * and the moving list when its starting flags lack `0x4000`, and `0x2000` and the fixed list otherwise. Undefined for a
+ * game without TIM.EXE's words.
+ */
+export function startingListFlags(report: Pick<BehaviourReport, "listId" | "helpers">) {
+  const words = partWordsOf(report);
+  if (!words) return undefined;
+  return report.helpers
+    ?.find((h) => h.kind === "part-factory")
+    ?.factory?.startingWords?.find((w) => w.field === words.listFlags);
+}
 const MOVING_LIST = 0x1000;
 const FIXED_LIST = 0x2000;
 export const FIXED_TYPE = 0x4000;
@@ -312,28 +319,28 @@ export const TYPE_TABLE_ASSUMPTION =
  *   (`0x256e`), and one check wants `0x0400` on fish bowls (`0x28ae`). A search of the whole program for tests of these
  *   bits, in all eleven builds, finds no other.
  */
-const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[] = [
+const partFlags = (words: PartWords): { offset: number; mask: number; name: string; words: string }[] => [
   {
-    offset: LIST_FLAGS,
+    offset: words.listFlags,
     mask: 0x0001,
     name: "contact flag 0x0001",
     words:
       "the contact search sets it after a contact; while it is set the mover pulls the part 2 pixels further along its gravity each time it moves it, and the contact dispatch picks the response at 0x3980 over the reflection at 0x3c1c",
   },
   {
-    offset: TIM_PART_WORDS.drawingFlags,
+    offset: words.drawingFlags,
     mask: 0x2000,
     name: "out-of-play flag 0x2000",
     words: "the contact dispatch, the contact search and the overlap searches pass over a part with it",
   },
   {
-    offset: TIM_PART_WORDS.drawingFlags,
+    offset: words.drawingFlags,
     mask: 0x0040,
     name: "ran-this-step mark 0x0040",
     words: "the step's run loop clears it first and then calls no run callback of a part that has it",
   },
   ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask) => ({
-    offset: TIM_PART_WORDS.marks,
+    offset: words.marks,
     mask,
     name: `goal mark 0x${mask.toString(16).padStart(4, "0")}`,
     words:
@@ -341,11 +348,14 @@ const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[
   })),
 ];
 /** Where a flag bit lives, in words: "list flags", "drawing flags" or "field 0x0a". */
-const FLAG_FIELDS: Record<number, string> = {
-  [TIM_PART_WORDS.listFlags]: "list flags",
-  [TIM_PART_WORDS.drawingFlags]: "drawing flags",
-  [TIM_PART_WORDS.marks]: "field 0x0a",
-};
+const flagField = (words: PartWords, offset: number): string | undefined =>
+  offset === words.listFlags
+    ? "list flags"
+    : offset === words.drawingFlags
+      ? "drawing flags"
+      : offset === words.marks
+        ? `field 0x${offset.toString(16).padStart(2, "0")}`
+        : undefined;
 /**
  * A set or cleared bit in words, like "sets its out-of-play flag 0x2000 in its drawing flags (the contact dispatch ...
  * pass over a part with it)", or undefined when the bit has no proved meaning. The meanings are TIM.EXE's, so a game
@@ -360,9 +370,9 @@ export function flagWords(
   long = true,
 ): string | undefined {
   if (!words) return undefined;
-  const flag = PART_FLAGS.find((f) => f.offset === offset && f.mask === mask);
+  const flag = partFlags(words).find((f) => f.offset === offset && f.mask === mask);
   if (!flag) return undefined;
-  return `${set ? "sets" : "clears"} ${whose} ${flag.name} in ${FLAG_FIELDS[offset]}${long ? ` (${flag.words})` : ""}`;
+  return `${set ? "sets" : "clears"} ${whose} ${flag.name} in ${flagField(words, offset)}${long ? ` (${flag.words})` : ""}`;
 }
 /**
  * The bits a value sets and clears in its own field, when it is the field with bits set by `or` and cleared by `and`,
@@ -1241,9 +1251,7 @@ export function effectsFromOthers(
   // The words an overlap search stores in the parts it finds, named by the axis its code measures them on.
   for (const h of report.helpers ?? [])
     for (const o of h.list?.overlaps ?? []) if (!fieldNames.has(o.offset)) fieldNames.set(o.offset, `overlap${o.axis}`);
-  const startingFlags = report.helpers
-    ?.find((h) => h.kind === "part-factory")
-    ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const startingFlags = startingListFlags(report);
   const fixedType = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
 
   const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
@@ -1881,7 +1889,8 @@ export function effectsFromOthers(
         if (!t.set) {
           const test = flagTest(c.member, t);
           searchTerms.push(test);
-          const named = timWords && PART_FLAGS.find((flag) => flag.offset === t.offset && flag.mask === t.mask);
+          const named =
+            timWords && partFlags(timWords).find((flag) => flag.offset === t.offset && flag.mask === t.mask);
           if (named) clearNames.set(test, named.name);
           continue;
         }

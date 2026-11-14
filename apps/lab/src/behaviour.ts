@@ -3,7 +3,7 @@
  * in the lab: findings keep their confidence and the addresses of their instructions, and expressions become text.
  */
 
-import { choiceOf, describeGear } from "@opentim/content";
+import { choiceOf, describeGear, finePosition, partWordsOf } from "@opentim/content";
 import type {
   PuzzleGoal,
   AnimationDescription,
@@ -16,6 +16,7 @@ import type {
   FieldWrite,
   OtherPartEffect,
   PartBehaviour,
+  PartWords,
   Predicate,
   ProgramParts,
 } from "@opentim/content";
@@ -258,6 +259,8 @@ export interface Timing extends Finding {
 export interface BehaviourSummary {
   /** The fields of a part object the analysis found, by offset, with the bits of a flag word it names. */
   fields: { offset: number; name: string; confidence: Confidence; masks?: { value: number; name: string }[] }[];
+  /** TIM.EXE's words by place, for TIM 1 and Even More only (see `RecordNames`). */
+  words?: PartWords;
   timing: Timing;
   parts: Record<number, PartSummary>;
   assumptions: string[];
@@ -272,10 +275,11 @@ const instructions = (evidence: readonly Evidence[]): Instruction[] =>
   evidence.slice(0, MAX_EVIDENCE).map(({ address, text }) => ({ address, text }));
 
 /**
- * Fields of a part the analysis doesn't name, read from the program's code: the found list and overlaps that the
+ * Fields of a TIM.EXE part the analysis doesn't name, read from TIM.EXE's code: the found list and overlaps that the
  * searches at 0x417e and 0x437d write, the history that each step shifts (0x87ed), momentum (0x3855), and the links,
  * of which the last two are sockets (0x5d14). The level loader puts the file's third flag word (with the goal marks),
  * the belt's place and width, the rope slots' places and the extra word in the others (`docs/research/levels.md`).
+ * These are TIM.EXE's places, so they only name a part of a game with TIM.EXE's words (`RecordNames`).
  */
 const PART_FIELDS = new Map([
   [0x00, "nextInList"],
@@ -327,7 +331,10 @@ const PART_FIELDS = new Map([
   // A counter some parts keep, which the check against the recordings calls the heat.
   [0x9c, "heat"],
 ]);
-/** What a field of a part points to: another part, a belt record, the outline points, or a rope record. */
+/**
+ * What a field of a TIM.EXE part points to: another part, a belt record, the outline points, or a rope record. Only for
+ * a game with TIM.EXE's words, like `PART_FIELDS`.
+ */
 const LINKS = new Map<number, Kind>([
   [0x54, "belt"],
   [0x5a, "part"],
@@ -342,6 +349,8 @@ const LINKS = new Map<number, Kind>([
   [0x84, "part"],
 ]);
 type Kind = "part" | "belt" | "outline" | "rope" | "other";
+/** What a field the analysis names points to, in every game: the part a contact search found. */
+const NAMED_LINKS: Record<string, Kind> = { contactPart: "part" };
 
 /**
  * How numbers read in a condition: `words` as everywhere else (small ones in decimal, others in hex), `signed` and
@@ -351,10 +360,10 @@ type Kind = "part" | "belt" | "outline" | "rope" | "other";
 type Numbers = "words" | "signed" | "unsigned" | "bits" | "masked" | "angle" | "signed angle";
 
 /**
- * The words the rope code passes a rope callback, by their place on its stack: the part at the other end of the rope
- * (0x08462 passes the part whose rope moved, the connection query 0x1d638 the part that asks), the slot number of the
- * rope's end on this part, the kind of pull 0x7996 works out (with 0x8000 when the teeter-totter only asks first, as
- * its run does at 0x1d2a5), and the momentum of the part that started the pull, passed along unchanged.
+ * The words TIM.EXE's rope code passes a rope callback, by their place on its stack: the part at the other end of the
+ * rope (0x08462 passes the part whose rope moved, the connection query 0x1d638 the part that asks), the slot number of
+ * the rope's end on this part, the kind of pull 0x7996 works out (with 0x8000 when the teeter-totter only asks first,
+ * as its run does at 0x1d2a5), and the momentum of the part that started the pull, passed along unchanged.
  */
 const ROPE_ARGUMENTS = new Map([
   [0x0a, "ropeSlot"],
@@ -408,6 +417,50 @@ export interface WriterField {
 const writerFields = (report: BehaviourReport): WriterField[] =>
   report.layout.fields.map(({ offset, name, masks }) => ({ offset, name, ...(masks ? { masks } : {}) }));
 
+/**
+ * The words of a part record the lab can name, for one game: the fields the analysis names (the report's layout, which
+ * for TIM 2 and Toons has the fields their own routines show), and for TIM 1 and Even More the words TIM.EXE keeps by
+ * place (`words`, the game profile's `partWords`). The lab's own tables of TIM.EXE's places (`PART_FIELDS`, `LINKS`,
+ * `FLAG_BITS`, `ROPE_FIELDS`, `ROPE_ARGUMENTS`) only name a part of a game with those words, so another game's word
+ * the analysis doesn't name reads by its offset.
+ */
+export interface RecordNames {
+  fields: readonly WriterField[];
+  words?: PartWords;
+}
+
+/** The names of the report's game. */
+export function recordNamesOf(report: BehaviourReport): RecordNames {
+  const words = partWordsOf(report);
+  return { fields: writerFields(report), ...(words ? { words } : {}) };
+}
+
+const NO_NAMES = new Map<number, string>();
+/** TIM.EXE's names by place, for a game with its words; none for another game. */
+const timFields = (names: RecordNames): ReadonlyMap<number, string> => (names.words ? PART_FIELDS : NO_NAMES);
+/** Never matches: a TIM.EXE rewrite left out for another game. */
+const NEVER = /(?!)/g;
+
+/** The name TIM.EXE's flag words go by in `FLAG_BITS`, for a game with TIM.EXE's words. */
+function flagWordOf(names: RecordNames, offset: number): "lists" | "drawingFlags" | "marks" | undefined {
+  const w = names.words;
+  if (!w) return undefined;
+  return offset === w.listFlags
+    ? "lists"
+    : offset === w.drawingFlags
+      ? "drawingFlags"
+      : offset === w.marks
+        ? "marks"
+        : undefined;
+}
+
+/** The offsets of a part's flag words: TIM.EXE's three, and any field the analysis names bits of. */
+const flagWordOffsets = (names: RecordNames): Set<number> =>
+  new Set([
+    ...(names.words ? [names.words.listFlags, names.words.drawingFlags, names.words.marks] : []),
+    ...names.fields.filter((f) => f.masks?.length).map((f) => f.offset),
+  ]);
+
 /** The bits the analysis names in the drawing flags, as words for set and clear. */
 const MASK_WORDS: Record<string, [string, string]> = {
   horizontalFlip: ["mirrored", "not mirrored"],
@@ -416,92 +469,93 @@ const MASK_WORDS: Record<string, [string, string]> = {
 };
 
 /**
- * Every bit of a part's three flag words the program uses, as words for set and clear, by field and bit: the list
- * flags at 0x06, the drawing flags at 0x08 and the marks at 0x0a. What each one does, with the routines that show it in
- * Even More (English floppy) and TIM 1 (French), is in `docs/research/behaviour/in-the-lab.md` under "Flag bits". The bits not here are
- * never tested or set on a part: 0x0080 and 0x0100 of the list flags, 0x4000 of the drawing flags, and 0x0800 up of
- * the marks.
+ * Every bit of a TIM.EXE part's three flag words the program uses, as words for set and clear, by word and bit: the
+ * list flags (`lists`, 0x06), the drawing flags (0x08) and the marks (0x0a), which the game profile's `partWords`
+ * places. Only for a game with those words: another game's bits go by the analysis's names. What each one does, with
+ * the routines that show it in Even More (English floppy) and TIM 1 (French), is in
+ * `docs/research/behaviour/in-the-lab.md` under "Flag bits". The bits not here are never tested or set on a part:
+ * 0x0080 and 0x0100 of the list flags, 0x4000 of the drawing flags, and 0x0800 up of the marks.
  */
 export const FLAG_BITS = new Map<string, [string, string]>([
   // The list flags.
-  ["6:1", ["in contact", "not in contact"]],
-  ["6:2", ["hit a fixed part", "didn't hit a fixed part"]],
-  ["6:4", ["hit a moving part", "didn't hit a moving part"]],
-  ["6:8", ["hit handled this step", "hit not handled this step"]],
-  ["6:16", ["made during the run", "not made during the run"]],
-  ["6:32", ["slides with more friction", "slides with normal friction"]],
-  ["6:64", ["drawn as tiles", "not drawn as tiles"]],
-  ["6:512", ["can be turned upside down", "can't be turned upside down"]],
-  ["6:1024", ["can be mirrored", "can't be mirrored"]],
-  ["6:2048", ["in the parts bin", "not in the parts bin"]],
-  ["6:4096", ["on the moving list", "not on the moving list"]],
-  ["6:8192", ["on the fixed list", "not on the fixed list"]],
-  ["6:16384", ["fixed kind", "not a fixed kind"]],
-  ["6:32768", ["placed by the puzzle", "not placed by the puzzle"]],
+  ["lists:1", ["in contact", "not in contact"]],
+  ["lists:2", ["hit a fixed part", "didn't hit a fixed part"]],
+  ["lists:4", ["hit a moving part", "didn't hit a moving part"]],
+  ["lists:8", ["hit handled this step", "hit not handled this step"]],
+  ["lists:16", ["made during the run", "not made during the run"]],
+  ["lists:32", ["slides with more friction", "slides with normal friction"]],
+  ["lists:64", ["drawn as tiles", "not drawn as tiles"]],
+  ["lists:512", ["can be turned upside down", "can't be turned upside down"]],
+  ["lists:1024", ["can be mirrored", "can't be mirrored"]],
+  ["lists:2048", ["in the parts bin", "not in the parts bin"]],
+  ["lists:4096", ["on the moving list", "not on the moving list"]],
+  ["lists:8192", ["on the fixed list", "not on the fixed list"]],
+  ["lists:16384", ["fixed kind", "not a fixed kind"]],
+  ["lists:32768", ["placed by the puzzle", "not placed by the puzzle"]],
   // The drawing flags; the level file's mirror bits are kept here, for when the layout isn't read.
-  ["8:1", ["takes a belt", "takes no belt"]],
-  ["8:2", ["has a belt on", "has no belt on"]],
-  ["8:4", ["takes a rope", "takes no rope"]],
-  ["8:8", ["takes a rope at either end", "takes a rope at one place"]],
-  ["8:16", ["mirrored", "not mirrored"]],
-  ["8:32", ["upside down", "not upside down"]],
-  ["8:64", ["ran this step", "not run this step"]],
-  ["8:128", ["can be stretched sideways", "can't be stretched sideways"]],
-  ["8:256", ["can be stretched up and down", "can't be stretched up and down"]],
-  ["8:512", ["held this step", "not held this step"]],
-  ["8:1024", ["known free this step", "not known free this step"]],
-  ["8:2048", ["turns by itself", "doesn't turn by itself"]],
-  ["8:4096", ["drawn from pieces", "not drawn from pieces"]],
-  ["8:8192", ["out of play", "in play"]],
-  ["8:32768", ["touches like a fixed part", "touches like a moving part"]],
+  ["drawingFlags:1", ["takes a belt", "takes no belt"]],
+  ["drawingFlags:2", ["has a belt on", "has no belt on"]],
+  ["drawingFlags:4", ["takes a rope", "takes no rope"]],
+  ["drawingFlags:8", ["takes a rope at either end", "takes a rope at one place"]],
+  ["drawingFlags:16", ["mirrored", "not mirrored"]],
+  ["drawingFlags:32", ["upside down", "not upside down"]],
+  ["drawingFlags:64", ["ran this step", "not run this step"]],
+  ["drawingFlags:128", ["can be stretched sideways", "can't be stretched sideways"]],
+  ["drawingFlags:256", ["can be stretched up and down", "can't be stretched up and down"]],
+  ["drawingFlags:512", ["held this step", "not held this step"]],
+  ["drawingFlags:1024", ["known free this step", "not known free this step"]],
+  ["drawingFlags:2048", ["turns by itself", "doesn't turn by itself"]],
+  ["drawingFlags:4096", ["drawn from pieces", "not drawn from pieces"]],
+  ["drawingFlags:8192", ["out of play", "in play"]],
+  ["drawingFlags:32768", ["touches like a fixed part", "touches like a moving part"]],
   // The marks.
-  ["10:1", ["has a plug", "has no plug"]],
-  ["10:2", ["has sockets", "has no sockets"]],
-  ["10:4", ["lightable", "not lightable"]],
-  ["10:8", ["placed freely", "snaps to the grid"]],
-  ["10:16", ["in a bucket", "not in a bucket"]],
-  ["10:32", ["in the drawing layers", "not in the drawing layers"]],
-  ["10:64", ["locked in the editor", "not locked in the editor"]],
+  ["marks:1", ["has a plug", "has no plug"]],
+  ["marks:2", ["has sockets", "has no sockets"]],
+  ["marks:4", ["lightable", "not lightable"]],
+  ["marks:8", ["placed freely", "snaps to the grid"]],
+  ["marks:16", ["in a bucket", "not in a bucket"]],
+  ["marks:32", ["in the drawing layers", "not in the drawing layers"]],
+  ["marks:64", ["locked in the editor", "not locked in the editor"]],
   ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask): [string, [string, string]] => [
-    `10:${mask}`,
+    `marks:${mask}`,
     ["goal mark set", "goal mark clear"],
   ]),
 ]);
 
-/** The words for a bit of a flag word, from the analysis's names of its bits and the flags the program shows. */
-function bitWordsOf(fields: readonly WriterField[], offset: number, mask: number): [string, string] | undefined {
-  const masked = fields.find((f) => f.offset === offset)?.masks?.find((m) => m.value === mask);
-  return (masked && MASK_WORDS[masked.name]) ?? FLAG_BITS.get(`${offset}:${mask}`);
+/** The words for a bit of a flag word, from the analysis's names of its bits and the flags TIM.EXE shows. */
+function bitWordsOf(names: RecordNames, offset: number, mask: number): [string, string] | undefined {
+  const masked = names.fields.find((f) => f.offset === offset)?.masks?.find((m) => m.value === mask);
+  const word = flagWordOf(names, offset);
+  return (masked && MASK_WORDS[masked.name]) ?? (word && FLAG_BITS.get(`${word}:${mask}`));
 }
 
 /** The bits set in a flag word of the part record, in words, and the bits no name is known for. */
-export function flagWords(
-  offset: number,
-  value: number,
-  fields: readonly WriterField[] = [],
-): { words: string[]; unknown: number } {
+export function flagWords(offset: number, value: number, names: RecordNames): { words: string[]; unknown: number } {
   const words: string[] = [];
   let unknown = 0;
   for (let bit = 1; bit <= 0x8000; bit <<= 1) {
     if (!(value & bit)) continue;
-    const named = bitWordsOf(fields, offset, bit);
+    const named = bitWordsOf(names, offset, bit);
     if (named) words.push(named[0]);
     else unknown |= bit;
   }
   return { words, unknown };
 }
 
-/** The name of a word of the part record: the analysis's, else the lab's own, as the Behaviour tab says it. */
-export function recordName(offset: number, fields: readonly WriterField[] = []): string | undefined {
-  return fields.find((f) => f.offset === offset)?.name ?? PART_FIELDS.get(offset);
+/**
+ * The name of a word of the part record: the analysis's, else for TIM 1 and Even More the lab's own, as the Behaviour
+ * tab says it.
+ */
+export function recordName(offset: number, names: RecordNames): string | undefined {
+  return names.fields.find((f) => f.offset === offset)?.name ?? timFields(names).get(offset);
 }
 
 /** Flags the analysis names in its sentences with their bit after them, like "out-of-play flag 0x2000". */
 const NAMED_FLAG = /\b(contact flag|out-of-play flag|ran-this-step mark|goal mark) 0x[0-9a-f]{4}\b/g;
 
 /**
- * The fields of a rope record by offset: the parts at its two ends (the one in slot 0 holds the record), their rope
- * slot numbers, and the two ends' points, as the rope code reads them (`0x7996`).
+ * The fields of a TIM.EXE rope record by offset, for a game with TIM.EXE's words: the parts at its two ends (the one in
+ * slot 0 holds the record), their rope slot numbers, and the two ends' points, as the rope code reads them (`0x7996`).
  */
 const ROPE_FIELDS = new Map([
   [0x02, "end0"],
@@ -516,8 +570,15 @@ const ROPE_FIELDS = new Map([
   [0x1a, "end1Y"],
 ]);
 
-/** The flag words a sentence names, by the name it gives them. */
-const FLAG_WORD_NAMES: Record<string, number> = { lists: 0x06, listFlags: 0x06, drawingFlags: 0x08, marks: 0x0a };
+/**
+ * The flag word a sentence names, by the name it gives it: TIM.EXE's three by the game's words, and any other field by
+ * the analysis's name.
+ */
+function flagWordNamed(names: RecordNames, name: string): number | undefined {
+  const w = names.words;
+  const tim = w && { lists: w.listFlags, listFlags: w.listFlags, drawingFlags: w.drawingFlags, marks: w.marks }[name];
+  return tim ?? names.fields.find((f) => f.name === name && f.masks?.length)?.offset;
+}
 
 /**
  * The bracketed group that ends a value masked as `(group & mask)`, rewritten by `rewrite`, for every such mask in the
@@ -591,10 +652,14 @@ function unbracket(group: string): string {
 /**
  * A sentence of the analysis as the lab shows it: a flag it names without its bit, a test of one flag bit by its name,
  * a value kept to a word without the mask, a position rounded down to a tile, and a field it calls by its offset, like
- * "field 0x28" or "its 0x26", by the name the lab gives that field.
+ * "field 0x28" or "its 0x26", by the name the lab gives that field. Fields by offset and rope records are named only
+ * for a game with TIM.EXE's words; flag bits by those words or by the analysis's names of the bits.
  */
-export function tidyWords<T extends string | undefined>(text: T): T {
+export function tidyWords<T extends string | undefined>(text: T, names: RecordNames): T {
   if (text === undefined) return text;
+  const tim = timFields(names);
+  const ropes = names.words ? ROPE_FIELDS : NO_NAMES;
+  const ropeLinks = names.words?.ropeRecords.map((offset) => hex(offset, 2));
   let out: string = text;
   // The mask of a word says nothing about a sum of words, which wraps the same way; one with a number past a word keeps it.
   const pastAWord = (group: string) =>
@@ -606,8 +671,8 @@ export function tidyWords<T extends string | undefined>(text: T): T {
       .replace(NAMED_FLAG, "$1")
       .replace(/\(([^()]*)\) & 0xfff0\b/g, "$1 rounded down to 16")
       .replace(/\b(\w+) & (0x[0-9a-f]+) is (not )?0\b/g, (all, name: string, mask: string, not?: string) => {
-        const offset = FLAG_WORD_NAMES[name];
-        const words = offset === undefined ? undefined : FLAG_BITS.get(`${offset}:${parseInt(mask, 16)}`);
+        const offset = flagWordNamed(names, name);
+        const words = offset === undefined ? undefined : bitWordsOf(names, offset, parseInt(mask, 16));
         return words ? words[not ? 0 : 1] : all;
       })
       .replace(/ (of|from|after) the (query|call|scan|loop|insertion) at 0x[0-9a-f]+/g, " $1 the $2")
@@ -615,29 +680,32 @@ export function tidyWords<T extends string | undefined>(text: T): T {
       // An address in the program says nothing in a sentence; the instructions in the tip have it.
       .replace(/ at 0x[0-9a-f]{4,5}\b/g, "")
       .replace(/\bcounter at (0x[0-9a-f]{2})\b/g, (all, offset: string) => {
-        const name = PART_FIELDS.get(parseInt(offset, 16));
+        const name = tim.get(parseInt(offset, 16));
         return name ? `counter (its ${name})` : all;
       })
       .replace(/\bMovement 0x8000\b/g, "Movement -32768")
       .replace(
         /\b(?:field )?(0x[0-9a-f]{2}) of the record of (its rope at 0x66|the rope it is asked about)/g,
         (all, offset: string, rope: string) => {
-          const name = ROPE_FIELDS.get(parseInt(offset, 16));
+          const name = ropes.get(parseInt(offset, 16));
           return name ? `the ${name} of ${rope === "its rope at 0x66" ? "its rope" : rope}` : all;
         },
       )
-      .replace(/\bits rope link at 0x66 or 0x68\b/g, "its first or second rope link")
-      .replace(/\brope link (0x[0-9a-f]{2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
+      .replace(
+        ropeLinks ? new RegExp(`\\bits rope link at ${ropeLinks.join(" or ")}\\b`, "g") : NEVER,
+        "its first or second rope link",
+      )
+      .replace(/\brope link (0x[0-9a-f]{2})\b/g, (all, offset: string) => tim.get(parseInt(offset, 16)) ?? all)
       .replace(/\b(byte|flags) at 0x[0-9a-f]{2}\b/g, "$1")
       .replace(/\bpart\.(0x[0-9a-f]{1,2})\b/g, (all, offset: string) => {
-        const name = PART_FIELDS.get(parseInt(offset, 16));
+        const name = tim.get(parseInt(offset, 16));
         return name ? `part.${name}` : all;
       })
-      .replace(/\bfield (0x[0-9a-f]{1,2})\b/g, (all, offset: string) => PART_FIELDS.get(parseInt(offset, 16)) ?? all)
+      .replace(/\bfield (0x[0-9a-f]{1,2})\b/g, (all, offset: string) => tim.get(parseInt(offset, 16)) ?? all)
       .replace(
         /\b(its|sets|changes|and|,) (0x[0-9a-f]{2})\b(?! of the record)/g,
         (all, before: string, offset: string) => {
-          const name = PART_FIELDS.get(parseInt(offset, 16));
+          const name = tim.get(parseInt(offset, 16));
           return name ? `${before} ${name}` : all;
         },
       ) as T
@@ -664,50 +732,73 @@ export function goalMarkSetters(effects: Record<number, OtherEffect[]>): Map<str
   return out;
 }
 
-/** The flag words a goal's test names, by the name it gives them. */
-const GOAL_FLAG_WORDS: Record<string, number> = {
-  "field 0xa": 0x0a,
-  "0xa": 0x0a,
-  marks: 0x0a,
-  "0x6": 0x06,
-  listFlags: 0x06,
-  "0x8": 0x08,
-  drawingFlags: 0x08,
-};
+/** TIM.EXE's flag words a goal's test names, by the name it gives them, placed by the game's words. */
+function goalFlagWord(words: PartWords, place: string): number | undefined {
+  const short = (offset: number) => `0x${offset.toString(16)}`;
+  const byName: Record<string, number> = {
+    [`field ${short(words.marks)}`]: words.marks,
+    [short(words.marks)]: words.marks,
+    marks: words.marks,
+    [short(words.listFlags)]: words.listFlags,
+    listFlags: words.listFlags,
+    [short(words.drawingFlags)]: words.drawingFlags,
+    drawingFlags: words.drawingFlags,
+  };
+  return byName[place];
+}
 
 /**
  * A goal's test of one flag bit in words, for parts of the types given: a goal mark by the parts that set it, like
  * "field 0xa has the bits 0x100" as "marked by Vacuum", and any other bit by its name, like "part.drawingFlags hasn't
- * the bits 0x2000" as "part in play". A test of more than one bit, or of a bit without a name, stays as it is.
+ * the bits 0x2000" as "part in play". A test of more than one bit, or of a bit without a name, stays as it is, and so
+ * does every test in a game without TIM.EXE's words, whose marks and flag bits are TIM.EXE's.
  */
-export function goalMarkWords(text: string, types: readonly number[], setters: ReadonlyMap<string, string[]>): string {
+export function goalMarkWords(
+  text: string,
+  types: readonly number[],
+  setters: ReadonlyMap<string, string[]>,
+  names: RecordNames,
+): string {
+  const words = names.words;
+  if (!words) return text;
   return text.replace(
     /\b(field 0xa|(?:part\.)?(?:listFlags|drawingFlags|marks|0x6|0x8|0xa)) (has|hasn't) the bits (0x[0-9a-f]+)\b/g,
     (all, place: string, has: string, bits: string) => {
       const bit = parseInt(bits, 16);
-      const offset = GOAL_FLAG_WORDS[place.replace(/^part\./, "")];
+      const offset = goalFlagWord(words, place.replace(/^part\./, ""));
       if (offset === undefined || !bit || bit & (bit - 1)) return all;
       const whose = place.startsWith("part.") ? "part " : "";
-      if (offset === 0x0a) {
+      if (offset === words.marks) {
         const by = [...new Set(types.flatMap((t) => setters.get(`${t}:${bit}`) ?? []))];
         if (by.length) return `${whose}${has === "has" ? "" : "not "}marked by ${by.join(" or ")}`;
       }
       // A goal mark no part is seen to set, or not yet: the walks that say who sets it come last.
-      const words = FLAG_BITS.get(`${offset}:${bit}`);
-      return words ? `${whose}${words[has === "has" ? 0 : 1]}` : all;
+      const word = flagWordOf(names, offset);
+      const said = word && FLAG_BITS.get(`${word}:${bit}`);
+      return said ? `${whose}${said[has === "has" ? 0 : 1]}` : all;
     },
   );
 }
 
 /** Writes expressions and conditions as text, with the names of the part's fields. */
 export function writer(
-  fields: readonly WriterField[],
+  names: RecordNames,
   /** Names that only hold for this part's own fields, like the gear's neighbours. */
   own: ReadonlyMap<number, string> = new Map(),
   /** The routine the expressions come from, when its argument has names: the rope callback's. */
   routine?: "rope",
 ) {
-  const names = new Map([...PART_FIELDS, ...fields.map((f) => [f.offset, f.name] as const)]);
+  const { fields, words: timWords } = names;
+  const fieldNames = new Map([...timFields(names), ...fields.map((f) => [f.offset, f.name] as const)]);
+  /** What a part's field points to: TIM.EXE's links by place, and the fields the analysis names, in every game. */
+  const linkOf = (offset: number): Kind => {
+    const name = fields.find((f) => f.offset === offset)?.name;
+    return (name ? NAMED_LINKS[name] : undefined) ?? (timWords && LINKS.get(offset)) ?? "other";
+  };
+  /** TIM.EXE's rope callback arguments and rope records, for a game with its words. */
+  const ropeArguments = timWords ? ROPE_ARGUMENTS : NO_NAMES;
+  const ropeFields = timWords ? ROPE_FIELDS : NO_NAMES;
+  const flagOffsets = flagWordOffsets(names);
   /** A number in a formula, in decimal: a value the program keeps in a word or a long reads as the signed number. */
   const number = (n: number, width = 16) => {
     const bits = width > 0 && width <= 32 ? width : 16;
@@ -756,7 +847,7 @@ export function writer(
     if (/^a part reached through a rope, belt or pulley at 0x[0-9a-f]+$/.test(text))
       return { name: "reached", kind: "part" };
     // The part at the other end of the rope, which the rope code passes a rope callback.
-    if (routine === "rope" && /^referenced-by\(argument\+0x0?6\)$/.test(text))
+    if (timWords && routine === "rope" && /^referenced-by\(argument\+0x0?6\)$/.test(text))
       return { name: "otherEnd", kind: "part" };
     const linked = /^referenced-by\((.+)\+0x([0-9a-f]+)\)$/.exec(text);
     if (linked) {
@@ -764,7 +855,7 @@ export function writer(
       const offset = parseInt(linked[2]!, 16);
       const kind: Kind =
         inner.kind === "part"
-          ? (LINKS.get(offset) ?? "other")
+          ? linkOf(offset)
           : (inner.kind === "belt" && (offset === 4 || offset === 6)) || (inner.kind === "rope" && offset === 0)
             ? "part"
             : "other";
@@ -774,7 +865,13 @@ export function writer(
     }
     // The record of the rope a rope callback is asked about: the part's rope link at 0x66, or the one after it, picked
     // by the slot number of the rope's end (decided assumption 1), like the teeter-totter's at 0x1d53d.
-    if (/^pointer loaded from table 0x[0-9a-f]+\+0x66 indexed by .*"object":"address of part"/.test(text))
+    const ropeLink = timWords && hex(timWords.ropeRecords[0]!, 2);
+    if (
+      ropeLink &&
+      new RegExp(`^pointer loaded from table 0x[0-9a-f]+\\+${ropeLink} indexed by .*"object":"address of part"`).test(
+        text,
+      )
+    )
       return { name: "askedRope", kind: "rope" };
     const table = /^pointer loaded from table (\S+) indexed by /.exec(text);
     if (table) return { name: "[table[…]]", kind: "other" };
@@ -783,12 +880,12 @@ export function writer(
   const field = ({ name, kind }: { name: string; kind: Kind }, offset: number): string => {
     const raw = `${name || "part"}+${hex(offset, 2)}`;
     if (kind === "part") {
-      const known = (!name && own.get(offset)) || names.get(offset);
+      const known = (!name && own.get(offset)) || fieldNames.get(offset);
       return known ? (name ? `${name}.${known}` : known) : raw;
     }
     if (kind === "belt" && (offset === 4 || offset === 6)) return `${name}.end${offset === 4 ? 1 : 2}`;
     if (kind === "rope" && offset === 0) return `${name}.part`;
-    if (kind === "rope" && ROPE_FIELDS.has(offset)) return `${name}.${ROPE_FIELDS.get(offset)}`;
+    if (kind === "rope" && ropeFields.has(offset)) return `${name}.${ropeFields.get(offset)}`;
     if (kind === "outline") return `${name}[${offset >> 2}].${["x", "y", "edge", "edge"][offset & 3]}`;
     if (name === "this" && offset === 0) return "this";
     return raw;
@@ -826,7 +923,7 @@ export function writer(
     const scanned = /^value after the list scan at (0x[0-9a-f]+) in (.+)$/.exec(target);
     if (scanned) return `${field(object(scanned[2]!), offset)} after the scan`;
     if (target === "stack") return `local ${offset}`;
-    if (target === "argument") return (routine === "rope" && ROPE_ARGUMENTS.get(offset)) || `argument ${offset}`;
+    if (target === "argument") return (routine === "rope" && ropeArguments.get(offset)) || `argument ${offset}`;
     return field(object(target), offset);
   };
   /** Whether a value is a direction word, like where a part was hit (0x0d98), or one with a turn added. */
@@ -852,16 +949,16 @@ export function writer(
       steps.unshift(`${at.operator}:${names.join(",")}`);
       at = at.left;
     }
-    if (!steps.length || at.kind !== "field" || ![0x06, 0x08, 0x0a].includes(at.offset)) return undefined;
+    if (!steps.length || at.kind !== "field" || !flagOffsets.has(at.offset)) return undefined;
     if (object(at.object).kind !== "part") return undefined;
     const field = at;
     const said: string[] = [];
     for (const step of steps) {
       const [operator, list] = step.split(":") as [string, string];
-      const names = list.split(",").map((bit) => bitWordsOf(fields, field.offset, Number(bit))?.[0]);
-      if (names.some((n) => n === undefined)) return undefined;
+      const bits = list.split(",").map((bit) => bitWordsOf(names, field.offset, Number(bit))?.[0]);
+      if (bits.some((n) => n === undefined)) return undefined;
       const verb = operator === "|" ? "set" : operator === "&" ? "cleared" : "switched";
-      said.push(`${names.join(" and ")} ${verb}`);
+      said.push(`${bits.join(" and ")} ${verb}`);
     }
     return `${place(field.object, field.offset)} with ${said.join(", then ")}`;
   };
@@ -1000,7 +1097,7 @@ export function writer(
         const inner: Numbers = bitwise ? "bits" : style;
         const left = expression(masked.left, true, inner);
         // Low bits of a number that isn't a flag word, like `state & 3`, as the rest after dividing: "state mod 4".
-        const flagWord = masked.left.kind === "field" && [0x06, 0x08, 0x0a].includes(masked.left.offset);
+        const flagWord = masked.left.kind === "field" && flagOffsets.has(masked.left.offset);
         const divisor =
           masked.operator === "&" && masked.right.kind === "constant" && !flagWord
             ? remainderOf(masked.right.value >>> 0)
@@ -1030,7 +1127,7 @@ export function writer(
         return "unknown";
     }
   };
-  const bitWords = (offset: number, mask: number) => bitWordsOf(fields, offset, mask);
+  const bitWords = (offset: number, mask: number) => bitWordsOf(names, offset, mask);
   /**
    * A test of one named bit of a part's flags in words, like `drawingFlags & 0x10 == 0` as "not mirrored" and
    * `found.lists & 0x1000 != 0` as "found on the moving list"; undefined for any other test.
@@ -1066,7 +1163,7 @@ export function writer(
    * totter adds 0x8000 when it only asks (0x1d2a5).
    */
   const ropeTest = (p: Extract<Predicate, { kind: "compare" }>): string | undefined => {
-    if (routine !== "rope" || (p.operator !== "==" && p.operator !== "!=")) return undefined;
+    if (!timWords || routine !== "rope" || (p.operator !== "==" && p.operator !== "!=")) return undefined;
     const [tested, against] = p.right.kind === "constant" ? [p.left, p.right] : [p.right, p.left];
     if (against.kind !== "constant") return undefined;
     const folded = tested.kind === "binary" ? foldMask(tested) : tested;
@@ -1155,15 +1252,17 @@ export function writer(
         return "unknown";
     }
   };
-  return { expression, predicate, place };
+  return { expression, predicate, place, names };
 }
+
+type Writer = ReturnType<typeof writer>;
 
 const signed = (n: number) => (n > 0x7fff ? n - 0x10000 : n);
 /** A frame the program keeps as a word, as the signed number it stands for: 65535 is frame -1. */
 const frameOf = (n: number) => (n > 0x7fff && n <= 0xffff ? n - 0x10000 : n);
 
 /** The 16-bit value of an expression for a state, when it depends on nothing but the state. */
-export function valueForState(e: Expression, state: number, stateOffset: number): number | undefined {
+export function valueForState(e: Expression, state: number, stateOffset: number | undefined): number | undefined {
   if (e.kind === "constant") return e.value & 0xffff;
   if (e.kind === "field") return e.object === "part" && e.offset === stateOffset ? state & 0xffff : undefined;
   if (e.kind !== "binary") return undefined;
@@ -1206,7 +1305,7 @@ export function valueForState(e: Expression, state: number, stateOffset: number)
 /** The short role of a routine, like `run` for "run callback candidate". */
 const roleOf = (role: string) => role.replace(/ callback candidate$/, "");
 
-function targetsOf(to: Expression, from: number[] | null, stateOffset: number): number[] | undefined {
+function targetsOf(to: Expression, from: number[] | null, stateOffset: number | undefined): number[] | undefined {
   if (!from?.length || to.kind !== "binary") return undefined;
   const targets = from.map((state) => valueForState(to, state, stateOffset));
   return targets.every((t) => t !== undefined) ? targets.map(signed) : undefined;
@@ -1224,7 +1323,7 @@ function gearSlots(part: PartBehaviour) {
   });
 }
 
-function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummary | undefined {
+function summariseGear(part: PartBehaviour, report: BehaviourReport, names: RecordNames): GearSummary | undefined {
   const gear = describeGear(part, report.gearScheduling, report.relatedObjectEffects);
   if (!gear || !part.gearRun) return undefined;
   const delta = part.gearRun.deltaField;
@@ -1246,7 +1345,8 @@ function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummar
     };
     if (!driver.steps.includes(step)) driver.steps.push(step);
     driver.steps.sort((a, b) => (Number(a) || (a === "0" ? 0 : 99)) - (Number(b) || (b === "0" ? 0 : 99)));
-    if (!driver.descriptions.includes(tidyWords(d.description))) driver.descriptions.push(tidyWords(d.description));
+    const said = tidyWords(d.description, names);
+    if (!driver.descriptions.includes(said)) driver.descriptions.push(said);
     if (d.confidence === "unresolved") driver.confidence = "unresolved";
     drivers.set(d.sourceType, driver);
   }
@@ -1258,29 +1358,29 @@ function summariseGear(part: PartBehaviour, report: BehaviourReport): GearSummar
     peerField: part.gearRun.propagationRelation.expansion.peer.connectionField,
     drivers: [...drivers.values()],
     text: {
-      activation: tidyWords(gear.activation),
-      connections: tidyWords(gear.connections),
-      conflict: tidyWords(gear.conflict),
-      withoutConflict: tidyWords(gear.withoutConflict),
-      withConflict: tidyWords(gear.withConflict),
-      cycles: tidyWords(gear.cycles),
-      scheduling: gear.scheduling.map((s) => tidyWords(s.description)),
-      limits: gear.limits.map((l) => tidyWords(l)),
+      activation: tidyWords(gear.activation, names),
+      connections: tidyWords(gear.connections, names),
+      conflict: tidyWords(gear.conflict, names),
+      withoutConflict: tidyWords(gear.withoutConflict, names),
+      withConflict: tidyWords(gear.withConflict, names),
+      cycles: tidyWords(gear.cycles, names),
+      scheduling: gear.scheduling.map((s) => tidyWords(s.description, names)),
+      limits: gear.limits.map((l) => tidyWords(l, names)),
     },
   };
 }
 
 function summarisePart(
   part: PartBehaviour,
-  fields: readonly WriterField[],
-  stateOffset: number,
+  names: RecordNames,
+  stateOffset: number | undefined,
   report: BehaviourReport,
 ): PartSummary {
   const roles = new Map(part.routines.map((r) => [r.address, roleOf(r.role)]));
   const routineName = (address: number) => roles.get(address) ?? hex(address, 5);
-  const write = partWriter(part, fields);
+  const write = partWriter(part, names);
   // The rope callback's own findings name what the rope code passes it.
-  const rope = partWriter(part, fields, "rope");
+  const rope = partWriter(part, names, "rope");
   const writerOf = (routine: number) => (roles.get(routine) === "rope" ? rope : write);
   const finding = (f: { confidence: Confidence; assumptions: string[]; evidence: Evidence[] }): Finding => ({
     confidence: f.confidence,
@@ -1335,7 +1435,7 @@ function summarisePart(
     reset: part.reset.map(writeOf),
     effects: part.visibleEffects.map(writeOf),
     uncertainties: part.uncertainties,
-    gear: summariseGear(part, report),
+    gear: summariseGear(part, report, names),
     outlineTables: summariseOutlineTables(part, report, finding),
   };
 }
@@ -1364,7 +1464,7 @@ function summariseOutlineTables(
 const BRANCH_DEPTH = 2;
 
 /** The terms of a condition as text, so the tab can tidy them and drop the ones that say nothing. */
-function termsOf(p: Predicate | undefined, write: ReturnType<typeof writer>): string[] {
+function termsOf(p: Predicate | undefined, write: Writer): string[] {
   if (!p || p.kind === "true") return [];
   if (p.kind === "and") return p.terms.flatMap((t) => termsOf(t, write));
   return [write.predicate(p)];
@@ -1377,7 +1477,7 @@ function settles(walk: BehaviourWalk): boolean {
   return !!branches?.length && branches.every((b) => settles(b.walk));
 }
 
-function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0): WalkPath {
+function pathOf(walk: BehaviourWalk, write: Writer, depth = 0): WalkPath {
   const frames = walk.frames.map((f) => frameOf(f.state));
   const branches =
     depth < BRANCH_DEPTH
@@ -1415,7 +1515,7 @@ function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0
     cycle: p?.kind === "cycle" ? { period: p.period, direction: p.direction } : undefined,
     reason:
       end === "stop" || end === "branches"
-        ? tidyWords(walk.stop?.description ?? walk.reason)
+        ? tidyWords(walk.stop?.description ?? walk.reason, write.names)
         : end === "joins"
           ? walk.reason
           : undefined,
@@ -1428,16 +1528,16 @@ function pathOf(walk: BehaviourWalk, write: ReturnType<typeof writer>, depth = 0
 /** The walks of a part, one for each trigger and starting case the analysis follows. */
 function walksOf(
   animations: readonly AnimationDescription[],
-  write: ReturnType<typeof writer>,
+  write: Writer,
   /** The writer for walks the rope callback starts, which names what the rope code passes it. */
-  rope: ReturnType<typeof writer> = write,
+  rope: Writer = write,
 ): Walk[] {
   return animations.map((a) =>
     walkOf(a, a.trigger.kind === "callback" && roleOf(a.trigger.name) === "rope" ? rope : write),
   );
 }
 
-function walkOf(a: AnimationDescription, write: ReturnType<typeof writer>): Walk {
+function walkOf(a: AnimationDescription, write: Writer): Walk {
   return {
     ...pathOf(a.walk, write),
     trigger:
@@ -1456,24 +1556,24 @@ function walkOf(a: AnimationDescription, write: ReturnType<typeof writer>): Walk
     // contactEdge == 0. The trigger's condition holds both for a hit; the same term is said once.
     condition: [...new Set([...termsOf(a.inputCondition, write), ...termsOf(a.trigger.condition, write)])],
     about: a.trigger.name,
-    description: tidyWords(a.description),
+    description: tidyWords(a.description, write.names),
   };
 }
 
 /** The writer for a part: with the names of the gear's neighbours when it is a gear. */
-function partWriter(part: PartBehaviour, fields: readonly WriterField[], routine?: "rope") {
+function partWriter(part: PartBehaviour, names: RecordNames, routine?: "rope") {
   const own = new Map(gearSlots(part).map((s) => [s.offset, s.name]));
-  return writer(fields, own, routine);
+  return writer(names, own, routine);
 }
 
 /** The walks from the triggers of each part, by type, from the report's description. */
 export function summariseWalks(report: BehaviourReport, description: BehaviourDescription): Record<number, Walk[]> {
-  const fields = writerFields(report);
+  const names = recordNamesOf(report);
   const animations = new Map(description.parts.map((d) => [d.type, d.animations]));
   return Object.fromEntries(
     report.parts.map((p) => [
       p.type,
-      walksOf(animations.get(p.type) ?? [], partWriter(p, fields), partWriter(p, fields, "rope")),
+      walksOf(animations.get(p.type) ?? [], partWriter(p, names), partWriter(p, names, "rope")),
     ]),
   );
 }
@@ -1483,12 +1583,12 @@ export function summariseRests(
   report: BehaviourReport,
   description: BehaviourDescription,
 ): Record<number, RestSummary> {
-  const fields = writerFields(report);
+  const names = recordNamesOf(report);
   const parts = new Map(report.parts.map((p) => [p.type, p]));
   return Object.fromEntries(
     description.parts.map((d) => {
       const part = parts.get(d.type);
-      const write = part ? partWriter(part, fields) : writer(fields);
+      const write = part ? partWriter(part, names) : writer(names);
       const { rest } = d;
       const summary: RestSummary = {
         confidence: rest.confidence,
@@ -1497,7 +1597,7 @@ export function summariseRests(
         status: rest.status,
         ...(rest.status === "known" && rest.state !== undefined ? { state: frameOf(rest.state) } : {}),
         ...(rest.frames ? { frames: rest.frames.map(frameOf).sort((a, b) => a - b) } : {}),
-        description: tidyWords(rest.description),
+        description: tidyWords(rest.description, names),
         ...(rest.reason ? { reason: rest.reason } : {}),
         resting: d.stableStates
           .map((stable): RestingFrame => {
@@ -1532,14 +1632,14 @@ const PROVED = /ran-this-step mark|out-of-play flag|goal mark|contact flag|fine 
  * the flags of its own whose meaning the code proves. Ways that say the same are one line.
  */
 export function summariseDoings(report: BehaviourReport, description: BehaviourDescription): Record<number, Doing[]> {
-  const fields = writerFields(report);
+  const names = recordNamesOf(report);
   const parts = new Map(report.parts.map((p) => [p.type, p]));
   return Object.fromEntries(
     description.parts.map((d) => {
       const part = parts.get(d.type);
-      const write = part ? partWriter(part, fields) : writer(fields);
+      const write = part ? partWriter(part, names) : writer(names);
       // The rope callback's own findings name what the rope code passes it.
-      const rope = part ? partWriter(part, fields, "rope") : write;
+      const rope = part ? partWriter(part, names, "rope") : write;
       const ropeRoutines = new Set(part?.routines.filter((r) => roleOf(r.role) === "rope").map((r) => r.address));
       const writerOf = (routine?: number) => (routine !== undefined && ropeRoutines.has(routine) ? rope : write);
       const lines = new Map<string, Doing>();
@@ -1583,7 +1683,7 @@ export function summariseDoings(report: BehaviourReport, description: BehaviourD
             assumptions: [...e.assumptions],
             evidence: instructions(e.evidence),
             on,
-            description: tidyWords(sentence),
+            description: tidyWords(sentence, names),
             ways: 1,
             conditions: [...new Set(conditions)],
           });
@@ -1600,13 +1700,16 @@ function awayWithin(sets: OtherPartEffect["sets"]): { awayWithin?: number } {
   return degrees.length ? { awayWithin: Math.max(...degrees) } : {};
 }
 
-/** The fine position's words by field: the longs at 0x16 (across) and 0x1a (down), in 1/512 pixels. */
-const FINE = new Map([
-  [0x16, "fine X"],
-  [0x18, "fine X"],
-  [0x1a, "fine Y"],
-  [0x1c, "fine Y"],
-]);
+/**
+ * The fine position's word at an offset, "fine X" or "fine Y": the longs in 1/512 pixels that sit 8 bytes before
+ * positionX in every game (0x16 and 0x1a in TIM.EXE), as the analysis places them. Without a named positionX only a
+ * game with TIM.EXE's words has them, at TIM.EXE's places.
+ */
+function fineOf(report: BehaviourReport, names: RecordNames, offset: number): string | undefined {
+  if (!names.words && !names.fields.some((f) => f.name === "positionX")) return undefined;
+  const axis = finePosition(report, offset)?.axis;
+  return axis && (axis === "positionX" ? "fine X" : "fine Y");
+}
 
 /**
  * A value another part sets from this part's own fields, in a few words from the analysis's own: a flag bit with a
@@ -1614,7 +1717,8 @@ const FINE = new Map([
  */
 function settingOf(
   s: Extract<OtherPartEffect["sets"][number], { kind: "expression" }>,
-  write: ReturnType<typeof writer>,
+  write: Writer,
+  report: BehaviourReport,
 ): { what: string; value: string; mark?: number } {
   const flag = /^(sets|clears) its (.+?) (0x[0-9a-f]{4}) in /.exec(s.words);
   if (flag) {
@@ -1624,7 +1728,7 @@ function settingOf(
       ? { what: "goal mark", value, mark: parseInt(flag[3]!, 16) }
       : { what: flag[2]!, value };
   }
-  const fine = FINE.get(s.offset);
+  const fine = fineOf(report, write.names, s.offset);
   const word = / to the (low|high) word of (.+)$/.exec(s.words);
   if (fine && word) return { what: `${fine} ${word[1]}`, value: word[2]! };
   const field = write.place("part", s.offset);
@@ -1636,14 +1740,14 @@ function settingOf(
   if (added)
     return {
       what: field,
-      value: tidyWords(`${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}`),
+      value: tidyWords(`${field} ${added[1] === "adds" ? "+" : "-"} ${added[2]}${added[3] ?? ""}`, write.names),
     };
   if (/^keeps (?:field 0x[0-9a-f]+|\w+) within its speed limit$/.test(s.words))
     return { what: field, value: "kept within its speed limit" };
   if (/^halves /.test(s.words)) return { what: field, value: "halved, rounding down" };
   if (/^reverses /.test(s.words)) return { what: field, value: "reversed" };
   const to = /^sets (?:field 0x[0-9a-f]+|\w+) to (.+)$/.exec(s.words);
-  return { what: field, value: to ? tidyWords(to[1]!) : write.expression(s.value) };
+  return { what: field, value: to ? tidyWords(to[1]!, write.names) : write.expression(s.value) };
 }
 
 /** Both words of the fine position that one value sets, as one: "fine Y" rather than its low and high word. */
@@ -1693,8 +1797,10 @@ export function summariseEffects(
   report: BehaviourReport,
   description: BehaviourDescription,
 ): Record<number, OtherEffect[]> {
-  const fields = writerFields(report);
-  const write = writer(fields);
+  const names = recordNamesOf(report);
+  const write = writer(names);
+  // The two velocity words, which read as one pair, by the analysis's names.
+  const velocity = ["velocityX", "velocityY"].map((name) => names.fields.find((f) => f.name === name)?.offset);
   const signedText = (n: number) => String(n > 0x7fff ? n - 0x10000 : n);
   return Object.fromEntries(
     description.parts.map((d) => [
@@ -1706,7 +1812,7 @@ export function summariseEffects(
         ].map(({ e, own }): OtherEffect => {
           const fieldValue = (offset: number) =>
             e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
-          const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
+          const [x, y] = velocity.map((offset) => (offset === undefined ? undefined : fieldValue(offset)));
           // Both velocities read as one pair, across then down.
           // Where both velocities move the part on the screen, when the analysis says it; the numbers are in the tip.
           const pair =
@@ -1724,8 +1830,8 @@ export function summariseEffects(
                 ? [{ what: s.away ? "speed away" : "speed", value: String(s.speed) }]
                 : s.kind === "expression"
                   ? // A value of the part's own fields, like a touch that halves its velocityX.
-                    [settingOf(s, write)]
-                  : pair.length && (s.offset === 0x36 || s.offset === 0x38)
+                    [settingOf(s, write, report)]
+                  : pair.length && velocity.includes(s.offset)
                     ? []
                     : [{ what: write.place("part", s.offset), value: signedText(s.value) }],
             ),
@@ -1740,10 +1846,10 @@ export function summariseEffects(
             ...(e.touch ? { touch: true } : {}),
             ...(own ? { own: true } : {}),
             sets: joinFine(sets),
-            when: e.conditionWords.map((w) => tidyWords(w.replace(/^on the /, ""))),
-            sourceWhen: e.sourceConditionWords.map(tidyWords),
+            when: e.conditionWords.map((w) => tidyWords(w.replace(/^on the /, ""), names)),
+            sourceWhen: e.sourceConditionWords.map((w) => tidyWords(w, names)),
             sourceConditions: [write.predicate(e.sourceCondition)],
-            ...(e.cases ? { cases: e.cases.map((c) => tidyWords(c.words)) } : {}),
+            ...(e.cases ? { cases: e.cases.map((c) => tidyWords(c.words, names)) } : {}),
             ...(e.searched?.length ? { searched: e.searched.map((offset) => write.place("part", offset)) } : {}),
             description: e.description,
           };
@@ -1761,7 +1867,8 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
     confidence,
     ...(masks ? { masks } : {}),
   }));
-  const stateOffset = fields.find((f) => f.name === "state")?.offset ?? 0x0c;
+  const stateOffset = fields.find((f) => f.name === "state")?.offset;
+  const names = recordNamesOf(report);
   const { pit, cycle } = report.timing;
   const timing: Timing = {
     confidence: pit && cycle ? "inferred" : "unresolved",
@@ -1774,10 +1881,9 @@ export function summariseBehaviour(report: BehaviourReport): BehaviourSummary {
   };
   return {
     fields,
+    ...(names.words ? { words: names.words } : {}),
     timing,
-    parts: Object.fromEntries(
-      report.parts.map((p) => [p.type, summarisePart(p, writerFields(report), stateOffset, report)]),
-    ),
+    parts: Object.fromEntries(report.parts.map((p) => [p.type, summarisePart(p, names, stateOffset, report)])),
     assumptions: report.assumptions,
   };
 }

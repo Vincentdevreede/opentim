@@ -89,9 +89,9 @@ export interface BehaviourProfile {
 
 /** TIM.EXE's words the descriptions know by place, as `partWords` above. */
 export interface PartWords {
-  /** The list flags, with the list bits, the contact flags and the bits `PART_FLAGS` names. */
+  /** The list flags, with the list bits, the contact flags and the bits `partFlags` names. */
   listFlags: number;
-  /** The drawing flags whose single bits `PART_FLAGS` names (the out-of-play flag and the ran-this-step mark). */
+  /** The drawing flags whose single bits `partFlags` names (the out-of-play flag and the ran-this-step mark). */
   drawingFlags: number;
   /** The word with the goal marks and the lightable mark. */
   marks: number;

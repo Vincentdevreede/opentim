@@ -224,8 +224,9 @@ game does with the fields is in [the levels](levels.md#tim-2-levels).
   friction, acceleration, terminal velocity, the size limits, the frame lists (`0x14` to `0x1a` are pointers) and the
   outline points, and ends with six far pointers to the part's callbacks, 4 bytes each from `0x22`: bounce, run, reset, flip, resize and rope.
   The Lab's Type tab shows a record field by field.
-- **Part records**: in memory, each placed part is a `0xA0`-byte record. Its words are named in `PART_FIELDS`
-  (`apps/lab/src/behaviour.ts`), its flag bits in [flag bits](behaviour/in-the-lab.md#flag-bits).
+- **Part records**: in memory, each placed part is a `0xA0`-byte record. Its words are named by the behaviour read's
+  layout and, for the words it doesn't name, in `PART_FIELDS` (`apps/lab/src/behaviour.ts`); its flag bits in
+  [flag bits](behaviour/in-the-lab.md#flag-bits).
 - **Goals**: each puzzle's goal is a routine in TIM.EXE, not in the level file; see [the levels](levels.md).
 
 ## TOONS.EXE

@@ -36,6 +36,7 @@ import { MESSAGE_FONT } from "../toons-drawing.ts";
 import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
+  partWordsOf,
   readTim2Types,
   readTim2StartTables,
   type Tim2StartTables,
@@ -51,7 +52,13 @@ import {
   type SpriteOf,
   type Tim2Drawing,
 } from "@opentim/content";
-import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
+import {
+  goalMarkSetters,
+  readBehaviourInBackground,
+  type GoalsResult,
+  type RecordNames,
+  type WriterField,
+} from "../behaviour.ts";
 import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
@@ -133,6 +140,16 @@ const goals = shallowRef<GoalsResult | { status: "reading" }>();
 const markSetters = shallowRef<ReadonlyMap<string, string[]>>(new Map());
 /** The part record's fields as the behaviour read names them, for the structure's tags. */
 const recordFields = shallowRef<readonly WriterField[]>();
+/**
+ * The part record's words the panels can name: the fields the behaviour read names once it is read, and for TIM 1 and
+ * Even More TIM.EXE's words by place, from the game's profile. Another game's words never take TIM.EXE's names.
+ */
+const recordNames = computed<RecordNames>(() => {
+  // Only a known game: the profile of an unknown one would be TIM.EXE's.
+  const listId = listIdOf(edition.value);
+  const words = listId ? partWordsOf({ listId }) : undefined;
+  return { fields: recordFields.value ?? [], ...(words ? { words } : {}) };
+});
 /** The least time one step of the run takes, from the timer ticks the run loop waits for. */
 const stepMilliseconds = ref<number>();
 watch(
@@ -556,6 +573,7 @@ onBeforeUnmount(() => {
               :type-counts="typeCounts"
               :part-numbers="goalParts"
               :at-start="toonsParts"
+              :record="recordNames"
             />
           </div>
           <div class="relative min-w-0 flex-[2]">
@@ -586,7 +604,7 @@ onBeforeUnmount(() => {
         :list="list"
         :selected="selectedPart"
         :header="loadedHeader"
-        :record="recordFields"
+        :record="recordNames"
         :toons-sort="toonsSort"
         :tim2-start="tim2Start"
         @select="selectedPart = $event"
