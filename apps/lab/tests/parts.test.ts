@@ -89,7 +89,8 @@ describe("partName", () => {
 
   it("names a Toons part from Toons' own names only", () => {
     expect(partName(part("teeter-totter", 3), "toons")).toEqual({ name: "Teeter-Totter", source: "game" });
-    expect(partName(part("pulley", 17), "toons")).toEqual({ name: "Pulley", source: "id" });
+    expect(partName(part("pulley", 17), "toons")).toEqual({ name: "Pulley", source: "game" });
+    expect(partName(part("mallet", 65), "toons")).toEqual({ name: "Mallet", source: "id" });
     expect(partName(part("pulley", 7), "tim1").name).toBe("Pulley");
   });
 });
