@@ -18,6 +18,7 @@ import type { GearConflictValue } from "./behaviour-gear-model.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
 import { behaviourProfile, loadBehaviourImage } from "./behaviour-program.ts";
+import { discoverScalarLoaders } from "./behaviour-scalar-loaders.ts";
 import { findSpeedLimitSetup, type SpeedLimitSetup } from "./behaviour-speed-limits.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
@@ -5716,6 +5717,15 @@ export function readBehaviourInSteps(
         };
     }
   const helpers = discoverEngineSummaries(image, codes, layout, list.table, list.dataSegment, list.records.length);
+  if (profile.scalarLoaders)
+    helpers.push(
+      ...discoverScalarLoaders(
+        codes,
+        new Map(helpers.map((helper) => [helper.address, helper])),
+        new Set(counts.keys()),
+        loaded.entry,
+      ),
+    );
   const lifecycle = discoverBehaviourLifecycle(image, codes, layout);
   for (const field of discoverLifecycleFieldRoles(lifecycle, layout))
     if (!layout.fields.some((known) => known.offset === field.offset)) layout.fields.push(field);

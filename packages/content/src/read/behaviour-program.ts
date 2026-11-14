@@ -38,6 +38,12 @@ export interface BehaviourProfile {
    * instead of leaving the routine unresolved there. Off for TIM.EXE, whose results were checked without it.
    */
   confinedLoops: boolean;
+  /**
+   * Whether a routine that takes one number and only reads files, allocates and fills its own data (an animation
+   * loader in TIM2.EXE) is read as a resource service that keeps the parts as they are. Off for TIM.EXE, whose own
+   * resource service is recognised by its form.
+   */
+  scalarLoaders: boolean;
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -49,6 +55,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   otherRoutines: [],
   stopAtProgramStart: false,
   confinedLoops: false,
+  scalarLoaders: false,
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -62,6 +69,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     otherRoutines: ["draw", "set-up"],
     stopAtProgramStart: true,
     confinedLoops: true,
+    scalarLoaders: true,
   },
   toons: {
     storage: "overlays",
@@ -71,6 +79,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     otherRoutines: [],
     stopAtProgramStart: true,
     confinedLoops: true,
+    scalarLoaders: true,
   },
 };
 
