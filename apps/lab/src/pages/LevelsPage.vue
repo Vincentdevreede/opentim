@@ -37,6 +37,8 @@ import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
   readTim2Types,
+  readTim2StartTables,
+  type Tim2StartTables,
   readToonsDrawing,
   readToonsGoals,
   readToonsBinKinds,
@@ -349,6 +351,20 @@ const tim2Drawing = computed((): Map<number, Tim2Drawing> | undefined => {
     return undefined;
   }
 });
+/**
+ * TIM2.EXE's list and bin tables, which decide the order of a TIM 2 puzzle's bin and what its start does, or why they
+ * can't be read, which the scene notes. A damaged program file shouldn't stop the level from being shown.
+ */
+const tim2StartRead = computed((): { tables?: Tim2StartTables; problem?: string } => {
+  if (!isTim2.value || !program.value) return {};
+  try {
+    const tables = readTim2StartTables(program.value.data);
+    return tables ? { tables } : {};
+  } catch (e) {
+    return { problem: `TIM2.EXE can’t be read: ${e instanceof Error ? e.message : String(e)}` };
+  }
+});
+const tim2Start = computed(() => tim2StartRead.value.tables);
 /** TOONS.EXE's drawing code for the types that have their own, and the font the message machine writes its letter in. */
 const toonsCode = computed((): ToonsCode | undefined => {
   if (!isToons.value || !program.value) return undefined;
@@ -371,6 +387,8 @@ const scene = computed(() =>
         solution: showSolution.value,
         toons: toonsCode.value,
         toonsSort: toonsSort.value,
+        tim2Start: tim2Start.value,
+        tim2StartProblem: tim2StartRead.value.problem,
       })
     : undefined,
 );
@@ -570,6 +588,7 @@ onBeforeUnmount(() => {
         :header="loadedHeader"
         :record="recordFields"
         :toons-sort="toonsSort"
+        :tim2-start="tim2Start"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

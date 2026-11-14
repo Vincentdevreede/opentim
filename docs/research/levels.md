@@ -84,7 +84,12 @@ Some trials can't be compared, because the game itself reads something undefined
 
 Each of these needs a part the shipped level has, so they matter only for levels made without it.
 
-    pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> [--trials 3000]
+    pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder> \
+      --toons <game folder> [--trials n]
+
+The same script checks TIM 2's goals ([below](#tim-2-goals)) and Toons' ([below](#toons-goals)), each folder the
+same way and with the same lines. Each game has its own number of trials unless `--trials` says: 3,000 for TIM 1 and
+Even More, 1,000 for TIM 2 and Toons.
 
 ### Goals in words
 
@@ -134,8 +139,11 @@ Every build has exactly one of each, and `list-goals` calls them "the step count
 The run loops and step counts of the two recorded builds are the ones the level recorder found. Even More puzzle 70's
 goal needs the second step count to be at least 308 (see [what the loader keeps](#what-the-loader-keeps)).
 
-    pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> [--out <folder>]
-      [--conditions]
+    pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder> \
+      --toons <game folder> [--out <folder>] [--conditions]
+
+It lists Toons' goals the same way, by level name, and TIM 2's as the entries each level keeps with their
+conditions; the builds of TIM 2 are compared by level name, since the demo has levels of its own.
 
 ### Goals as conditions
 
@@ -260,6 +268,13 @@ on the other count. Where the game calls `0x0ecc:0x1ee2` isn't read yet.
 
     pnpm --filter @opentim/content check-level-fields --game <game folder> [--by-type] [--puzzles 1-20]
 
+**As the puzzle starts.** `check-puzzle-start` loads every shipped puzzle of the two recorded builds the same way and
+compares it with what the Lab says the puzzle starts with (`puzzleStart`): the bin list holds the file's bin in its
+order, and every placed part that pairs keeps the file's saved state (0x90), plugs (0x62, 0x64) and first rope place
+(0x66, set in the rope and in each part it ties at its first place). All 160 puzzles of Even More (English floppy) and
+all 87 of TIM 1 (French) start as the Lab says; 73 and 49 placed parts don't pair and aren't compared. The other TIM
+builds aren't known to the recorder, so the script says it doesn't check them.
+
 ### In the Lab
 
 The Lab's Structure panel of a level says under each field of a TIM 1 or Even More part where the loader keeps it,
@@ -312,11 +327,86 @@ What the loader does with the fields, from TIM2.EXE:
 - **After the parts**, from version `0x107`: the goal, as a word, eight entries and a word. In TIM 1 the goal is a
   routine per puzzle in TIM.EXE instead; TIM 2 has one routine that tests the entries (see below).
 
+### TIM 2: the loader's records and the puzzle start
+
+`check-level-fields --tim2` and `check-puzzle-start --tim2` run TIM2.EXE's own level loader (file offset `0x68020` in
+the CD build, in an overlay) and its puzzle start (`0x686de`, the routine that calls the loader with the level's name
+and the game's mode) on every level, standing in only for the game's file and memory routines. The game keeps its
+part records in a store of 150 records of 0xba bytes that it makes when it starts (`0x1a539`, called with 150 at
+`0x1985f`), so that runs first. The loader's table of parts has a far pointer per part, in the file's order, so each
+part of the file pairs with its record; all 8,583 parts of the CD's 206 levels do. Where the loader puts the fields:
+
+- the type at 0x08, the flag words at 0x0a, 0x0c and 0x0e (each the type's own bits with the kept bits of the file's,
+  as above), the second also at 0xac;
+- the state at 0xa8 and at 0x10 (in 8,491 of the parts; the others are set by their type), the place at 0x22, 0x24
+  and again at 0xa4, 0xa6;
+- the links as far pointers at 0x5e and 0x62 (again at 0x66 and 0x6a), the plugs as far pointers at 0x6e and 0x72;
+- a belt's record (0x3e bytes from the near `calloc`) at 0x58 in the belt and in both its parts, with the two parts at
+  +6 and +0x0a; a rope's record (0x36 bytes) at 0x76 or 0x78, with the parts at +4 (again at +0x0c) and +8; the rope
+  places' bytes at 0x7a, 0x7b and 0x7c, 0x7d.
+
+The size and the base size aren't in any one word of every record: the type sets them from its pictures, which the
+check doesn't give it.
+
+**The puzzle start.** With the mode of a puzzle (any but 1 and 6, which keep every part where it is, and 9), the start
+routine (`0x68817`) walks the moving list and then the fixed list and puts each part without bit 0x40 of its third
+flag word in the bin. The Lab first put those parts in the bin in the file's order and changed nothing else; in 195 of
+the CD's 206 puzzles the game started otherwise. `puzzleStart` now follows TIM2.EXE (`tim2PuzzleStart` in
+`src/read/tim2-start.ts`), and every puzzle of the three builds starts as the game does: 206 of 206 on the CD and the
+floppy, 8 of 8 in the demo, and the designer's solutions too.
+
+- **The third flag word** the start tests is the loader's: the type's own bits (the word at 0x28 of the type's record,
+  for the types below 0x119) with the file's bits 0x140. So the type decides most of it, not the file.
+- **The order it walks in** is the lists' order, which the insertion routine (`0x221e2`, `0x1a31:0x2a58`) keeps as the
+  loader puts the parts there in the file's order: by the word at 0x38 of the type's record, lowest first; among parts
+  with the same word the rope, the rope end (49) and the steel cable (76) first, then the lowest on the screen first (a
+  larger y at 0xa6), at the same height the one further right; type 11 the other way up. The loader asks for a part
+  with bit 0x1000 of its third flag word to go last; the routine tests the loader's word in the record (0x0e), so a
+  bit 0x1000 only the file has doesn't count. `tim2ListOrder` gives the same lists as the game for every level.
+- **The bin's order** comes from the same routine: for the bin it asks a routine (`0x59ac4`, `0x541d:0x154`) which of
+  two types comes first in a table in the data (`0x422b:0x1f0`, ended by -1), and puts the new part before the first
+  part of its own type or of a later one. A type the table doesn't have goes after the others. So the types come in
+  the table's order, and a type's parts in the reverse of the order the start put them there (`tim2BinInsert`).
+- **What goes with a part.** A part that goes to the bin takes with it the belt round it (a belt part whose two parts
+  name it) and the ropes tied to it (a rope, rope end or steel cable whose record names it), also when those have bit
+  0x40; their other ends on the board are untied. A belt or a rope the start reaches on its own goes too, and is untied
+  from both ends. Before a pulley it takes the rope over it (the pulley's field). A remote control (22) and its
+  explosives (55) name each other in their second link: when either goes, the remote control goes to the bin and the
+  explosives are taken off and freed, as Toons takes off a tunnel's other end. That is why the remote controls ELEV22
+  #10, HLEV6 #3 and MLEV21 #9 go to the bin although they have bit 0x40: their explosives don't.
+- **Plugs and states.** A part plugged into one that goes to the bin is unplugged by the routine that pulls a plug out
+  (`0x21b4f`): it clears both plug words, calls the type routine at 0x08 of each part's type record, and keeps the
+  board part's new state as the one it starts from (0xa8). Read from those routines: the electric switch (21,
+  `2354:0x28b8`) and the electrical outlet (120, `2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the
+  first place and 2 for one in the second; the generator (26, `2354:0x2f6c`) and the solar panel (38, `2354:0x4f9b`)
+  take only those two bits; the laser-activated plug (96, `2354:0x9fcd`) takes the state's remainder by 7, plus 7 for
+  a plug in the first place and 14 for one in the second. These five are the only types the shipped puzzles unplug on
+  the board. A part that names a binned part as its plug while that part doesn't name it back keeps its plug (HLEV1
+  #45, MLEV15 #7).
+- **A pulley before its rope** in the file has no rope over it, as in Toons: the loader takes the rope's record as it
+  reads the pulley.
+
+For the designer's solution (mode 9) the same happens to the parts with bit 0x100; the others stay on the board.
+
 ### TIM 2 goals
 
 The loader keeps the goal in the data segment: the first word, eight entries of 18 bytes (a part pointer and seven
-words) and the last word. One routine of TIM2.EXE tests them for every puzzle (in its first overlay; in the floppy
-build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) says it as conditions. What it does:
+words) and the last word. One routine of TIM2.EXE tests them for every puzzle, in its first overlay, the same in all
+three builds:
+
+| Build        | Goal routine | File offset | Goal words           | Check count |
+| ------------ | ------------ | ----------- | -------------------- | ----------- |
+| TIM 2 floppy | `4e03:2503`  | `0x55743`   | `0x7416` to `0x74a8` | `[0x2c2]`   |
+| TIM 2 CD     | `4ee4:2503`  | `0x56753`   | `0x7896` to `0x7928` | `[0x47a]`   |
+| TIM 2 demo   | `4d86:2503`  | `0x54f73`   | `0x756e` to `0x7600` | `[0x240]`   |
+
+`findTim2GoalRoutine` (`src/read/tim2-goal.ts`) finds it in TIM2.EXE laid out with its overlays (the same Borland
+overlays as TOONS.EXE, so `readToonsMemory` lays it out): the one place that reaches an entry by a part's number
+counted from 1 (`mov ax, entries; add ax, -18`), and from its instructions the first word, the check count, the last
+word and the three lists it walks: the bin at `[0x64af]`, the moving list at `[0x64a7]` and the static list at
+`[0x649f]` in the floppy build (the level loader puts a level's static parts on the list at `[0x649f]` and its moving
+parts on the one at `[0x64a7]`).
+`summariseTim2Goal` says the goal as conditions, and `runTim2Goal` tests it as the routine does. What it does:
 
 - When the first word is 0 the goal is never met. It is 1 in every shipped level.
 - The goal isn't met while one of its parts is in the parts bin.
@@ -327,7 +417,16 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
   size: strictly inside the area, or, when the width is -1, off the screen, outside 0 to 640 across or 0 to 400 down.
   For a static part, or a width of 0, it tests the part's state, from the low to the high one.
 - With a count of 0 the entry is about its own part. With a count of N, the routine walks the list its part is on
-  again and needs N parts of the part's type that pass.
+  again from its first part and needs N parts of the part's type that pass; then it goes on after the entry's own
+  part. When the list ends first the goal isn't met, except when the entry's own part is the last on its list: then
+  nothing marks the count as running, and the routine just forgets the entry (see below). The routine keeps the
+  counted type in a word that holds -1 while no entry counts, so a counted part of type 0xffff never starts its count:
+  each visit to it walks the list again from the start, and the routine runs on forever unless an entry before it
+  fails. No shipped level has a part of that type (the highest is 280); `runTim2Goal` throws `Tim2GoalRunsOn` there.
+- The routine looks a part's entry up from the first entry to the first one without a part, so an entry after a gap
+  is never tested. No shipped level has a gap.
+- The routine answers 0 when the first word is 0, 1 when the goal isn't met and 2 when it is. A part in the bin
+  answers 1 before anything else, and that check isn't counted.
 - The last word holds the goal back: the routine counts its own checks and says the goal isn't met before that many.
   The run loop (the routine at file offset `0x53240` in the floppy build) sets that count back to 0 when the machine
   starts and runs the goal routine once a step, right after the step, so the last word is a number of steps. Four
@@ -344,6 +443,37 @@ build at file offset `0x55743`); `summariseTim2Goal` (`src/read/tim2-goal.ts`) s
   [the animation speed](file-formats.md#animations-anm)), so a step takes at least 33.8 ms.
 
 The Levels page shows these conditions, with the area of an inside test drawn on the level.
+
+**Checked in the game.** `check-goals --tim2` runs the goal routine in the emulator next to `runTim2Goal`, as
+`check-goals` does for TIM 1's routines: TIM2.EXE laid out with its overlays at segment 0, each level's goal entries
+in the data segment, and made-up parts lists. The parts are the level's goal parts, a few of its other parts and up
+to three more of the goal's types, each on its own list, in the bin or on no list, in the level's order or shuffled,
+with states, places and base sizes drawn around the goal's numbers (the state limits, the area's edges and the
+screen's, one more and one less) and other numbers. It compares the answer and every word of the data segment and the
+parts. Besides the shipped levels it checks 200 made-up goals, with gaps, counts, a first word of 0 and areas off the
+screen, which reach the parts of the routine no shipped level does. A world that takes a test a way no world took
+before counts, and a goal stops when every test went both ways or after 1,000 trials.
+
+On 2026-11-13 no goal differs from the game, in all three builds:
+
+| Build                | Goals |  Trials | Differ | Every test both ways | Tests both ways |
+| -------------------- | ----: | ------: | -----: | -------------------: | --------------: |
+| TIM 2 floppy and CD  |   206 |  68,166 |      0 |                  156 |    963 of 1,032 |
+| TIM 2 demo           |     8 |   4,311 |      0 |                    5 |        37 of 41 |
+| Made-up (each build) |   200 | 176,370 |      0 |                   28 |    797 of 1,310 |
+
+A made-up goal with a first word of 0 has only that test, which goes one way, so few made-up goals take every test
+both ways. The check finds a change to `runTim2Goal`: counting a middle at x 640 as off the screen, failing a count
+that runs out after the last part, or looking past a gap in the entries each makes goals differ.
+
+**A count whose part is last on its list.** The routine starts a count by keeping the part after the entry's part,
+to go on from there when the count is reached, and it fails the goal when the list ends while it keeps one. When the
+entry's part is the last on its list there is no part after it, so running out of parts doesn't fail the goal: the
+entry is skipped, and the goal can be met with too few parts. Ten levels of the floppy and CD count parts (ELEV8,
+HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2. In the files'
+order none of the counted parts is the last of its group; whether one can end last on its list in a game depends on
+how the game orders the lists, which isn't read yet. Until then the Lab marks every TIM 2 count with "can pass with
+fewer".
 
 **The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
 (the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving
@@ -430,6 +560,9 @@ What isn't worked out yet, and what the Lab does meanwhile:
   the play area is taken as 640 by 400 from the goal check and the panel animations. How the two fit (a doubled pixel,
   or another mode for the play area) isn't settled. The line rule is the same at any width, so drawing lines doesn't
   depend on it.
+- **Unplugging other types.** Only the routines of the five types the shipped puzzles unplug are read
+  ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); for another type the Lab leaves the state as the file has
+  it.
 
 ## Toons levels
 
@@ -506,10 +639,21 @@ writes is read. So in the bin the types come in the table's order, and a type's 
 there: the moving list's before the fixed list's, each list in its order, and a rope or a belt when the part it holds
 goes. `readToonsBinKinds` reads the table, and `toonsPuzzleStart` gives the bin in this order (`binOrder`).
 
-**Checked on the CPU.** The puzzle setup itself, run on the CPU over part records built from each of the 100 level
-files as the level reader builds them (each list put together with the game's insertion routine in file order), gives
-the same bin in the same order, the same tunnels taken off, the same plugs and the same states on the board as
-`toonsPuzzleStart`, in all 100 puzzles. The second flag word of a part on the board changes only by the belt bit, on
+**Checked on the CPU.** `check-puzzle-start --toons` runs TOONS.EXE's own level loader on each of the 100 level files
+and then its puzzle start as the game runs it: the routine that loads the level and runs the setup (`0x2573f`), the
+routine after it and the level reset (`0x228bc`, `0xec1e`, called one after the other at `0x2290a`), after the
+start-up routine that writes the bin's sort words. Only the game's file and memory routines are stood in for
+([the code map](../code/descriptions-and-goals.md#the-emulator-srcrun)). It gives the same bin in the same order, the
+same tunnels taken off, and on the board the same plugs, the same states, the same rope places untied and the same
+belts taken off as `toonsPuzzleStart`, in all 100 puzzles.
+
+That needed one fix the earlier check, over records built by hand, couldn't show: **a pulley before its rope in the
+file has no rope over it.** The level reader keeps the rope over a pulley at the pulley's second rope place (0x71),
+taking the record at the first rope place of the part the pulley's field names (`0x24f3c`), and it does that as it
+reads the pulley. It reads the parts in the file's order and makes a rope's record as it reads the rope, so a pulley
+that comes first gets 0 there. In HARD6 pulleys #4 and #15 come before their rope #21, and in HARD25 pulley #32 before
+its rope; when the rope goes to the bin, there is nothing at their second place to untie. `toonsPuzzleStart` follows
+the reader in this now. The second flag word of a part on the board changes only by the belt bit, on
 the same 22 parts. Run between the two resets of a puzzle start ([Toons: assumptions](#toons-assumptions)), it gives
 the same again. LOON7's bin, for example, is fish #43, peanut #42, rope #1, teeter-totter #0,
 trans-roto-matic #18, skeleto-bobbin #19, bomb #46, baseball #45 and tunnel #20; the file has them in the order 0, 1,
@@ -625,7 +769,7 @@ write of the countdown as "the goal is met, and the run ends 10 steps later". Th
 offsets TOONS.EXE's loader and drawing code use (`state` at `0x0e`, Al's and Sid's `action` at `0x0c`, `positionX` at
 `0x1f`, and so on). All 100 goals read; the Levels page shows the routine next to the goal text.
 
-`check-toons-goals` checks the reading in the emulator as `check-goals` does TIM's: TOONS.EXE laid out with its
+`check-goals --toons` checks the reading in the emulator as it does TIM's: TOONS.EXE laid out with its
 overlays at segment 0 runs each goal routine on the CPU, and the read program runs over the same made-up parts lists
 and words, the step count 0 in half the trials. All 100 goals leave the same words in the data segment and in the far
 segment `0x340f` in 1,000 trials each. The parts lists come from the list head routine the finder calls (`0xc36a`):

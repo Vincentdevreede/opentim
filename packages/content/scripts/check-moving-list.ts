@@ -5,15 +5,36 @@
  * for it have 0x4000, as the analysis reads them. It also reports the types that join a list during a run, and parts
  * whose own list flags disagree with the list they are on. Fails when a fixed type is found on the moving list.
  *
- *   pnpm --filter @opentim/content check-moving-list --game <game folder> [--steps 500] [--jobs 1] [--puzzles 1-20]
+ * TIM 2 and Toons: their run loop doesn't run in the emulator (TIM2.EXE and TOONS.EXE don't start under it), so
+ * only the puzzle start is looked at, with the game's own loader and start (`src/run/level-start.ts`): a part with
+ * the fixed bit (0x4000 of its list flags, at 0x0a in TIM 2 and 0x06 in Toons) on the moving list fails the check as
+ * in TIM, and parts whose flag disagrees with their list are listed. A TIM 1 or Even More build the level recorder
+ * doesn't know isn't run, and the output says so.
+ *
+ *   pnpm --filter @opentim/content check-moving-list --tim1 <game folder> --evenmore <game folder>
+ *     --tim2 <game folder> --toons <game folder> [--steps 500] [--jobs 1] [--puzzles 1-20]
+ *
+ * `--game <game folder>` still names a TIM 1 or Even More folder. `--puzzles` counts the levels of TIM 2 and Toons
+ * from 1 in the order of their names.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { readBehaviour } from "../src/read/behaviour.ts";
+import { readLevel } from "../src/read/level.ts";
 import { exeHash, GAME_BUILDS, runPuzzle } from "../src/run/game.ts";
-import { readBuild, type Game } from "./builds.ts";
+import {
+  buildFolders,
+  folderOptions,
+  GAMES,
+  readBuild,
+  readResources,
+  type BuildFolder,
+  type Game,
+  type TimGame,
+} from "./builds.ts";
+import { gameMachine } from "./game-machine.ts";
 
 const FIXED = 0x4000;
 const LIST_FLAGS = 0x06;
@@ -94,41 +115,17 @@ function runOne(folder: string, puzzle: number, steps: number, fixedTypes: Set<n
   return result;
 }
 
-if (!isMainThread) {
-  const { folder, puzzles, steps, fixedTypes } = workerData as {
-    folder: string;
-    puzzles: number[];
-    steps: number;
-    fixedTypes: number[];
-  };
-  const fixed = new Set(fixedTypes);
-  for (const puzzle of puzzles) parentPort!.postMessage(runOne(folder, puzzle, steps, fixed));
-} else {
-  const { values } = parseArgs({
-    options: {
-      game: { type: "string" },
-      steps: { type: "string", default: "500" },
-      jobs: { type: "string" },
-      puzzles: { type: "string" },
-    },
-  });
-  if (!values.game) throw new Error("--game <game folder> is needed");
-  const folder = resolve(values.game);
+/** TIM 1 and Even More: every shipped puzzle run in the game for `steps` steps. Gives the problems. */
+async function runTim(folder: string, steps: number, jobs: number, range: [number, number] | undefined) {
   const program = readFileSync(join(folder, "TIM.EXE"));
   const build = GAME_BUILDS.get(exeHash(program));
-  if (!build) throw new Error(`${folder}: the level recorder doesn't know this TIM.EXE (${exeHash(program)})`);
-  // A count that isn't a whole number above 0 would check nothing and still pass.
-  const count = (option: string, text: string) => {
-    const n = Number(text);
-    if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
-    return n;
-  };
-  const steps = count("steps", values.steps!);
-  // One emulator at a time unless told: a run with four at once took a machine down.
-  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
+  if (!build) {
+    console.log(`${folder}: the level recorder doesn't know this TIM.EXE (${exeHash(program)}), so it isn't run.`);
+    return 0;
+  }
 
   // The fixed types, from the part factory's starting flags as the analysis reads them.
-  const game: Game = build.name.startsWith("Even More") ? "evenmore" : "tim1";
+  const game: TimGame = build.name.startsWith("Even More") ? "evenmore" : "tim1";
   const { files, parts } = readBuild({ game, folder, index: 0 });
   const report = readBehaviour(program, parts);
   const starting = report.helpers
@@ -144,11 +141,8 @@ if (!isMainThread) {
     .filter((n): n is string => n !== undefined)
     .map(Number)
     .sort((a, b) => a - b);
-  if (values.puzzles) {
-    const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
-    puzzles = puzzles.filter((p) => p >= from! && p <= to!);
-  }
-  if (!puzzles.length) throw new Error(`no puzzles to run${values.puzzles ? ` in ${values.puzzles}` : ""}`);
+  if (range) puzzles = puzzles.filter((p) => p >= range[0] && p <= range[1]);
+  if (!puzzles.length) throw new Error(`no puzzles to run${range ? ` in ${range.join("-")}` : ""}`);
   console.log(`${build.name}: ${puzzles.length} puzzles, ${steps} steps each, ${jobs} at a time`);
   console.log(`Fixed types: ${fixedTypes.map(name).join(", ")}`);
 
@@ -204,5 +198,112 @@ if (!isMainThread) {
   for (const f of fixedOnMoving.slice(0, 20)) console.log(`  puzzle ${f.puzzle} step ${f.step}: ${name(f.type)}`);
   const missing = puzzles.filter((p) => !results.some((r) => r.puzzle === p));
   if (missing.length) console.error(`Puzzles that gave no result: ${missing.join(", ")}`);
-  if (fixedOnMoving.length || failed.length || missing.length) process.exitCode = 1;
+  return fixedOnMoving.length + failed.length + missing.length;
+}
+
+/** TIM 2 and Toons: every level as the game's own puzzle start leaves it. Gives the problems. */
+function atStart(build: BuildFolder<"tim2" | "toons">, range: [number, number] | undefined): number {
+  const found = gameMachine(build);
+  if ("problem" in found) {
+    console.error(`${build.folder}: ${found.problem}, so no puzzle is started.`);
+    return 1;
+  }
+  const { machine } = found;
+  const flagsAt = build.game === "tim2" ? 0x0a : LIST_FLAGS;
+  const files = readResources(build.folder);
+  const names = [...files.keys()].filter((name) => /\.LEV$/i.test(name)).sort();
+  // An empty choice would check nothing and still pass.
+  if (!names.some((_, k) => !range || (k + 1 >= range[0] && k + 1 <= range[1]))) {
+    console.error(
+      `${build.folder}: no levels${range ? ` in ${range.join("-")} of the ${names.length} it has` : ""}, so no puzzle is started.`,
+    );
+    return 1;
+  }
+  console.log(
+    `${build.folder}: ${names.length} levels, looked at as the puzzle starts: the game's run loop doesn't run in the emulator`,
+  );
+  let starts = 0;
+  let moving = 0;
+  let fixed = 0;
+  const failed: string[] = [];
+  const fixedOnMoving: string[] = [];
+  const disagree: string[] = [];
+  names.forEach((file, k) => {
+    if (range && (k + 1 < range[0] || k + 1 > range[1])) return;
+    const name = file.replace(/\.LEV$/i, "");
+    try {
+      const level = readLevel(files.get(file)!, { layout: build.game, name: file });
+      const { started } = machine.run(files.get(file)!, file, level.parts.length);
+      starts++;
+      moving += started.lists.moving.length;
+      fixed += started.lists.fixed.length;
+      for (const list of ["moving", "fixed"] as const)
+        for (const at of started.lists[list]) {
+          const record = started.records.get(at)!;
+          const flags = record[flagsAt]! | (record[flagsAt + 1]! << 8);
+          const index = started.pool.indexOf(at);
+          const what = `${name} #${index} (type ${level.parts[index]?.type ?? "?"}) on the ${list} list, flags 0x${flags.toString(16)}`;
+          if (list === "moving" && flags & FIXED) fixedOnMoving.push(what);
+          else if (((flags & FIXED) !== 0) !== (list === "fixed")) disagree.push(what);
+        }
+    } catch (problem) {
+      failed.push(`${name}: ${problem instanceof Error ? problem.message : String(problem)}`);
+    }
+  });
+  console.log(`Started ${starts} puzzles: ${moving} moving and ${fixed} fixed parts on the lists.`);
+  for (const f of failed) console.error(`  ${f}`);
+  console.log(`Parts whose flags at 0x${flagsAt.toString(16)} disagree with their list: ${disagree.length}`);
+  for (const d of disagree.slice(0, 20)) console.log(`  ${d}`);
+  console.log(`Parts with the fixed bit on the moving list: ${fixedOnMoving.length}`);
+  for (const f of fixedOnMoving.slice(0, 20)) console.log(`  ${f}`);
+  return fixedOnMoving.length + failed.length;
+}
+
+if (!isMainThread) {
+  const { folder, puzzles, steps, fixedTypes } = workerData as {
+    folder: string;
+    puzzles: number[];
+    steps: number;
+    fixedTypes: number[];
+  };
+  const fixed = new Set(fixedTypes);
+  for (const puzzle of puzzles) parentPort!.postMessage(runOne(folder, puzzle, steps, fixed));
+} else {
+  const { values } = parseArgs({
+    args: process.argv.slice(2).filter((arg, i) => i > 0 || arg !== "--"),
+    options: {
+      game: { type: "string", multiple: true },
+      steps: { type: "string", default: "500" },
+      jobs: { type: "string" },
+      puzzles: { type: "string" },
+      ...folderOptions(GAMES),
+    },
+  });
+  // A count that isn't a whole number above 0 would check nothing and still pass.
+  const count = (option: string, text: string) => {
+    const n = Number(text);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`--${option} must be a whole number above 0, not ${text}`);
+    return n;
+  };
+  const steps = count("steps", values.steps!);
+  // One emulator at a time unless told: a run with four at once took a machine down.
+  const jobs = values.jobs ? count("jobs", values.jobs) : 1;
+  let range: [number, number] | undefined;
+  if (values.puzzles) {
+    const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
+    if (to! < from!) throw new Error(`--puzzles must run from the lower number to the higher, not ${values.puzzles}`);
+    range = [from!, to!];
+  }
+  const builds: BuildFolder<Game>[] = [
+    ...buildFolders(values, GAMES),
+    ...(values.game ?? []).map((folder) => ({ game: "tim1" as const, folder: resolve(folder), index: 0 })),
+  ];
+  if (!builds.length) throw new Error("Give at least one --tim1, --evenmore, --tim2 or --toons folder");
+  let problems = 0;
+  for (const build of builds)
+    problems +=
+      build.game === "tim2" || build.game === "toons"
+        ? atStart(build as BuildFolder<"tim2" | "toons">, range)
+        : await runTim(build.folder, steps, jobs, range);
+  if (problems) process.exitCode = 1;
 }

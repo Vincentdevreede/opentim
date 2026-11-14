@@ -99,7 +99,9 @@ Goals aren't in the level files: each puzzle has a routine in TIM.EXE.
    goal, and `remembered`, the words the goal keeps between steps. When a goal doesn't fit, `problem` says why in
    plain words. `conditionText` says one condition in a line.
 
-`check-goals` compares `runGoal` with the game's own routine in the emulator on random worlds (`goal-check.ts`).
+`check-goals` compares `runGoal` with the game's own routine in the emulator on random worlds (`goal-check.ts`). It
+checks every game it is given the same way and prints the same lines for each: TIM 1 and Even More by `checkGoals`,
+Toons by `checkToonsGoals` and TIM 2 by `checkTim2Goals` (below).
 `runGoal` gives a far word (`FAR_WORDS` and up) to its memory as it is, and a break in a loop's test part leaves the
 loop.
 
@@ -159,13 +161,14 @@ condition is about the part a field of the n-th part holds.
 `toonsListOrder` (`toons-goals.ts`) puts a Toons level's list in TOONS.EXE's order, so the Lab can say which level part
 "the 1st al-e-cat on the moving list" is; `readToonsListKinds` reads the type table's word it sorts by.
 `toonsPuzzleStart` follows TOONS.EXE's puzzle setup (`0x25829`) call by call, with both sort words of TOONS.EXE's type
-table, and says where it leaves each part: in
+table, and says where it leaves each part (a pulley read before its rope in the file has no rope over it, as the
+level loader leaves it): in
 the bin every part without the fixed bit with the ropes and belts tied to it, taken off (`gone`) the other end of a
 tunnel it puts in the bin, and on the board the rest, ropes and belts between two parts that stay included. It also
 gives the bin in TOONS.EXE's order (`binOrder`: sorted by the word `readToonsBinKinds` reads, a type's parts in the
 order the setup puts them there), the plugs it pulls out (`unplugged`, `plugs`) and the states it leaves on the board
-(`states`, for the electric switch and the anvil, whose routines are read). The setup run on the CPU agrees in all 100
-puzzles (a scratch check, not a script in the repo). `toonsRopePlaces` says which rope places of
+(`states`, for the electric switch and the anvil, whose routines are read) and the rope places it unties on the board
+(`untied`). TOONS.EXE's own loader and puzzle start agree in all 100 puzzles (`check-puzzle-start --toons`). `toonsRopePlaces` says which rope places of
 each part hold a rope, as the level reader puts each rope's record in both parts it ties, and with a `start` leaves out
 the ropes the setup puts in the bin. `toonsGoalParts` places a condition on the level as the puzzle starts, on the
 lists less the parts in the bin: the n-th part, the first part whose rope places and type pass `where` (LOON7's
@@ -182,11 +185,25 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
   (`readTim2`) whatever the layout says, with its notes and goal entries in `level.tim2`.
 - `level-loader.ts`: where the game's loader puts each field of a placed part in its record (`LOADED_FIELDS`) and
   each header value in the data segment (`LOADED_HEADERS`, by program hash). Found with the emulator by
-  `check-level-fields`; TIM 1 and Even More only.
+  `check-level-fields`; TIM 1 and Even More only (what the script finds for TIM 2 and Toons is in
+  [the levels research](../research/levels.md)).
+- `puzzle-start.ts`: `puzzleStart(level, { solution, sort })` says what a puzzle starts with in every game: the bin in
+  the game's order, the parts taken off, and the states, plugs, rope places and belts the start changes on the board.
+  TIM 1 keeps the file's bin; TIM 2 follows `tim2PuzzleStart` with TIM2.EXE's tables (`tim2-start.ts`, below), or
+  without them puts the parts without bit 0x40 in the bin in the file's order; Toons follows `toonsPuzzleStart`,
+  filtered to the board.
+- `tim2-start.ts`: `readTim2StartTables` reads from TIM2.EXE the lists' sort word and the third flag bits of each type
+  and the bin's table of types; `tim2ListOrder` and `tim2BinInsert` keep a list and the bin as TIM2.EXE's insertion
+  routine does, and `tim2PuzzleStart` follows its puzzle start: the bin, the belts, ropes and remote controls that go
+  with a part, the explosives taken off, the plugs pulled out and the states the type routines of the unplugged parts
+  set (`unpluggedState`, read for the five types the shipped puzzles unplug). The Lab lays its puzzles out with it
+  (`levelStart` in `apps/lab/src/levels.ts`), and `check-puzzle-start` compares it with the games.
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).
 - `tim2-goal.ts`: `summariseTim2Goal` says a TIM 2 level's goal entries as `GoalCondition`s, with the new kind
-  `part` for an entry about one part.
+  `part` for an entry about one part. `runTim2Goal` tests the entries on given parts lists as TIM2.EXE's one goal
+  routine does, quirks and all, and `findTim2GoalRoutine` finds that routine and the words it reads in TIM2.EXE laid
+  out with its overlays (`readToonsMemory`).
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
   draws as walls, tile patterns or colour blocks. Nothing stands in for it: the Lab needs TIM2.EXE.
   `readPar` reads a part's `.PAR` file; `tim2MirrorSide` says where TIM2.EXE measures a mirrored part from.
@@ -214,7 +231,26 @@ Node only and not exported from the package; the scripts import it by path. See
 - `goal-check.ts`: `checkGoals`, the random-world comparison of the goal reader with the game.
 - `toons-goal-check.ts`: `checkToonsGoals`, the same for Toons, with TOONS.EXE's memory loaded straight into a `Cpu`
   (no DOS), parts of 0xb3 bytes, and the far segment compared too; `toonsLists` reads the parts lists from the list
-  head routine. Run by `check-toons-goals`.
+  head routine. Run by `check-goals --toons`.
+- `tim2-goal-check.ts`: `checkTim2Goals`, the same for TIM 2: each level's goal entries and made-up parts lists laid
+  into TIM2.EXE's memory, the goal routine run on a `Cpu` (no DOS) next to `runTim2Goal`, and the answer and every
+  word compared. `madeUpTim2Goals` gives goals with what no shipped level has. Run by `check-goals --tim2`.
+- `level-start.ts`: `GameMachine`, TOONS.EXE or TIM2.EXE laid out with its overlays on a `Cpu` (no DOS: they ask for
+  EMS memory, so they don't start under `Dos`), the overlays 64 KB above the data segment so its heap stays free. It
+  runs the game's own level loader on a level and then the routines of its puzzle start (`run`), and gives the lists,
+  the loader's table of parts (in the file's order) and every record after each (`GameParts`). It stands in for the
+  game's `fopen` (a C library file with an empty buffer, so the library's own `fread` and `getc` read the level
+  through int 21h), the near `calloc`, the far allocation and their `free`, DOS's memory blocks and the overlay
+  manager's int 3Fh; any other request is noted in `unknown`. `heapStart` finds the heap past the start-up stack.
+- `level-start-find.ts`: `findGameStart` finds all that in the program, from the level loader (the one routine that
+  compares the first word with the magic): the library routines from the loader's calls, the table of parts, the
+  puzzle start (the routine that calls the loader; for Toons also the routine and the level reset its caller runs
+  after it, and the start-up routine that writes the bin's sort words), and TIM 2's store of part records. The lists
+  come from the goal readers (`scripts/game-machine.ts`). `tim2Solution` starts a TIM 2 puzzle for the solution.
+- `start-check.ts`: `gameStartResult` reads what a start did from the records before and after it (`StartFields`:
+  the state, plugs, rope records and belt record of `TOONS_START_FIELDS` and `TIM2_START_FIELDS`), and
+  `startDifferences` says each way it differs from `puzzleStart`. Run by `check-puzzle-start`, which for TIM 1 and Even
+  More compares with `loadPuzzle` instead.
 
 ## The package's exports
 

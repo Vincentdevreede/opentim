@@ -1,4 +1,4 @@
-import type { Level, LevelPart, PartList } from "@opentim/content";
+import type { Level, LevelPart, PartList, Tim2StartTables } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
@@ -279,6 +279,22 @@ describe("layoutScene", () => {
     expect(board(true)).toEqual([0, 2]);
   });
 
+  it("says when TIM2.EXE's start tables can't be read, and why", () => {
+    const data = bytes(...[0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, 1, 0, 0], ...part({ type: 0 }));
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const note = (options: Parameters<typeof layoutScene>[4]) =>
+      layoutScene(level, LIST, spriteOf, undefined, options).notes.find(
+        (n) => n.title === "Puzzle start not read from TIM2.EXE.",
+      );
+    expect(note({})?.status).toBe("error");
+    expect(note({})?.detail).toMatch(/^TIM2.EXE’s list and bin tables weren’t found\. /);
+    expect(note({ tim2StartProblem: "TIM2.EXE can’t be read: cut short" })?.detail).toMatch(
+      /^TIM2.EXE can’t be read: cut short\. /,
+    );
+    const tables: Tim2StartTables = { listKeys: new Map(), binRank: new Map(), third: new Map() };
+    expect(note({ tim2Start: tables })).toBeUndefined();
+  });
+
   it("turns a mirrored TIM 2 wall over its long side, as TIM2.EXE's wall routine does", () => {
     const data = bytes(
       0xacef,
@@ -533,7 +549,8 @@ describe("groupOf", () => {
   });
 
   it("keeps TIM 1's groups as the file has them", () => {
-    expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
+    const part = toonsPart(16, 16, 0, 0);
+    expect(groupOf({ layout: "tim", parts: [part] } as unknown as Level, part)).toBe("static");
   });
 
   it("draws a rope between two parts on the board, and says which tunnel the puzzle start takes off", () => {
