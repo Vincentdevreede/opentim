@@ -164,22 +164,25 @@ set-up routines (see below).
 | Build                      | Parts | Parts read fully | Routines | Read fully | Read in part | Helpers recognised |  Time |
 | -------------------------- | ----: | ---------------: | -------: | ---------: | -----------: | -----------------: | ----: |
 | Even More, English CD      |    63 |               63 |      940 |        210 |          730 |                159 |  12 s |
-| Toons, English             |    75 |                6 |      454 |        118 |          336 |                 67 | 130 s |
-| TIM 2, multilingual CD     |   149 |                0 |      667 |        137 |          530 |                 63 |   8 s |
-| TIM 2, multilingual floppy |   149 |                0 |      654 |        137 |          517 |                 63 |   8 s |
-| TIM 2, English demo        |   149 |                0 |      654 |        136 |          518 |                 63 |   8 s |
+| Toons, English             |    75 |                6 |      454 |        120 |          334 |                 69 | 110 s |
+| TIM 2, multilingual CD     |   149 |                0 |      667 |        169 |          498 |                 80 |  23 s |
+| TIM 2, multilingual floppy |   149 |                0 |      654 |        169 |          485 |                 80 |  23 s |
+| TIM 2, English demo        |   149 |                0 |      654 |        168 |          486 |                 80 |  22 s |
 
 In Even More most routines read in part are bounded by a helper's summary (700 of the 730), which is why all its parts
 read fully. In Toons and TIM 2 the reasons are different:
 
 | Reason the reader gives (times, over all routines)                           | Even More CD | Toons | TIM 2 CD |
 | ---------------------------------------------------------------------------- | -----------: | ----: | -------: |
-| A call's effects are not fully resolved (the callee is read in part)         |           20 |   593 |     1058 |
-| A loop (back edge) without a proved invariant                                |            5 |    82 |      135 |
-| The path budget runs out                                                     |            1 |    31 |       49 |
+| A call's effects are not fully resolved (the callee is read in part)         |           20 |   643 |      823 |
+| A loop (back edge) without a proved invariant                                |            5 |   102 |      162 |
+| The path budget runs out                                                     |            1 |    18 |       30 |
 | The part pointer is lost at a write through an address it can't place        |            0 |    31 |       31 |
 | An instruction with no rule (`int`, `rcl`, `rcr`, `in`, `out`, string moves) |            3 |    63 |       72 |
-| An indirect call or jump without a proved target or table bound              |           17 |    15 |       14 |
+| An indirect call or jump without a proved target or table bound              |           17 |    15 |       15 |
+
+With the larger path budget for helpers (below), the reader gets further into more routines, so it meets more calls and
+loops it can't settle; the counts above are of those notes, not of routines.
 
 ### What changed the counts
 
@@ -219,9 +222,7 @@ TIM.EXE's resource service assumption (`SCALAR_SERVICE_ASSUMPTION`), and the han
 `HANDLER_TABLE_ASSUMPTION` (`behaviour-scalar-loaders.ts`, the profile's `scalarLoaders`, on for TIM 2 and Toons). TIM 2
 has eight such loaders. The routines they call now count as bounded by the loader, as in Even More, so fewer routines
 count as read fully, while unresolved calls went from 1134 to 1058 and loops from 164 to 135. The frame chain behind the
-loader is still blocked one step up: the routine that copies an animation frame's box (`0x3621c`) gets the animation
-number as its first argument, and the reader takes the first argument of any far routine that isn't a callback for a
-part, so it doesn't let the number through to the loader.
+loader was then still blocked one step up; see the next item.
 
 **The bounce calls by the passed part's own type.** TIM2.EXE's dispatcher (`0x511f5`) first calls the bounce code of the
 part's own type, when bits 0x06 of its flag byte at `+0x0a` are set and it is a cupid, Mel Schlemming, super ball or
@@ -257,6 +258,17 @@ confined loops), not committed:
 
 So the rules don't make TIM.EXE read better as a whole; they stay off for it.
 
+**A helper whose first argument is a number.** The reader takes the first argument of every far routine that isn't a
+part's callback for a part. TIM2.EXE's frame box routine (`0x3621c`) gets the animation number there, and passes it on
+to the animation loader. For TIM 2 and Toons (`numberArguments` in the profile) a routine whose code only compares that
+argument with a number or passes it on as the first argument of a resource service, and never loads it as a pointer, is
+read as taking no part (`numberFirstArgument` in `behaviour-scalar-loaders.ts`). The far buffer such a routine fills
+(`les bx, [bp+n]`) is now mapped to what the caller passed there, and helpers in TIM 2 and Toons may take 4,000 steps
+instead of 800 (`helperPaths`), since TIM2.EXE's frame size helper switches over many types in one routine. With that,
+TIM 2's frame chain opens: the frame box routine, the frame size helper (`0x1d6d6`) and the frame position helper
+(`0x1d637`, about 90 callers) are read in full, and TIM 2's routines read fully go from 137 to 169 (CD). Toons moves
+from 118 to 120.
+
 ## What is left
 
 - **The helpers.** TIM.EXE's shared helpers are recognised by the shape of their code, written for its 58-byte records,
@@ -276,8 +288,6 @@ So the rules don't make TIM.EXE read better as a whole; they stay off for it.
   pointers, so the list machinery (list head and next helpers, the members a loop finds) needs a far form first.
 - **The part fields.** The layout names only the type and state in TIM 2, and the type, state, flags and a few more in
   Toons; TIM.EXE's other field names (position, speed, size, contact, outline) come from its helpers.
-- **Open:** the frame chain in TIM 2 (the first argument of a helper that isn't a part's callback is taken for a part,
-  see above), and whether the bounce findings should also be shown under the touching part's own type in the
-  descriptions.
+- **Open:** whether the bounce findings should also be shown under the touching part's own type in the descriptions.
 - **Goals and frames.** The goals of TIM 2 and Toons are checked by their own readers; the reader's frame drawing,
   outline tables, collision dispatch and gear scheduling still only know TIM.EXE's forms.
