@@ -1572,12 +1572,44 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       return { object: "data", offset: operand.displacement, width: operand.width, uncertain: false, evidence: [] };
     return undefined;
   };
+  /** A variable the program keeps at a fixed place in its code segment, apart from the parts and the data segment. */
+  const codeVariable = (operand: Extract<Operand, { kind: "memory" }>, s: AbstractState): Location | undefined => {
+    if (operand.segment !== "cs" || !operand.direct || operand.base.length) return undefined;
+    const segment = registerRead("cs", s).value;
+    if (segment.kind !== "constant") return undefined;
+    return {
+      object: `code segment ${hex(segment.value)}`,
+      offset: operand.displacement,
+      width: operand.width,
+      uncertain: false,
+      evidence: [],
+    };
+  };
   const readUnrefined = (operand: Operand | undefined, s: AbstractState): Tracked => {
     if (!operand) return tracked(unknown("Missing operand"));
     if (operand.kind === "register") return registerRead(operand.name, s);
     if (operand.kind === "immediate") return tracked(constant(unsigned(operand.value, operand.width), operand.width));
     if (operand.kind === "address") return tracked(constant(operand.address));
-    const l = location(operand, s);
+    let l = location(operand, s);
+    if (!l) {
+      // A code segment variable this path stored into reads what was stored; one it didn't reads as the program holds
+      // it (below).
+      const variable = codeVariable(operand, s);
+      if (
+        variable &&
+        [...s.memory.keys()].some((key) => {
+          const parts = key.split(":"),
+            width = Number(parts.pop()),
+            offset = Number(parts.pop());
+          return (
+            parts.join(":") === variable.object &&
+            offset < variable.offset + variable.width / 8 &&
+            variable.offset < offset + width / 8
+          );
+        })
+      )
+        l = variable;
+    }
     const cached = l && s.memory.get(memoryKey(l));
     if (cached) {
       if (cached.value.kind === "unknown" && l && l.object !== "stack") {
@@ -1825,15 +1857,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     if (operand.kind !== "memory") return;
     let l = location(operand, s);
-    if (!l && operand.segment === "cs" && operand.direct && !operand.base.length) {
-      // A variable the program keeps in its code segment: a fixed place, apart from the parts and the data segment.
-      l = {
-        object: `code segment ${hex(i.segment)}`,
-        offset: operand.displacement,
-        width: operand.width,
-        uncertain: false,
-        evidence: [],
-      };
+    if (!l) l = codeVariable(operand, s);
+    if (l?.object.startsWith("code segment ")) {
       if (!s.assumptions.includes(CODE_VARIABLE_ASSUMPTION))
         s.assumptions = [...s.assumptions, CODE_VARIABLE_ASSUMPTION];
     }
@@ -3452,7 +3477,17 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         for (const register of confined.registers) registerWrite(register, tracked(forgotten(register)), after);
         for (const operand of confined.locals) {
           const l = location(operand, after);
-          if (l) after.memory.set(memoryKey(l), tracked(forgotten(`the local at ${hex(l.offset & 0xffff)}`)));
+          if (!l) continue;
+          // A local the loop stored at one width may be read at another: what overlaps it is forgotten too.
+          for (const key of [...after.memory.keys()]) {
+            const [object, offset, width] = splitKey(key);
+            if (object === l.object && offset < l.offset + l.width / 8 && l.offset < offset + width / 8)
+              after.memory.delete(key);
+          }
+          after.memory.set(
+            memoryKey(l),
+            tracked(forgotten(`the local at ${hex(l.offset & 0xffff)}`), [], confined.first),
+          );
         }
         after.flags = undefined;
         after.carry = undefined;
@@ -5639,6 +5674,9 @@ export function readBehaviourInSteps(
     loopsPerType.length = 0;
   };
   const profile = behaviourProfile(list.list.id);
+  // Where the code finds a type's record by multiplying, the records follow each other from the table's start, this
+  // many bytes each. TIM2.EXE finds them through a table of near pointers, so its table holds no records.
+  const recordStride = profile.recordLookup === "multiply" ? profile.recordSize : undefined;
   const loaded = loadBehaviourImage(program, profile);
   const image = loaded.image;
   for (const record of list.records) {
@@ -5752,14 +5790,17 @@ export function readBehaviourInSteps(
     }
   const helpers = discoverEngineSummaries(image, codes, layout, list.table, list.dataSegment, list.records.length);
   if (profile.scalarLoaders)
-    helpers.push(
-      ...discoverScalarLoaders(
-        codes,
-        new Map(helpers.map((helper) => [helper.address, helper])),
-        new Set(counts.keys()),
-        loaded.entry,
-      ),
-    );
+    for (const loader of discoverScalarLoaders(
+      codes,
+      new Map(helpers.map((helper) => [helper.address, helper])),
+      new Set(counts.keys()),
+      loaded.entry,
+    )) {
+      // A loader's summary takes the place of the generic one it may have had.
+      const at = helpers.findIndex((helper) => helper.address === loader.address);
+      if (at >= 0) helpers[at] = loader;
+      else helpers.push(loader);
+    }
   const lifecycle = discoverBehaviourLifecycle(image, codes, layout);
   for (const field of discoverLifecycleFieldRoles(lifecycle, layout))
     if (!layout.fields.some((known) => known.offset === field.offset)) layout.fields.push(field);
@@ -5904,7 +5945,8 @@ export function readBehaviourInSteps(
     if (
       counts.has(address) &&
       typeField !== undefined &&
-      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, 58)) &&
+      recordStride !== undefined &&
+      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, recordStride)) &&
       ways.some((o) => outgrown(o.condition) || o.fields.some((f) => outgrown(f.value) || outgrown(f.condition)))
     )
       loopsPerType.push(() => {
@@ -5917,7 +5959,7 @@ export function readBehaviourInSteps(
               type,
               typeOffset: typeField,
               table: list.table,
-              stride: 58,
+              stride: recordStride,
               records: list.records.length,
               written: TYPE_RECORD_WRITTEN,
             },
@@ -6035,6 +6077,10 @@ export function readBehaviourInSteps(
     for (const callback of callbacks) summarise(callback.address);
     onProgress?.(done + 1, references.size);
   }
+  // The routines a set-up routine calls are read now too: a routine nothing has read by then gets a stand-in below.
+  for (const setUp of setUps.values())
+    for (const call of codes.get(setUp.address)?.calls ?? [])
+      if (call.target && entries.has(call.target.address)) summarise(call.target.address);
 
   /**
    * The fields the byte relay's owner keeps, by decided assumptions about the parts that call it. A routine that calls
@@ -6130,11 +6176,11 @@ export function readBehaviourInSteps(
             : undefined;
       if (base === undefined || base + operand.displacement - ropeField !== list.table) continue;
       const word = (at: number) => image[at]! | (image[at + 1]! << 8);
-      const ropeCallbackAt = (type: number) => {
-        const at = list.table + type * 58 + ropeField;
+      const ropeCallbackAt = (record: ProgramParts["records"][number]) => {
+        const at = record.at + ropeField;
         return word(at + 2) * 16 + word(at);
       };
-      const targets = [...new Set(list.records.map((record) => ropeCallbackAt(record.type)))];
+      const targets = [...new Set(list.records.map(ropeCallbackAt))];
       if (!targets.every((target) => entries.has(target))) continue;
       // A question can come back to the part that asked, and then that part's own rope callback runs on it. The parts
       // that ask are the parts of the routines that call the query. When each is named directly by the type table and
@@ -6150,7 +6196,7 @@ export function readBehaviourInSteps(
             .filter((record) =>
               references.get(record.type)!.some((callback) => callers.some((c) => c.address === callback.address)),
             )
-            .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
+            .map((record) => targets.indexOf(ropeCallbackAt(record)))
         : undefined;
       settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, forgetSummaries);
     }
@@ -6179,22 +6225,27 @@ export function readBehaviourInSteps(
         engineCalls: [],
         uncertainEffects: true,
       });
-  const speedLimits = findSpeedLimitSetup(
-    image,
-    { address: list.table, stride: 58, count: list.records.length },
-    list.dataSegment,
-  );
-  const typeTable = {
-    address: list.table,
-    stride: 58,
-    words: list.records.map((record) =>
-      Array.from(
-        { length: record.bytes.length >> 1 },
-        (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
-      ),
-    ),
-    ...(speedLimits ? { speedLimits } : {}),
-  };
+  const speedLimits =
+    recordStride !== undefined &&
+    findSpeedLimitSetup(
+      image,
+      { address: list.table, stride: recordStride, count: list.records.length },
+      list.dataSegment,
+    );
+  const typeTable =
+    recordStride === undefined
+      ? undefined
+      : {
+          address: list.table,
+          stride: recordStride,
+          words: list.records.map((record) =>
+            Array.from(
+              { length: record.bytes.length >> 1 },
+              (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
+            ),
+          ),
+          ...(speedLimits ? { speedLimits } : {}),
+        };
   // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
   const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
   const frameOffsets = Object.values(frameFields) as number[];
@@ -6359,10 +6410,9 @@ export function readBehaviourInSteps(
     }
     const gearRun = owned.find((routine) => routine.gearRun)?.gearRun;
     const setUpEntry = setUps.get(part.type);
-    // Read on its own like a callback, not through a helper summary that may cover the same code.
+    // Read on its own like a callback, not through a helper summary that may cover the same code. Its callees were read
+    // right after the callbacks.
     const setUpCode = setUpEntry && codes.get(setUpEntry.address);
-    for (const call of setUpCode?.calls ?? [])
-      if (call.target && entries.has(call.target.address)) summarise(call.target.address);
     const setUpRead =
       setUpEntry &&
       setUpCode &&
