@@ -51,8 +51,8 @@ export const PART_NAMES: ReadonlyMap<string, string> = new Map(names.names.map((
 
 /**
  * The names of Sid & Al's Incredible Toons' parts, by id. Toons has its own ids and its own names, apart from the TIM
- * games: its files name no parts, so each name is the game's own words from the title or goal of a level that has the
- * part (`toons-names.json` says which).
+ * games: it has no list of part names, so each name is the game's own words, from the title or goal of a level that has
+ * the part, a message in `GENERIC.RES` or a routine's name in the link map `TOONS.BMP` (`toons-names.json` says which).
  */
 export const TOONS_PART_NAMES: ReadonlyMap<string, string> = new Map(toonsNames.names.map((n) => [n.id, n.name]));
 

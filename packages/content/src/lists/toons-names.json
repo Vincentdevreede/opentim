@@ -1,7 +1,12 @@
 {
   "id": "toons-names",
-  "source": "the titles and goals of Toons' levels",
+  "source": "the titles and goals of Toons' levels, and the game's other words: GENERIC.RES and the link map TOONS.BMP",
   "names": [
+    {
+      "id": "splat",
+      "name": "Splat",
+      "from": "TOONS.EXE: its code plays the sound the bank calls splat1 (the game has no name for it, so it is named for the project)"
+    },
     {
       "id": "conveyor-belt",
       "name": "Conveyor Belt",
@@ -43,14 +48,29 @@
       "from": "CAKE19, the level \"Teapot\""
     },
     {
+      "id": "vacuum",
+      "name": "Vacuum",
+      "from": "CAKE12 \"Vacuuming Up\": \"Save Al from certain doom by vacuuming up all the bombs.\"; HARD6 \"Kitty Vac\": \"Vacuum up all three of them!\"; TOONS.BMP names its code \"_vc_internal\" and its sound \"_vacuum_snd_on\""
+    },
+    {
       "id": "rope",
       "name": "Rope",
       "from": "CAKE20 \"Scissors\": \"cut the rope\""
     },
     {
+      "id": "eye-hook",
+      "name": "Eyehook",
+      "from": "GENERIC.RES, the message before the solution of a puzzle: \"untied the ropes from all bogus eyehooks and tied them to the nearest rope part\"; TOONS.BMP: \"_eyehook_reinit\" and \"_eyehook_flip\", the code of type 15"
+    },
+    {
       "id": "scissors",
       "name": "Scissors",
       "from": "CAKE20, the level \"Scissors\""
+    },
+    {
+      "id": "pulley",
+      "name": "Pulley",
+      "from": "TOONS.BMP: \"_orient_pulleys\", the routine that finds the parts of type 17 and calls \"_orient_pulley\" for each (TOONS.EXE file offsets 0xb27f and 0xb303)"
     },
     {
       "id": "gear",
@@ -68,6 +88,11 @@
       "from": "CAKE26 \"Pop Goes the Pistol\": \"Use the pistol to pop both Sid and Al.\""
     },
     {
+      "id": "bullet",
+      "name": "Bullet",
+      "from": "TOONS.BMP: \"_bullet_bounce\", \"_bullet_reinit\" and \"_bullet_internal\", the code of type 21, which the pistol makes (TOONS.EXE file offset 0x6fb01); LOON1, a level of pistols, is \"Kitty Bites the Bullet\""
+    },
+    {
       "id": "catapult",
       "name": "Catapult",
       "from": "CAKE6 \"Catapults!!\": \"Use a catapult to launch a rock\""
@@ -78,6 +103,11 @@
       "from": "LOON7 \"Looney Ballooney\": \"Pop the balloon at the top of the screen.\""
     },
     {
+      "id": "trampoline",
+      "name": "Trampoline",
+      "from": "TOONS.BMP: \"_tramp_bounce\", \"_tramp_reinit\", \"_tramp_internal\" and \"TRAMP5_DATA\", the code and data of type 24"
+    },
+    {
       "id": "magnifying-glass",
       "name": "Magnifying Glass",
       "from": "CAKE8, the level \"Magnifying Glass\""
@@ -86,6 +116,11 @@
       "id": "ball-bearing",
       "name": "Ball Bearing",
       "from": "BRAN4 \"Clobber the Critters\": \"bop Al with the ball bearing\""
+    },
+    {
+      "id": "rainbow-ball",
+      "name": "Rainbow Ball",
+      "from": "CAKE26 \"Pop Goes the Pistol\": \"Drop the ball.\" (the level's only ball)"
     },
     {
       "id": "bik-dragon",
@@ -148,6 +183,11 @@
       "from": "CAKE15, the level \"Tunnel\": \"Use a tunnel to help Al get to the bubble gum.\""
     },
     {
+      "id": "candy-incline",
+      "name": "Candy Slide",
+      "from": "CAKE21 \"Timer Tumble\": \"Use the timer to push Al down the candy slide\""
+    },
+    {
       "id": "hair-drier",
       "name": "Hair Drier",
       "from": "CAKE14 \"Switches and Hair Driers\": \"rig up an electric switch and hair drier\""
@@ -156,6 +196,11 @@
       "id": "bubble-gum",
       "name": "Bubble Gum",
       "from": "CAKE15 \"Tunnel\": \"help Al get to the bubble gum\""
+    },
+    {
+      "id": "egg",
+      "name": "Egg",
+      "from": "CAKE28 \"Programming Hildegard\": \"Bump Hildegard with any object to make her lay an egg.\"; the hen makes a part of type 55 (TOONS.EXE file offset 0x56c15)"
     },
     {
       "id": "fish",
@@ -193,6 +238,11 @@
       "from": "HARD19 \"Missile Mouse\": \"Show Sid what happens when mouse meets missile!\""
     },
     {
+      "id": "pin",
+      "name": "Pin",
+      "from": "BRAN12 \"Pin Cushion Kitty\": \"Poke Al with the pin that's pointed at his tail.\""
+    },
+    {
       "id": "pencil",
       "name": "Pencil",
       "from": "LOON3 \"Pencil Power\": \"Help Sid use the pencil to get rid of that pesky Al.\""
@@ -206,6 +256,11 @@
       "id": "hildegard-hen",
       "name": "Hildegard Hen",
       "from": "CAKE24 \"Introducing... Hildegard Hen!\""
+    },
+    {
+      "id": "explosion",
+      "name": "Explosion",
+      "from": "TOONS.BMP: \"_explosion_internal\" and \"EXPLOSIO5_DATA\", the code and data of type 75"
     },
     {
       "id": "rug",

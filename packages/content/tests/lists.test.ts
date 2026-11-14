@@ -79,12 +79,13 @@ describe("the part lists", () => {
     expect([...PART_NAMES.keys()].filter((id) => !ids.has(id))).toEqual([]);
   });
 
-  it("keeps Toons' names apart, each for a Toons part and with the level it comes from", () => {
+  it("keeps Toons' names apart, each for a Toons part and with the level or file it comes from", () => {
     const ids = new Set(toons.parts.map((p) => p.id));
     expect([...TOONS_PART_NAMES.keys()].filter((id) => !ids.has(id))).toEqual([]);
-    expect(toonsNames.names.filter((n) => !/^[A-Z]{4}\d+[ ,]/.test(n.from))).toEqual([]);
+    expect(toonsNames.names.filter((n) => !/^([A-Z]{4}\d+|[A-Z]+\.[A-Z]{3})[ ,:]/.test(n.from))).toEqual([]);
     expect(partNamesOf("toons").get("teeter-totter")).toBe("Teeter-Totter");
-    expect(partNamesOf("toons").get("pulley")).toBeUndefined();
+    expect(partNamesOf("toons").get("eye-hook")).toBe("Eyehook");
+    expect(partNamesOf("toons").get("mallet")).toBeUndefined();
     expect(partNamesOf("tim1").get("pulley")).toBe("Pulley");
   });
 
