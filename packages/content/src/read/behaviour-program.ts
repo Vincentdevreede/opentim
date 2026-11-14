@@ -49,6 +49,7 @@ export interface BehaviourProfile {
    * Whether the part keeps TIM.EXE's history of its state, so that a field the code copies the state into again and
    * again is the previous state. In TOONS.EXE the word it copies the state into (0x0c) is also counted up and set to
    * other numbers by many parts' own code, and Al and Sid read it as what they are doing, so it isn't named there.
+   * TOONS.EXE's previous state is 0x10, which its history update names (`fieldForms`).
    */
   stateHistory: boolean;
   /**

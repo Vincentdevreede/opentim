@@ -19,9 +19,9 @@ hard-codes an address of one build; comments name example addresses "in Even Mor
   `readTim2ProgramParts` for TIM 2 and `readToonsParts` for Toons.
 - The part list's id picks the game's `BehaviourProfile` (`behaviour-program.ts`): how the program is stored (LZEXE or
   overlays), the record size, how the code finds a record (by multiplying or through a table of near pointers), whether
-  a part is a near or a far pointer, the record's routines after the six callbacks, and the types whose own bounce the
-  contact dispatch also calls when they touch a part (`selfBounce`, used by the descriptions). Any other id reads as
-  TIM.EXE.
+  a part is a near or a far pointer, the record's routines after the six callbacks, the types whose own bounce the
+  contact dispatch also calls when they touch a part (`selfBounce`, used by the descriptions), and the routines that
+  name its part fields (`fieldForms`, below). Any other id reads as TIM.EXE.
 
 The Lab runs it in a worker (see [lab.md](lab.md)); `extract-behaviour` runs it without the per-type loops, because
 those would make a saved report too large.
@@ -38,7 +38,10 @@ In order (all in `behaviour.ts` unless named):
    through its table of record pointers) and the state either from TIM.EXE's frame drawing or from TOONS.EXE's, which
    reaches the record through a far pointer. It also finds where the object argument sits on
    the stack and names part fields (`type`, `state`, `drawingFlags`, …); `behaviour-fields.ts` names more by how
-   they are used. The read stops if this can't be proved.
+   they are used. For TIM 2 and Toons, `discoverFormFields` (`behaviour-field-forms.ts`) then names the fields their
+   own frame position and frame size helpers, motion helper, history update, level reset and contact producer show,
+   with TIM.EXE's names: each is a form of the routine's bytes with the field offsets as places to read
+   (`TIM2_FIELD_FORMS`, `TOONS_FIELD_FORMS`). The read stops if this can't be proved.
 3. **Timing**: `findBehaviourTiming` (`behaviour-timing.ts`): the PIT setting and the wait loop.
 4. **Callbacks**: six `CallbackReference`s per type from the far pointers in its record.
 5. **Crawl**: `readRoutineCode` (`behaviour-code.ts`) reads the graph of every callback and follows direct calls, up
@@ -154,7 +157,8 @@ bindings)` in `behaviour-heap-release.ts`, and `matchFirst(code, patterns)` in `
 
 **Core**: `lzexe.ts` (unpack), `behaviour-program.ts` (the profiles and the overlay layout), `x86.ts` (decoder), `type-table.ts` and `parts.ts` (data segment, type records, part
 lists), `behaviour-code.ts` (graphs), `behaviour.ts` (pipeline, `analyseRoutine`, expression algebra),
-`behaviour-terms.ts` (shared small helpers), `behaviour-layout.ts`, `behaviour-fields.ts`, `behaviour-timing.ts`,
+`behaviour-terms.ts` (shared small helpers), `behaviour-layout.ts`, `behaviour-fields.ts`, `behaviour-field-forms.ts`
+(TIM 2's and Toons' part fields), `behaviour-timing.ts`,
 `behaviour-scalars.ts`, `behaviour-geometry-relations.ts`.
 
 **Helpers in general**: `behaviour-helpers.ts` (`discoverEngineSummaries`, `EngineSummary`), `behaviour-forwarders.ts`,

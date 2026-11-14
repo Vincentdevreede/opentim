@@ -28,8 +28,6 @@ export interface FieldForm {
 
 /** What each field a form names is, by its name. */
 export const FORM_FIELD_DESCRIPTIONS: Record<string, string> = {
-  type: "The number used to select this object's record in the checked type table.",
-  state: "The object's state selects the visual frame.",
   positionX: "The horizontal position, which the frame position helper copies into the drawing origin.",
   positionY: "The vertical position, which the frame position helper copies into the drawing origin.",
   drawX: "The horizontal drawing origin: the position plus the frame's offset, reflected by the extent when mirrored.",
