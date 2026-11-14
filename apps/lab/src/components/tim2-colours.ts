@@ -12,9 +12,9 @@ export type Tim2Colours = 16 | 256;
 export const TIM2_COLOURS: { value: Tim2Colours; label: string; title: string }[] = [
   {
     value: 16,
-    label: "16 colours (as the game)",
+    label: "16 colours",
     title:
-      "As TIM2.EXE’s 16 colour driver in VM.OVL shows them: a colour c is the palette’s colour c & 15, and a box filled in a colour of 16 or more gets a pattern of its two halves",
+      "As the game shows them, through TIM2.EXE’s 16 colour driver in VM.OVL: a colour c is the palette’s colour c & 15, and a box filled in a colour of 16 or more gets a pattern of its two halves",
   },
   { value: 256, label: "256 colours", title: "Every colour as the palette has it" },
 ];
