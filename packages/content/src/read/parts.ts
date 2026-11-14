@@ -18,7 +18,7 @@ import {
   type ToonsType,
 } from "./toons.ts";
 import { animationFrames, animationSheets, readAnimation, readPartNames } from "./tim2.ts";
-import { readPar } from "./tim2-program.ts";
+import { readPar, readTim2Types, TIM2_RECORD_SIZE } from "./tim2-program.ts";
 import { RECORD_SIZE, findDataSegment, findTypeTable, readOffsets, readTypes, type ExeType } from "./type-table.ts";
 import { sheetFrameSizes, type FrameSize } from "./behaviour-sheet-frames.ts";
 
@@ -170,6 +170,36 @@ export function readTim2Parts(
   return { id: "tim2", game: GAMES.tim2.game, parts };
 }
 
+/**
+ * Reads the parts of TIM 2 as `readTim2Parts` does, with the type records of TIM2.EXE for the behaviour reader. The
+ * table is TIM2.EXE's table of near pointers to the records, so `table` is where that table starts; a record's `at` is
+ * where the pointer leads, and many types share one record.
+ */
+export function readTim2ProgramParts(
+  program: Uint8Array,
+  resource: (name: string) => Uint8Array | undefined,
+  options: { keepUnknown?: boolean } = {},
+): ProgramParts {
+  const list = readTim2Parts(resource, options);
+  const image = loadImage(program);
+  const types = readTim2Types(program);
+  const header = (program[8]! | (program[9]! << 8)) * 16;
+  const ds = types.dataSegment - header;
+  const table = ds + types.table;
+  const records = types.records.map((_, type) => {
+    const at = ds + (image[table + 2 * type]! | (image[table + 2 * type + 1]! << 8));
+    return { type, at, bytes: image.slice(at, at + TIM2_RECORD_SIZE) };
+  });
+  return { list, records, table, dataSegment: ds / 16 };
+}
+
+/** The data segment an unpacked program's entry code loads first (`mov dx, segment`), or 0 when it starts otherwise. */
+function entryDataSegment(program: Uint8Array, image: Uint8Array): number {
+  const word = (data: Uint8Array, at: number) => data[at]! | (data[at + 1]! << 8);
+  const entry = word(program, 0x16) * 16 + word(program, 0x14);
+  return image[entry] === 0xba ? word(image, entry + 1) : 0;
+}
+
 /** The ladder: TOONS.EXE draws its tiles 32 pixels wide, every other tiled part's 16. */
 const TOONS_LADDER = 45;
 
@@ -262,5 +292,10 @@ export function readToonsParts(
     return [part];
   });
   const records = exeTypes.map(({ at }, type) => ({ type, at, bytes: image.slice(at, at + TOONS_RECORD_SIZE) }));
-  return { list: { id: "toons", game: GAMES.toons.game, parts }, records, table: start, dataSegment: 0 };
+  return {
+    list: { id: "toons", game: GAMES.toons.game, parts },
+    records,
+    table: start,
+    dataSegment: entryDataSegment(program, image),
+  };
 }

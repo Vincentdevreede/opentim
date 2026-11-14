@@ -7,9 +7,14 @@ import BehaviourRow from "./BehaviourRow.vue";
 /**
  * One thing another part does to this one without changing its frame, like the explosion's push: the part's name,
  * what it sets and the value, with a chip for what either part must be. It opens to the source's whole condition, one
- * line for each way the source does the same.
+ * line for each way the source does the same. A row of the part's own bounce (`own`) is named for that bounce, and its
+ * conditions on the other part are the touched part's.
  */
 const props = defineProps<{ effect: OtherEffect; name: string }>();
+
+const label = computed(() => (props.effect.own ? "Its own bounce" : props.name));
+/** The other part in the tip and the conditions. */
+const other = computed(() => (props.effect.own ? "touched part" : props.name.toLowerCase()));
 
 /** Conditions short enough for a chip; a longer one, like where the part must be, is a line of its own that wraps. */
 const SHORT = 40;
@@ -21,21 +26,17 @@ const tip = computed(() =>
     props.effect.description,
     ...(props.effect.awayWithin === undefined
       ? []
-      : [
-          `It points from the ${props.name.toLowerCase()}'s centre to this part's, within ${props.effect.awayWithin}°.`,
-        ]),
+      : [`It points from the ${other.value}'s centre to this part's, within ${props.effect.awayWithin}°.`]),
     ...(props.effect.cases
       ? ["", `In ${props.effect.cases.length} cases:`, ...props.effect.cases.map((c, n) => `${n + 1}. ${c}`)]
       : []),
     "",
     ...(props.effect.sourceConditions.length > 1
-      ? [
-          `When the ${props.name.toLowerCase()} has one of:`,
-          ...props.effect.sourceConditions.map((c, n) => `${n + 1}. ${c}`),
-        ]
-      : [`When the ${props.name.toLowerCase()} has: ${props.effect.sourceConditions[0]}`]),
+      ? [`When the ${other.value} has one of:`, ...props.effect.sourceConditions.map((c, n) => `${n + 1}. ${c}`)]
+      : [`When the ${other.value} has: ${props.effect.sourceConditions[0]}`]),
     "",
-    `${props.effect.confidence}. No walk: it changes no frame.`,
+    // A line of its own bounce may change its frame, and says so.
+    `${props.effect.confidence}. ${props.effect.own ? "No walk follows it." : "No walk: it changes no frame."}`,
   ].join("\n"),
 );
 </script>
@@ -45,7 +46,7 @@ const tip = computed(() =>
     <!-- The chips go on to a second line only when the panel is too narrow for them. -->
     <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
       <span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-        <span class="shrink-0 text-ink">{{ name }}</span>
+        <span class="shrink-0 text-ink">{{ label }}</span>
         <span v-for="s in effect.sets" :key="s.what" class="min-w-0 font-mono text-meta"
           ><span v-if="s.what" class="mr-[1ch] text-muted">{{ s.what }}</span
           ><span class="text-accent">{{ s.value }}</span></span
@@ -54,6 +55,7 @@ const tip = computed(() =>
       <span
         v-if="
           effect.touch ||
+          effect.own ||
           effect.searched ||
           effect.cases ||
           effect.sourceConditions.length > 1 ||
@@ -62,7 +64,8 @@ const tip = computed(() =>
         "
         class="ml-auto flex flex-wrap gap-1"
       >
-        <LabChip v-if="effect.touch" tone="faint">touching</LabChip>
+        <LabChip v-if="effect.own" tone="faint">own bounce</LabChip>
+        <LabChip v-else-if="effect.touch" tone="faint">touching</LabChip>
         <LabChip v-if="effect.searched" tone="faint">then contact search</LabChip>
         <LabChip v-if="effect.cases" tone="faint">{{ effect.cases.length }} cases</LabChip>
         <LabChip v-if="effect.sourceConditions.length > 1" tone="faint"
@@ -74,9 +77,7 @@ const tip = computed(() =>
       <span v-for="w in lines" :key="w" class="basis-full font-sans text-meta break-words text-soft">{{ w }}</span>
     </span>
     <template #detail>
-      <span v-for="(c, n) in effect.sourceConditions" :key="n" class="break-words"
-        >when {{ name.toLowerCase() }}: {{ c }}</span
-      >
+      <span v-for="(c, n) in effect.sourceConditions" :key="n" class="break-words">when {{ other }}: {{ c }}</span>
     </template>
   </BehaviourRow>
 </template>

@@ -201,6 +201,11 @@ export interface PartBehaviourDescription extends Finding {
   uncertainties: string[];
   /** What other parts do to this part without changing its frame, like the explosion's push. */
   effectsFromOthers: OtherPartEffect[];
+  /**
+   * What its own bounce sets on it when it touches a part, for a type whose own bounce the contact dispatch also calls
+   * then (TIM 2's and Toons', `selfBounce` in the profile). In these lines `part` is the part it touches.
+   */
+  ownBounce?: OtherPartEffect[];
 }
 
 export interface BehaviourDescription extends Finding {
@@ -4744,6 +4749,7 @@ export function describeBehaviour(report: BehaviourReport, onProgress?: ReadProg
       })),
       uncertainties,
       effectsFromOthers: fromOthers.get(part.type)?.effects ?? [],
+      ...(fromOthers.get(part.type)?.ownBounce ? { ownBounce: fromOthers.get(part.type)!.ownBounce } : {}),
       ...finding(
         [rest, ...animations],
         [...(fromOthers.get(part.type)?.assumptions ?? []), ...(hits.get(part.type)?.assumptions ?? [])],
