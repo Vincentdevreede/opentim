@@ -209,11 +209,26 @@ class Unreadable extends Error {
   }
 }
 
-type Flags =
+type Flags = (
   | { kind: "compare"; left: GoalValue; right: GoalValue }
   | { kind: "and"; left: GoalValue; right: GoalValue }
-  /** The flags of a result, tested against 0; `logic` when it was `or`/`and`/`xor`/`test`, which clear overflow. */
-  | { kind: "result"; value: GoalValue; logic: boolean };
+  /**
+   * The flags of a result, tested against 0; `logic` when it was `or`/`and`/`xor`/`test`, which clear overflow. After
+   * `add` or `sub`, `sum` has the operands: the first as it was before (worked out from the result), and the second.
+   */
+  | {
+      kind: "result";
+      value: GoalValue;
+      logic: boolean;
+      sum?: { op: "+" | "-"; left: GoalValue; right: GoalValue };
+    }
+) & {
+  /** Set by an instruction on a byte, whose sign is bit 7: the goal's tests read 16-bit signs. */
+  byte?: true;
+};
+
+/** The word register of each low byte register, for `mov al, byte; mov ah, 0`. */
+const BYTE_PAIRS: Record<string, string> = { al: "ax", bl: "bx", cl: "cx", dl: "dx" };
 
 const CONDITIONS: Record<string, { op: GoalComparison; signed: boolean }> = {
   je: { op: "==", signed: false },
@@ -244,6 +259,25 @@ export function negate(test: GoalTest): GoalTest {
 
 const ZERO: GoalValue = { kind: "constant", value: 0 };
 const EXIT = -1;
+
+/**
+ * Where a goal's word of another segment than the data segment is: this, plus the segment times 0x10000, plus its
+ * offset, past every word of the data segment. Toons' goals keep some of their words in a far segment they load into
+ * `es`. `farWord` gives the segment and offset back.
+ */
+export const FAR_WORDS = 2 ** 32;
+export const farWord = (address: number) =>
+  address >= FAR_WORDS
+    ? { segment: Math.floor((address - FAR_WORDS) / 0x10000), offset: (address - FAR_WORDS) % 0x10000 }
+    : undefined;
+
+/** How to read a program whose goals reach past TIM.EXE's ways. */
+export interface GoalReading {
+  /** Where a far call leads, for calls through the stubs of an overlay manager. */
+  resolve?: (segment: number, offset: number) => { segment: number; offset: number };
+  /** Whether a goal may read and write words of another segment through `es`, after loading it with a constant. */
+  farWords?: boolean;
+}
 
 /** One routine's code: its instructions by address, and where each goes next. */
 class RoutineGraph {
@@ -328,19 +362,49 @@ class RoutineReader {
   /** Where the stack pointer is, from the routine's frame pointer: pushes and pops are words at frame offsets. */
   private sp = 0;
   private readonly calls: Set<string>;
+  private readonly reading: GoalReading;
+  /** The constant each register holds, while it holds one, to know the segment a goal loads into `es`. */
+  private constants = new Map<string, number>();
+  /** The segment in `es`, when a goal loaded one. */
+  private es?: number;
+  /** The `mov ah, 0` (or another high byte's) after a byte loaded into the low one, which is said with it. */
+  private skip?: number;
+  /** The locals read or written as bytes, and as words: one place may not be both. */
+  private readonly byteLocals = new Set<number>();
+  private readonly wordLocals = new Set<number>();
 
-  constructor(image: Uint8Array, address: number, segment: number, calls: Set<string>) {
+  constructor(image: Uint8Array, address: number, segment: number, calls: Set<string>, reading: GoalReading = {}) {
     this.calls = calls;
+    this.reading = reading;
     // The reading starts past `push bp; mov bp, sp`: a routine without them would lose its first instructions.
     if (!startsRoutine(image, address))
       throw new Unreadable(address, "a routine that doesn't start with push bp; mov bp, sp");
     this.graph = new RoutineGraph(image, address, segment);
   }
 
+  /** The registers' constants and `es`, to put back when a branch's other way starts. */
+  private known() {
+    return { constants: new Map(this.constants), es: this.es };
+  }
+
+  private restore(known: ReturnType<RoutineReader["known"]>) {
+    this.constants = new Map(known.constants);
+    this.es = known.es;
+  }
+
+  /** Where two ways meet, a register keeps its constant (and `es` its segment) only when both ways left the same. */
+  private meet(other: ReturnType<RoutineReader["known"]>) {
+    for (const [name, value] of this.constants) if (other.constants.get(name) !== value) this.constants.delete(name);
+    if (other.es !== this.es) this.es = undefined;
+  }
+
   read(): GoalStatement[] {
     const start = this.graph.address + 3;
     const body = this.run(start, { stop: EXIT });
     while (body.at(-1)?.kind === "return") body.pop();
+    for (const offset of this.byteLocals)
+      if (this.wordLocals.has(offset) || this.wordLocals.has(offset - 1))
+        throw new Unreadable(this.graph.address, "a local read both as a byte and as a word");
     return body;
   }
 
@@ -376,6 +440,12 @@ class RoutineReader {
     for (let guard = 0; ; guard++) {
       if (guard > 5000) throw new Unreadable(at, "the reader went round without end");
       if (at === region.stop) return out;
+      // The `mov ah, 0` after a byte loaded into `al` was said with it.
+      if (at === this.skip) {
+        this.skip = undefined;
+        at += this.instruction(at).size;
+        continue;
+      }
       if (region.loopExit !== undefined && at === region.loopExit) {
         out.push({ kind: "break" });
         return out;
@@ -388,18 +458,22 @@ class RoutineReader {
       const next = at + i.size;
       if (i.flow === "branch") {
         if (i.target!.address <= at) throw new Unreadable(at, "a branch back that isn't a loop the reader knows");
-        const test = this.test(i);
+        const { test, guard } = this.branchTest(i);
         const join = this.inside(this.graph.join(at), region, at);
         const sp = this.sp;
         const flags = { flags: this.flags, at: this.flagsAt };
+        const before = this.known();
         const taken = this.run(i.target!.address, { ...region, stop: join });
         const takenSp = this.sp;
         const takenFlags = { flags: this.flags, at: this.flagsAt };
+        const takenKnown = this.known();
         // Both ways start from the flags before the branch, which the branch doesn't change.
         this.sp = sp;
         this.flags = flags.flags;
         this.flagsAt = flags.at;
+        this.restore(before);
         const fall = this.run(next, { ...region, stop: join });
+        this.meet(takenKnown);
         const ends = (body: GoalStatement[]) => ["break", "return"].includes(body.at(-1)?.kind ?? "");
         if (!ends(taken) && !ends(fall) && takenSp !== this.sp)
           throw new Unreadable(at, "two ways that leave the stack in different places");
@@ -416,7 +490,15 @@ class RoutineReader {
           this.flags = undefined;
           this.flagsAt = -1;
         }
-        out.push({ kind: "if", test, then: taken, else: fall });
+        // A branch on the sign of a sum, whose second number may be -32768: that number decides it alone.
+        if (guard)
+          out.push({
+            kind: "if",
+            test: guard.test,
+            then: guard.taken ? taken : fall,
+            else: [{ kind: "if", test, then: taken, else: fall }],
+          });
+        else out.push({ kind: "if", test, then: taken, else: fall });
         if (join === EXIT || join === region.stop) return out;
         at = join;
         continue;
@@ -425,11 +507,15 @@ class RoutineReader {
         const target = i.target!.address;
         const loop = target > at ? this.loopAt(target, next) : undefined;
         if (loop) {
-          const before = this.run(target, { stop: loop.at });
-          const test = this.test(this.instruction(loop.at));
-          const exit = loop.at + this.instruction(loop.at).size;
+          const exit = loop.exit;
+          const before = this.run(target, { stop: loop.at, loopExit: exit });
+          const branch = this.test(this.instruction(loop.at));
+          // A test that leaves the loop, with a jump back to the body after it, goes on when it fails.
+          const test = loop.leaves ? negate(branch) : branch;
           const sp = this.sp;
+          const entered = this.known();
           const body = this.run(next, { stop: target, loopExit: exit });
+          this.meet(entered);
           if (this.sp !== sp) throw new Unreadable(at, "a loop that moves the stack");
           out.push({ kind: "loop", before, test, body });
           at = exit;
@@ -455,17 +541,63 @@ class RoutineReader {
     return join;
   }
 
-  /** A loop entered by a jump to its test: straight code from `test` to a branch back to `body`. */
-  private loopAt(test: number, body: number): { at: number } | undefined {
+  /**
+   * A loop entered by a jump to its test: code from `test` to a branch back to `body`. The test may leave the loop
+   * early on the way, by branches to where the loop goes on after it (`while (a && b)`), which then read as breaks,
+   * and may call routines (a `do … while` whose first part is jumped into, as Toons' goals find their parts). When the
+   * body is too far for a short branch, the test is a branch that leaves the loop with a jump back after it
+   * (`leaves`). `exit` is where the loop goes on.
+   */
+  private loopAt(test: number, body: number): { at: number; exit: number; leaves?: boolean } | undefined {
     let at = test;
-    for (let n = 0; n < 8; n++) {
+    const exits: number[] = [];
+    for (let n = 0; n < 40; n++) {
       const i = this.graph.instructions.get(at);
       if (!i) return undefined;
-      if (i.flow === "branch") return i.target!.address === body ? { at } : undefined;
-      if (i.flow !== "next") return undefined;
+      if (i.flow === "branch" && i.target!.address === body)
+        return exits.every((e) => e === at + i.size) ? { at, exit: at + i.size } : undefined;
+      const back = this.graph.instructions.get(at + i.size);
+      if (
+        i.flow === "branch" &&
+        back?.mnemonic === "jmp" &&
+        back.target?.address === body &&
+        i.target!.address === back.address + back.size
+      )
+        return exits.every((e) => e === i.target!.address) ? { at, exit: i.target!.address, leaves: true } : undefined;
+      if (i.flow === "branch" && i.target!.address > at) exits.push(i.target!.address);
+      else if (i.flow !== "next" && i.flow !== "call") return undefined;
       at += i.size;
     }
     return undefined;
+  }
+
+  /**
+   * A branch's test, and for an ordered branch on the result of `add` a test that decides it first. After `sub a, b`
+   * the flags are those of `cmp a, b`. After `add a, b` an ordered branch tests the sum without overflow, so `a + b ≥ 0`
+   * is `a ≥ -b`, except when b is -32768, whose negation isn't a word: then the sum is below 0 whatever a is.
+   */
+  private branchTest(branch: Instruction): { test: GoalTest; guard?: { test: GoalTest; taken: boolean } } {
+    const condition = CONDITIONS[branch.mnemonic];
+    const flags = this.flags;
+    const ordered = condition && condition.op !== "==" && condition.op !== "!=";
+    if (
+      !condition?.signed ||
+      !ordered ||
+      ["js", "jns"].includes(branch.mnemonic) ||
+      flags?.kind !== "result" ||
+      !flags.sum ||
+      this.flagsAt !== branch.address
+    )
+      return { test: this.test(branch) };
+    const { op, left, right } = flags.sum;
+    if (op === "-") return { test: { ...condition, left, right } };
+    return {
+      test: { ...condition, left, right: { kind: "binary", op: "-", left: ZERO, right } },
+      guard: {
+        test: { op: "==", signed: false, left: right, right: { kind: "constant", value: 0x8000 } },
+        taken: condition.op === "<" || condition.op === "<=",
+      },
+    };
   }
 
   private test(branch: Instruction): GoalTest {
@@ -474,6 +606,7 @@ class RoutineReader {
     const flags = this.flags;
     if (!flags || this.flagsAt !== branch.address)
       throw new Unreadable(branch.address, "a branch on flags set further back than the instruction before");
+    if (flags.byte && condition.signed) throw new Unreadable(branch.address, "a signed branch after a byte");
     if (flags.kind === "compare") {
       if (branch.mnemonic === "js" || branch.mnemonic === "jns")
         throw new Unreadable(branch.address, "a sign branch after a compare");
@@ -496,7 +629,7 @@ class RoutineReader {
   }
 
   private setFlags(i: Instruction, flags: Flags) {
-    this.flags = flags;
+    this.flags = i.operands.some((o) => o.kind === "memory" && o.width === 8) ? { ...flags, byte: true } : flags;
     this.flagsAt = i.address + i.size;
   }
 
@@ -510,27 +643,60 @@ class RoutineReader {
       case "immediate":
         return { kind: "constant", value: operand.value & 0xffff };
       case "memory": {
-        if (operand.width !== 16) throw new Unreadable(at, `a ${operand.width}-bit memory operand`);
-        if (operand.segment !== "ds" && !(operand.segment === "ss" && operand.base.join() === "bp"))
-          throw new Unreadable(at, `memory through ${operand.segment}`);
-        const displacement = operand.displacement & 0xffff;
-        if (operand.base.includes("bp")) {
-          if (operand.base.length !== 1) throw new Unreadable(at, "an indexed local");
-          return { kind: "local", offset: displacement >= 0x8000 ? displacement - 0x10000 : displacement };
+        if (operand.width !== 16 && operand.width !== 8)
+          throw new Unreadable(at, `a ${operand.width}-bit memory operand`);
+        const place = this.place(operand, at);
+        // A byte local is kept as a word that holds only the byte; a byte elsewhere is the low byte of its word.
+        if (place.kind === "local") {
+          (operand.width === 8 ? this.byteLocals : this.wordLocals).add(place.offset);
+          return place;
         }
-        let address: GoalValue | undefined;
-        for (const base of operand.base) {
-          const register: GoalValue = { kind: "register", name: base };
-          address = address ? { kind: "binary", op: "+", left: address, right: register } : register;
-        }
-        if (!address) address = { kind: "constant", value: displacement };
-        else if (displacement)
-          address = { kind: "binary", op: "+", left: address, right: { kind: "constant", value: displacement } };
-        return { kind: "word", address };
+        return operand.width === 8
+          ? { kind: "binary", op: "&", left: place, right: { kind: "constant", value: 0xff } }
+          : place;
       }
       default:
         throw new Unreadable(at, `an address operand (${operandText(operand)})`);
     }
+  }
+
+  /** Where a memory operand is: a local of the frame, or a word of memory at an address. */
+  private place(operand: Extract<Operand, { kind: "memory" }>, at: number): GoalTarget {
+    const far = operand.segment === "es" && this.es !== undefined ? FAR_WORDS + this.es * 0x10000 : undefined;
+    if (operand.segment !== "ds" && far === undefined && !(operand.segment === "ss" && operand.base.join() === "bp"))
+      throw new Unreadable(at, `memory through ${operand.segment}`);
+    const displacement = (operand.displacement & 0xffff) + (far ?? 0);
+    if (operand.base.includes("bp")) {
+      if (operand.base.length !== 1) throw new Unreadable(at, "an indexed local");
+      return { kind: "local", offset: displacement >= 0x8000 ? displacement - 0x10000 : displacement };
+    }
+    let address: GoalValue | undefined;
+    for (const base of operand.base) {
+      const register: GoalValue = { kind: "register", name: base };
+      address = address ? { kind: "binary", op: "+", left: address, right: register } : register;
+    }
+    if (!address) address = { kind: "constant", value: displacement };
+    else if (displacement)
+      address = { kind: "binary", op: "+", left: address, right: { kind: "constant", value: displacement } };
+    return { kind: "word", address };
+  }
+
+  /**
+   * Writes a byte: a byte local takes the byte, and a byte elsewhere replaces the low byte of its word and keeps the
+   * high one.
+   */
+  private setByte(operand: Extract<Operand, { kind: "memory" }>, value: GoalValue, at: number): GoalStatement {
+    const place = this.place(operand, at);
+    const byte: GoalValue =
+      value.kind === "constant"
+        ? { kind: "constant", value: value.value & 0xff }
+        : { kind: "binary", op: "&", left: value, right: { kind: "constant", value: 0xff } };
+    if (place.kind === "local") {
+      this.byteLocals.add(place.offset);
+      return this.set(place, byte);
+    }
+    const high: GoalValue = { kind: "binary", op: "&", left: place, right: { kind: "constant", value: 0xff00 } };
+    return this.set(place, { kind: "binary", op: "|", left: high, right: byte });
   }
 
   private target(operand: Operand | undefined, at: number): GoalTarget {
@@ -545,6 +711,88 @@ class RoutineReader {
   }
 
   private step(i: Instruction): GoalStatement[] {
+    const [a, b] = i.operands;
+    // `mov es, register` after the register was loaded with a segment: the goal reads that segment's words next.
+    if (i.mnemonic === "mov" && a?.kind === "register" && a.name === "es" && this.reading.farWords) {
+      const segment = b?.kind === "register" ? this.constants.get(b.name) : undefined;
+      if (segment === undefined) throw new Unreadable(i.address, "a segment in es that isn't a constant");
+      this.es = segment;
+      return [];
+    }
+    // A segment loaded into a register only to go into `es` next is no word of the goal's: it is kept, not said, unless
+    // the goal reads the register again.
+    if (this.reading.farWords && i.mnemonic === "mov" && a?.kind === "register" && b?.kind === "immediate") {
+      for (let at = i.address + i.size, n = 0; n < 3; n++) {
+        const next = this.graph.instructions.get(at);
+        if (!next || next.flow !== "next") break;
+        const [to, from] = next.operands;
+        if (next.mnemonic === "mov" && to?.kind === "register" && to.name === "es") {
+          if (from?.kind === "register" && from.name === a.name && !this.readLater(a.name, at + next.size)) {
+            this.constants.set(a.name, b.value & 0xffff);
+            return [];
+          }
+          break;
+        }
+        if (next.operands.some((o) => o.kind === "register" && o.name === a.name)) break;
+        at += next.size;
+      }
+    }
+    const statements = this.statements(i);
+    for (const s of statements)
+      if (s.kind === "set" && s.target.kind === "register") {
+        if (s.value.kind === "constant") this.constants.set(s.target.name, s.value.value);
+        else this.constants.delete(s.target.name);
+      } else if (s.kind === "call") {
+        // A routine the goal calls can change every register and es.
+        this.constants.clear();
+        this.es = undefined;
+      }
+    return statements;
+  }
+
+  /**
+   * Whether the goal may read a word register from `from` on before it sets it again. A called routine has registers
+   * of its own and leaves ax and dx changed. The routine's end isn't counted as reading ax: Toons' dispatcher drops a
+   * goal's ax, and only the goals themselves load `es`, no routine they call.
+   */
+  private readLater(name: string, from: number): boolean {
+    const [low, high] = [`${name[0]}l`, `${name[0]}h`];
+    const names = [name, low, high];
+    const named = (o: Operand) =>
+      (o.kind === "register" && names.includes(o.name)) || (o.kind === "memory" && o.base.includes(name));
+    const seen = new Set<number>();
+    const pending = [from];
+    while (pending.length) {
+      const at = pending.pop()!;
+      if (at === EXIT || seen.has(at)) continue;
+      seen.add(at);
+      const i = this.graph.instructions.get(at);
+      if (!i) return true;
+      const [to, ...rest] = i.operands;
+      // `mov dl, byte; mov dh, 0` sets dx as one load does.
+      const next = this.graph.instructions.get(at + i.size);
+      const [nextTo, nextFrom] = next?.operands ?? [];
+      const pair =
+        to?.kind === "register" &&
+        to.name === low &&
+        next?.mnemonic === "mov" &&
+        nextTo?.kind === "register" &&
+        nextTo.name === high &&
+        nextFrom?.kind === "immediate";
+      const sets =
+        to?.kind === "register" &&
+        (to.name === name || pair) &&
+        ((["mov", "lea", "pop"].includes(i.mnemonic) && !rest.some(named)) ||
+          (i.mnemonic === "xor" && rest[0]?.kind === "register" && rest[0].name === name));
+      if (sets) continue;
+      if (i.operands.some(named) || (["cwd", "idiv"].includes(i.mnemonic) && ["ax", "dx"].includes(name))) return true;
+      if (i.flow === "call" && (name === "ax" || name === "dx")) continue;
+      pending.push(...(this.graph.successors.get(at) ?? []));
+    }
+    return false;
+  }
+
+  private statements(i: Instruction): GoalStatement[] {
     const at = i.address;
     const [a, b] = i.operands;
     const binary = (op: GoalOperator, left: GoalValue, right: GoalValue): GoalValue => ({
@@ -558,6 +806,24 @@ class RoutineReader {
         return [];
       case "mov": {
         if (a?.kind === "register" && a.name === "sp") throw new Unreadable(at, "a move of the stack pointer");
+        if (a?.kind === "memory" && a.width === 8) return [this.setByte(a, this.value(b, at), at)];
+        if (a?.kind === "register" && a.width === 8) {
+          // `mov al, byte; mov ah, 0`: the byte as a word in ax.
+          const next = this.graph.instructions.get(at + i.size);
+          const [high, zero] = next?.operands ?? [];
+          const word = BYTE_PAIRS[a.name];
+          if (
+            !word ||
+            next?.mnemonic !== "mov" ||
+            high?.kind !== "register" ||
+            high.name !== `${word[0]}h` ||
+            zero?.kind !== "immediate" ||
+            zero.value !== 0
+          )
+            throw new Unreadable(at, `the register ${a.name}`);
+          this.skip = next.address;
+          return [this.set({ kind: "register", name: word }, this.value(b, at))];
+        }
         return [this.set(this.target(a, at), this.value(b, at))];
       }
       case "lea": {
@@ -594,12 +860,26 @@ class RoutineReader {
           this.sp += (i.mnemonic === "add" ? 1 : -1) * this.count(b, at);
           return [];
         }
+        // The goal adds words, so a byte would carry into its high byte.
+        if (a?.kind === "memory" && a.width === 8) throw new Unreadable(at, `a byte ${i.mnemonic}`);
         const target = this.target(a, at);
-        this.setFlags(i, { kind: "result", value: target, logic: false });
-        return [this.set(target, binary(i.mnemonic === "add" ? "+" : "-", target, this.value(b, at)))];
+        const source = this.value(b, at);
+        const op = i.mnemonic === "add" ? "+" : "-";
+        // The first number as it was, from the result: the result less the second, or plus it after `sub`.
+        const sum = JSON.stringify(source).includes(JSON.stringify(target))
+          ? undefined
+          : ({ op, left: binary(op === "+" ? "-" : "+", target, source), right: source } as const);
+        this.setFlags(i, { kind: "result", value: target, logic: false, ...(sum ? { sum } : {}) });
+        return [this.set(target, binary(op, target, source))];
       }
       case "inc":
       case "dec": {
+        if (a?.kind === "memory" && a.width === 8) {
+          const op = i.mnemonic === "inc" ? "+" : "-";
+          const write = this.setByte(a, binary(op, this.value(a, at), { kind: "constant", value: 1 }), at);
+          this.setFlags(i, { kind: "result", value: this.value(a, at), logic: false });
+          return [write];
+        }
         const target = this.target(a, at);
         this.setFlags(i, { kind: "result", value: target, logic: false });
         return [this.set(target, binary(i.mnemonic === "inc" ? "+" : "-", target, { kind: "constant", value: 1 }))];
@@ -607,6 +887,9 @@ class RoutineReader {
       case "shl":
       case "sar":
       case "shr": {
+        // A word shift left carries into the high byte, and one right takes its sign from bit 15, not 7.
+        if (a?.kind === "memory" && a.width === 8 && i.mnemonic !== "shr")
+          throw new Unreadable(at, `a byte ${i.mnemonic}`);
         const target = this.target(a, at);
         this.setFlags(i, { kind: "result", value: target, logic: false });
         const op = i.mnemonic === "shl" ? "<<" : i.mnemonic === "sar" ? ">>" : ">>>";
@@ -632,6 +915,7 @@ class RoutineReader {
         if (a?.kind === "register" && a.name === "cs") return [];
         const value = this.value(a, at);
         this.sp -= 2;
+        this.wordLocals.add(this.sp);
         return [this.set({ kind: "local", offset: this.sp }, value)];
       }
       case "pop": {
@@ -642,9 +926,10 @@ class RoutineReader {
       }
       case "call": {
         if (!i.target) throw new Unreadable(at, `an indirect call (${i.text})`);
-        const routine = i.target.address;
-        this.calls.add(`${i.target.segment}:${i.target.offset}`);
-        return [{ kind: "call", routine, segment: i.target.segment, offset: i.target.offset, stack: this.sp }];
+        const target = this.reading.resolve?.(i.target.segment, i.target.offset) ?? i.target;
+        const routine = target.segment * 16 + target.offset;
+        this.calls.add(`${target.segment}:${target.offset}`);
+        return [{ kind: "call", routine, segment: target.segment, offset: target.offset, stack: this.sp }];
       }
       case "retf":
       case "ret":
@@ -669,6 +954,7 @@ export function readGoalRoutines(
   segment: number,
   offset: number,
   known = new Map<number, GoalRoutine | GoalProblem>(),
+  reading: GoalReading = {},
 ): Map<number, GoalRoutine | GoalProblem> {
   const pending = [`${segment}:${offset}`];
   const reached = new Set<number>();
@@ -680,7 +966,7 @@ export function readGoalRoutines(
     const calls = new Set<string>();
     if (!known.has(address)) {
       try {
-        const body = new RoutineReader(image, address, s, calls).read();
+        const body = new RoutineReader(image, address, s, calls, reading).read();
         known.set(address, { address, segment: s, offset: o, body });
       } catch (problem) {
         if (!(problem instanceof Unreadable)) throw problem;
@@ -710,7 +996,10 @@ function callsIn(body: GoalStatement[], out = new Set<string>()): Set<string> {
   return out;
 }
 
-/** The words of the data segment a goal reads and writes, for the machine to give it. */
+/**
+ * The words of the data segment a goal reads and writes, for the machine to give it. A word of a far segment comes
+ * with its whole address (`FAR_WORDS` and up, see `farWord`).
+ */
 export interface GoalMemory {
   read(address: number): number;
   write(address: number, value: number): void;
@@ -741,7 +1030,9 @@ export function runGoal(
   let steps = 0;
   const STACK_TOP = 0xf000;
   const onStack = (address: number) => address >= STACK_TOP - 0x2000 && address < STACK_TOP + 0x100;
+  // A word of a far segment (`FAR_WORDS` and up) goes to the memory as it is.
   const read = (address: number) => {
+    if (address >= FAR_WORDS) return memory.read(address) & 0xffff;
     address &= 0xffff;
     if (!onStack(address)) return memory.read(address) & 0xffff;
     const value = stack.get(address);
@@ -749,6 +1040,7 @@ export function runGoal(
     return value;
   };
   const write = (address: number, value: number) => {
+    if (address >= FAR_WORDS) return memory.write(address, value & 0xffff);
     address &= 0xffff;
     if (onStack(address)) stack.set(address, value & 0xffff);
     else memory.write(address, value & 0xffff);
@@ -762,7 +1054,7 @@ export function runGoal(
     const evaluate = (v: GoalValue): number => {
       switch (v.kind) {
         case "constant":
-          return v.value & 0xffff;
+          return v.value >= FAR_WORDS ? v.value : v.value & 0xffff;
         case "register": {
           const value = registers.get(v.name);
           if (value === undefined) throw new UnsetValue(`${v.name} was never set`);
@@ -779,6 +1071,10 @@ export function runGoal(
           const r = evaluate(v.right);
           const sl = l >= 0x8000 ? l - 0x10000 : l;
           const sr = r >= 0x8000 ? r - 0x10000 : r;
+          // A place of a far segment plus or less a number stays in that segment.
+          const far = farWord(Math.max(l, r));
+          if (far && (v.op === "+" || v.op === "-"))
+            return FAR_WORDS + far.segment * 0x10000 + ((far.offset + (v.op === "+" ? Math.min(l, r) : -r)) & 0xffff);
           switch (v.op) {
             case "+":
               return (l + r) & 0xffff;
@@ -866,7 +1162,9 @@ export function runGoal(
           }
           case "loop": {
             for (;;) {
+              // A break in the test's part leaves the loop, as a branch out of `while (a && b)` does.
               const before = exec(s.before);
+              if (before === "break") break;
               if (before) return before;
               if (!holds(s.test)) break;
               const end = exec(s.body);

@@ -218,6 +218,27 @@ describe("summariseGoal", () => {
     ]);
   });
 
+  it("says a word a walk sets once some part passed a test, as that having held at some step", () => {
+    const body = [
+      when(t(word(STEPS), "==", c(0)), [set(word(KEPT), c(0))]),
+      ...walk(FIXED, [ofType(6, [when(t(field("si", 0x12), "==", c(0)), [set(word(KEPT), c(1))])])]),
+      when(t(word(KEPT), "==", c(1)), [met]),
+    ];
+    const routines = new Map([[0x100, { address: 0x100, segment: 0, offset: 0x100, body }]]);
+    const goal = summariseGoal(routines, 0x100, { ...names, firstStep: STEPS });
+    expect(goal.ways).toEqual([
+      [
+        {
+          kind: "some",
+          lists: "the fixed list",
+          types: [{ type: 6, name: "mouse-motor" }],
+          tests: ["stateDelta = 0"],
+          once: "so far",
+        },
+      ],
+    ]);
+  });
+
   it("says why a goal that adds up the parts' fields doesn't fit", () => {
     const goal = summary([
       set(reg("cx"), c(0)),

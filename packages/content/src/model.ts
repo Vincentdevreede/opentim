@@ -45,6 +45,11 @@ export interface Part {
   /** The size TIM 2 mirrors a whole frame in: the game measures a mirrored sprite's place from its far side. */
   mirrorBox?: { width: number; height: number };
   /**
+   * How Toons draws the part when a level marks it to be drawn as tiles, like a wall: tiles this wide (16 or 32) and 16
+   * high, with this many middle tiles taking turns between the two end tiles.
+   */
+  tiles?: { width: number; middles: number };
+  /**
    * The size in TIM 2's `.PAR` file of the part. TIM2.EXE mirrors most parts in it, and gives it to a part whose type
    * has no size of its own.
    */

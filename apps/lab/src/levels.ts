@@ -5,6 +5,7 @@
 
 import {
   PULLEY,
+  TOONS_CRITTERS,
   TIM2_SCREEN,
   readLevel,
   type GoalCondition,
@@ -22,7 +23,12 @@ import {
   type Composition,
   type SpriteOf,
   type Tim2Drawing,
+  type ToonsDrawing,
+  type ToonsPuzzleStart,
+  toonsPuzzleStart,
 } from "@opentim/content";
+import type { Font } from "@opentim/resources";
+import { toonsPicture } from "./toons-drawing.ts";
 import type { Edition } from "./edition.ts";
 import type { Resource } from "./importer.ts";
 import type { Confidence } from "./kinds.ts";
@@ -35,20 +41,32 @@ export interface LevelEntry {
   error?: string;
 }
 
+/** A play area: where its top left corner is in the level's pixels, and its size. */
+export interface PlayArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /**
  * The play area of TIM 1 and Even More, in pixels, measured from where the levels put their parts: all but a few fit
  * in it, and the ones outside stand just off its edge. TIM.EXE starts the view at -8, -8.
  */
-export const PLAY_AREA = { width: 576, height: 368 };
+export const PLAY_AREA: PlayArea = { x: 0, y: 0, width: 576, height: 368 };
 /**
  * The play area by layout. TIM 2's is its screen, 640 × 400: TIM2.EXE's goal routine counts a part off the screen when
  * its middle is outside it, and its panels are drawn in a frame of that size. While a puzzle is set up, the control
  * panel covers the left 48 pixels and the parts bin the right 80.
+ *
+ * Toons' is its screen too, 640 × 400, seen from -91, -8: when a puzzle starts, TOONS.EXE sets the view to -91 across
+ * and -8 down (over the level's own scroll words) and draws the whole screen, so the play area runs from -91 to 549
+ * across and from -8 to 392 down.
  */
-export const PLAY_AREAS: Record<LevelLayout, { width: number; height: number }> = {
+export const PLAY_AREAS: Record<LevelLayout, PlayArea> = {
   tim: PLAY_AREA,
-  toons: PLAY_AREA,
-  tim2: TIM2_SCREEN,
+  toons: { x: -91, y: -8, width: 640, height: 400 },
+  tim2: { x: 0, y: 0, ...TIM2_SCREEN },
 };
 /** The games of each level layout, for display. */
 export const LAYOUT_NAMES: Record<LevelLayout, string> = { tim: "TIM 1, Even More", toons: "Toons", tim2: "TIM 2" };
@@ -95,9 +113,16 @@ export function readLevels(resources: readonly Resource[], layout: LevelLayout):
  * - `tiles`: 16 × 16 tiles, for parts with bit 0x40 in the first flag word, like walls.
  * - `line`: a rope or a belt, drawn as lines between the parts it ties.
  * - `block`: TIM 2's colour block, a box filled with one colour.
+ * - `code`: a Toons part its type's own drawing code draws, like the counter with its digits.
  * - `outline`: nothing to draw it with, so only its box is shown.
  */
-export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "block" | "outline";
+export type DrawHow = "frame" | "sprite" | "tiles" | "line" | "block" | "code" | "outline";
+
+/** What the Toons types with drawing code of their own need: the code's tables and the message machine's font. */
+export interface ToonsCode {
+  drawing: ToonsDrawing;
+  font?: Font;
+}
 
 export interface DrawnPart {
   part: LevelPart;
@@ -142,11 +167,11 @@ export interface Note {
 
 export interface Scene {
   /** The play area of the level's game. */
-  area: { width: number; height: number };
+  area: PlayArea;
   /** The static and moving parts, in the order the file stores them, which is also the drawing order. */
   parts: DrawnPart[];
   lines: Line[];
-  /** Parts waiting in the bin, which aren't on the board. */
+  /** Parts waiting in the bin, which aren't on the board; for a Toons puzzle in the order TOONS.EXE keeps them. */
   bin: LevelPart[];
   notes: Note[];
   /** The knot TIM.EXE draws at a rope's ends: picture 36 of GP_BORD, 5 pixels left of and 2 above the slot. */
@@ -185,32 +210,88 @@ function noteMarks(level: Level, spriteOf: SpriteOf): NoteMark[] {
 const TIM2_FIXED = 0x40;
 /** Bit 0x100 of TIM 2's third flag word: the part stays in the bin when the game shows the puzzle's solution. */
 const TIM2_NOT_IN_SOLUTION = 0x100;
+/** Where a part is when the puzzle starts: on its list, in the bin, or `gone` for a Toons tunnel the setup frees. */
+export type StartGroup = LevelPart["group"] | "gone";
+
+/**
+ * The words of TOONS.EXE's type table that Toons sorts its parts by: `kinds` for the parts lists
+ * (`readToonsListKinds`), `binKinds` for the bin (`readToonsBinKinds`).
+ */
+export interface ToonsSort {
+  kinds: ReadonlyMap<number, number>;
+  binKinds: ReadonlyMap<number, number>;
+}
+
+const toonsStarts = new WeakMap<Level, { sort: ToonsSort; start: ToonsPuzzleStart }[]>();
+/** TOONS.EXE's puzzle start of a level (`toonsPuzzleStart`), worked out once per level and sort words. */
+export function toonsStart(level: Level, sort: ToonsSort): ToonsPuzzleStart {
+  const known = toonsStarts.get(level) ?? [];
+  const found = known.find((k) => k.sort.kinds === sort.kinds && k.sort.binKinds === sort.binKinds);
+  if (found) return found.start;
+  const start = toonsPuzzleStart(level, sort.kinds, sort.binKinds);
+  toonsStarts.set(level, [...known.slice(-3), { sort, start }]);
+  return start;
+}
+
 /**
  * The list a part is on when the puzzle starts. TIM 1 keeps its parts bin as a third list in the file. TIM 2 keeps
  * every part on the board in the file, and when a puzzle starts TIM2.EXE drops every part without bit 0x40 of the
  * third flag word into the parts bin, so those are the bin. When the player asks for the designer's solution, it loads
  * the level again and leaves on the board the parts with neither 0x40 nor 0x100: those are the solution.
+ *
+ * Toons has no bin in its files either. TOONS.EXE's puzzle setup puts every part without bit 0x40 in the bin, and with
+ * it the ropes and belts tied to it and the other end of a tunnel, which it frees (`toonsPuzzleStart`); a rope or a
+ * belt between two parts that stay stays on the board. The type table's sort words (`sort`) decide which tunnel of a
+ * pair goes to the bin, so a Toons puzzle needs them. Where the file puts the parts is the solution. The bits that are
+ * 0x100 in TIM 2 aren't set in Toons' levels.
  */
-export const groupOf = (level: Level, part: LevelPart, solution = false): LevelPart["group"] => {
+export const groupOf = (level: Level, part: LevelPart, solution = false, sort?: ToonsSort): StartGroup => {
   const third = part.flags[2] ?? 0;
-  if (level.layout !== "tim2" || third & TIM2_FIXED) return part.group;
+  if (level.layout === "toons") {
+    if (solution) return part.group;
+    if (!sort) throw new Error("A Toons puzzle starts by the sort words of TOONS.EXE.");
+    const start = toonsStart(level, sort);
+    return start.bin.has(part.index) ? "bin" : start.gone.has(part.index) ? "gone" : part.group;
+  }
+  if (level.layout === "tim" || third & TIM2_FIXED) return part.group;
   return solution && !(third & TIM2_NOT_IN_SOLUTION) ? part.group : "bin";
 };
 
-/** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
-const TILED = 0x40;
+/** The Toons types whose setting TOONS.EXE reads, and what it counts for them. */
+const TOONS_SHOTS: Record<number, [string, string]> = {
+  20: ["shot", "shots"],
+  22: ["boulder", "boulders"],
+  69: ["egg", "eggs"],
+};
+
 /**
- * How TIM 2 draws a part without TIM2.EXE's type table. The levels keep the flag bits of the part's type: every type
- * TIM2.EXE draws with its wall routine has bit 0x2000 of the third word except the large pipes, every type it
- * draws with its tile pattern routine has bits 0x1080 and not 0x0400, and only the colour block has all of 0x1480.
+ * A Toons part's setting in words, as TOONS.EXE reads it for the part's type, or undefined for a type whose code
+ * doesn't read it. The timer counts its time down in the low byte; the counter keeps its count with bit 0x4000 when it
+ * counts down; the message machine shows the setting as text, one letter in the shipped levels; the thumpulator takes
+ * its number of sections from bits 4 to 7; the pistol, the catapult and the hen use one up with each shot.
  */
-function tim2DrawingFromFlags(part: LevelPart): Tim2Drawing {
-  const third = part.flags[2] ?? 0;
-  if (third & 0x2000) return "wall";
-  if ((third & 0x1480) === 0x1480) return "block";
-  return (third & 0x1480) === 0x1080 ? "pattern" : "frame";
+export function toonsSetting(type: number, setting: number): string | undefined {
+  const count = (n: number, [one, more]: [string, string]) => `${n} ${n === 1 ? one : more}`;
+  switch (type) {
+    case 38:
+      return `time ${setting & 0xff}`;
+    case 39:
+      return `count ${setting & 0xbfff}, counting ${setting & 0x4000 ? "down" : "up"}`;
+    case 40:
+      return count((setting >> 4) & 0xf, ["section", "sections"]);
+    case 42: {
+      // The text ends at a 0 byte: the high byte is 0 for a single letter.
+      const bytes = [setting & 0xff, setting >> 8];
+      const end = bytes.indexOf(0);
+      return `“${String.fromCharCode(...(end < 0 ? bytes : bytes.slice(0, end)))}”`;
+    }
+  }
+  const shots = TOONS_SHOTS[type];
+  return shots ? count(setting, shots) : undefined;
 }
 
+/** Bit 0x40 of the first flag word: TIM.EXE draws the part as 16 × 16 tiles. */
+const TILED = 0x40;
 /**
  * TIM2.EXE's colour block routine: a box the part's size, filled and outlined in the palette colour of the low byte
  * of the part's extra word, colour 5 when that is 0.
@@ -253,6 +334,35 @@ export function tiles(part: LevelPart, sheet: string): Placement[] {
     }
     down ^= 1;
   }
+  return out;
+}
+
+/**
+ * The tiles of a Toons part drawn as tiles, as TOONS.EXE draws them: `width` wide (32 for the ladder, else 16) and 16
+ * high. A row starts with the sprite of the state and ends with state + middles + 1; a column starts with state +
+ * middles + 2 and ends with state + 2 × middles + 3. The tiles between take the middle sprites in turn, from the first.
+ * A part both wider and taller than a tile repeats the state.
+ */
+export function toonsTiles(part: LevelPart, sheet: string, { width, middles }: { width: number; middles: number }) {
+  const columns = Math.floor(part.size.width / width);
+  const rows = part.size.height >> 4;
+  const state = part.state[0];
+  let turn = 0;
+  let sprite = state;
+  const out: Placement[] = [];
+  for (let row = 0; row < rows; row++)
+    for (let column = 0; column < columns; column++) {
+      if (rows === 1)
+        sprite = column === 0 ? state : column === columns - 1 ? state + middles + 1 : state + (turn++ % middles) + 1;
+      else if (columns === 1)
+        sprite =
+          row === 0
+            ? state + middles + 2
+            : row === rows - 1
+              ? state + 2 * middles + 3
+              : state + middles + (turn++ % middles) + 3;
+      out.push({ sheet, sprite, x: column * width, y: row * TILE, layer: 0 });
+    }
   return out;
 }
 
@@ -389,7 +499,7 @@ function drawPart(
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  drawingFrom = "TIM2.EXE’s",
+  toons?: ToonsCode,
 ): DrawnPart {
   const listPart = list?.parts.find((p) => p.type === part.type);
   const flags2 = part.flags[1] ?? 0;
@@ -415,8 +525,8 @@ function drawPart(
   }
   const sheet = listPart.sheets[0];
   if (layout === "tim2") {
-    const how = drawing?.get(part.type) ?? tim2DrawingFromFlags(part);
-    const by = drawing?.has(part.type) ? drawingFrom : "the flags’";
+    const how = drawing?.get(part.type) ?? "frame";
+    const by = "TIM2.EXE’s";
     if (how === "block") {
       const shape = blockShape(part);
       const composition = compose([], spriteOf, { shapes: [shape] });
@@ -434,9 +544,15 @@ function drawPart(
         return { ...base, how: "tiles", detail: `a pattern of tiles, by ${by} pattern rule`, composition, clip };
     }
   } else if ((part.flags[0] ?? 0) & TILED && sheet) {
-    const composition = compose(tiles(part, sheet), spriteOf);
+    const toons = layout === "toons" && listPart.tiles;
+    const composition = compose(toons ? toonsTiles(part, sheet, toons) : tiles(part, sheet), spriteOf);
     if (composition.missing.length) return { ...base, how: "outline", detail: `tiles of ${sheet} are missing` };
     return { ...base, how: "tiles", detail: `tiles of ${sheet} from sprite ${state}`, composition };
+  }
+  if (layout === "toons" && toons && sheet) {
+    const picture = toonsPicture(part, listPart.frames, sheet, toons.drawing, spriteOf, toons.font);
+    const composition = picture && compose(picture.sprites, spriteOf, { shapes: picture.shapes ?? [] });
+    if (picture && composition?.placed.length) return { ...base, how: "code", detail: picture.detail, composition };
   }
   // In TIM 2 the state picks a frame from the animation's list of states.
   const shown = listPart.states?.[state] ?? state;
@@ -449,6 +565,9 @@ function drawPart(
     const detail = shown === state ? `frame ${state}` : `frame ${shown} for state ${state}`;
     if (composition.placed.length) return { ...base, how: "frame", detail, composition };
   }
+  // Al and Sid have no sheet of their own: a frame without sprites is one whose action names no sheet.
+  if (layout === "toons" && TOONS_CRITTERS.includes(part.type))
+    return { ...base, how: "outline", detail: `frame ${state} has no sheet` };
   if (!sheet) return { ...base, how: "outline", detail: "no sprite sheet" };
   if (!spriteOf(sheet, state)) return { ...base, how: "outline", detail: `${sheet} has no sprite ${state}` };
   const single: Placement[] = [{ sheet, sprite: state, x: 0, y: 0, layer: 0 }];
@@ -529,16 +648,28 @@ function beltLine(belt: LevelPart, parts: readonly LevelPart[]): Line | undefine
 const plural = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
 const numbers = (parts: { part: LevelPart }[]) => parts.map((p) => `#${p.part.index}`).join(", ");
 
-/** Lays out a level for drawing, and lists what the drawing leaves out or guesses. */
+/**
+ * Lays out a level for drawing, and lists what the drawing leaves out or guesses. A TIM 2 level takes how TIM2.EXE
+ * draws each type (`drawing`), a Toons puzzle TOONS.EXE's drawing code (`toons`) and sort words (`toonsSort`).
+ */
 export function layoutScene(
   level: Level,
   list: PartList | undefined,
   spriteOf: SpriteOf,
   drawing?: ReadonlyMap<number, Tim2Drawing>,
-  { solution = false, drawingFrom = "TIM2.EXE’s" }: { solution?: boolean; drawingFrom?: string } = {},
+  { solution = false, toons, toonsSort }: { solution?: boolean; toons?: ToonsCode; toonsSort?: ToonsSort } = {},
 ): Scene {
-  const board = level.parts.filter((p) => groupOf(level, p, solution) !== "bin");
-  const parts = board.map((p) => drawPart(p, level.layout, list, spriteOf, drawing, drawingFrom));
+  const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsSort)]));
+  const board = level.parts.filter((p) => groups.get(p) !== "bin" && groups.get(p) !== "gone");
+  // A Toons puzzle starts with the bin in TOONS.EXE's order and the parts on the board as its setup leaves them.
+  const start = level.layout === "toons" && !solution && toonsSort ? toonsStart(level, toonsSort) : undefined;
+  const atStart = (p: LevelPart): LevelPart => {
+    const state = start?.states.get(p.index);
+    const plugs = start?.plugs.get(p.index);
+    if (state === undefined && !plugs) return p;
+    return { ...p, ...(state === undefined ? {} : { state: [state, p.state[1]] }), ...(plugs ? { plugs } : {}) };
+  };
+  const parts = board.map((p) => drawPart(atStart(p), level.layout, list, spriteOf, drawing, toons));
   const pulley = PULLEY[level.layout];
   const lines: Line[] = [];
   for (const d of parts) {
@@ -554,6 +685,12 @@ export function layoutScene(
       title: "No part list for this game.",
       detail: "Without one the parts can’t be drawn, so only their boxes are shown.",
     });
+  if (level.layout === "tim2" && !drawing)
+    notes.push({
+      status: "partial",
+      title: "Walls and patterns drawn as frames.",
+      detail: "TIM2.EXE’s type table wasn’t found, so its wall, pattern and block rules aren’t known.",
+    });
   const outlined = parts.filter((p) => p.how === "outline");
   if (list && outlined.length)
     notes.push({
@@ -568,23 +705,49 @@ export function layoutScene(
       title: `${plural(broken.length, "rope")} with a route that doesn’t close.`,
       detail: `${broken.map((l) => `#${l.part}`).join(", ")}: the links lead to a part that isn’t a pulley, so the last piece is drawn straight.`,
     });
+  const gone = level.parts.filter((p) => groups.get(p) === "gone");
+  if (gone.length)
+    notes.push({
+      status: "decoded",
+      title: `${plural(gone.length, "tunnel")} taken off.`,
+      detail: `${gone.map((p) => `#${p.index}`).join(", ")}: the other end of a tunnel in the bin. TOONS.EXE takes it off as the puzzle starts and makes a new one when the player puts the tunnel on the board.`,
+    });
+  // The plugs the setup pulls out of a part that stays on the board, and the states it changes there.
+  const pulled = start?.unplugged.filter((u) => !start.bin.has(u.into) || !start.bin.has(u.part)) ?? [];
+  if (pulled.length)
+    notes.push({
+      status: "decoded",
+      title: `${plural(pulled.length, "plug")} pulled out.`,
+      detail: `${pulled.map((u) => `#${u.part} from #${u.into}`).join(", ")}: the puzzle start unplugs what it puts in the bin.`,
+    });
+  if (start?.states.size)
+    notes.push({
+      status: "decoded",
+      title: `${plural(start.states.size, "part")} with another state.`,
+      detail: `${[...start.states].map(([i, state]) => `#${i} ${state}`).join(", ")}: drawn with the state the puzzle start leaves them in.`,
+    });
   const knot = compose([KNOT], spriteOf);
   return {
     area: PLAY_AREAS[level.layout],
     parts,
     lines,
-    bin: level.parts.filter((p) => groupOf(level, p, solution) === "bin"),
+    bin: start ? start.binOrder.map((i) => level.parts[i]!) : level.parts.filter((p) => groups.get(p) === "bin"),
     notes,
     knot,
     noteMarks: noteMarks(level, spriteOf),
   };
 }
 
-/** The parts a goal's condition looks at: the one part it names, or else every part of its types. */
-export const goalPartsOf = (condition: GoalCondition, parts: readonly DrawnPart[]): DrawnPart[] =>
-  condition.part !== undefined
-    ? parts.filter((d) => d.part.index === condition.part)
+/**
+ * The parts a goal's condition looks at: the one part it names, or `one`, the part the level decides it is about (like
+ * the n-th part of a type in a Toons goal), or else every part of its types.
+ */
+export const goalPartsOf = (condition: GoalCondition, parts: readonly DrawnPart[], one?: number): DrawnPart[] => {
+  const index = condition.part ?? one;
+  return index !== undefined
+    ? parts.filter((d) => d.part.index === index)
     : parts.filter((d) => condition.types?.some((t) => t.type === d.part.type));
+};
 
 /** The topmost part at a point of the level, for clicks. Lines can't be picked; their part shows in the structure. */
 export function partAt(scene: Scene, point: Point): DrawnPart | undefined {

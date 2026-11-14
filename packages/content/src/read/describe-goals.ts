@@ -4,6 +4,7 @@
  * the exact form; this is only a way to read it.
  */
 import {
+  farWord,
   type GoalProblem,
   type GoalRoutine,
   type GoalStatement,
@@ -24,18 +25,55 @@ export interface GoalNames {
   listNext?: number;
   /** Other words of the data segment by address, like the game mode word. */
   words: ReadonlyMap<number, string>;
-  /** The game mode word and the value that ends the run. */
-  mode?: { word: number; met: number };
+  /**
+   * The word a goal writes when it is met, and the value that ends the run. Without a value, any write meets the goal:
+   * Toons' goals write how many steps the run goes on before it ends.
+   */
+  mode?: { word: number; met?: number };
   /** Names for routines a goal calls, like "puzzle 17's goal". */
   routines?: ReadonlyMap<number, string>;
+  /**
+   * A routine that gives the n-th part of a type on the lists the mask names (its arguments: the type, n from 1 and the
+   * mask), as Toons' goals find their parts. A call to it is said as what it finds.
+   */
+  finder?: number;
+  /** How many bytes a part's record has, so an offset below it is a field: TIM's 0xa0 when not given. */
+  partSize?: number;
+  /**
+   * The step count word, for a goal that sets up the words it keeps in the step whose count is 0, as Toons' goals do
+   * (`if the step count = 0: …`). The conditions read such a goal as the steps after the first, with the words set up.
+   */
+  firstStep?: number;
+  /** Whether a loop with a counter is run round by round for the conditions, as Toons' goals go over their parts. */
+  countedLoops?: boolean;
+  /**
+   * A value of a field of a part of a type in words, like the sheet of Al's action, when there is a name for it. `part`
+   * has the values the other tests fix the part's fields to, by offset.
+   */
+  valueName?: (type: number, offset: number, value: number, part: ReadonlyMap<number, number>) => string | undefined;
+  /**
+   * A field of a part of a type that holds another part, in words, like Al's angel. With it the conditions follow a
+   * field to the part it holds; without it, reading memory through a field doesn't fit them.
+   */
+  linkName?: (type: number, offset: number) => string | undefined;
+  /** Words of the data segment that hold the same value all the time, which a read through a 0 part finds. */
+  fixedWords?: ReadonlyMap<number, number>;
+  /** Whether a test of a sum's sign with its own test for -32768 is said as the sum against 0, as Toons' goals have. */
+  exactSums?: boolean;
 }
 
 const TYPE = 0x04;
-const PART_SIZE = 0xa0;
+/** A TIM part's record size: an offset below it from a part's address is one of its fields. */
+export const PART_SIZE = 0xa0;
 
 type Routines = ReadonlyMap<number, GoalRoutine | GoalProblem>;
 
 const hex = (value: number) => `0x${value.toString(16)}`;
+/** A word's address: a far one as its segment and offset. */
+const place = (address: number) => {
+  const far = farWord(address);
+  return far ? `${hex(far.segment)}:${far.offset.toString(16).padStart(4, "0")}` : hex(address);
+};
 const signed = (value: number) => (value >= 0x8000 ? value - 0x10000 : value);
 const isRegister = (v: GoalValue, name?: string): v is { kind: "register"; name: string } =>
   v.kind === "register" && (name === undefined || v.name === name);
@@ -58,7 +96,19 @@ export interface Search {
   test: GoalTest;
 }
 
-export type Shown = GoalStatement | Walk | Search;
+/** A call to the finder: the n-th part of a type on some lists, put in `target`. */
+export interface Find {
+  kind: "find";
+  /** Where the part goes: the word the result is stored in right after the call, or `ax`. */
+  target: GoalValue;
+  /** Whether the statement after the call, the store, is taken too. */
+  stored: boolean;
+  type: GoalValue;
+  nth: GoalValue;
+  mask: GoalValue;
+}
+
+export type Shown = GoalStatement | Walk | Search | Find;
 
 /**
  * The constant a body pushes at `k` (a set of a local below the frame), directly or from a register set to it just
@@ -102,6 +152,56 @@ function listsByMasks(names: GoalNames, head: number, next: number): string | un
   return walked.join(", then ");
 }
 
+/** An expression with a register replaced by a value. */
+function substitute(v: GoalValue, name: string, by: GoalValue): GoalValue {
+  if (isRegister(v, name)) return by;
+  if (v.kind === "binary") return { ...v, left: substitute(v.left, name, by), right: substitute(v.right, name, by) };
+  if (v.kind === "word") return { ...v, address: substitute(v.address, name, by) };
+  return v;
+}
+
+/**
+ * A call to the finder at `call`, with its three arguments pushed before it (each maybe from a register worked out
+ * just before) and its result stored right after it: what to say instead, and where the statements it takes start.
+ */
+function finding(
+  body: readonly GoalStatement[],
+  call: number,
+  finder: number,
+): { find: Find; start: number } | undefined {
+  const c = body[call];
+  const store = body[call + 1];
+  if (c?.kind !== "call" || c.routine !== finder) return undefined;
+  const stored = store?.kind === "set" && isRegister(store.value, "ax");
+  const args: GoalValue[] = [];
+  let at = call - 1;
+  for (let n = 0; n < 3; n++) {
+    const push = body[at];
+    if (push?.kind !== "set" || push.target.kind !== "local" || push.target.offset !== c.stack + 2 * n)
+      return undefined;
+    let value = push.value;
+    at--;
+    // The register pushed, worked out in the statements just before: `ax = si; ax += 1`. Only ax and dx, which the
+    // call changes: another register keeps its value after the call, so its sets stay.
+    for (let before = body[at]; ; before = body[at]) {
+      if (!isRegister(value) || !["ax", "dx"].includes(value.name)) break;
+      if (before?.kind !== "set" || !isRegister(before.target, value.name)) break;
+      const name = value.name;
+      value = before.value;
+      at--;
+      // Earlier sets of the same register build the value up: substitute them in.
+      for (let earlier = body[at]; earlier?.kind === "set" && isRegister(earlier.target, name); earlier = body[at]) {
+        value = substitute(value, name, earlier.value);
+        at--;
+      }
+    }
+    args.push(value);
+  }
+  const [type, nth, mask] = args as [GoalValue, GoalValue, GoalValue];
+  const target: GoalValue = stored ? store.target : { kind: "register", name: "ax" };
+  return { find: { kind: "find", target, stored, type, nth, mask }, start: at + 1 };
+}
+
 /** Finds the walks and searches in a body and shows them as such; the rest stays as it is. */
 export function shape(body: readonly GoalStatement[], names: GoalNames): Shown[] {
   const out: Shown[] = [];
@@ -109,6 +209,18 @@ export function shape(body: readonly GoalStatement[], names: GoalNames): Shown[]
   for (let k = 0; k < body.length; k++) {
     const s = body[k]!;
     const loop = body[k + 1];
+    const found = names.finder === undefined ? undefined : finding(body, k, names.finder);
+    // The pushes and the registers loaded for them were shown one to one before; the finding takes their place.
+    if (
+      found &&
+      out.length >= k - found.start &&
+      out.slice(out.length - (k - found.start)).every((x) => x.kind === "set")
+    ) {
+      out.splice(out.length - (k - found.start));
+      out.push(found.find);
+      if (found.find.stored) k++;
+      continue;
+    }
     // r = [list head]; while r != 0: body; r = [r]
     if (
       s.kind === "set" &&
@@ -211,6 +323,20 @@ export function withoutSaves(body: readonly GoalStatement[]): GoalStatement[] {
   return body.slice(k);
 }
 
+export const ordinal = (n: number) =>
+  `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th"}`;
+
+/** The lists a mask names, by the bits the list routines test: 0x2000 fixed, 0x1000 moving, 0x0800 the third. */
+const MASK_LISTS: [number, string][] = [
+  [0x2000, "the fixed list"],
+  [0x1000, "the moving list"],
+  [0x0800, "the third list"],
+];
+export const masked = (mask: number) => {
+  const lists = MASK_LISTS.filter(([bit]) => mask & bit).map(([, name]) => name);
+  return lists.length ? lists.join(" or ") : `the lists ${hex(mask)}`;
+};
+
 const OPS: Record<GoalTest["op"], string> = { "==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥" };
 
 /**
@@ -237,7 +363,7 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
           return (
             names.words.get(a.value) ??
             names.lists.find((l) => l.head === a.value)?.name.replace(/^the /, "the first part on the ") ??
-            `word ${hex(a.value)}`
+            `word ${place(a.value)}`
           );
         if (isRegister(a)) return `${value(a)}.next`;
         if (
@@ -245,11 +371,11 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
           a.op === "+" &&
           isRegister(a.left) &&
           isConstant(a.right) &&
-          a.right.value < PART_SIZE
+          a.right.value < (names.partSize ?? PART_SIZE)
         )
           return `${value(a.left)}.${names.fields.get(a.right.value) ?? hex(a.right.value)}`;
         if (a.kind === "binary" && a.op === "+" && isConstant(a.right))
-          return `word ${hex(a.right.value)}[${value(a.left)}]`;
+          return `word ${place(a.right.value)}[${value(a.left)}]`;
         return `word [${value(a)}]`;
       }
       case "binary": {
@@ -289,6 +415,13 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
           parts.delete(s.part);
           break;
         }
+        case "find": {
+          const type = isConstant(s.type) ? (names.types.get(s.type.value) ?? `type ${s.type.value}`) : value(s.type);
+          const nth = isConstant(s.nth) ? ordinal(s.nth.value) : `number ${value(s.nth)}`;
+          const lists = isConstant(s.mask) ? masked(s.mask.value) : `the lists ${value(s.mask, true)}`;
+          lines.push(`${pad}${value(s.target)} = the ${nth} ${type} on ${lists}, or 0 if there is none`);
+          break;
+        }
         case "search":
           lines.push(
             `${pad}${s.part} = the first part from the start of ${s.list} where ${test(negate(s.test)).replace(new RegExp(`\\b${s.part}\\b`, "g"), "it")}, going on past the list's end if none is`,
@@ -297,11 +430,14 @@ export function describeGoal(routines: Routines, start: number, names: GoalNames
         case "set": {
           const target = value(s.target);
           if (names.mode && s.target.kind === "word" && isConstant(s.target.address, names.mode.word)) {
-            lines.push(
-              isConstant(s.value, names.mode.met)
-                ? `${pad}the goal is met`
-                : `${pad}${target} = ${value(s.value, true)}`,
-            );
+            if (names.mode.met === undefined)
+              lines.push(`${pad}the goal is met, and the run ends ${value(s.value)} steps later`);
+            else
+              lines.push(
+                isConstant(s.value, names.mode.met)
+                  ? `${pad}the goal is met`
+                  : `${pad}${target} = ${value(s.value, true)}`,
+              );
             break;
           }
           const v = s.value;

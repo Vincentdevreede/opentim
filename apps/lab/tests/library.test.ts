@@ -10,6 +10,7 @@ import {
   failure,
   forget,
   importFiles,
+  missingProgram,
   needsLanguage,
   phase,
   program,
@@ -31,19 +32,22 @@ function archive(sprite: string, name = "RESOURCE.001") {
   return new File([new Uint8Array([...entry("TIM.PAL"), ...entry(sprite)])], name);
 }
 
+/** A game's program. The Lab only reads it as bytes, so two are enough. */
+const exe = (name = "TIM.EXE") => new File([Uint8Array.of(0x4d, 0x5a)], name);
+
 /** Adds a version made of these files to the catalog, for one test. */
-async function known(id: string, ...files: File[]) {
+async function known(id: string, files: File[], program = "TIM.EXE") {
   const hashes = files.map(async (f) => ({
     name: f.name,
     sha256: await sha256(new Uint8Array(await f.arrayBuffer())),
   }));
-  PROFILES.push({ id, name: id, languages: ["en"], files: await Promise.all(hashes) });
+  PROFILES.push({ id, name: id, languages: ["en"], program, files: await Promise.all(hashes) });
 }
 const catalogSize = PROFILES.length;
 
-/** Imports files and continues, like the user does on the start screen. */
+/** Imports files with the game's program and continues, like the user does on the start screen. */
 async function load(...files: File[]) {
-  await importFiles(files);
+  await importFiles([...files, exe()]);
   await confirmImport();
 }
 
@@ -117,6 +121,7 @@ beforeEach(() => {
   discard();
   resources.value = [];
   archives.value = [];
+  program.value = undefined;
   selected.value = undefined;
   failure.value = undefined;
   phase.value = "empty";
@@ -133,7 +138,7 @@ afterEach(() => {
 describe("staged import", () => {
   it("waits for the user to continue before loading and saving", async () => {
     const disk = storage();
-    await importFiles([archive("A.BMP")]);
+    await importFiles([archive("A.BMP"), exe()]);
     expect(phase.value).toBe("staged");
     expect(staging.value?.edition.status).toBe("unknown");
     expect(resources.value).toEqual([]);
@@ -148,26 +153,31 @@ describe("staged import", () => {
   it("adds an add-on over the game, replacing files and resources with the same name", async () => {
     storage();
     const game = [archive("A.BMP", "RESOURCE.001"), archive("B.BMP", "RESOURCE.002")];
-    await known("tim1-en", ...game);
-    await importFiles(game);
+    await known("tim1-en", game);
+    await importFiles([...game, exe()]);
     expect(staging.value?.edition.status).toBe("recognized");
     await importFiles([archive("C.BMP", "RESOURCE.002"), archive("A.BMP", "RESOURCE.003")]);
-    expect(staging.value?.files.map((a) => a.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.003"]);
+    expect(staging.value?.files.map((a) => a.name)).toEqual([
+      "RESOURCE.001",
+      "RESOURCE.002",
+      "RESOURCE.003",
+      "TIM.EXE",
+    ]);
     expect(staging.value?.resources.map((r) => [r.name, r.archive])).toEqual([
       ["A.BMP", "RESOURCE.003"],
       ["C.BMP", "RESOURCE.002"],
       ["TIM.PAL", "RESOURCE.003"],
     ]);
     await confirmImport();
-    expect(archives.value.map((a) => a.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.003"]);
+    expect(archives.value.map((a) => a.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.003", "TIM.EXE"]);
   });
 
   it("starts over with new files when the staged game has no add-on", async () => {
     storage();
     const names = ["TIM.PAL", "PART1.BMP", "FF.LEV"];
     const demo = new File([writeArchive(names.map((name) => ({ name, data: Uint8Array.of(1) })))], "RESOURCE.001");
-    await known("tim1-en-demo", demo);
-    await importFiles([demo]);
+    await known("tim1-en-demo", [demo]);
+    await importFiles([demo, exe()]);
     expect(staging.value?.edition.status).toBe("recognized");
     await importFiles([archive("B.BMP", "RESOURCE.002")]);
     expect(staging.value?.files.map((a) => a.name)).toEqual(["RESOURCE.002"]);
@@ -196,7 +206,7 @@ describe("staged import", () => {
       { name: "RESOURCE.001", offsets: [0, 18] },
       { name: "RESOURCE.002", offsets: [0, 18] },
     ]);
-    await importFiles([archive("A.BMP", "RESOURCE.001"), new File([map], "RESOURCE.MAP")]);
+    await importFiles([archive("A.BMP", "RESOURCE.001"), new File([map], "RESOURCE.MAP"), exe()]);
     expect(staging.value?.map).toMatchObject({ missing: ["RESOURCE.002"], problems: [] });
     await confirmImport();
     expect(phase.value).toBe("staged");
@@ -206,13 +216,12 @@ describe("staged import", () => {
     await confirmImport();
     expect([...disk.directories.values()][0]!.has("RESOURCE.MAP")).toBe(true);
     await restore();
-    expect(archives.value.map((a) => a.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.MAP"]);
+    expect(archives.value.map((a) => a.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.MAP", "TIM.EXE"]);
   });
 
   it("keeps the game's program with the archives, saves it and restores it", async () => {
     const disk = storage();
-    const exe = new File([Uint8Array.of(0x4d, 0x5a)], "TIM.EXE");
-    await importFiles([archive("A.BMP", "RESOURCE.001"), exe]);
+    await importFiles([archive("A.BMP", "RESOURCE.001"), exe()]);
     expect(staging.value?.files.map((f) => f.name)).toEqual(["RESOURCE.001", "TIM.EXE"]);
     expect(staging.value?.edition.status).toBe("unknown");
     await confirmImport();
@@ -224,6 +233,36 @@ describe("staged import", () => {
     expect(program.value?.name).toBe("TIM.EXE");
     await forget();
     expect(program.value).toBeUndefined();
+  });
+
+  it("doesn't open a game until its program is added", async () => {
+    const disk = storage();
+    await importFiles([archive("A.BMP", "RESOURCE.001")]);
+    expect(missingProgram(staging.value!)).toEqual(["TIM.EXE", "TIM2.EXE", "TOONS.EXE"]);
+    expect(staging.value?.log).toContain("[import] program       missing   TIM.EXE or TIM2.EXE or TOONS.EXE");
+    await confirmImport();
+    expect(phase.value).toBe("staged");
+    expect(resources.value).toEqual([]);
+    expect(disk.directories.size).toBe(0);
+    await importFiles([exe("TIM2.EXE")]);
+    expect(missingProgram(staging.value!)).toBeUndefined();
+    await confirmImport();
+    expect(phase.value).toBe("loaded");
+    expect(program.value?.name).toBe("TIM2.EXE");
+  });
+
+  it("asks a known version for its own program, by name", async () => {
+    storage();
+    const game = [archive("A.BMP", "RESOURCE.001")];
+    await known("toons-en-floppy", game, "TOONS.EXE");
+    await importFiles([...game, exe("TIM.EXE")]);
+    expect(staging.value?.edition.status).toBe("recognized");
+    expect(missingProgram(staging.value!)).toEqual(["TOONS.EXE"]);
+    await confirmImport();
+    expect(phase.value).toBe("staged");
+    await importFiles([exe("TOONS.EXE")]);
+    await confirmImport();
+    expect(program.value?.name).toBe("TOONS.EXE");
   });
 
   it("installs the chosen language from installation disks before continuing", async () => {
@@ -245,6 +284,7 @@ describe("staged import", () => {
       new File([pack("FR.BMP")], "FRENCH.RES"),
       new File([pack("DE.BMP")], "GERMAN.RES"),
       new File([palette], "RESOURCE.001"),
+      exe(),
     ]);
     expect(staging.value?.languages).toEqual(["FRENCH", "GERMAN"]);
     expect(needsLanguage(staging.value!)).toBe(true);
@@ -253,7 +293,12 @@ describe("staged import", () => {
 
     await chooseLanguage("FRENCH");
     await chooseLanguage("GERMAN");
-    expect(staging.value?.files.map((f) => f.name)).toEqual(["RESOURCE.001", "RESOURCE.002", "RESOURCE.MAP"]);
+    expect(staging.value?.files.map((f) => f.name)).toEqual([
+      "RESOURCE.001",
+      "RESOURCE.002",
+      "RESOURCE.MAP",
+      "TIM.EXE",
+    ]);
     expect(staging.value?.map).toMatchObject({ missing: [], problems: [] });
     await confirmImport();
     expect(resources.value.map((r) => r.name)).toEqual(["DE.BMP", "TIM.PAL"]);
@@ -261,6 +306,7 @@ describe("staged import", () => {
       "RESOURCE.001",
       "RESOURCE.002",
       "RESOURCE.MAP",
+      "TIM.EXE",
     ]);
   });
 
@@ -279,9 +325,32 @@ describe("staged import", () => {
 describe("saved library replacement", () => {
   it("restores archives saved by the previous storage layout", async () => {
     const disk = storage();
-    disk.directories.set("library", new Map([["RESOURCE.001", archive("OLD.BMP")]]));
+    disk.directories.set(
+      "library",
+      new Map([
+        ["RESOURCE.001", archive("OLD.BMP")],
+        ["TIM.EXE", exe()],
+      ]),
+    );
     await restore();
     expect(resources.value.map((r) => r.name)).toContain("OLD.BMP");
+  });
+
+  it("asks a save without the game's program for it instead of opening the game", async () => {
+    const disk = storage();
+    const game = [archive("OLD.BMP")];
+    await known("tim1-en", game);
+    disk.directories.set("library", new Map([["RESOURCE.001", game[0]!]]));
+    await restore();
+    expect(phase.value).toBe("staged");
+    expect(resources.value).toEqual([]);
+    expect(program.value).toBeUndefined();
+    expect(missingProgram(staging.value!)).toEqual(["TIM.EXE"]);
+    await importFiles([exe()]);
+    await confirmImport();
+    expect(phase.value).toBe("loaded");
+    expect(program.value?.name).toBe("TIM.EXE");
+    expect([...disk.directories.values()].some((files) => files.has("TIM.EXE"))).toBe(true);
   });
 
   it("preserves the previous library when a replacement write fails", async () => {

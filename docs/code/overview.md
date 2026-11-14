@@ -62,6 +62,7 @@ Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side b
 | `list-other-part-pairs`     | Lists which part types can affect which; fails on a pair left out for a reason it can't name.                  |
 | `check-level-frames`        | Checks the frames and control values the shipped levels save against the descriptions.                         |
 | `list-goals`, `check-goals` | Says each puzzle's goal in words; checks the goal reader against the game's routine in the emulator.           |
+| `check-toons-goals`         | Checks the Toons goal reader against TOONS.EXE's goal routines in the emulator (`--toons <folder>`).           |
 | `record-level`              | Records a shipped puzzle running in the emulated game ([the level recorder](../research/machine-recorder.md)). |
 | `check-level-fields`        | Finds where the level loader puts each field of a level file.                                                  |
 | `check-moving-list`         | Checks decided assumption 22 in the game's own run.                                                            |

@@ -29,14 +29,23 @@ import {
   layoutScene,
   readLevels,
   type LevelEntry,
+  type ToonsCode,
+  type ToonsSort,
 } from "../levels.ts";
+import { MESSAGE_FONT } from "../toons-drawing.ts";
+import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
-  hasWallLimits,
   readTim2Types,
+  readToonsDrawing,
+  readToonsGoals,
+  readToonsBinKinds,
+  readToonsListKinds,
   summariseTim2Goal,
+  toonsGoalParts,
   tim2Drawing as drawingOf,
   type GoalCondition,
+  type ToonsGoalParts,
   type SpriteOf,
   type Tim2Drawing,
 } from "@opentim/content";
@@ -76,7 +85,7 @@ const zoom = computed(() => {
   return fit > 0 ? fit : 1;
 });
 const showBounds = ref(true);
-/** For TIM 2: the puzzle as the game shows its designer's solution, with the solution's parts out of the bin. */
+/** For TIM 2 and Toons: the puzzle with the parts of the bin where the file puts them, which is the solution. */
 const showSolution = ref(false);
 const showGoal = ref(true);
 const selectedPart = ref<number>();
@@ -111,7 +120,9 @@ const level = computed(() => current.value?.level);
 /** Where the loaded program's loader puts the header's numbers, for a build the loader was checked on. */
 const loadedHeader = computed(() => (program.value ? LOADED_HEADERS.get(program.value.sha256) : undefined));
 
-const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
+const loadedParts = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value),
+);
 const list = computed(() => loadedParts.value?.list);
 
 /** Every puzzle's goal, read from the program in the background after its behaviour, which names the goals. */
@@ -151,6 +162,26 @@ watch(
   { immediate: true },
 );
 
+/** True while a Toons level is shown, whose goals, drawing and sort words come from TOONS.EXE. */
+const isToons = computed(() => level.value?.layout === "toons");
+/** Toons' goals, read from TOONS.EXE: one routine per puzzle, named by the level it is for. */
+const toonsGoals = computed(() => {
+  if (!isToons.value || !program.value) return undefined;
+  const byType = new Map(list.value?.parts.map((p) => [p.type, p.id]));
+  try {
+    return byType.size ? readToonsGoals(program.value.data, byType) : readToonsGoals(program.value.data);
+  } catch (e) {
+    return { problem: e instanceof Error ? e.message : String(e), goals: [] };
+  }
+});
+
+/** How many parts of each type the level has, bin included, for a goal that finds the n-th part of a type. */
+const typeCounts = computed(() => {
+  const counts = new Map<number, number>();
+  for (const part of level.value?.parts ?? []) counts.set(part.type, (counts.get(part.type) ?? 0) + 1);
+  return counts;
+});
+
 /** The puzzle a level file is, by its name: `L12.LEV` is puzzle 12, whose goal routine TIM.EXE picks by that number. */
 const puzzle = computed(() => {
   const match = /^L(\d+)\.LEV$/i.exec(current.value?.resource.name ?? "");
@@ -161,15 +192,22 @@ const puzzle = computed(() => {
 const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefined>(() => {
   if (current.value?.kind !== "level") return undefined;
   if (level.value?.layout === "tim2") {
-    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p).name]));
+    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name]));
     const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`);
     return read
       ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
       : { status: "none", why: "This level has no goal entries." };
   }
+  if (level.value?.layout === "toons") {
+    const read = toonsGoals.value;
+    if (!read) return undefined;
+    if (read.problem) return { status: "none", why: `The goals couldn’t be read: ${read.problem}` };
+    const name = current.value?.resource.name.replace(/\.LEV$/i, "").toUpperCase();
+    const found = read.goals.find((g) => g.name === name);
+    return found ? { status: "done", goal: found } : { status: "none", why: `TOONS.EXE has no goal for ${name}.` };
+  }
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
-  if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
   if (!g) return { status: "none", why: "The goals are read from TIM 1 and Even More only, so far." };
   if (g.status === "reading") return g;
   if (g.status === "error") return { status: "none", why: `The goals couldn’t be read: ${g.message}` };
@@ -189,13 +227,20 @@ const goalAreas = computed(() => {
     number: number;
     box: { x: number; y: number; width: number; height: number };
   }[] = [];
-  const edge = { left: -MARGIN, top: -MARGIN, right: s.area.width + MARGIN, bottom: s.area.height + MARGIN };
+  const edge = {
+    left: s.area.x - MARGIN,
+    top: s.area.y - MARGIN,
+    right: s.area.x + s.area.width + MARGIN,
+    bottom: s.area.y + s.area.height + MARGIN,
+  };
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
-    // position is in range, from the part the condition names or one of the same type in the level. Without one it is
-    // the range of positions.
-    const looked = c.part !== undefined || c.types?.length ? goalPartsOf(c, s.parts) : s.parts;
+    // position is in range, from the part the condition is about or one of the same type in the level. Without one it
+    // is the range of positions.
+    const one = goalParts.value.get(c);
+    const looked =
+      c.part !== undefined || one !== undefined || c.types?.length ? goalPartsOf(c, s.parts, one) : s.parts;
     const like = looked.find((d) => d.box.width && d.box.height);
     const at = like
       ? {
@@ -219,12 +264,57 @@ const goalAreas = computed(() => {
   return out;
 });
 const areaNumbers = computed(() => new Map(goalAreas.value.map((a) => [a.condition, a.number])));
-/** The parts the goal's conditions look at, by their index in the level. */
-const goalParts = computed(() => {
+/**
+ * The words of TOONS.EXE's type table a Toons level's parts lists and parts bin are sorted by, the second as TOONS.EXE
+ * sets them when it starts.
+ */
+const toonsSort = computed((): ToonsSort | undefined =>
+  isToons.value && program.value
+    ? { kinds: readToonsListKinds(program.value.data), binKinds: readToonsBinKinds(program.value.data) }
+    : undefined,
+);
+/**
+ * For a Toons goal, the level parts each condition is about when the puzzle starts, in the order TOONS.EXE keeps its
+ * lists, with the parts on the board where the file puts them and the ropes the puzzle start leaves tied: the n-th part
+ * of a type, the first one whose ropes pass a test, and whether a test of only the ropes and the type holds then.
+ */
+const toonsParts = computed(() => {
+  const out = new Map<GoalCondition, ToonsGoalParts>();
+  const g = goal.value;
+  const l = level.value;
+  const sort = toonsSort.value;
+  if (g?.status !== "done" || l?.layout !== "toons" || !sort) return out;
+  for (const c of g.goal.summary.ways.flat()) {
+    const found = toonsGoalParts(l, c, sort.kinds, sort.binKinds);
+    if (found) out.set(c, found);
+  }
+  return out;
+});
+/** The one level part a condition is about, to number it in the condition. */
+const goalParts = computed(
+  () =>
+    new Map(
+      [...toonsParts.value]
+        .filter(([c, found]) => found.parts.length === 1 && c.kind !== "every")
+        .map(([c, found]) => [c, found.parts[0]!]),
+    ),
+);
+/**
+ * The parts the goal's conditions look at, by their index in the level, ringed on the drawing: for a Toons goal the
+ * parts TOONS.EXE's lists give when the puzzle starts (none for a condition that can't hold then), otherwise the part a
+ * condition names or every part of its types.
+ */
+const ringedParts = computed(() => {
   const g = goal.value;
   const s = scene.value;
   if (g?.status !== "done" || !s) return new Set<number>();
-  return new Set(g.goal.summary.ways.flat().flatMap((c) => goalPartsOf(c, s.parts).map((d) => d.part.index)));
+  return new Set(
+    g.goal.summary.ways.flat().flatMap((c) => {
+      const found = toonsParts.value.get(c);
+      if (found) return found.holds === false ? [] : found.parts;
+      return goalPartsOf(c, s.parts).map((d) => d.part.index);
+    }),
+  );
 });
 
 /** The decoded sprites of each sheet, as the Sprites page reads them. */
@@ -245,28 +335,42 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 const { colorsOf, choose } = usePalettes();
 const paletteOf = (sheet: string) => colorsOf(choose(sheetFile(sheet), AUTO)?.name);
 
+/** True while a TIM 2 level is shown, which TIM2.EXE's type table says how to draw. */
+const isTim2 = computed(() => level.value?.layout === "tim2");
 /**
- * How TIM2.EXE draws each type, when it is loaded: walls and tile patterns have routines of their own. Without it, the
- * types whose `.PAR` file has the walls' size limits stand in for the wall routine's.
+ * How TIM2.EXE draws each type: walls and tile patterns have routines of their own. Undefined when its type table
+ * isn't found, which the scene notes.
  */
-const tim2Drawing = computed((): { how: Map<number, Tim2Drawing>; from: string } | undefined => {
-  if (program.value?.name === "TIM2.EXE")
+const tim2Drawing = computed((): Map<number, Tim2Drawing> | undefined => {
+  if (!isTim2.value || !program.value) return undefined;
+  try {
+    return drawingOf(readTim2Types(program.value.data));
+  } catch {
+    return undefined;
+  }
+});
+/** TOONS.EXE's drawing code for the types that have their own, and the font the message machine writes its letter in. */
+const toonsCode = computed((): ToonsCode | undefined => {
+  if (!isToons.value || !program.value) return undefined;
+  try {
+    const drawing = readToonsDrawing(program.value.data);
+    if (!drawing) return undefined;
+    const fontFile = resources.value.find((r) => r.name === MESSAGE_FONT);
     try {
-      return { how: drawingOf(readTim2Types(program.value.data)), from: "TIM2.EXE’s" };
+      return fontFile ? { drawing, font: readFont(fontFile.data) } : { drawing };
     } catch {
-      // Falls back to the files below.
+      return { drawing };
     }
-  const walls = resources.value.flatMap((r): [number, Tim2Drawing][] => {
-    const type = /^PART(\d+)\.PAR$/.exec(r.name)?.[1];
-    return type !== undefined && hasWallLimits(r.data) ? [[Number(type), "wall"]] : [];
-  });
-  return walls.length ? { how: new Map(walls), from: "the .PAR files’" } : undefined;
+  } catch {
+    return undefined;
+  }
 });
 const scene = computed(() =>
   level.value
-    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value?.how, {
+    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value, {
         solution: showSolution.value,
-        drawingFrom: tim2Drawing.value?.from,
+        toons: toonsCode.value,
+        toonsSort: toonsSort.value,
       })
     : undefined,
 );
@@ -278,10 +382,14 @@ const stats = computed(() => {
   return [
     { label: "Layout", value: LAYOUT_NAMES[level.value!.layout] },
     { label: "Version", value: `0x${level.value!.version.toString(16)}` },
-    { label: "Play area", value: `${s.area.width} × ${s.area.height}` },
+    {
+      label: "Play area",
+      value: `${s.area.width} × ${s.area.height}${s.area.x || s.area.y ? ` from ${s.area.x}, ${s.area.y}` : ""}`,
+    },
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },
+    ...(count(["code"]) ? [{ label: "By their own code", value: String(count(["code"])) }] : []),
     ...(count(["block"]) ? [{ label: "Colour blocks", value: String(count(["block"])) }] : []),
     { label: "Drawn as a box", value: String(count(["outline"])) },
     { label: "Ropes and belts", value: String(s.lines.length) },
@@ -382,7 +490,7 @@ onBeforeUnmount(() => {
           <LabBadge v-bind="status" />
           <div class="flex-1"></div>
           <LabCheckbox v-model="showBounds">Part boxes</LabCheckbox>
-          <LabCheckbox v-if="level?.layout === 'tim2'" v-model="showSolution">Solution</LabCheckbox>
+          <LabCheckbox v-if="level?.layout !== 'tim'" v-model="showSolution">Solution</LabCheckbox>
           <LabCheckbox v-if="goal?.status === 'done'" v-model="showGoal">Goal</LabCheckbox>
           <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
           <LabSegmented v-model="zoomSetting" label="Zoom" :options="ZOOMS" />
@@ -405,7 +513,7 @@ onBeforeUnmount(() => {
                 :bounds="showBounds"
                 :selected="selectedPart"
                 :goal-areas="showGoal ? goalAreas : undefined"
-                :goal-parts="showGoal ? goalParts : undefined"
+                :goal-parts="showGoal ? ringedParts : undefined"
                 @select="selectedPart = $event"
               />
             </div>
@@ -427,6 +535,9 @@ onBeforeUnmount(() => {
               :area-numbers="areaNumbers"
               :mark-setters="markSetters"
               :step-milliseconds="stepMilliseconds"
+              :type-counts="typeCounts"
+              :part-numbers="goalParts"
+              :at-start="toonsParts"
             />
           </div>
           <div class="relative min-w-0 flex-[2]">
@@ -458,6 +569,7 @@ onBeforeUnmount(() => {
         :selected="selectedPart"
         :header="loadedHeader"
         :record="recordFields"
+        :toons-sort="toonsSort"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

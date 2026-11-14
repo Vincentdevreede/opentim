@@ -61,6 +61,28 @@ has one frame, sized by a `DIM:` chunk (u16 width, u16 height).
 
 In a sheet, colour 0 is transparent; a screen covers everything.
 
+## TTM scripts (.TTM)
+
+`readTtmFiles` (`ttm.ts`). Toons plays its title, the Dynamix logo, the credits and the finale from TTM scripts, which
+`TOONS.EXE` names (`TITLE.TTM`, `DYNAMIX.TTM`, `CREDITS.TTM`, `FINALE.TTM`). A script is chunks: `VER:` (the version,
+`4.14`), `PAG:` and `TT3:`, which holds the commands packed like a `BIN:` chunk. A command is a u16 whose low 4 bits
+are the number of u16 arguments after it, or 15 for one NUL-terminated name, padded to an even length. Three commands
+load files: `F01F` a screen, `F02F` a sprite sheet and `F05F` a palette. What the other commands do isn't read.
+
+The Lab shows an image the scripts load with the palette its script loads (`ttmPalettes`): the last one loaded before
+it, or the first one after it, since `TITLE.TTM` loads `TITLE.SCR` before `game.PAL`. So Toons' title screen shows with
+`GAME.PAL`, not with `TITLE.PAL`, which nothing in `TOONS.EXE` or the scripts names; `DYNAMXTP.BMP` shows with
+`DYNAMIX.PAL`. Every other Toons image gets `GAME.PAL`, the palette `TOONS.EXE` loads for play.
+
+## Fonts (.FNT)
+
+`readFont` (`font.ts`). A font is one `FNT:` chunk: a byte `0xff`, the widest glyph's width, the height, a byte that may
+be the baseline (not read), the first character and the number of characters, the unpacked size (u16), then the glyphs
+packed like a `BIN:` chunk (a compression byte and the u32 unpacked size first). Unpacked, they are an offset (u16) per
+character into the bitmaps, a width (byte) per character, and the bitmaps: one bit a pixel, the high bit leftmost,
+each row rounded up to whole bytes. All eight of Toons' fonts read this way. The Lab draws the message machine's
+letter with `TUXEDO.FNT`, as TOONS.EXE does.
+
 ## Sound banks (.SX)
 
 `readSoundBank` and `decodeSound` (`sound.ts`). A `SND:` container with an `INF:` chunk, a `DAT:` chunk per sound and
@@ -96,6 +118,12 @@ demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number 
 lists the songs by number with the name the game shows, like `1002 New Age`; `MUSIC2.RES` is a shorter list of the
 same kind, and `SOUND.RES` names some of the `.RAW` sounds, like `3001 Yeee Haaa!!`.
 
+**Toons' music** is in `TOONS.SX`, the same format: 151 sounds. Sounds 1001 (`toonsthm`), 1002 (`toonsind`) and 1100
+to 1128 are the songs, and a level's music word is the number of its song, as in TIM 2: the levels use 1001, 1002 and
+1100 to 1127, and three levels have 0. The others are short MIDI sounds (1 to 37), two at 2003 and 2011, and the sounds
+from 3001 up, which share their numbers with the `.RAW` files (`SX_3001.RAW` is `fling`). Toons has no list of song
+names like TIM 2's `MUSIC.RES`; the bank's own names are short file names like `TS_BEACH`.
+
 ## The sound drivers (SX.OVL)
 
 `readSoundDrivers` (`sound.ts`): an `SSM:` container with a chunk per file, each packed like a `BIN:` chunk. The
@@ -108,8 +136,8 @@ floppy, demo and French builds and the Add On Disk have one that is 50 bytes lon
 start of the voice allocator (`0x1ad7` in the longer file): it takes a free voice that already has the channel's
 instrument before any other free voice. Apart from that loop and the addresses it moves, the two files are the same.
 `prefersSameInstrument` (`adlib.ts`) finds the loop, and the Lab plays each build's music with its own version. The
-`SBP` driver is the same 9,701 byte file in every build and has no such loop. Since TIM 2's `ADL` is TIM 1's file,
-`packages/sound` plays TIM 2's songs as the game does, with TIM 2's own instruments from its patch `003`.
+`SBP` driver is the same 9,701 byte file in every build and has no such loop. Since TIM 2's and Toons' `ADL` is TIM 1's
+file, `packages/sound` plays their songs as the games do, each with its own instruments from its patch `003`.
 
 ## Language packages (FRENCH.RES, GERMAN.RES)
 
@@ -158,8 +186,10 @@ Then the static parts, the moving parts, from version `0x105` a `binFlag` word, 
 | pulley         | 2                                     | Only for the pulley (type 7; 17 in Toons).                                                                    |
 | outline        | 2 + 2 per point                       | Before version `0x102`, not in Toons.                                                                         |
 
-A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46), and an
-unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
+A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46, the
+tunnel: the tunnel at its other end), from version `0x106` a byte with the plug place (which of the plugged part's
+two plug places the part takes), and a word with the part's setting, like the timer's time or the message machine's
+letter ([the levels](levels.md#toons-levels)). What the game's loader does with each field is in
 [the levels](levels.md#what-the-loader-keeps).
 
 ### TIM 2 levels
@@ -197,6 +227,101 @@ game does with the fields is in [the levels](levels.md#tim-2-levels).
 - **Part records**: in memory, each placed part is a `0xA0`-byte record. Its words are named in `PART_FIELDS`
   (`apps/lab/src/behaviour.ts`), its flag bits in [flag bits](behaviour/in-the-lab.md#flag-bits).
 - **Goals**: each puzzle's goal is a routine in TIM.EXE, not in the level file; see [the levels](levels.md).
+
+## TOONS.EXE
+
+Sid & Al's Incredible Toons' program isn't packed. Its load image is the bytes after the EXE header, up to the size the
+header gives (`loadImage` in `packages/content/src/read/toons.ts`); what follows is the Borland overlay data (`FBOV`).
+Far pointers in it are segment and offset as in the image, before DOS relocates them.
+
+**Type table.** One 70-byte record per type, 85 types. `findToonsTypeTable` finds it where the code reaches it:
+`mov dx, 70; imul dx; add ax, start; mov [bp+n], segment` (TOONS.EXE does this in every routine that looks at a type's
+record), and the count where the routines that walk every type stop (`cmp si, 85`). The record is TIM 1's with far
+pointers, so the fields after them move up (`TOONS_RECORD_FIELDS`):
+
+| Offset | Size | What                                                                                                                    |
+| ------ | ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| 0x00   | 2×6  | Density, mass, bounciness, friction, acceleration and terminal velocity, as in TIM 1. One loop works out 0x08 and 0x0a. |
+| 0x0c   | 2×4  | Size limits, as in TIM 1 (a guess from TIM 1; walls have 640 × 400 and 32 × 32).                                        |
+| 0x14   | 4    | 0 in the file: TOONS.EXE puts the loaded `PART` sheet here.                                                             |
+| 0x18   | 4    | Frames: a far pointer per frame to a chain of pieces, or 0.                                                             |
+| 0x1c   | 4    | Positions: two signed bytes per state, or 0.                                                                            |
+| 0x20   | 4    | Sizes: a width and height word per state, or 0. The program sets a part's size from it, else from the state's sprite.   |
+| 0x26   | 1×2  | The layers the type is drawn on, 0xff when unused.                                                                      |
+| 0x2a   | 2    | Sorts the bin: TOONS.EXE writes the type's place in a table here at start (the file has mostly the type's number).      |
+| 0x2c   | 2    | How many middle tiles take turns when the part is drawn as tiles (the low byte).                                        |
+| 0x2e   | 4×6  | Far pointers to the type's code, most into the overlay stubs, where TIM 1 has its six callbacks.                        |
+
+A piece is 17 bytes: a far pointer to the next piece (0 ends the frame), the layer, four sprite numbers (0xff ends
+them) and a signed x and y byte per sprite. The frame list has no count; the positions and sizes follow it in every
+record that has them, so the reader ends it there.
+
+**Drawing.** TOONS.EXE loads the sheet of type N as `part` + N + `.bmp`, except for 36 and 37, Al and Sid, whose
+sheets it loads by what they are doing (`catwalk`, `sidrun`, …). It draws a part:
+
+- as tiles when bit 0x40 of its first flag word is set: tiles 16 high and 16 wide (32 for the ladder, type 45). A row
+  starts with the sprite of the state, takes the middle sprites (state + 1 up to state + middles) in turn and ends with
+  state + middles + 1; a column starts with state + middles + 2, takes the next middles in turn and ends with state + 2
+  × middles + 3. A part both wider and taller repeats the state.
+- with its own code for types 0 (conveyor belt), 1 (belt), 14 (rope), 36 and 37 (Al and Sid), 38 (timer), 39
+  (counter), 40 (thumpulator) and 42 (message machine); 76 isn't drawn (see below);
+- else from the frame list when bit 0x1000 of its drawing flags is set, and else as sprite N for state N, at the
+  record's position for N or at the origin. In the shipped levels every part of a type with a frame list has the
+  bit, except the teeter-totter, whose list and positions give the same picture, and the thumpulator, which has its own
+  code.
+
+**Own drawing code.** The routine that draws a part (file offset `0x1e310`) draws a part with bit 0x40 of its first
+flag word as tiles, and else looks its type up in a table of ten types that follows it, with the code for each. The
+belt and the rope are drawn by the main program (`0x1d85a`, `0x1dc0d`), type 76 not at all, Al and Sid as described
+below, and five types by code in an overlay of their own. Each is followed by the Lab:
+
+- **The conveyor belt** (`0x6fd8d`) is a row of 16-pixel tiles as wide as the part, from its own sheet. Three tables
+  of 6 bytes from `0x3eb10` give, by the part's state, the sprite of the first tile (1, 1, 2, 2, 0, 0), the last (7,
+  7, 8, 8, 9, 9) and the ones between (3, 3, 4, 4, 6, 6). Between, sprite 4 is 5 on every other tile, and sprite 6
+  moves 1 pixel down on every other tile; the last tile keeps the place of the tile before it. It draws no frame and
+  isn't mirrored.
+- **The timer** (`0x53a9f`) draws its frame, but first puts sprite 13 for sprite 12 in it when the part is mirrored
+  (and 12 for 13 when it isn't), so the face reads the right way round.
+- **The counter** (`0x5401d`) draws its frame, then two lights over it, sprite 21 at 21, 9 and sprite 22 at 66, 12,
+  the other way round while it counts up, and then its count's ones and tens, each the sprite of its digit, at a
+  place per digit from two tables of 10 pairs (`0x3be2c` and `0x3be40`), 1 pixel further across. The lights and the
+  digits aren't mirrored.
+- **The thumpulator** (`0x54c62`) draws itself from its setting, not its state: a top piece (sprite 0, or sprite 1 five
+  pixels lower when bit 0x100 is set), then from 17 pixels down a section of 65 pixels for each of bits 4 to 7, and a
+  bottom piece (sprite 7, or 6 with bit 0x200, at 21 across, or 19 with bit 0x100). Each section shows frame 0, or for
+  the section bits 0 to 3 name, the frame in bits 10 to 12, and one of three pieces in turn from a table at `0x3c139`
+  (a place and a sprite: 57, 22 with sprite 13, 63, 27 with 14, 56, 14 with 15), moved across by a number per frame
+  (`0x3c142`: 0, 0, 10, 20, 30, 40, 20). Mirrored, every piece is mirrored in the part's width.
+- **The message machine** (`0x55595`) draws sprite 0, then its setting as text centred on 26, 30, then its frame over
+  both. The text is in `tuxedo.fnt` (loaded at `0x25f65`): each letter outlined in black one pixel left, right, up and
+  down, with a black shadow 2 pixels left and down, in a colour from a list of five (4, 10, 14, 15 and 12, at
+  `0x4d4dc`) picked by the letter's code and its place on the screen, never colour 12 (the background it is set to)
+  nor the colour of the letter before (`0x6942b`). In the shipped levels the frame of state 0 covers the letter.
+
+`readToonsDrawing` (`packages/content/src/read/toons-drawing.ts`) finds the drawing routine by its search through the
+ten types, follows each case to its code (through the overlay manager's stubs, see below) and reads the tables each
+routine reads, in the order it reads them. The numbers in the code itself, like the counter's light places, are
+constants in the Lab (`apps/lab/src/toons-drawing.ts`).
+
+**Overlays.** Most of TOONS.EXE's part code is in Borland overlays. The overlay data after the load image starts with
+`FBOV`, its size, the file offset of a segment table (8 bytes a segment: the segment, a word, its flags and a word) and
+the number of segments. A segment with flags 3 is an overlay's stub: `int 3Fh` at 0, the file offset of the overlay's
+code from the end of the `FBOV` header at 4, its size at 8, the size of its fixups (after the code) at 10, and from 0x20
+an `int 3Fh` and the routine's offset per routine, 5 bytes each. A fixup is a place in the code that holds a segment as
+8 times its entry in the segment table. `readToonsMemory` lays every overlay after the load image with its fixups
+applied, as the overlay manager would load it, and leads a far pointer into a stub to the overlay's routine.
+
+**Al and Sid.** Before it draws Al or Sid (file offset `0x3027f`), TOONS.EXE looks up the part's action (the word at
+record offset `0x0c`) in a table of near pointers, Al's at `0x4569d` and Sid's at `0x49894`, to a 12-byte entry in
+the data segment (from `0x4e642` and `0x4eafe`): the action's frame count, the number of its sheet, and four words
+that aren't read. It loads that sheet, named in a list of 9-byte names (`0x4e8e2` and `0x4ed9e`, like `catroot`) with
+`.bmp` added, puts it in the type's record as the sheet, and draws the frame of the part's state from the type's own
+frame list, as for any part. The frame list holds every frame of every action, one action after another: a second
+table (`0x3f0a0` and `0x403c0`, 6 bytes an action) gives each action's first frame (stored negative for some; without the sign it lines up with the frame
+counts) and a far pointer to the action's code. Al has 60 actions and 520 frames, Sid 56 and 485. Some
+actions have no entry or no name, so their frames have no sheet (Al's `catjump` and a few other sheets are in the
+files but named nowhere). `readToonsActions` (`packages/content/src/read/toons.ts`) finds the four tables by the code
+that reads them, and the `toons` part list gives each of Al's and Sid's frames the sheet of its action.
 
 ## TIM 2
 

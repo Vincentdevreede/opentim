@@ -103,7 +103,7 @@ pnpm --filter @opentim/content extract-parts --tim1 <folder> --tim1 <folder> --e
 
 The ids are chosen by hand, in `packages/content/src/part-ids.ts`; everything else comes from the games. The readers
 are in `packages/content/src/read`. The lab, a research tool, uses them too: it reads the parts from the files it
-loads, `TIM.EXE` included, and compares them with the committed list.
+loads, the game's program included, which it needs to open a game. It doesn't use the committed lists.
 
 - **TIM 1 and Even More** keep a table with a 58-byte record per part type in their program, `TIM.EXE`. The script
   unpacks the program (LZEXE 0.91), finds its data segment and searches the table: the place where the frames use
@@ -133,6 +133,7 @@ loads, `TIM.EXE` included, and compares them with the committed list.
 | The Add-On Disk               | `evenmore` | Assumed: same sheets as Even More; its program isn't LZEXE-packed |
 | TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts and frames in both builds             |
 | TIM 2 demo                    | `tim2`     | Same numbers and names, but most sheets are missing               |
+| Toons (floppy)                | `toons`    | Read from the one build there is: 75 parts                        |
 | TIM 1 demo                    | none yet   | Different table layout, not checked                               |
 
 TIM 1 has records for types 51–54 but no sheets; Even More fills them in, so they are only in `evenmore`. In both
@@ -143,6 +144,34 @@ mountains, planets and paintings.
 What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast in TIM 1
 and Even More. In TIM 2 a sequence number is a name only the part's own code knows (see
 [the animations](file-formats.md#animations-anm)). TIM 2's speed is its machine's step, about 29.6 a second.
+
+## Sid & Al's Incredible Toons
+
+Toons is a game of its own, so it has its own list, `toons`, and its own names, `toons-names.json`: a Toons part never
+takes a TIM id or a TIM name, even where TIM has a similar object. Its numbers run from 0 to 84 and mean other things
+than TIM's (17 is the pulley, 46 the tunnel).
+
+- **Frames** come from `TOONS.EXE`'s type table (`readToonsParts`, see [the file formats](file-formats.md#toonsexe)): a
+  type with a frame list shows its pieces, else state N shows sprite N of its sheet, at the record's position for N.
+  A type is a part when it has a `PART` sheet; 36 and 37, Al and Sid, have none, but they are in the list too, with
+  frames from the `CAT` and `SID` sheet of what they are doing, which TOONS.EXE draws them from. The ten other types
+  without a sheet (66, 67, 70 to 74, 76, 79 and 81) have empty records.
+- **Tiles**: a part a level draws as tiles (walls, the ladder) keeps the tile width and the number of middle tiles in
+  `tiles`, which the Levels page uses.
+- **Ids** are in `TOONS_IDS` in `part-ids.ts`, chosen from the sprites and the levels that use each part. The least
+  certain are the walls and inclines, named by their look (`red-brick-wall`, `pink-wall`, `stone-wall`,
+  `red-rock-wall`, `bone-wall`, `yellow-wall`, `candy-incline`, `brick-incline`, `stone-incline`, `wood-incline`,
+  `bone-incline`, `yellow-incline`), and `ant-motor` (25), `cushion` (24), `dust-cloud` (5), `splat` (4), `bullet`
+  (21), `magic-lamp` (53), `yellow-ball` (55), `hanging-string` (63) and `mallet` (65), which no level text names.
+  The conveyor belt is 0, not 80: TOONS.EXE draws 0 in its own code and lets it be resized from 48 to 128 wide, as
+  TIM's conveyor belt; 80 is Chow-Man, whose sprites are a creature that eats and blows gum.
+- **Names**: Toons' files name no parts, so a name is taken only from the game's own words: the title or goal of a
+  level that has a part of that type, like "Teeter-Totter" from the level of that name (CAKE18) or "Ball Bearing" from
+  "bop Al with the ball bearing" (BRAN4). `toons-names.json` keeps, for every name, the level and the words it comes
+  from; a test checks that every name belongs to a part of the list. 44 parts have a name; the others show their id.
+
+The script reads Toons with `--toons <folder>`, a folder with `TOONS.EXE` and the `RESOURCE` files. It never writes
+`toons-names.json`, which is kept by hand.
 
 ## Not decided yet
 

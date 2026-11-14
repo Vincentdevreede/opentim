@@ -169,7 +169,7 @@ describe("level files", () => {
     const data = bytes(0xacee, 0x106, "Title", "Goal", 67, 272, 0, 0, 5, 1, 0, ...tunnel);
     const level = readLevel(data, { layout: "toons" });
     expect(level.bonus).toBeUndefined();
-    expect(level.parts[0]).toMatchObject({ type: 46, tunnel: 4, toons: { byte: 7, word: 0x55 } });
+    expect(level.parts[0]).toMatchObject({ type: 46, tunnel: 4, plugPlace: 7, setting: 0x55 });
   });
 
   it("reads a TIM 2 level: notes in the header, a programmable ball and the entries after the parts", () => {

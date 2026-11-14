@@ -116,25 +116,26 @@ watchEffect(() => {
   el.width = width.value * zoom;
   el.height = height.value * zoom;
   context.imageSmoothingEnabled = false;
-  context.setTransform(zoom, 0, 0, zoom, MARGIN * zoom, MARGIN * zoom);
+  const { x: left, y: top, width: w, height: h } = area.value;
+  context.setTransform(zoom, 0, 0, zoom, (MARGIN - left) * zoom, (MARGIN - top) * zoom);
 
   // Levels have no background picture: the canvas stays transparent over the background the page chooses, as sprites
   // do on the Sprites page. Everything outside the play area is darkened, in the canvas's margin and, by a shadow on the
   // canvas, up to the edges of the page, so parts placed outside the play area stand out.
-  context.clearRect(-MARGIN, -MARGIN, width.value, height.value);
+  context.clearRect(left - MARGIN, top - MARGIN, width.value, height.value);
   context.fillStyle = "rgb(0 0 0 / 0.3)";
-  context.fillRect(-MARGIN, -MARGIN, width.value, MARGIN);
-  context.fillRect(-MARGIN, area.value.height, width.value, MARGIN);
-  context.fillRect(-MARGIN, 0, MARGIN, area.value.height);
-  context.fillRect(area.value.width, 0, MARGIN, area.value.height);
+  context.fillRect(left - MARGIN, top - MARGIN, width.value, MARGIN);
+  context.fillRect(left - MARGIN, top + h, width.value, MARGIN);
+  context.fillRect(left - MARGIN, top, MARGIN, h);
+  context.fillRect(left + w, top, MARGIN, h);
   const fill = props.areaColour === undefined ? undefined : paletteColor(props.linePalette, props.areaColour);
   if (fill) {
     context.fillStyle = fill;
-    context.fillRect(0, 0, area.value.width, area.value.height);
+    context.fillRect(left, top, w, h);
   }
   context.strokeStyle = colors.line;
   context.lineWidth = px;
-  context.strokeRect(0, 0, area.value.width, area.value.height);
+  context.strokeRect(left, top, w, h);
 
   for (const d of scene.parts) {
     const picture = pictures.value.get(d.part.index);
@@ -198,8 +199,8 @@ watchEffect(() => {
     context.font = `600 ${11 * px}px ui-monospace, monospace`;
     const w = context.measureText(label).width + 6 * px;
     // The number sits in the area's corner, kept inside the canvas for areas that run off it.
-    const x = Math.max(box.x, -MARGIN);
-    const y = Math.max(box.y, -MARGIN);
+    const x = Math.max(box.x, left - MARGIN);
+    const y = Math.max(box.y, top - MARGIN);
     context.fillStyle = colors.goal;
     context.fillRect(x, y, w, 14 * px);
     context.fillStyle = token("accent-ink");
@@ -229,8 +230,8 @@ function onClick(e: MouseEvent) {
   const el = canvas.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * width.value - MARGIN;
-  const y = ((e.clientY - rect.top) / rect.height) * height.value - MARGIN;
+  const x = ((e.clientX - rect.left) / rect.width) * width.value - MARGIN + area.value.x;
+  const y = ((e.clientY - rect.top) / rect.height) * height.value - MARGIN + area.value.y;
   emit("select", partAt(props.scene, { x, y })?.part.index);
 }
 </script>

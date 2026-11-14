@@ -17,6 +17,7 @@ import {
   failure,
   foundSoFar,
   importFiles,
+  missingProgram,
   needsLanguage,
   phase,
   pickFiles,
@@ -83,6 +84,8 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
 const router = useRouter();
 const showKeys = ref(false);
 const hasFiles = computed(() => resources.value.length > 0);
+/** The program a staged import still needs, like a save from before the Lab needed it. */
+const programToAdd = computed(() => (staging.value ? missingProgram(staging.value) : undefined));
 const route = useRoute();
 /**
  * Loads the Lab again at a page, for when that page's code is from a newer version. When the address is already the
@@ -208,8 +211,12 @@ const activeClass =
         <LabEmpty
           v-if="page?.needsFiles && !hasFiles"
           :icon="page.icon"
-          title="No files loaded"
-          :text="`Import the game’s RESOURCE files to ${page.forWhat}.`"
+          :title="programToAdd ? `${programToAdd.join(' or ')} is missing` : 'No files loaded'"
+          :text="
+            programToAdd
+              ? `Add the game’s program on the Import page to ${page.forWhat}.`
+              : `Import the game’s RESOURCE files and its program to ${page.forWhat}.`
+          "
           import-link
         />
         <template v-else>
@@ -247,7 +254,13 @@ const activeClass =
       <template v-else-if="phase === 'staged' && staging">
         <span class="flex items-center gap-1.5 text-ink">
           <LabDot status="accent" /><span class="font-mono">{{ staging.resources.length }}</span> resources found ·
-          {{ needsLanguage(staging) ? "choose a language to continue" : "press Continue to load them" }}
+          {{
+            needsLanguage(staging)
+              ? "choose a language to continue"
+              : programToAdd
+                ? `add ${programToAdd.join(" or ")} to continue`
+                : "press Continue to load them"
+          }}
         </span>
       </template>
       <template v-else-if="hasFiles">

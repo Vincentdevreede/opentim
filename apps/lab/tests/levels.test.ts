@@ -1,8 +1,18 @@
-import type { PartList } from "@opentim/content";
+import type { Level, LevelPart, PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { goalPartsOf, layoutScene, partAt, readLevels, type DrawnPart } from "../src/levels.ts";
+import {
+  PLAY_AREAS,
+  goalPartsOf,
+  groupOf,
+  layoutScene,
+  partAt,
+  readLevels,
+  toonsSetting,
+  toonsTiles,
+  type DrawnPart,
+} from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -132,6 +142,9 @@ const SHEETS: Record<string, Bitmap[]> = {
 };
 const spriteOf = (sheet: string, index: number) => SHEETS[sheet]?.[index];
 
+/** The sort words of a Toons level, none here: a type keeps its number. */
+const SORT = { kinds: new Map<number, number>(), binKinds: new Map<number, number>() };
+
 describe("readLevels", () => {
   it("lists levels in number order before scenes, and says why a file can't be read", () => {
     const scene = bytes(0xaced, 0x102, 67, 268, 1001, 0, 0, 0);
@@ -190,7 +203,7 @@ describe("layoutScene", () => {
       { type: 0, flags1: 0x1040, flags3: 0x40, state: 1 },
       { type: 1, width: 64, flags3: 0x40 },
       { type: 47, x: 4, y: 0, width: 40, height: 16, flags3: 0x40 },
-      // The colour block: TIM2.EXE's flags for it are 0x1480 in the third word.
+      // The colour block, which TIM2.EXE draws with its block routine.
       { type: 127, width: 20, height: 10, flags3: 0x14c0 },
       // Without bit 0x40 of the third word the part starts in the bin.
       { type: 0 },
@@ -220,15 +233,16 @@ describe("layoutScene", () => {
     const drawing = new Map([
       [1, "wall" as const],
       [47, "pattern" as const],
+      [127, "block" as const],
     ]);
     const scene = layoutScene(level, list, spriteOf, drawing);
-    expect(scene.area).toEqual({ width: 640, height: 400 });
+    expect(scene.area).toEqual({ x: 0, y: 0, width: 640, height: 400 });
     expect(scene.bin.map((p) => p.index)).toEqual([4]);
     expect(scene.parts.map((p) => [p.how, p.detail])).toEqual([
       ["frame", "frame 0 for state 1"],
       ["tiles", "pieces of a wall, by TIM2.EXE’s wall rule"],
       ["tiles", "a pattern of tiles, by TIM2.EXE’s pattern rule"],
-      ["block", "a box in colour 5, by the flags’ block rule"],
+      ["block", "a box in colour 5, by TIM2.EXE’s block rule"],
     ]);
     expect(scene.parts[3]!.composition!.shapes).toEqual([
       { kind: "box", x: 0, y: 0, width: 20, height: 10, colour: 5, fill: 5, after: 0 },
@@ -243,6 +257,11 @@ describe("layoutScene", () => {
     // A grid from 0, 0 of the screen, cut off at the box widened to groups of 8 across.
     expect(scene.parts[2]!.composition!.placed.map((p) => p.x)).toEqual([-4, 12, 28]);
     expect(scene.parts[2]!.clip).toEqual({ x: 0, y: 0, width: 48, height: 16 });
+    // Without TIM2.EXE's type table the flag bits don't stand in: every part is drawn by its frame, and the scene says so.
+    const unread = layoutScene(level, list, spriteOf);
+    expect(unread.parts.map((p) => p.how)).toEqual(["frame", "frame", "frame", "outline"]);
+    expect(unread.notes.map((n) => n.title)).toContain("Walls and patterns drawn as frames.");
+    expect(scene.notes.map((n) => n.title)).not.toContain("Walls and patterns drawn as frames.");
   });
 
   it("leaves TIM 2's solution parts on the board when the solution is shown", () => {
@@ -292,10 +311,8 @@ describe("layoutScene", () => {
           : p,
       ),
     };
-    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]]), {
-      drawingFrom: "the .PAR files’",
-    }).parts;
-    expect(lying!.detail).toBe("pieces of a wall, by the .PAR files’ wall rule");
+    const [lying, standing] = layoutScene(level, list, spriteOf, new Map([[1, "wall" as const]])).parts;
+    expect(lying!.detail).toBe("pieces of a wall, by TIM2.EXE’s wall rule");
     // PART47's sprites are 32 × 32: lying, each piece moves to 36 - 0 - 32 and turns upside down.
     expect(lying!.composition!.placed.map((p) => [p.placement.y, p.placement.flip])).toEqual([[4, "v"]]);
     // Standing, it moves to 40 - 0 - 32 across and turns left to right.
@@ -434,6 +451,156 @@ describe("layoutScene", () => {
   });
 });
 
+/** A placed Toons part with only what the tile and bin rules read. */
+const toonsPart = (width: number, height: number, state = 0, marks = 0) =>
+  ({
+    index: 0,
+    group: "static",
+    flags: [0x6040, 0x180, marks],
+    state: [state, 0],
+    size: { width, height },
+  }) as LevelPart;
+
+describe("toonsTiles", () => {
+  const sprites = (p: LevelPart, width = 16, middles = 3) =>
+    toonsTiles(p, "PART28", { width, middles }).map((t) => t.sprite);
+
+  it("ends a row with its end tiles and takes the middle tiles in turn from the first", () => {
+    expect(sprites(toonsPart(96, 16))).toEqual([0, 1, 2, 3, 1, 4]);
+    expect(sprites(toonsPart(48, 16, 10))).toEqual([10, 11, 14]);
+  });
+
+  it("uses the column's own end and middle tiles after the row's", () => {
+    expect(sprites(toonsPart(16, 96))).toEqual([5, 6, 7, 8, 6, 9]);
+  });
+
+  it("draws the ladder's tiles 32 wide", () => {
+    const tiles = toonsTiles(toonsPart(32, 48), "PART45", { width: 32, middles: 1 });
+    expect(tiles.map((t) => [t.sprite, t.x, t.y])).toEqual([
+      [3, 0, 0],
+      [4, 0, 16],
+      [5, 0, 32],
+    ]);
+  });
+
+  it("repeats the state on a part wider and taller than a tile", () => {
+    expect(sprites(toonsPart(32, 32, 6))).toEqual([6, 6, 6, 6]);
+  });
+});
+
+describe("groupOf", () => {
+  // A Toons level: two fixed eye-hooks tied by a rope, a balloon without the fixed bit tied to one of them by another
+  // rope, and two tunnels without it that are each other's other end.
+  const part = (index: number, type: number, marks: number, more: Partial<LevelPart> = {}) =>
+    ({
+      ...toonsPart(16, 16, 0, marks),
+      index,
+      type,
+      position: { x: index * 20, y: 0 },
+      ropes: [{ at: { x: 0, y: 0 } }, { at: { x: 0, y: 0 } }],
+      links: [null, null],
+      belt: { at: { x: 0, y: 0 }, width: 0 },
+      ...more,
+    }) as LevelPart;
+  const rope = (index: number, parts: [number, number]) =>
+    part(index, 14, 0x08, {
+      ropes: [{ at: { x: 0, y: 0 }, rope: { parts, slots: [0, 0] } }, { at: { x: 0, y: 0 } }],
+    });
+  const level = {
+    layout: "toons",
+    parts: [
+      part(0, 15, 0x48),
+      part(1, 15, 0x48),
+      part(2, 23, 0x08),
+      rope(3, [0, 1]),
+      rope(4, [2, 1]),
+      part(5, 46, 0x08, { tunnel: 6 }),
+      part(6, 46, 0x08, { tunnel: 5 }),
+    ],
+  } as unknown as Level;
+  const groups = (solution = false) => level.parts.map((p) => groupOf(level, p, solution, SORT));
+
+  it("puts a Toons part without bit 0x40 of the third flag word in the bin, with the ropes tied to it", () => {
+    expect(groups()).toEqual(["static", "static", "bin", "static", "bin", "gone", "bin"]);
+  });
+
+  it("puts every Toons part where the file has it for the solution", () => {
+    expect(groups(true)).toEqual(level.parts.map(() => "static"));
+  });
+
+  it("needs TOONS.EXE's sort words for a Toons puzzle", () => {
+    expect(() => groupOf(level, level.parts[0]!)).toThrow(/TOONS\.EXE/);
+  });
+
+  it("keeps TIM 1's groups as the file has them", () => {
+    expect(groupOf({ layout: "tim" } as Level, toonsPart(16, 16, 0, 0))).toBe("static");
+  });
+
+  it("draws a rope between two parts on the board, and says which tunnel the puzzle start takes off", () => {
+    const scene = layoutScene(level, undefined, () => undefined, undefined, { toonsSort: SORT });
+    expect(scene.parts.map((p) => p.part.index)).toEqual([0, 1, 3]);
+    // A type TOONS.EXE's sort words don't place keeps its number: the rope, the balloon, the tunnel.
+    expect(scene.bin.map((p) => p.index)).toEqual([4, 2, 6]);
+    expect(scene.notes.map((n) => n.title)).toContain("1 tunnel taken off.");
+  });
+
+  it("puts the bin in the order of TOONS.EXE's sort words, and the file's order for the solution", () => {
+    const binKinds = new Map([
+      [46, 0],
+      [23, 1],
+      [14, 2],
+    ]);
+    const toonsSort = { kinds: new Map<number, number>(), binKinds };
+    expect(layoutScene(level, undefined, () => undefined, undefined, { toonsSort }).bin).toEqual([
+      level.parts[6],
+      level.parts[2],
+      level.parts[4],
+    ]);
+    expect(layoutScene(level, undefined, () => undefined, undefined, { solution: true }).bin).toEqual([]);
+  });
+
+  it("draws an electric switch on the board without the plug the puzzle start pulls out, and says so", () => {
+    // Switch #0 (state 1: a plug in its first place) stays; hair drier #1, plugged into it, goes to the bin.
+    const plugged = {
+      layout: "toons",
+      parts: [
+        part(0, 2, 0x42, { state: [1, 0], plugs: [1, null] }),
+        part(1, 52, 0x01, { plugs: [0, null], plugPlace: 0 }),
+      ],
+    } as unknown as Level;
+    const scene = layoutScene(plugged, undefined, () => undefined, undefined, { toonsSort: SORT });
+    expect(scene.parts.map((d) => [d.part.index, d.part.state[0], d.part.plugs])).toEqual([[0, 0, [null, null]]]);
+    expect(scene.notes.map((n) => n.title)).toEqual(
+      expect.arrayContaining(["1 plug pulled out.", "1 part with another state."]),
+    );
+    // The level itself keeps the file's values.
+    expect(plugged.parts[0]!.state[0]).toBe(1);
+  });
+});
+
+describe("toonsSetting", () => {
+  it("says the setting as TOONS.EXE reads it for the part's type", () => {
+    expect(toonsSetting(38, 4)).toBe("time 4");
+    expect(toonsSetting(39, 0x4001)).toBe("count 1, counting down");
+    expect(toonsSetting(39, 13)).toBe("count 13, counting up");
+    expect(toonsSetting(40, 0x30)).toBe("3 sections");
+    expect(toonsSetting(42, 0x41)).toBe("“A”");
+    expect(toonsSetting(20, 1)).toBe("1 shot");
+    expect(toonsSetting(69, 5)).toBe("5 eggs");
+  });
+
+  it("gives nothing for a type whose code doesn't read it", () => {
+    expect(toonsSetting(59, 1)).toBeUndefined();
+  });
+});
+
+describe("PLAY_AREAS", () => {
+  it("has Toons' screen seen from the view TOONS.EXE starts a puzzle with", () => {
+    expect(PLAY_AREAS.toons).toEqual({ x: -91, y: -8, width: 640, height: 400 });
+    expect(PLAY_AREAS.tim).toMatchObject({ x: 0, y: 0 });
+  });
+});
+
 describe("goalPartsOf", () => {
   it("rings only the part a condition names, and every part of the types otherwise", () => {
     const drawn = (index: number, type: number) => ({ part: { index, type } }) as DrawnPart;
@@ -443,5 +610,8 @@ describe("goalPartsOf", () => {
     expect(indexes({ kind: "part", part: 1, types: [lamp], tests: [] })).toEqual([1]);
     expect(indexes({ kind: "count", types: [lamp], tests: [] })).toEqual([0, 1]);
     expect(indexes({ kind: "word", tests: [] })).toEqual([]);
+    // The second lamp a Toons goal's n-th selection picks, out of the two.
+    const second = { kind: "nth", nth: 2, types: [lamp], tests: [] } as Parameters<typeof goalPartsOf>[0];
+    expect(goalPartsOf(second, parts, 1).map((d) => d.part.index)).toEqual([1]);
   });
 });

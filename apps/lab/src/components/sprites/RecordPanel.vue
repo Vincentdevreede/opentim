@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { RECORD_FIELDS, type RecordField, type TypeRecord } from "@opentim/content";
+import {
+  RECORD_FIELDS,
+  TOONS_RECORD_FIELDS,
+  TOONS_RECORD_SIZE,
+  type RecordField,
+  type TypeRecord,
+} from "@opentim/content";
 import { computed } from "vue";
 import LabDisclosure from "../LabDisclosure.vue";
 import LabFact from "../LabFact.vue";
@@ -8,7 +14,10 @@ import LabInfo from "../LabInfo.vue";
 import LabSection from "../LabSection.vue";
 import ConfidenceMark from "./ConfidenceMark.vue";
 
-/** A part's 58-byte record in the program's type table, in groups of fields that belong together. */
+/**
+ * A part's record in the program's type table, in groups of fields that belong together: 58 bytes in TIM 1 and Even
+ * More, 70 in Toons.
+ */
 const props = defineProps<{
   record?: TypeRecord;
 }>();
@@ -25,6 +34,15 @@ const GROUPS: { title: string; from: number; to: number }[] = [
 ];
 const POINTERS = new Set([0x14, 0x16, 0x18, 0x1a]);
 const LAYERS = new Set([0x1c, 0x1d]);
+/** Toons' record: far pointers where TIM 1 has near ones, so the fields after them move up. */
+const TOONS_GROUPS: { title: string; from: number; to: number }[] = [
+  { title: "Physics", from: 0x00, to: 0x0c },
+  { title: "Resizing", from: 0x0c, to: 0x14 },
+  { title: "Drawing", from: 0x14, to: 0x2e },
+];
+const TOONS_POINTERS = new Set([0x14, 0x18, 0x1c, 0x20]);
+const TOONS_LAYERS = new Set([0x26, 0x27]);
+const toons = computed(() => props.record?.bytes.length === TOONS_RECORD_SIZE);
 
 /**
  * A field's value as it reads best: a number, "a list" for a pointer to one (where it is stays in the tip), or "none"
@@ -34,25 +52,29 @@ function shown(bytes: Uint8Array, field: RecordField) {
   const at = field.offset;
   const word = (o: number) => bytes[o]! | (bytes[o + 1]! << 8);
   const value = field.size === 1 ? bytes[at]! : word(at);
-  const raw = `0x${hex(value, field.size * 2)}`;
-  if (POINTERS.has(at)) return { text: value ? "a list" : "none", raw };
-  if (LAYERS.has(at)) return { text: value === 0xff ? "none" : String(value), raw };
+  const pointer = field.size === 4 ? word(at) | word(at + 2) : value;
+  const raw = field.size === 4 ? `${hex(word(at + 2), 4)}:${hex(value, 4)}` : `0x${hex(value, field.size * 2)}`;
+  if ((toons.value ? TOONS_POINTERS : POINTERS).has(at)) return { text: pointer ? "a list" : "none", raw };
+  if ((toons.value ? TOONS_LAYERS : LAYERS).has(at)) return { text: value === 0xff ? "none" : String(value), raw };
   return { text: String(value > 0x7fff ? value - 0x10000 : value), raw };
 }
 
 const groups = computed(() => {
   const bytes = props.record?.bytes;
   if (!bytes) return [];
-  return GROUPS.map((g) => ({
+  const fields = toons.value ? TOONS_RECORD_FIELDS : RECORD_FIELDS;
+  return (toons.value ? TOONS_GROUPS : GROUPS).map((g) => ({
     title: g.title,
-    rows: RECORD_FIELDS.filter((f) => f.offset >= g.from && f.offset < g.to).map((f) => {
-      const value = shown(bytes, f);
-      return {
-        field: f,
-        value: value.text,
-        tip: `${f.note}\n\n+0x${hex(f.offset, 2)}, ${f.size} ${f.size === 1 ? "byte" : "bytes"}: ${value.raw}`,
-      };
-    }),
+    rows: fields
+      .filter((f) => f.offset >= g.from && f.offset < g.to)
+      .map((f) => {
+        const value = shown(bytes, f);
+        return {
+          field: f,
+          value: value.text,
+          tip: `${f.note}\n\n+0x${hex(f.offset, 2)}, ${f.size} ${f.size === 1 ? "byte" : "bytes"}: ${value.raw}`,
+        };
+      }),
   }));
 });
 

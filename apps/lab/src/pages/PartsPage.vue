@@ -39,10 +39,12 @@ const order = ref<PartOrder>("number");
 
 const { colorsOf, choose } = usePalettes();
 
-const loaded = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
+const loaded = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value),
+);
 const list = computed(() => loaded.value?.list);
 /** The names of the parts, by type. */
-const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p).name])));
+const partNames = computed(() => new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name])));
 /** What the program does with the parts, read in the background once the parts come from the program. */
 const behaviour = shallowRef<BehaviourResult | { status: "reading" }>();
 /** The walks from the parts' triggers, which come a few seconds after the rest. */
@@ -69,13 +71,12 @@ watch(
   },
   { immediate: true },
 );
-/** Why there is no behaviour to show, when there can't be any. */
-const noBehaviour = computed(() => {
-  const l = loaded.value;
-  if (!l || l.program) return undefined;
-  if (l.list.id === "tim2") return "The lab reads behaviour from the programs of TIM 1 and Even More only, so far.";
-  return l.problem ?? "The parts weren’t read from the program.";
-});
+/** Why there is no behaviour to show: only TIM 1's and Even More's are read so far. */
+const noBehaviour = computed(() =>
+  loaded.value?.list && !loaded.value.program
+    ? "The lab reads behaviour from the programs of TIM 1 and Even More only, so far."
+    : undefined,
+);
 
 /** The decoded image files, which the parts draw their frames from. */
 const sheets = computed(() => {
@@ -87,16 +88,16 @@ const sheets = computed(() => {
 });
 const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)?.[sprite]);
 
-const parts = computed(() => (list.value ? findParts(list.value.parts, query.value, order.value) : []));
+const parts = computed(() => (list.value ? findParts(list.value.parts, query.value, order.value, list.value.id) : []));
 const withFrames = computed(() => list.value?.parts.filter((p) => p.frames.length).length ?? 0);
-/** The file the parts were read from, when they were read from the loaded files and compared with our list. */
+/** The file the parts were read from. */
 const readFrom = computed(() => {
-  const l = loaded.value;
-  if (!l || l.source === "committed") return undefined;
-  return l.source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
+  const source = loaded.value?.source;
+  if (!source) return undefined;
+  return source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
 });
-/** The numbers of the parts that aren't the same as in our list. */
-const differs = computed(() => new Set(loaded.value?.differs ?? []));
+/** The numbers of the parts OpenTIM has no id for yet. */
+const unknown = computed(() => new Set(loaded.value?.unknown ?? []));
 const currentPart = computed(
   () => list.value?.parts.find((p) => p.id === selectedPart.value) ?? parts.value[0] ?? list.value?.parts[0],
 );
@@ -145,13 +146,11 @@ onBeforeUnmount(() => (crumb.value = []));
       <span class="font-mono text-ink">{{ list.parts.length }}</span> parts ·
       <span class="font-mono text-ink">{{ withFrames }}</span> with frames
       <template v-if="readFrom">
-        · read from <span class="font-mono text-ink">{{ readFrom }}</span> ·
-        <template v-if="differs.size">
-          <span class="font-mono text-ink">{{ differs.size }}</span> differ from our list</template
+        · read from <span class="font-mono text-ink">{{ readFrom }}</span>
+        <template v-if="unknown.size">
+          · <span class="font-mono text-ink">{{ unknown.size }}</span> without an id in OpenTIM</template
         >
-        <template v-else>the same as our list</template>
       </template>
-      <template v-else-if="loaded?.problem"> · from our list: {{ loaded.problem }}</template>
     </template>
   </PageHeader>
 
@@ -174,7 +173,7 @@ onBeforeUnmount(() => (crumb.value = []));
             :key="p.id"
             :selected="p.id === currentPart.id"
             :data-card="p.id === currentPart.id ? 'selected' : ''"
-            :aria-label="`${partName(p).name}, number ${p.type}`"
+            :aria-label="`${partName(p, list.id).name}, number ${p.type}`"
             @click="pick(p.id)"
           >
             <LabPicture height="84px">
@@ -189,10 +188,10 @@ onBeforeUnmount(() => (crumb.value = []));
               }}</span>
               <LabTag class="absolute top-1 left-1">{{ p.type }}</LabTag>
               <LabDot
-                v-if="differs.has(p.type)"
+                v-if="unknown.has(p.type)"
                 status="partial"
                 class="absolute top-1.5 right-1.5"
-                :title="['Not the same as in our list.', whyNoFrames(list.id, p)].filter(Boolean).join(' ')"
+                :title="['OpenTIM has no id for this part yet.', whyNoFrames(list.id, p)].filter(Boolean).join(' ')"
               />
               <LabDot
                 v-else-if="!p.frames.length"
@@ -202,7 +201,7 @@ onBeforeUnmount(() => (crumb.value = []));
               />
             </LabPicture>
             <span class="flex flex-col px-0.5 pb-px">
-              <span class="truncate text-ui font-medium text-ink">{{ partName(p).name }}</span>
+              <span class="truncate text-ui font-medium text-ink">{{ partName(p, list.id).name }}</span>
               <LabCaption class="px-0!">{{
                 p.frames.length ? `${p.frames.length} ${p.frames.length === 1 ? "frame" : "frames"}` : "no frames"
               }}</LabCaption>
@@ -216,22 +215,24 @@ onBeforeUnmount(() => (crumb.value = []));
     <PartDetail
       :part="currentPart"
       :sheet-sprites="sheets"
-      :record="loaded?.records.get(currentPart.type)"
+      :record="loaded?.records?.get(currentPart.type)"
       :behaviour="behaviour"
       :walks="walks"
       :no-behaviour="noBehaviour"
       :part-names="partNames"
       :no-frames="whyNoFrames(list.id, currentPart)"
+      :list-id="list.id"
       :gallery-palette="AUTO"
       @open-sheet="openSheet"
       @view-bytes="viewBytes"
     />
   </div>
 
+  <LabEmpty v-else-if="loaded?.problem" icon="parts" title="The parts couldn’t be read" :text="loaded.problem" />
   <LabEmpty
     v-else
     icon="parts"
     title="No parts list for these files"
-    text="The lab has parts lists for TIM 1, Even More and TIM 2, but couldn’t match these files to one of them."
+    text="The lab reads the parts of TIM 1, Even More, TIM 2 and Toons, but couldn’t match these files to one of them."
   />
 </template>

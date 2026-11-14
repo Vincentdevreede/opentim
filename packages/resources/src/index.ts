@@ -10,6 +10,7 @@ export {
   type Image,
   type ScnCommand,
 } from "./image.ts";
+export { glyphOf, glyphPixel, readFont, type Font, type Glyph } from "./font.ts";
 export { kindOf, type ResourceKind } from "./kind.ts";
 export {
   compressType3,
@@ -37,3 +38,4 @@ export {
   type SoundEntry,
   type SoundTrack,
 } from "./sound.ts";
+export { TTM_LOADS, readTtmFiles, ttmPalettes, type TtmFile, type TtmLoad } from "./ttm.ts";

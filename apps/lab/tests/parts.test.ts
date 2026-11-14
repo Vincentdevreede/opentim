@@ -1,4 +1,4 @@
-import { PART_LISTS, type Part } from "@opentim/content";
+import type { Part } from "@opentim/content";
 import { writeChunk } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Edition } from "../src/edition.ts";
@@ -14,7 +14,7 @@ const part = (id: string, type: number, extra: Partial<Part> = {}): Part => ({
 
 describe("listIdOf", () => {
   it("gives the list of a recognised version that has one", () => {
-    const profile = { id: "x", name: "X", languages: [], files: [], parts: "tim1" };
+    const profile = { id: "x", name: "X", languages: [], files: [], parts: "tim1", program: "TIM.EXE" };
     expect(listIdOf({ status: "recognized", profile })).toBe("tim1");
     expect(listIdOf({ status: "recognized", profile: { ...profile, parts: undefined } })).toBeUndefined();
     expect(listIdOf({ status: "unknown" } as Edition)).toBeUndefined();
@@ -23,27 +23,31 @@ describe("listIdOf", () => {
 });
 
 describe("readLoadedParts", () => {
-  it("uses the committed list, with the reason, when the files can't give the parts", () => {
-    expect(readLoadedParts(undefined, [])).toBeUndefined();
-    const withoutProgram = readLoadedParts("tim1", []);
-    expect(withoutProgram?.list).toBe(PART_LISTS.tim1);
-    expect(withoutProgram?.source).toBe("committed");
-    expect(withoutProgram?.problem).toMatch(/TIM\.EXE/);
-    const damaged = readLoadedParts("evenmore", [], { name: "TIM.EXE", data: new Uint8Array(64) });
-    expect(damaged?.source).toBe("committed");
+  const exe = (name: string, data = new Uint8Array(64)) => ({ name, data });
+
+  it("says why the parts can't be read, without a list to stand in", () => {
+    expect(readLoadedParts(undefined, [], exe("TIM.EXE"))).toBeUndefined();
+    const damaged = readLoadedParts("evenmore", [], exe("TIM.EXE"));
+    expect(damaged?.list).toBeUndefined();
     expect(damaged?.problem).toMatch(/no MZ header/);
-    expect(readLoadedParts("tim2", [])?.problem).toMatch(/INFO\.RES/);
+    expect(readLoadedParts("tim2", [], exe("TIM2.EXE"))?.problem).toMatch(/INFO\.RES/);
   });
 
-  it("keeps a TIM 2 part our list doesn't have, and names it as missing from our list", () => {
+  it("reads the parts only from the game's own program", () => {
+    expect(readLoadedParts("tim1", [], exe("TOONS.EXE"))?.problem).toMatch(/from TIM\.EXE, not TOONS\.EXE/);
+    expect(readLoadedParts("toons", [], exe("TIM.EXE"))?.problem).toMatch(/from TOONS\.EXE, not TIM\.EXE/);
+  });
+
+  it("keeps a TIM 2 part OpenTIM has no id for, and names it as unknown", () => {
     const text = "0.\tBowling Ball\tHelp.\r\n999.\tSomething New\tHelp.\r\n";
     const info = Uint8Array.from(text, (c) => c.charCodeAt(0));
-    const loaded = readLoadedParts("tim2", [
-      { name: "INFO.RES", kind: "binary", group: "other", archive: "RESOURCE.001", offset: 0, data: info },
-    ]);
+    const loaded = readLoadedParts(
+      "tim2",
+      [{ name: "INFO.RES", kind: "binary", group: "other", archive: "RESOURCE.001", offset: 0, data: info }],
+      exe("TIM2.EXE"),
+    );
     expect(loaded?.source).toBe("resources");
-    expect(loaded?.missing).toEqual([999]);
-    expect(loaded?.differs).toContain(999);
+    expect(loaded?.unknown).toEqual([999]);
   });
 
   it("reads TIM 2 frames from the .ANM files", () => {
@@ -53,15 +57,19 @@ describe("readLoadedParts", () => {
     // One frame that draws sprite 0 of sheet 1 at (2, 3), in a 10 by 10 box at the origin.
     const anm = words(0x4254, 1001, 0, 1, 0, 16, 10, 10, 0, 0, 10, 10, 0, 2, 1, 0, 2, 3, 0, 0, 1);
     const tag = Uint8Array.from([1, 0, 1, 0, ...Array.from("PART0.BMP\0", (c) => c.charCodeAt(0))]);
-    const loaded = readLoadedParts("tim2", [
-      resource(
-        "INFO.RES",
-        Uint8Array.from("0.\tBowling Ball\tHelp.\r\n", (c) => c.charCodeAt(0)),
-      ),
-      resource("PART0.ANM", Uint8Array.from([...writeChunk("ANM:", anm), ...writeChunk("TAG:", tag)])),
-      resource("PART0.BMP", new Uint8Array(1)),
-    ]);
-    expect(loaded?.list.parts[0]?.frames).toEqual([
+    const loaded = readLoadedParts(
+      "tim2",
+      [
+        resource(
+          "INFO.RES",
+          Uint8Array.from("0.\tBowling Ball\tHelp.\r\n", (c) => c.charCodeAt(0)),
+        ),
+        resource("PART0.ANM", Uint8Array.from([...writeChunk("ANM:", anm), ...writeChunk("TAG:", tag)])),
+        resource("PART0.BMP", new Uint8Array(1)),
+      ],
+      exe("TIM2.EXE"),
+    );
+    expect(loaded?.list?.parts[0]?.frames).toEqual([
       {
         id: 0,
         sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 3, layer: 0 }],
@@ -77,6 +85,12 @@ describe("partName", () => {
     expect(partName(part("bowling-ball", 0))).toEqual({ name: "Bowling Ball", source: "game" });
     expect(partName(part("jack-o-lantern", 32))).toEqual({ name: "Jack o lantern", source: "id" });
     expect(partName(part("explosion", 41)).name).toBe("Explosion");
+  });
+
+  it("names a Toons part from Toons' own names only", () => {
+    expect(partName(part("teeter-totter", 3), "toons")).toEqual({ name: "Teeter-Totter", source: "game" });
+    expect(partName(part("pulley", 17), "toons")).toEqual({ name: "Pulley", source: "id" });
+    expect(partName(part("pulley", 7), "tim1").name).toBe("Pulley");
   });
 });
 

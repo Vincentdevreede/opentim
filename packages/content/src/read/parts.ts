@@ -5,8 +5,18 @@
  */
 
 import type { Frame, Part, PartList } from "../model.ts";
-import { NOT_IN_TIM1, TIM2_IDS, TIM_IDS } from "../part-ids.ts";
+import { NOT_IN_TIM1, TIM2_IDS, TIM_IDS, TOONS_IDS } from "../part-ids.ts";
 import { unpackLzexe } from "./lzexe.ts";
+import {
+  TOONS_CRITTERS,
+  TOONS_RECORD_SIZE,
+  findToonsTypeTable,
+  loadImage,
+  readToonsActions,
+  readToonsTypes,
+  type ToonsAction,
+  type ToonsType,
+} from "./toons.ts";
 import { animationFrames, animationSheets, readAnimation, readPartNames } from "./tim2.ts";
 import { readPar } from "./tim2-program.ts";
 import { RECORD_SIZE, findDataSegment, findTypeTable, readOffsets, readTypes, type ExeType } from "./type-table.ts";
@@ -16,6 +26,7 @@ export const GAMES = {
   tim1: { game: "The Incredible Machine", types: 58 },
   evenmore: { game: "Even More! The Incredible Machine", types: 66 },
   tim2: { game: "The Incredible Machine 2", types: 0 },
+  toons: { game: "Sid & Al's Incredible Toons", types: 0 },
 };
 export type ListId = keyof typeof GAMES;
 
@@ -157,4 +168,99 @@ export function readTim2Parts(
     return part;
   });
   return { id: "tim2", game: GAMES.tim2.game, parts };
+}
+
+/** The ladder: TOONS.EXE draws its tiles 32 pixels wide, every other tiled part's 16. */
+const TOONS_LADDER = 45;
+
+/**
+ * The frames of a Toons type, with every sprite checked against its sheet. A type with a list of frames shows its
+ * pieces, as TOONS.EXE does for a part with bit 0x1000 of its drawing flags. Otherwise state N shows sprite N, at the
+ * record's position for it or at the origin.
+ */
+function toonsFramesOf(type: number, exe: ToonsType, sheet: string, sprites: number | undefined): Frame[] {
+  if (sprites === undefined) return [];
+  if (!exe.frames.length)
+    return Array.from({ length: sprites }, (_, id) => {
+      const [x, y] = exe.positions?.[id] ?? [0, 0];
+      return { id, sprites: [{ sheet, sprite: id, x, y, layer: exe.layers[0] }] };
+    });
+  return exe.frames.map((pieces, id) => ({
+    id,
+    sprites: pieces.flatMap((piece) =>
+      piece.sprites.map(({ sprite, x, y }) => {
+        if (sprite >= sprites)
+          throw new Error(`Type ${type}, frame ${id} uses sprite ${sprite} of ${sheet}, which has ${sprites}`);
+        return { sheet, sprite, x, y, layer: piece.layer };
+      }),
+    ),
+  }));
+}
+
+/**
+ * Al's or Sid's frames: the pieces of the type's frame list, each frame from the sheet of the action it belongs to
+ * (the action whose first frame is the last one at or before it). A frame no action covers has no sprites.
+ */
+function critterFramesOf(
+  type: number,
+  exe: ToonsType,
+  actions: readonly (ToonsAction | undefined)[],
+  spriteCount: SpriteCount,
+): Frame[] {
+  const known = actions.filter((a): a is ToonsAction => !!a).sort((a, b) => a.start - b.start);
+  return exe.frames.map((pieces, id) => {
+    const action = known.findLast((a) => a.start <= id);
+    const sprites = action && id < action.start + action.frames ? spriteCount(action.sheet) : undefined;
+    if (!action || sprites === undefined) return { id, sprites: [] };
+    return {
+      id,
+      sprites: pieces.flatMap((piece) =>
+        piece.sprites.map(({ sprite, x, y }) => {
+          if (sprite >= sprites)
+            throw new Error(`Type ${type}, frame ${id} uses sprite ${sprite} of ${action.sheet}, which has ${sprites}`);
+          return { sheet: action.sheet, sprite, x, y, layer: piece.layer };
+        }),
+      ),
+    };
+  });
+}
+
+/**
+ * Reads the parts of Sid & Al's Incredible Toons from `TOONS.EXE` and the sprite counts of its sheets. A type is a
+ * part when it has a sheet, or is Al or Sid. A type without an id in `part-ids.ts` stops the read, unless `keepUnknown`
+ * gives it `part-<number>`.
+ */
+export function readToonsParts(
+  program: Uint8Array,
+  spriteCount: SpriteCount,
+  { keepUnknown = false }: { keepUnknown?: boolean } = {},
+): ProgramParts {
+  const image = loadImage(program);
+  const { start, count } = findToonsTypeTable(image);
+  const exeTypes = readToonsTypes(image, start, count);
+  const actions = readToonsActions(program);
+  const parts = exeTypes.flatMap((exe, type): Part[] => {
+    const sheet = `PART${type}`;
+    const sprites = spriteCount(sheet);
+    const critter = TOONS_CRITTERS.includes(type);
+    if (sprites === undefined && !critter) return [];
+    const id = TOONS_IDS[type] ?? (keepUnknown ? `part-${type}` : undefined);
+    if (!id) throw new Error(`Toons part ${type} has no id in part-ids.ts`);
+    const own = actions.get(type);
+    const frames = critter
+      ? own
+        ? critterFramesOf(type, exe, own, spriteCount)
+        : []
+      : toonsFramesOf(type, exe, sheet, sprites);
+    const sheets = critter
+      ? [...new Set(frames.flatMap((f) => f.sprites.map((p) => p.sheet)))]
+      : sprites === undefined
+        ? []
+        : [sheet];
+    const part: Part = { id, type, sheets, frames };
+    if (exe.middles) part.tiles = { width: type === TOONS_LADDER ? 32 : 16, middles: exe.middles };
+    return [part];
+  });
+  const records = exeTypes.map(({ at }, type) => ({ type, at, bytes: image.slice(at, at + TOONS_RECORD_SIZE) }));
+  return { list: { id: "toons", game: GAMES.toons.game, parts }, records, table: start, dataSegment: 0 };
 }

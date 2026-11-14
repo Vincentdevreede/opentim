@@ -179,17 +179,6 @@ export function readPar(par: Uint8Array): Tim2Properties | undefined {
 }
 
 /**
- * Whether a part's `.PAR` file has the size limits of TIM 2's walls: 576 × 416 as its largest size. In the floppy and
- * CD builds the types with that size are exactly the ones TIM2.EXE draws with its wall routine, the large pipes
- * included. That is a match in the files, not a rule the program follows, so it only stands in when TIM2.EXE isn't
- * loaded.
- */
-export function hasWallLimits(par: Uint8Array): boolean {
-  const properties = readPar(par);
-  return properties?.maxSize.width === 576 && properties.maxSize.height === 416;
-}
-
-/**
  * How TIM2.EXE's size routine (in the floppy build at file offset `0x21477`; it runs whenever a part's state is set,
  * also when a level is set up) fills two words of a part's record, offsets `0x44` and `0x46`, which its usual draw
  * routine mirrors the part in. The type picks the way, by lists in the code that are the same in all three builds.
