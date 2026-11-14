@@ -11,7 +11,7 @@ export const BACKGROUNDS: { value: Background; label: string; title?: string }[]
   { value: "checker", label: "Checks", title: "Shows which pixels are transparent" },
   { value: "black", label: "Black" },
   { value: "white", label: "White" },
-  { value: "game", label: "Game", title: `The game’s own background, ${GAME_BACKGROUND}` },
+  { value: "game", label: "Game", title: `The game’s own background: ${GAME_BACKGROUND}, or a TIM 2 level’s colour` },
 ];
 
 export const BACKGROUND_CLASSES: Record<Background, string> = {

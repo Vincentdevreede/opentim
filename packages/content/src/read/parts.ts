@@ -18,7 +18,7 @@ import {
   type ToonsType,
 } from "./toons.ts";
 import { animationFrames, animationSheets, readAnimation, readPartNames } from "./tim2.ts";
-import { readTim2Types, TIM2_RECORD_SIZE } from "./tim2-program.ts";
+import { readPar, readTim2Types, TIM2_RECORD_SIZE } from "./tim2-program.ts";
 import { RECORD_SIZE, findDataSegment, findTypeTable, readOffsets, readTypes, type ExeType } from "./type-table.ts";
 import { sheetFrameSizes, type FrameSize } from "./behaviour-sheet-frames.ts";
 
@@ -160,6 +160,9 @@ export function readTim2Parts(
     };
     if (animation?.steps.length) part.states = animation.steps;
     if (animation) part.mirrorBox = { width: animation.width, height: animation.height };
+    const par = resource(`PART${type}.PAR`);
+    const properties = par && readPar(par);
+    if (properties) part.parSize = properties.size;
     if (animation?.sequences.length)
       part.sequences = animation.sequences.map(({ sequence, step }) => ({ sequence, state: step }));
     return part;

@@ -209,7 +209,7 @@ class Unreadable extends Error {
   }
 }
 
-type Flags =
+type Flags = (
   | { kind: "compare"; left: GoalValue; right: GoalValue }
   | { kind: "and"; left: GoalValue; right: GoalValue }
   /**
@@ -221,7 +221,11 @@ type Flags =
       value: GoalValue;
       logic: boolean;
       sum?: { op: "+" | "-"; left: GoalValue; right: GoalValue };
-    };
+    }
+) & {
+  /** Set by an instruction on a byte, whose sign is bit 7: the goal's tests read 16-bit signs. */
+  byte?: true;
+};
 
 /** The word register of each low byte register, for `mov al, byte; mov ah, 0`. */
 const BYTE_PAIRS: Record<string, string> = { al: "ax", bl: "bx", cl: "cx", dl: "dx" };
@@ -602,6 +606,7 @@ class RoutineReader {
     const flags = this.flags;
     if (!flags || this.flagsAt !== branch.address)
       throw new Unreadable(branch.address, "a branch on flags set further back than the instruction before");
+    if (flags.byte && condition.signed) throw new Unreadable(branch.address, "a signed branch after a byte");
     if (flags.kind === "compare") {
       if (branch.mnemonic === "js" || branch.mnemonic === "jns")
         throw new Unreadable(branch.address, "a sign branch after a compare");
@@ -624,7 +629,7 @@ class RoutineReader {
   }
 
   private setFlags(i: Instruction, flags: Flags) {
-    this.flags = flags;
+    this.flags = i.operands.some((o) => o.kind === "memory" && o.width === 8) ? { ...flags, byte: true } : flags;
     this.flagsAt = i.address + i.size;
   }
 
@@ -714,14 +719,15 @@ class RoutineReader {
       this.es = segment;
       return [];
     }
-    // A segment loaded into a register only to go into `es` next is no word of the goal's: it is kept, not said.
+    // A segment loaded into a register only to go into `es` next is no word of the goal's: it is kept, not said, unless
+    // the goal reads the register again.
     if (this.reading.farWords && i.mnemonic === "mov" && a?.kind === "register" && b?.kind === "immediate") {
       for (let at = i.address + i.size, n = 0; n < 3; n++) {
         const next = this.graph.instructions.get(at);
         if (!next || next.flow !== "next") break;
         const [to, from] = next.operands;
         if (next.mnemonic === "mov" && to?.kind === "register" && to.name === "es") {
-          if (from?.kind === "register" && from.name === a.name) {
+          if (from?.kind === "register" && from.name === a.name && !this.readLater(a.name, at + next.size)) {
             this.constants.set(a.name, b.value & 0xffff);
             return [];
           }
@@ -742,6 +748,48 @@ class RoutineReader {
         this.es = undefined;
       }
     return statements;
+  }
+
+  /**
+   * Whether the goal may read a word register from `from` on before it sets it again. A called routine has registers
+   * of its own and leaves ax and dx changed. The routine's end isn't counted as reading ax: Toons' dispatcher drops a
+   * goal's ax, and only the goals themselves load `es`, no routine they call.
+   */
+  private readLater(name: string, from: number): boolean {
+    const [low, high] = [`${name[0]}l`, `${name[0]}h`];
+    const names = [name, low, high];
+    const named = (o: Operand) =>
+      (o.kind === "register" && names.includes(o.name)) || (o.kind === "memory" && o.base.includes(name));
+    const seen = new Set<number>();
+    const pending = [from];
+    while (pending.length) {
+      const at = pending.pop()!;
+      if (at === EXIT || seen.has(at)) continue;
+      seen.add(at);
+      const i = this.graph.instructions.get(at);
+      if (!i) return true;
+      const [to, ...rest] = i.operands;
+      // `mov dl, byte; mov dh, 0` sets dx as one load does.
+      const next = this.graph.instructions.get(at + i.size);
+      const [nextTo, nextFrom] = next?.operands ?? [];
+      const pair =
+        to?.kind === "register" &&
+        to.name === low &&
+        next?.mnemonic === "mov" &&
+        nextTo?.kind === "register" &&
+        nextTo.name === high &&
+        nextFrom?.kind === "immediate";
+      const sets =
+        to?.kind === "register" &&
+        (to.name === name || pair) &&
+        ((["mov", "lea", "pop"].includes(i.mnemonic) && !rest.some(named)) ||
+          (i.mnemonic === "xor" && rest[0]?.kind === "register" && rest[0].name === name));
+      if (sets) continue;
+      if (i.operands.some(named) || (["cwd", "idiv"].includes(i.mnemonic) && ["ax", "dx"].includes(name))) return true;
+      if (i.flow === "call" && (name === "ax" || name === "dx")) continue;
+      pending.push(...(this.graph.successors.get(at) ?? []));
+    }
+    return false;
   }
 
   private statements(i: Instruction): GoalStatement[] {
@@ -812,6 +860,8 @@ class RoutineReader {
           this.sp += (i.mnemonic === "add" ? 1 : -1) * this.count(b, at);
           return [];
         }
+        // The goal adds words, so a byte would carry into its high byte.
+        if (a?.kind === "memory" && a.width === 8) throw new Unreadable(at, `a byte ${i.mnemonic}`);
         const target = this.target(a, at);
         const source = this.value(b, at);
         const op = i.mnemonic === "add" ? "+" : "-";
@@ -837,6 +887,9 @@ class RoutineReader {
       case "shl":
       case "sar":
       case "shr": {
+        // A word shift left carries into the high byte, and one right takes its sign from bit 15, not 7.
+        if (a?.kind === "memory" && a.width === 8 && i.mnemonic !== "shr")
+          throw new Unreadable(at, `a byte ${i.mnemonic}`);
         const target = this.target(a, at);
         this.setFlags(i, { kind: "result", value: target, logic: false });
         const op = i.mnemonic === "shl" ? "<<" : i.mnemonic === "sar" ? ">>" : ">>>";

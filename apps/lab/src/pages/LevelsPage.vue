@@ -24,6 +24,7 @@ import {
   LAYOUT_NAMES,
   MARGIN,
   PLAY_AREA,
+  goalPartsOf,
   layoutOf,
   layoutScene,
   readLevels,
@@ -237,9 +238,12 @@ const goalAreas = computed(() => {
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
-    // position is in range, from a part of the same type in the level. Without one it is the range of positions.
-    const types = new Set(c.types?.map((t) => t.type));
-    const like = s.parts.find((d) => (!types.size || types.has(d.part.type)) && d.box.width && d.box.height);
+    // position is in range, from the part the condition is about or one of the same type in the level. Without one it
+    // is the range of positions.
+    const one = goalParts.value.get(c);
+    const looked =
+      c.part !== undefined || one !== undefined || c.types?.length ? goalPartsOf(c, s.parts, one) : s.parts;
+    const like = looked.find((d) => d.box.width && d.box.height);
     const at = like
       ? {
           x: like.box.x - like.part.position.x,
@@ -297,21 +301,23 @@ const goalParts = computed(
         .map(([c, found]) => [c, found.parts[0]!]),
     ),
 );
-/** The parts the goal's conditions look at, ringed on the drawing: the placed parts by number, the others by type. */
-const goalTypes = computed(() => {
+/**
+ * The parts the goal's conditions look at, by their index in the level, ringed on the drawing: for a Toons goal the
+ * parts TOONS.EXE's lists give when the puzzle starts (none for a condition that can't hold then), otherwise the part a
+ * condition names or every part of its types.
+ */
+const ringedParts = computed(() => {
   const g = goal.value;
-  if (g?.status !== "done") return new Set<number>();
+  const s = scene.value;
+  if (g?.status !== "done" || !s) return new Set<number>();
   return new Set(
-    g.goal.summary.ways
-      .flat()
-      .filter((c) => !toonsParts.value.has(c))
-      .flatMap((c) => c.types?.map((t) => t.type) ?? []),
+    g.goal.summary.ways.flat().flatMap((c) => {
+      const found = toonsParts.value.get(c);
+      if (found) return found.holds === false ? [] : found.parts;
+      return goalPartsOf(c, s.parts).map((d) => d.part.index);
+    }),
   );
 });
-/** A condition that can't hold as the puzzle starts rings nothing. */
-const goalPartSet = computed(
-  () => new Set([...toonsParts.value.values()].filter((f) => f.holds !== false).flatMap((f) => f.parts)),
-);
 
 /** The decoded sprites of each sheet, as the Sprites page reads them. */
 const sheets = computed(() => {
@@ -509,12 +515,12 @@ onBeforeUnmount(() => {
                 :scene="scene"
                 :palette-of="paletteOf"
                 :line-palette="paletteOf('PART0')"
+                :area-colour="background === 'game' ? level.tim2?.background : undefined"
                 :zoom="zoom"
                 :bounds="showBounds"
                 :selected="selectedPart"
                 :goal-areas="showGoal ? goalAreas : undefined"
-                :goal-types="showGoal ? goalTypes : undefined"
-                :goal-parts="showGoal ? goalPartSet : undefined"
+                :goal-parts="showGoal ? ringedParts : undefined"
                 @select="selectedPart = $event"
               />
             </div>

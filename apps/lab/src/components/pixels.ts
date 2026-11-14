@@ -1,5 +1,5 @@
 import { frameToRgba, type Frame } from "@opentim/resources";
-import type { Composition, Shape } from "@opentim/content";
+import { tim2LinePixels, type Composition, type Shape } from "@opentim/content";
 
 /** Without a palette, the indexes are shown as grey levels. */
 export const greys = Uint8Array.from({ length: 768 }, (_, i) => Math.floor(i / 3));
@@ -55,7 +55,7 @@ export function compositionCanvas(composition: Composition, palette: Uint8Array 
 const css = (palette: Uint8Array, index: number) =>
   `rgb(${palette[index * 3] ?? 0} ${palette[index * 3 + 1] ?? 0} ${palette[index * 3 + 2] ?? 0})`;
 
-/** Draws a box or a line of a frame in whole pixels, the line from end to end as a run of pixels. */
+/** Draws a box or a line of a frame in whole pixels, the line as TIM2.EXE's VGA driver does. */
 function drawShape(context: CanvasRenderingContext2D, s: Shape, at: { x: number; y: number }, palette: Uint8Array) {
   const dot = (x: number, y: number) => context.fillRect(x - at.x, y - at.y, 1, 1);
   const line = (x1: number, y1: number, x2: number, y2: number) => {
@@ -65,7 +65,7 @@ function drawShape(context: CanvasRenderingContext2D, s: Shape, at: { x: number;
   };
   if (s.kind === "line") {
     context.fillStyle = css(palette, s.colour);
-    line(s.x1, s.y1, s.x2, s.y2);
+    for (const p of tim2LinePixels(s.x1, s.y1, s.x2, s.y2)) dot(p.x, p.y);
     return;
   }
   if (s.fill !== undefined) {

@@ -49,6 +49,11 @@ export interface Part {
    * high, with this many middle tiles taking turns between the two end tiles.
    */
   tiles?: { width: number; middles: number };
+  /**
+   * The size in TIM 2's `.PAR` file of the part. TIM2.EXE mirrors most parts in it, and gives it to a part whose type
+   * has no size of its own.
+   */
+  parSize?: { width: number; height: number };
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }
@@ -60,6 +65,8 @@ export interface Frame {
   sprites: Placement[];
   /** Boxes and lines the frame draws too, like the fishing line of TIM 2's fish tank. */
   shapes?: Shape[];
+  /** The frame's box in a TIM 2 animation, relative to the part's origin. TIM2.EXE mirrors parts by it. */
+  box?: { x: number; y: number; width: number; height: number };
 }
 
 /**
