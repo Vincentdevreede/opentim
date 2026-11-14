@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
 import { MARGIN, partAt, type DrawnPart, type Scene } from "../../levels.ts";
-import { compositionCanvas } from "../pixels.ts";
+import { compositionCanvas, patternCanvas } from "../pixels.ts";
+import { sixteenColours } from "../tim2-colours.ts";
 
 /**
  * Draws a level: the play area with a margin around it, every part where the file puts it, and the ropes and belts
@@ -43,7 +44,7 @@ const pictures = computed(
                 compositionCanvas(
                   d.composition,
                   props.paletteOf(d.composition.placed[0]?.placement.sheet ?? `PART${d.part.type}`),
-                  d.part.position.x,
+                  { x: d.part.position.x, y: d.part.position.y, sixteen: sixteenColours.value },
                 ),
               ],
             ]
@@ -130,7 +131,10 @@ watchEffect(() => {
   context.fillRect(left - MARGIN, top, MARGIN, h);
   context.fillRect(left + w, top, MARGIN, h);
   const fill = props.areaColour === undefined ? undefined : paletteColor(props.linePalette, props.areaColour);
-  if (fill) {
+  // TIM2.EXE fills the play area with its box routine, which in 16 colours gives a colour of 16 or more a pattern.
+  if (fill && sixteenColours.value && props.areaColour! > 15)
+    context.drawImage(patternCanvas(w, h, props.areaColour!, props.linePalette!, top), left, top);
+  else if (fill) {
     context.fillStyle = fill;
     context.fillRect(left, top, w, h);
   }
