@@ -140,3 +140,28 @@ export function discoverScalarLoaders(
   }
   return found;
 }
+
+/** The argument offset that tells the analysis a routine takes no part: no argument is ever at this frame offset. */
+export const NO_PART_ARGUMENT = -1;
+
+/**
+ * The evidence that a far routine's first argument (`[bp+6]`) is a number, not a part: the routine never loads it as a
+ * pointer (no `les`, no `mov` into a register), only pushes it on or compares it, and at least once compares it with
+ * a number or passes it as the first argument of a resource service. Undefined when the code doesn't show that.
+ */
+export function numberFirstArgument(code: RoutineCode, summaries: Map<number, EngineSummary>): Evidence[] | undefined {
+  if (!code.instructions.some((i) => i.mnemonic === "retf")) return undefined;
+  const uses = readsArgument(code, FIRST_ARGUMENT);
+  if (!uses.length || !uses.every((i) => ["push", "cmp"].includes(i.mnemonic))) return undefined;
+  if (readsArgument(code, FIRST_ARGUMENT + 2).some((i) => ["les", "lds"].includes(i.mnemonic))) return undefined;
+  const proof = uses.filter((i) => {
+    if (i.mnemonic === "cmp") return i.operands[1]?.kind === "immediate";
+    // Pushed last before a call to a resource service: that call's first argument.
+    const at = code.instructions.indexOf(i);
+    const next = code.instructions.slice(at + 1).find((j) => j.mnemonic !== "nop" && j.text !== "push cs");
+    const call = next && code.calls.find((c) => c.instruction === next.address);
+    const callee = call?.target && summaries.get(call.target.address);
+    return callee?.kind === "scalar-resource-service" && callee.argumentKind === "scalar";
+  });
+  return proof.length ? uses.map(evidenceOf) : undefined;
+}

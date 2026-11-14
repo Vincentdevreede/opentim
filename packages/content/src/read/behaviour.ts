@@ -18,7 +18,7 @@ import type { GearConflictValue } from "./behaviour-gear-model.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
 import { behaviourProfile, loadBehaviourImage } from "./behaviour-program.ts";
-import { discoverScalarLoaders } from "./behaviour-scalar-loaders.ts";
+import { discoverScalarLoaders, NO_PART_ARGUMENT, numberFirstArgument } from "./behaviour-scalar-loaders.ts";
 import { findSpeedLimitSetup, type SpeedLimitSetup } from "./behaviour-speed-limits.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
@@ -1938,6 +1938,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const nested = /^referenced-by\((.*)\+0x([0-9a-f]+)\)$/.exec(object);
     // The part another argument of the helper points at, like the explosion the wall split gets: the caller's argument.
     if (nested?.[1] === "argument") return formalArgument(args, base, parseInt(nested[2]!, 16));
+    // A far pointer the helper loaded from its own arguments (`les bx, [bp+n]`): the caller's argument at that place.
+    if (nested?.[1] === "stack" && options.partPointer === "far") {
+      const frameOffset = parseInt(nested[2]!, 16) + 2;
+      if (frameOffset > 2) return formalArgument(args, base, frameOffset);
+    }
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
   };
@@ -5343,9 +5348,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       registers: [...pointerRegisters],
       confidence: pointerRegisters.size ? "inferred" : "unresolved",
       assumptions: [
-        options.partPointer === "far"
-          ? `The first argument is a far part pointer at frame offsets ${argumentOffset} and ${argumentOffset + 2}, conditional on the caller passing that pointer.`
-          : `The first argument is a near part pointer at frame offset ${argumentOffset}, conditional on the caller passing that pointer.`,
+        argumentOffset < 0
+          ? "The routine takes no part: its first argument is a number, which it only compares or passes on as one."
+          : options.partPointer === "far"
+            ? `The first argument is a far part pointer at frame offsets ${argumentOffset} and ${argumentOffset + 2}, conditional on the caller passing that pointer.`
+            : `The first argument is a near part pointer at frame offset ${argumentOffset}, conditional on the caller passing that pointer.`,
         "Callees preserve SI, DI, BP and DS; volatile registers are discarded.",
       ],
       evidence: uniqueEvidence(pointerEvidence),
@@ -5821,13 +5828,18 @@ export function readBehaviourInSteps(
     const callbackArguments = [...(callbackSlots.get(address) ?? [])].map(
       (slot) => layout.callbacks[slot]?.objectSource?.argumentOffset ?? layout.objectArgument.offset!,
     );
-    const argumentOffset = counts.has(address)
-      ? callbackArguments.length && callbackArguments.every((offset) => offset === callbackArguments[0])
-        ? callbackArguments[0]!
-        : layout.objectArgument.offset
-      : returnKinds.size === 1 && returnKinds.has("ret")
-        ? 4
-        : 6;
+    // A helper whose first argument the code shows to be a number takes no part (TIM 2 and Toons).
+    const takesNumber =
+      profile.numberArguments && code && !counts.has(address) && numberFirstArgument(code, engineSummaries);
+    const argumentOffset = takesNumber
+      ? NO_PART_ARGUMENT
+      : counts.has(address)
+        ? callbackArguments.length && callbackArguments.every((offset) => offset === callbackArguments[0])
+          ? callbackArguments[0]!
+          : layout.objectArgument.offset
+        : returnKinds.size === 1 && returnKinds.has("ret")
+          ? 4
+          : 6;
     let externalList: ListLoopSummary | undefined;
     if (code && !counts.has(address)) {
       const consumers = discoverExternalListConsumers(code, engineSummaries, stateOffset);
@@ -5868,7 +5880,7 @@ export function readBehaviourInSteps(
       stateOffset,
       argumentOffset,
       summaries,
-      maxVisits: counts.has(address) ? 12_000 : 800,
+      maxVisits: counts.has(address) ? 12_000 : profile.helperPaths,
       code,
       engineSummaries,
       codes,

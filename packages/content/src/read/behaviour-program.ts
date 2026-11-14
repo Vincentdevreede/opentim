@@ -50,6 +50,17 @@ export interface BehaviourProfile {
    * other numbers by many parts' own code, and Al and Sid read it as what they are doing, so it isn't named there.
    */
   stateHistory: boolean;
+  /**
+   * Whether a helper whose first argument the code shows to be a number (only compared or passed on to a resource
+   * service) is read as taking no part. Off for TIM.EXE, whose results were checked with every helper's first argument
+   * taken for a part.
+   */
+  numberArguments: boolean;
+  /**
+   * How many steps the reader may take through a helper (a routine that isn't a callback). TIM2.EXE's helpers switch
+   * over many types in one routine, like the frame size helper, and need more than TIM.EXE's.
+   */
+  helperPaths: number;
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -63,6 +74,8 @@ export const TIM_PROFILE: BehaviourProfile = {
   confinedLoops: false,
   scalarLoaders: false,
   stateHistory: true,
+  numberArguments: false,
+  helperPaths: 800,
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -78,6 +91,8 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     confinedLoops: true,
     scalarLoaders: true,
     stateHistory: true,
+    numberArguments: true,
+    helperPaths: 4000,
   },
   toons: {
     storage: "overlays",
@@ -89,6 +104,8 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     confinedLoops: true,
     scalarLoaders: true,
     stateHistory: false,
+    numberArguments: true,
+    helperPaths: 4000,
   },
 };
 

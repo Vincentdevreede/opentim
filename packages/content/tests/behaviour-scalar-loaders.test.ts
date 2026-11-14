@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
-import { discoverScalarLoaders, SCALAR_SERVICE_ASSUMPTION } from "../src/read/behaviour-scalar-loaders.ts";
+import {
+  discoverScalarLoaders,
+  numberFirstArgument,
+  SCALAR_SERVICE_ASSUMPTION,
+} from "../src/read/behaviour-scalar-loaders.ts";
 
 /**
  * A loader at 0: push bp; mov bp, sp; push word [bp+6]; call far 0:0x40; add sp, 2; pop bp; retf. The routine at 0x40
@@ -34,5 +38,26 @@ describe("scalar loaders", () => {
   it("doesn't when a part's callback or the program's start is reached", () => {
     expect(discoverScalarLoaders(codes([0xff, 0x76, 0x06]), new Map(), new Set([0x40]), 0xffff)).toEqual([]);
     expect(discoverScalarLoaders(codes([0xff, 0x76, 0x06]), new Map(), new Set(), 0x40)).toEqual([]);
+  });
+});
+
+describe("number arguments", () => {
+  const routine = (body: number[]) =>
+    readRoutineCode(Uint8Array.from([0x55, 0x8b, 0xec, ...body, 0x5d, 0xcb]), { segment: 0, offset: 0, address: 0 }, 0);
+
+  it("takes a first argument that is only compared with a number and pushed on for a number", () => {
+    // cmp word [bp+6], 5; push word [bp+6]; add sp, 2
+    const code = routine([0x83, 0x7e, 0x06, 0x05, 0xff, 0x76, 0x06, 0x83, 0xc4, 0x02]);
+    expect(numberFirstArgument(code, new Map())?.map((e) => e.text)).toEqual([
+      "cmp word [bp+0x06], 0x0005",
+      "push word [bp+0x06]",
+    ]);
+  });
+
+  it("doesn't when the argument is loaded as a pointer or never compared", () => {
+    // les bx, [bp+6]; cmp word es:[bx], 5
+    expect(numberFirstArgument(routine([0xc4, 0x5e, 0x06, 0x26, 0x83, 0x3f, 0x05]), new Map())).toBeUndefined();
+    // push word [bp+6] to a routine that isn't a resource service
+    expect(numberFirstArgument(routine([0xff, 0x76, 0x06, 0x83, 0xc4, 0x02]), new Map())).toBeUndefined();
   });
 });
