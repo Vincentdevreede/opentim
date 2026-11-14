@@ -361,7 +361,8 @@ floppy, 8 of 8 in the demo, and the designer's solutions too.
   loader puts the parts there in the file's order: by the word at 0x38 of the type's record, lowest first; among parts
   with the same word the rope, the rope end (49) and the steel cable (76) first, then the lowest on the screen first (a
   larger y at 0xa6), at the same height the one further right; type 11 the other way up. The loader asks for a part
-  with bit 0x1000 of its third flag word to go last. `tim2ListOrder` gives the same lists as the game for every level.
+  with bit 0x1000 of its third flag word to go last; the routine tests the loader's word in the record (0x0e), so a
+  bit 0x1000 only the file has doesn't count. `tim2ListOrder` gives the same lists as the game for every level.
 - **The bin's order** comes from the same routine: for the bin it asks a routine (`0x59ac4`, `0x541d:0x154`) which of
   two types comes first in a table in the data (`0x422b:0x1f0`, ended by -1), and puts the new part before the first
   part of its own type or of a later one. A type the table doesn't have goes after the others. So the types come in
