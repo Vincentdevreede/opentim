@@ -76,7 +76,7 @@ describe("TIM 2's puzzle start", () => {
 
   it("takes belts and ropes with a part, unties them on the board, and unplugs the parts plugged into it", () => {
     const l = level([
-      { type: 1, third: FIXED, plugs: [1, null], state: 3 },
+      { type: 21, third: FIXED, plugs: [1, null], state: 5 },
       { type: 2, plugs: [0, null] },
       { type: 3, third: FIXED },
       { type: 8, third: FIXED, belt: [1, 2] },
@@ -85,9 +85,29 @@ describe("TIM 2's puzzle start", () => {
     const start = tim2PuzzleStart(l, tables);
     expect(start.bin).toEqual([1, 3, 4]);
     expect([...start.plugs]).toEqual([[0, [null, null]]]);
-    expect([...start.states]).toEqual([[0, 0]]);
+    // The electric switch keeps bit 4 of its state and has no plug left.
+    expect([...start.states]).toEqual([[0, 4]]);
     expect(start.unbelted).toEqual([2]);
     expect(start.untied).toEqual([[2, 0]]);
+  });
+
+  it("sets an unplugged part's state again by its type's routine, and leaves a type whose routine isn't read", () => {
+    const l = level([
+      { type: 96, third: FIXED, plugs: [3, 4], state: 23 },
+      { type: 26, third: FIXED, plugs: [5, 6], state: 3 },
+      { type: 99, third: FIXED, plugs: [7, null], state: 6 },
+      { type: 2, plugs: [0, null] },
+      { type: 2, third: FIXED, plugs: [0, null] },
+      { type: 2, third: FIXED, plugs: [1, null] },
+      { type: 2, plugs: [1, null] },
+      { type: 2, plugs: [2, null] },
+    ]);
+    // The laser-activated plug keeps 23 mod 7 = 2 and its second place, 14 more; the generator its first place, 1;
+    // type 99 stays as the file has it.
+    expect([...tim2PuzzleStart(l, tables).states]).toEqual([
+      [0, 16],
+      [1, 1],
+    ]);
   });
 
   it("puts a remote control in the bin and takes its explosives off when either goes", () => {

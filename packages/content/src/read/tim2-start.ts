@@ -174,18 +174,35 @@ export interface Tim2PuzzleStart {
 
 const PULLEY = 7;
 const BELT = 8;
-/** The electric switch and the electrical outlet: bit 4 of the state stays, and bits 1 and 2 say which of the two
- * places hold a plug. */
-const PLUG_PLACES = [21, 120];
-/** A type whose states from 7 up are those of a part plugged in, 7 more than the one it takes unplugged. */
-const PLUGGED_IN = 96;
+/** The electric switch and the electrical outlet keep bit 4 of their state (on or off). */
+const KEEPS_BIT_4 = [21, 120];
+/** The generator and the solar panel. */
+const PLUG_BITS = [26, 38];
+/** The laser-activated plug: seven states for each way its places are taken. */
+const LASER_PLUG = 96;
 
-/** The state a part on the board takes when the start pulls a plug out of it, by its type's routine. */
+/**
+ * The state a part on the board takes when the start pulls a plug out of it. The routine that pulls a plug out
+ * (file offset `0x21bf0` in the CD build) clears both plug words and calls the type routine at 0x08 of the type's
+ * record for both parts, and keeps the state as the one the part starts from (0xa8). The routines of the types the
+ * shipped levels unplug, read from TIM2.EXE (in the CD build):
+ *
+ * - the electric switch (`2354:0x28b8`) and the electrical outlet (`2354:0xb119`): bit 4 of the state stays, 1 for a
+ *   plug in the first place, 2 for one in the second;
+ * - the generator (`2354:0x2f6c`) and the solar panel (`2354:0x4f9b`): 1 and 2 for the two places, nothing else;
+ * - the laser-activated plug (`2354:0x9fcd`): the state's remainder by 7, 7 more for a plug in the first place and 14
+ *   more for one in the second.
+ *
+ * Another type's routine isn't read, so its state is left as the file has it.
+ */
 function unpluggedState(part: LevelPart, plugs: [number | null, number | null]): number {
   const state = part.state[0];
-  if (PLUG_PLACES.includes(part.type)) return (state & 4) | (plugs[0] !== null ? 1 : 0) | (plugs[1] !== null ? 2 : 0);
-  if (part.type === PLUGGED_IN) return state >= 7 ? state - 7 : state;
-  return 0;
+  const first = plugs[0] !== null ? 1 : 0;
+  const second = plugs[1] !== null ? 1 : 0;
+  if (KEEPS_BIT_4.includes(part.type)) return (state & 4) | first | (second << 1);
+  if (PLUG_BITS.includes(part.type)) return first | (second << 1);
+  if (part.type === LASER_PLUG) return (state % 7) + 7 * first + 14 * second;
+  return state;
 }
 /** The rope, the rope end and the steel cable: each keeps the record of what it ties. */
 const ROPES = [10, 49, 76];

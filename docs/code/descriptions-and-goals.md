@@ -194,7 +194,8 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
 - `tim2-start.ts`: `readTim2StartTables` reads from TIM2.EXE the lists' sort word and the third flag bits of each type
   and the bin's table of types; `tim2ListOrder` and `tim2BinInsert` keep a list and the bin as TIM2.EXE's insertion
   routine does, and `tim2PuzzleStart` follows its puzzle start: the bin, the belts, ropes and remote controls that go
-  with a part, the explosives taken off, the plugs pulled out and the states that follows. The Lab lays its puzzles out with it
+  with a part, the explosives taken off, the plugs pulled out and the states the type routines of the unplugged parts
+  set (`unpluggedState`, read for the five types the shipped puzzles unplug). The Lab lays its puzzles out with it
   (`levelStart` in `apps/lab/src/levels.ts`), and `check-puzzle-start` compares it with the games.
 - `level-frame-check.ts`: checks the frames and control values the levels save against the descriptions
   (`check-level-frames`).

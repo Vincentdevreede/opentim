@@ -370,12 +370,15 @@ floppy, 8 of 8 in the demo, and the designer's solutions too.
   explosives (55) name each other in their second link: when either goes, the remote control goes to the bin and the
   explosives are taken off and freed, as Toons takes off a tunnel's other end. That is why the remote controls ELEV22
   #10, HLEV6 #3 and MLEV21 #9 go to the bin although they have bit 0x40: their explosives don't.
-- **Plugs and states.** A part plugged into one that goes to the bin is unplugged, and its type's routine sets its
-  state again: the electric switch (21) and the electrical outlet (120) keep bit 4 and take 1 for a plug in their
-  first place and 2 for one in their second, the laser-activated plug (96) goes from state 7 and up to 7 less, and
-  the others take 0. These were read from what the start does in the emulator, for every shipped level, not from the
-  type routines' code. A part that names a binned part as its plug while that part doesn't name it back keeps its
-  plug (HLEV1 #45, MLEV15 #7).
+- **Plugs and states.** A part plugged into one that goes to the bin is unplugged by the routine that pulls a plug out
+  (`0x21bf0`): it clears both plug words, calls the type routine at 0x08 of each part's type record, and keeps the
+  board part's new state as the one it starts from (0xa8). Read from those routines: the electric switch (21,
+  `2354:0x28b8`) and the electrical outlet (120, `2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the
+  first place and 2 for one in the second; the generator (26, `2354:0x2f6c`) and the solar panel (38, `2354:0x4f9b`)
+  take only those two bits; the laser-activated plug (96, `2354:0x9fcd`) takes the state's remainder by 7, plus 7 for
+  a plug in the first place and 14 for one in the second. These five are the only types the shipped puzzles unplug on
+  the board. A part that names a binned part as its plug while that part doesn't name it back keeps its plug (HLEV1
+  #45, MLEV15 #7).
 - **A pulley before its rope** in the file has no rope over it, as in Toons: the loader takes the rope's record as it
   reads the pulley.
 
@@ -522,9 +525,9 @@ What isn't worked out yet, and what the Lab does meanwhile:
 - **Other ways a run ends.** Besides the goal, the run loop ends the run on two words of game state (`[0x7ae4]` = 7
   with `[0x7ade]` = 0x16, and bit 2 of `[0x7ad8]`) that aren't named yet.
 - **The demo** has few `.PAR` files, so without its TIM2.EXE only the flag bits pick its walls.
-- **The plug states** of the switch, the outlet and the laser-activated plug are read from what the puzzle start does,
-  not from their type routines ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); a part plugged into
-  another that the shipped levels don't unplug may take another state.
+- **Unplugging other types.** Only the routines of the five types the shipped puzzles unplug are read
+  ([above](#tim-2-the-loaders-records-and-the-puzzle-start)); for another type the Lab leaves the state as the file has
+  it.
 
 ## Toons levels
 
