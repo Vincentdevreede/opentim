@@ -443,7 +443,7 @@ export function discoverBehaviourLayout(
       }
     }
     const repeatedSnapshots = [...snapshots].filter(([, evidence]) => evidence.length >= 4);
-    if (repeatedSnapshots.length === 1)
+    if (repeatedSnapshots.length === 1 && profile.stateHistory)
       result.fields.push({
         offset: repeatedSnapshots[0]![0],
         name: "previousState",
@@ -719,8 +719,9 @@ type OwnerSource = { path: number[]; evidence: TimingEvidence[] };
 
 /**
  * Sets which object owns a callback from what each of its calls pushes and whose type picks the record, when every
- * call says the same. TOONS.EXE and TIM2.EXE also call the bounce callback of the part itself, besides that of the part
- * it touches; the reader then reads the calls for the touched part and says which calls it leaves out.
+ * call says the same. TOONS.EXE and TIM2.EXE also pick the bounce callback by the type of the part passed, besides by
+ * the type of the part it touches. Both calls pass the same part and the callback reaches its owner through that part's
+ * link either way, so one reading covers both; the assumption names the calls of the first kind.
  */
 function setObjectSource(
   callback: CallbackLayout,
@@ -757,7 +758,7 @@ function setObjectSource(
           : "The callback owner is the same object whose pointer is pushed and whose type indexes the record table.",
         ...(touchedOnly
           ? [
-              `The callback is also called with the part itself as its owner (${own.map((source) => `0x${source.evidence.at(-1)!.address.toString(16)}`).join(", ")}); those calls are not read.`,
+              `The callback is also called through the type of the part passed (${own.map((source) => `0x${source.evidence.at(-1)!.address.toString(16)}`).join(", ")}), with the same argument: the same code then runs with that part as the collider and the part it touches as the owner, so its findings hold for the touched part in those calls too.`,
             ]
           : []),
       ],

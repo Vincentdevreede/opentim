@@ -35,6 +35,9 @@ function toonsImage(): Uint8Array {
     ],
     0x400,
   );
+  // Four copies of the state into 0x0c (mov ax, [si+0x0e]; mov [si+0x0c], ax), which TIM.EXE's rule would take for
+  // the previous state.
+  for (let i = 0; i < 4; i++) bytes.set([0x8b, 0x44, 0x0e, 0x89, 0x44, 0x0c], 0x500 + 8 * i);
   return bytes;
 }
 
@@ -52,15 +55,22 @@ describe("layouts of the other games", () => {
     expect(layout.callbacks[0]!.sites).toHaveLength(3);
     expect(layout.fields.find((f) => f.name === "type")).toMatchObject({ offset: 4, confidence: "checked" });
     expect(layout.fields.find((f) => f.name === "state")).toMatchObject({ offset: 0x0e, confidence: "checked" });
+    // TOONS.EXE's parts count with that word, so it isn't the previous state there.
+    expect(layout.fields.find((f) => f.name === "previousState")).toBeUndefined();
+    expect(
+      discoverBehaviourLayout(toonsImage(), 0x8f2, undefined, {
+        profile: { ...BEHAVIOUR_PROFILES.toons, stateHistory: true },
+      }).fields.find((f) => f.name === "previousState"),
+    ).toMatchObject({ offset: 0x0c });
     expect(layout.fields.find((f) => f.name === "drawingFlags")).toMatchObject({
       offset: 8,
       masks: [{ value: 0x1000, name: "drawFromPieces" }],
     });
-    // The bounce callback's owner is the touched part; the call for the part itself is named, not read.
+    // The bounce callback's owner is the touched part, also in the call picked by the passed part's own type.
     const bounce = layout.callbacks[0]!.objectSource!;
     expect(bounce).toMatchObject({ path: [0x8d], argumentRole: "collider" });
     expect(bounce.assumptions.at(-1)).toBe(
-      "The callback is also called with the part itself as its owner (0x110); those calls are not read.",
+      "The callback is also called through the type of the part passed (0x110), with the same argument: the same code then runs with that part as the collider and the part it touches as the owner, so its findings hold for the touched part in those calls too.",
     );
   });
 
@@ -122,7 +132,7 @@ describe("layouts of the other games", () => {
     expect(layout.callbacks[1]!.objectSource).toMatchObject({ path: [], argumentRole: "owner" });
     expect(layout.callbacks[0]!.objectSource).toMatchObject({ path: [0x9a], argumentRole: "collider" });
     expect(layout.callbacks[0]!.objectSource!.assumptions.at(-1)).toBe(
-      "The callback is also called with the part itself as its owner (0x113); those calls are not read.",
+      "The callback is also called through the type of the part passed (0x113), with the same argument: the same code then runs with that part as the collider and the part it touches as the owner, so its findings hold for the touched part in those calls too.",
     );
   });
 });

@@ -44,6 +44,12 @@ export interface BehaviourProfile {
    * resource service is recognised by its form.
    */
   scalarLoaders: boolean;
+  /**
+   * Whether the part keeps TIM.EXE's history of its state, so that a field the code copies the state into again and
+   * again is the previous state. In TOONS.EXE the word it copies the state into (0x0c) is also counted up and set to
+   * other numbers by many parts' own code, and Al and Sid read it as what they are doing, so it isn't named there.
+   */
+  stateHistory: boolean;
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -56,6 +62,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   stopAtProgramStart: false,
   confinedLoops: false,
   scalarLoaders: false,
+  stateHistory: true,
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -70,6 +77,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     stopAtProgramStart: true,
     confinedLoops: true,
     scalarLoaders: true,
+    stateHistory: true,
   },
   toons: {
     storage: "overlays",
@@ -80,6 +88,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     stopAtProgramStart: true,
     confinedLoops: true,
     scalarLoaders: true,
+    stateHistory: false,
   },
 };
 
