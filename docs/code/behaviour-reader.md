@@ -21,7 +21,9 @@ hard-codes an address of one build; comments name example addresses "in Even Mor
   overlays), the record size, how the code finds a record (by multiplying or through a table of near pointers), whether
   a part is a near or a far pointer, the record's routines after the six callbacks, the types whose own bounce the
   contact dispatch also calls when they touch a part (`selfBounce`, used by the descriptions), and the routines that
-  name its part fields (`fieldForms`, below). Any other id reads as TIM.EXE.
+  name its part fields (`fieldForms`, below), and for TIM.EXE the words of its records the descriptions know by place
+  (`partWords`; none for TIM 2 and Toons, whose descriptions then say nothing of those words). Any other id reads as
+  TIM.EXE.
 
 The Lab runs it in a worker (see [lab.md](lab.md)); `extract-behaviour` runs it without the per-type loops, because
 those would make a saved report too large.

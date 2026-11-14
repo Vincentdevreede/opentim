@@ -78,7 +78,61 @@ export interface BehaviourProfile {
    * layout doesn't read, so their own forms name the fields there.
    */
   fieldForms: readonly FieldForm[];
+  /**
+   * Words of a part and of a type record that the descriptions know by their place in TIM.EXE's records, from TIM.EXE's
+   * own routines rather than the layout (the routines are named where the descriptions use them). Only TIM.EXE's profile
+   * has them: TIM2.EXE and TOONS.EXE keep their records otherwise, so for them the descriptions say nothing about these
+   * words instead of reading another game's record with TIM.EXE's offsets.
+   */
+  partWords?: PartWords;
 }
+
+/** TIM.EXE's words the descriptions know by place, as `partWords` above. */
+export interface PartWords {
+  /** The list flags, with the list bits, the contact flags and the bits `PART_FLAGS` names. */
+  listFlags: number;
+  /** The drawing flags whose single bits `PART_FLAGS` names (the out-of-play flag and the ran-this-step mark). */
+  drawingFlags: number;
+  /** The word with the goal marks and the lightable mark. */
+  marks: number;
+  /** The contact search's two side bytes. */
+  contactSides: number[];
+  /** The rope links, which hold the parts a rope ties. */
+  ropeLinks: number[];
+  /** The rope slots' places, a byte pair each. */
+  ropePlaces: number[];
+  /** The rope links to the rope records. */
+  ropeRecords: number[];
+  /** The link to the belt's record. */
+  beltRecord: number;
+  /** The plugs: the parts plugged into the part's two sockets. */
+  plugs: number[];
+  /** The words a rope helper moves the rope ends with. */
+  ropeEnds: number[];
+  /** The value a relay passes along the parts its ropes, belt or pulleys reach. */
+  relay: number;
+  /** The link of an overlap search's found list. */
+  foundLink: number;
+  /** The speed limit's word in a type record. */
+  speedLimit: number;
+}
+
+/** TIM.EXE's, for TIM 1 and Even More. */
+export const TIM_PART_WORDS: PartWords = {
+  listFlags: 0x06,
+  drawingFlags: 0x08,
+  marks: 0x0a,
+  contactSides: [0x86, 0x87],
+  ropeLinks: [0x5a, 0x5c, 0x5e, 0x60],
+  ropePlaces: [0x6a, 0x6c],
+  ropeRecords: [0x66, 0x68],
+  beltRecord: 0x54,
+  plugs: [0x62, 0x64],
+  ropeEnds: [0x96, 0x9c],
+  relay: 0x14,
+  foundLink: 0x78,
+  speedLimit: 0x0a,
+};
 
 /** TIM.EXE of TIM 1 and Even More. */
 export const TIM_PROFILE: BehaviourProfile = {
@@ -95,6 +149,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   helperPaths: 800,
   selfBounce: [],
   fieldForms: [],
+  partWords: TIM_PART_WORDS,
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {

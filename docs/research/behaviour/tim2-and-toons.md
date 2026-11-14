@@ -359,6 +359,25 @@ previousState is -1, and (its contactEdge + 4) & 0x0007 is 0". TIM 2's blimp: "i
 +0x16 to 4. Only when its field 0x0c & 0x0010 is 0" now reads "sets stateDelta to 4. Only when it is not mirrored". TIM
 1 and Even More read and describe the same as before: their profile has no forms.
 
+**The walks with the new names.** Toons' walks are the same, frame for frame; only their trigger words now use the
+names. TIM 2 CD's change in two ways. The flashlight's walk from its reset now rests at frames 0 and 1 where it joined
+an earlier branch: with previousState named, the walk can tell a frame that stays from one it comes back to. And 321
+more walks start from input cases on the named fields (the mandrill motor's "state-control value is not 0" and the
+like), each of which stops at its first frame because the effects of the run there aren't resolved; they claim nothing
+new, but they make the list longer.
+
+**TIM.EXE's words by place.** Some words the descriptions know from TIM.EXE's routines but not from the layout: the
+list flags at 0x06 (the list bits, the contact flags and the bits the descriptions name), the bits they name in the
+drawing flags at 0x08 and the goal and lightable marks at 0x0a, the contact search's side bytes at 0x86 and 0x87, the
+rope links (0x5a to 0x60), the rope places (0x6a, 0x6c), the rope and belt records (0x66, 0x68, 0x54), the plugs (0x62,
+0x64), the rope ends (0x96, 0x9c), the relay's value (0x14), the found list's link (0x78), and the type record as 58
+bytes with the words TIM.EXE writes while it runs and its speed limit at +0x0a. They were applied to every game, so a
+Toons part's word at 0x0a read as TIM.EXE's goal marks ("sets its goal mark 0x0100 in field 0x0a"), and a Toons type's
+record words were read 58 bytes apart instead of 70. They are now TIM.EXE's profile's `partWords`, and the descriptions
+and the per-type re-read use them only when the profile has them: for TIM 2 and Toons they say nothing of those words,
+the decided assumptions about them (the fixed list, the bullet, the lightable parts) don't apply, and type record words
+aren't settled. TIM 1 and Even More read and describe the same as before.
+
 ## What is left
 
 - **The helpers.** TIM.EXE's shared helpers are recognised by the shape of their code, written for its 58-byte records,
@@ -378,9 +397,9 @@ previousState is -1, and (its contactEdge + 4) & 0x0007 is 0". TIM 2's blimp: "i
   pointers, so the list machinery (list head and next helpers, the members a loop finds) needs a far form first.
 - **The part fields.** Position, motion, size, drawing, history, the saved fields and the contact record are named in
   both games now (see [The part fields](#the-part-fields)). Still unnamed: the outline points (records of another
-  size than TIM.EXE's), the links, plugs, ropes and belt, and words only some types use. Other words the descriptions
-  still read by TIM.EXE's offsets: the contact record's side bytes and list flags (`CONTACT_RECORD`) and the rope
-  links in `describe-behaviour.ts`.
+  size than TIM.EXE's), the links, plugs, ropes and belt, and words only some types use. The descriptions know some
+  of TIM.EXE's words by their place rather than by the layout (see "TIM.EXE's words by place" above); for TIM 2 and
+  Toons they say nothing of them until those words are named.
 - **The touching part's own bounce.** Its findings are now shown under the touching part's own type (`ownBounce`, see
   "What the self call does, under the touching part's own type"). Still open: walks that start from it, and the
   writes from field relations, like the super ball's bounce.

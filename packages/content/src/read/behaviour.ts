@@ -5918,7 +5918,8 @@ export function readBehaviourInSteps(
               typeOffset: typeField,
               table: list.table,
               stride: 58,
-              records: list.records.length,
+              // TIM.EXE's records only, as for the type table above: none to read for another game.
+              records: profile.partWords ? list.records.length : 0,
               written: TYPE_RECORD_WRITTEN,
             },
           });
@@ -6179,12 +6180,13 @@ export function readBehaviourInSteps(
         engineCalls: [],
         uncertainEffects: true,
       });
-  const speedLimits = findSpeedLimitSetup(
-    image,
-    { address: list.table, stride: 58, count: list.records.length },
-    list.dataSegment,
-  );
-  const typeTable = {
+  // The type records as TIM.EXE keeps them: 58 bytes one after the other, with the words it writes while it runs
+  // (`TYPE_RECORD_WRITTEN`) and its speed limit. Only for a game with TIM.EXE's words (the profile's `partWords`): TIM2.EXE
+  // and TOONS.EXE keep their records otherwise, so their type record words aren't settled as TIM.EXE's.
+  const speedLimits =
+    profile.partWords &&
+    findSpeedLimitSetup(image, { address: list.table, stride: 58, count: list.records.length }, list.dataSegment);
+  const typeTable = profile.partWords && {
     address: list.table,
     stride: 58,
     words: list.records.map((record) =>
@@ -6200,7 +6202,8 @@ export function readBehaviourInSteps(
   const frameOffsets = Object.values(frameFields) as number[];
   const sheetList = list.sheetFrames?.size ? proveSheetFrameList(image, list.dataSegment, list.table) : undefined;
   const frameWriteForType = (write: FieldWrite, type: number): FieldWrite => {
-    if (typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset)) return write;
+    if (!typeTable || typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset))
+      return write;
     const used = { table: false };
     const value = frameDrawingForType(
       write.value,

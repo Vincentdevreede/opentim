@@ -5,8 +5,12 @@ import { hitsFromOthers, PLACE_DIFFERENCE_ASSUMPTION } from "../src/read/describ
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import {
   ANSWER_ASSUMPTION,
+  contactRecordWords,
   effectsFromOthers,
   finePosition,
+  flagWords,
+  listFlagWords,
+  partWordsOf,
   FIXED_LIST_ASSUMPTION,
   OWN_TOUCH_ASSUMPTION,
   predicateForType,
@@ -933,5 +937,31 @@ describe("the fine position", () => {
       words: "fine horizontal position (high word)",
       axis: "positionX",
     });
+  });
+});
+
+describe("TIM.EXE's words by place", () => {
+  it("are TIM.EXE's only: TIM 2 and Toons get none, so their words aren't read with TIM.EXE's offsets", () => {
+    for (const listId of ["tim1", "evenmore", "synthetic"])
+      expect(partWordsOf({ listId })).toMatchObject({ listFlags: 0x06, contactSides: [0x86, 0x87] });
+    for (const listId of ["tim2", "toons"]) {
+      const words = partWordsOf({ listId });
+      expect(words).toBeUndefined();
+      expect(flagWords(words, 0x08, 0x2000, true, "its")).toBeUndefined();
+      expect(contactRecordWords(words, 0x86)).toBeUndefined();
+      const onMoving: Predicate = {
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "binary", operator: "&", left: f("part", 0x06), right: c(0x1000), width: 16 },
+        right: c(0),
+        signed: false,
+      };
+      expect(listFlagWords(words, onMoving, "part")).toBeUndefined();
+      expect(listFlagWords(partWordsOf({ listId: "tim1" }), onMoving, "part")).toBe("on the moving list");
+    }
+    const tim = partWordsOf({ listId: "tim1" });
+    expect(flagWords(tim, 0x08, 0x2000, true, "its", false)).toBe("sets its out-of-play flag 0x2000 in drawing flags");
+    expect(contactRecordWords(tim, 0x86)).toBe("contact side byte at 0x86");
+    expect(contactRecordWords(tim, 0x06)).toBe("contact flags in its list flags at 0x06");
   });
 });
