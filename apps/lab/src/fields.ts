@@ -301,9 +301,80 @@ function dataFields(all: Chunk[], chunk: Chunk, parent?: Chunk): Field[] {
       ];
     case "TAG:":
       return parent?.tag === "SND:" ? (tagFields(start, data) ?? unread()) : unread();
+    case "PAR:":
+      return parFields(start, data) ?? unread();
     default:
       return unread();
   }
+}
+
+/** The words of a TIM 2 `.PAR` file after `PROP`, as TIM2.EXE's loader reads them into the part's type record. */
+const PAR_WORDS: [label: string, name: string, kind: FieldKind][] = [
+  ["version", "version, 0x149 or lower", "setting"],
+  ["type", "part type", "id"],
+  ["density", "density", "setting"],
+  ["mass", "mass, 1000 when 0", "setting"],
+  ["bounce", "bounciness", "setting"],
+  ["friction", "friction", "setting"],
+  ["speed", "terminal velocity, worked out by the game", "setting"],
+  ["min w", "smallest width", "size"],
+  ["min h", "smallest height", "size"],
+  ["max w", "largest width", "size"],
+  ["max h", "largest height", "size"],
+  ["width", "width the game mirrors the part in", "size"],
+  ["height", "height the game mirrors the part in", "size"],
+  ["flags", "flags: 0x08 adds outlines mirrored left to right, 0x10 upside down", "flags"],
+  ["outlines", "number of outlines", "setting"],
+  ["points", "number of points in all", "setting"],
+];
+
+/** A `.PAR` file's words and outlines, or undefined when it doesn't start with `PROP` or ends early. */
+function parFields(start: number, data: Uint8Array): Field[] | undefined {
+  if (data.length < 4 + PAR_WORDS.length * 2 || String.fromCharCode(...data.subarray(0, 4)) !== "PROP")
+    return undefined;
+  const word = (at: number) => (u16(data, at) << 16) >> 16;
+  const out: Field[] = [
+    { offset: start, size: 4, label: "PROP", name: "signature", value: "PROP", kind: "text", type: "ASCII" },
+  ];
+  PAR_WORDS.forEach(([label, name, kind], i) => {
+    const at = 4 + i * 2;
+    const value = kind === "flags" ? hex(u16(data, at), 4) : String(word(at));
+    out.push({ offset: start + at, size: 2, label, name, value, kind, type: "i16 LE" });
+  });
+  let at = 4 + PAR_WORDS.length * 2;
+  const count = word(0x20);
+  for (let outline = 0; word(0x22) && outline < count; outline++) {
+    const group = `outline ${outline}`;
+    if (at + 4 > data.length) return undefined;
+    out.push({ ...blob(start + at, 4, "skipped", "two words the game skips"), group });
+    at += 4;
+    for (let point = 0, last = false; !last; point++, at += 6) {
+      if (at + 6 > data.length) return undefined;
+      last = (u16(data, at) & 0x4000) !== 0;
+      const name = `point ${point}${last ? ", the last" : ""}`;
+      out.push({
+        offset: start + at,
+        size: 2,
+        label: "flags",
+        name: `flags of ${name}`,
+        value: hex(u16(data, at), 4),
+        kind: "flags",
+        type: "u16 LE",
+        group,
+      });
+      out.push({
+        offset: start + at + 2,
+        size: 4,
+        label: "x, y",
+        name,
+        value: `${word(at + 2)}, ${word(at + 4)}`,
+        kind: "position",
+        type: "i16 LE × 2",
+        group,
+      });
+    }
+  }
+  return out;
 }
 
 const blob = (offset: number, size: number, label: string, name: string): Field => ({

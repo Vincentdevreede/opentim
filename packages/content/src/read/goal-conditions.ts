@@ -1400,6 +1400,21 @@ function dnf(f: Formula, negated = false): Literal[][] {
   }
 }
 
+/** A literal as a formula again: "some" and "none" with their tests as `where`, "never" as not "ever". */
+function formula(l: Literal): Formula {
+  switch (l.kind) {
+    case "some":
+    case "none": {
+      const some: Formula = { kind: "some", walk: l.walk, where: or(...l.ways.map((w) => and(...w.map(formula)))) };
+      return l.kind === "some" ? some : not(some);
+    }
+    case "never":
+      return not({ kind: "ever", item: l.item, before: l.before });
+    default:
+      return l;
+  }
+}
+
 const waysOf = (f: Formula) =>
   shortest(
     dnf(f)
@@ -1416,17 +1431,17 @@ function withHistory(ways: Literal[][]): Literal[][] {
     const ever = way.filter((l) => l.kind === "ever");
     // "Never A or B" is "never A and never B"; a count of steps or the last step is of one thing.
     const rest = way.flatMap((l): Literal[] => {
-      if (l.kind === "never") return waysOf(l.item).map((i) => ({ ...l, item: and(...(i as Formula[])) }));
+      if (l.kind === "never") return waysOf(l.item).map((i) => ({ ...l, item: and(...i.map(formula)) }));
       if (l.kind !== "ago" && l.kind !== "times") return l.kind === "ever" ? [] : [l];
       const inner = waysOf(l.item);
       if (inner.length !== 1) throw new DoesntFit("it remembers when one of several things held");
-      return [{ ...l, item: and(...(inner[0] as Formula[])) }];
+      return [{ ...l, item: and(...inner[0]!.map(formula)) }];
     });
     let split: Literal[][] = [rest];
     for (const e of ever) {
       const inner = waysOf(e.item);
       if (split.length * inner.length > 64) throw new DoesntFit("it has too many ways to be met");
-      split = split.flatMap((w) => inner.map((i) => [...w, { ...e, item: and(...(i as Formula[])) }]));
+      split = split.flatMap((w) => inner.map((i) => [...w, { ...e, item: and(...i.map(formula)) }]));
     }
     return split;
   });
@@ -2013,7 +2028,7 @@ export function conditionText(c: GoalCondition): string {
     case "last":
       return `the ${c.kind} ${types}${on}${where}${tests ? `: ${tests}` : ""}`;
     case "count":
-      return `the count of ${types}${on}${where} ${OPS[c.count!.op]} ${c.count!.value}`;
+      return `the count of ${types}${on}${where} ${OPS[c.count!.op]} ${c.count!.value}${tests ? `, ${tests}` : ""}`;
     case "word":
       return tests;
     case "part":
@@ -2110,7 +2125,7 @@ function normal(f: Formula): Formula {
   const ways = waysOf(f);
   if (ways.some((w) => !w.length)) return TRUE;
   const sorted = ways
-    .map((w) => and(...(w as Formula[])))
+    .map((w) => and(...w.map(formula)))
     .sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1));
   return or(...sorted);
 }

@@ -150,7 +150,8 @@ A break leaves the loop a round runs in (`breaks`); elsewhere it still doesn't f
 `readGoalRoutines` also takes shapes only Toons' goals have (TIM's read the same): byte locals and bytes in memory
 (`setByte`, `byteLocals`), `mov al, byte; mov ah, 0` as one load (`skip`), loops whose test leaves them with a `jmp`
 back after it or calls a routine (`loopAt`), and an ordered branch after `add` or `sub` as the sum or difference without
-overflow (`branchTest`, with a first test for -32768).
+overflow (`branchTest`, with a first test for -32768). A byte `add`, `sub`, `shl` or `sar` and a signed branch after
+an instruction on a byte stay unread, since the goal works in words (`Flags.byte`); no shipped goal has one.
 
 When a Toons goal has too many ways, `byPart` tries it as one way with a condition per found part, the tests all its
 ways share and then "one of: …". A condition with `once` says the tests held at some step ("so far" or "before"),
@@ -192,8 +193,9 @@ texts ("rope1 ≠ 0", "type isn't balloon"), and leaves a condition with any oth
   out with its overlays (`readToonsMemory`).
 - `tim2-program.ts`: `readTim2Types` finds TIM2.EXE's type table (72-byte records); `tim2Drawing` says which types it
   draws as walls, tile patterns or colour blocks. Nothing stands in for it: the Lab needs TIM2.EXE.
+  `readPar` reads a part's `.PAR` file; `tim2MirrorSide` says where TIM2.EXE measures a mirrored part from.
 - `tim2.ts`: TIM 2's part names (`readPartNames`) and animations (`readAnimation`, `animationFrames`), for the part
-  lists.
+  lists, and the game's line routine (`tim2LinePixels`).
 - `toons.ts`: Toons' program (`loadImage`), its type table of 70-byte records (`findToonsTypeTable`,
   `readToonsTypes`, `TOONS_RECORD_FIELDS`) and Al's and Sid's actions (`readToonsActions`); `readToonsParts` in
   `parts.ts` makes the `toons` list from it.

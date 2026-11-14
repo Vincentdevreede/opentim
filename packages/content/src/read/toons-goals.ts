@@ -484,14 +484,19 @@ export function toonsPuzzleStart(
   binKinds: ReadonlyMap<number, number>,
 ): ToonsPuzzleStart {
   const parts = level.parts;
+  // An index past the parts (a damaged level file) names no part, so it counts as none.
+  const known = (index: number | null | undefined) =>
+    index !== null && index !== undefined && index < parts.length ? index : null;
   const bin = new Set<number>();
   const inserted: number[] = [];
   const gone = new Set<number>();
   const unplugged: ToonsUnplug[] = [];
   const states = new Map<number, number>();
   const tunnels = new Map(parts.map((p) => [p.index, p.tunnel ?? null]));
-  const links = new Map(parts.map((p) => [p.index, [...p.links] as (number | null)[]]));
-  const plugs = new Map(parts.map((p) => [p.index, [...(p.plugs ?? [null, null])] as [number | null, number | null]]));
+  const links = new Map(parts.map((p) => [p.index, p.links.map(known)]));
+  const plugs = new Map(
+    parts.map((p) => [p.index, (p.plugs ?? [null, null]).map(known) as [number | null, number | null]]),
+  );
   const changedPlugs = new Set<number>();
   // The rope at each rope place of each part, as the rope part that owns the rope's record, and each record's ends.
   const ropeAt = new Map<number, (number | null)[]>(parts.map((p) => [p.index, [null, null]]));
@@ -502,7 +507,7 @@ export function toonsPuzzleStart(
     p.ropes.forEach((place, k) => {
       if (!place.rope) return;
       ropeAt.get(p.index)![k] = p.index;
-      ends.set(`${p.index}.${k}`, { parts: [...place.rope.parts], slots: [...place.rope.slots] });
+      ends.set(`${p.index}.${k}`, { parts: place.rope.parts.map(known), slots: [...place.rope.slots] });
       place.rope.parts.forEach((end, j) => {
         const at = end === null ? undefined : ropeAt.get(end);
         if (at && place.rope!.slots[j]! < 2) at[place.rope!.slots[j]!] = p.index;

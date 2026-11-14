@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { conditionText } from "../src/read/goal-conditions.ts";
 import type { Level, LevelPart } from "../src/read/level.ts";
 import {
   findTim2GoalRoutine,
@@ -68,6 +69,29 @@ describe("TIM 2 goals", () => {
     const none = summariseTim2Goal(level(0, 0, [[2, 1, 1, 0, 0, 0, 0, 0]]), names)!.summary;
     expect(none.ways).toEqual([]);
     expect(none.problem).toMatch(/first word is 0/);
+  });
+
+  it("says a count's part must be out of the parts bin in the count's line", () => {
+    const [count] = summariseTim2Goal(level(1, 0, [[3, 0, 0, 2, 100, 200, 50, 40]]), names)!.summary.ways[0]!;
+    expect(conditionText(count!)).toBe(
+      "the count of Balloon on the moving list where its middle inside x 100 to 150, y 200 to 240 ≥ 2, #3 out of the parts bin",
+    );
+  });
+
+  it("uses an entry's one state limit for both limits up to version 0x109, as TIM2.EXE's loader does", () => {
+    const [lamp, balls] = summariseTim2Goal(
+      level(1, 0, [
+        [2, 4, 0, 0, 0, 0, 0],
+        [1, 0, 3, 100, 200, 50, 40],
+      ]),
+      names,
+    )!.summary.ways[0]!;
+    expect(lamp).toMatchObject({ kind: "part", part: 2, tests: ["state 4"] });
+    expect(balls).toMatchObject({
+      kind: "count",
+      where: ["its middle inside x 100 to 150, y 200 to 240"],
+      count: { op: ">=", value: 3 },
+    });
   });
 });
 

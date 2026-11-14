@@ -181,9 +181,11 @@ function finding(
       return undefined;
     let value = push.value;
     at--;
-    // The register pushed, worked out in the statements just before: `ax = si; ax += 1`.
+    // The register pushed, worked out in the statements just before: `ax = si; ax += 1`. Only ax and dx, which the
+    // call changes: another register keeps its value after the call, so its sets stay.
     for (let before = body[at]; ; before = body[at]) {
-      if (!isRegister(value) || before?.kind !== "set" || !isRegister(before.target, value.name)) break;
+      if (!isRegister(value) || !["ax", "dx"].includes(value.name)) break;
+      if (before?.kind !== "set" || !isRegister(before.target, value.name)) break;
       const name = value.name;
       value = before.value;
       at--;

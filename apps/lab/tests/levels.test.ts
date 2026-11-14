@@ -2,7 +2,17 @@ import type { Level, LevelPart, PartList } from "@opentim/content";
 import type { Frame as Bitmap } from "@opentim/resources";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "../src/importer.ts";
-import { PLAY_AREAS, groupOf, layoutScene, partAt, readLevels, toonsSetting, toonsTiles } from "../src/levels.ts";
+import {
+  PLAY_AREAS,
+  goalPartsOf,
+  groupOf,
+  layoutScene,
+  partAt,
+  readLevels,
+  toonsSetting,
+  toonsTiles,
+  type DrawnPart,
+} from "../src/levels.ts";
 
 const NONE = 0xffff;
 const b = (value: number) => ({ byte: value });
@@ -309,6 +319,57 @@ describe("layoutScene", () => {
     expect(standing!.composition!.placed.map((p) => [p.placement.x, p.placement.flip])).toEqual([[8, "h"]]);
   });
 
+  it("mirrors other TIM 2 parts in the size TIM2.EXE's size routine gives them, with their lines", () => {
+    const data = bytes(
+      ...[0xacef, 0x106, "T", "G", 67, 272, 0, 0, 1000, 2, 0, 0],
+      ...part({ type: 0, width: 45, height: 32, flags2: 0x10, flags3: 0x40 }),
+      ...part({ type: 0, width: 45, height: 32, flags2: 0x10, flags3: 0x1040 }),
+    );
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const list: PartList = {
+      ...LIST,
+      parts: LIST.parts.map((p) =>
+        p.type === 0
+          ? {
+              ...p,
+              frames: [
+                {
+                  id: 0,
+                  sprites: [{ sheet: "PART0", sprite: 0, x: 2, y: 0, layer: 0 }],
+                  shapes: [{ kind: "line" as const, x1: 0, y1: 0, x2: 4, y2: 0, colour: 1, after: 1 }],
+                  box: { x: 0, y: 0, width: 45, height: 32 },
+                },
+              ],
+              mirrorBox: { width: 45, height: 32 },
+              parSize: { width: 39, height: 32 },
+            }
+          : p,
+      ),
+    };
+    const [par, frame] = layoutScene(level, list, spriteOf).parts;
+    // The .PAR size, 39 less the first frame's right edge, 45, plus the animation's width, 45: 39 - 2 - 32.
+    expect(par!.composition!.placed.map((p) => [p.placement.x, p.placement.flip])).toEqual([[5, "h"]]);
+    expect(par!.composition!.shapes!.map((s) => s.kind === "line" && [s.x1, s.x2])).toEqual([[39, 35]]);
+    // Bit 0x1000 of the third flag word: the frame's own size, 45.
+    expect(frame!.composition!.placed.map((p) => p.placement.x)).toEqual([11]);
+  });
+
+  it("puts a picture of HANDLES at each TIM 2 note, as TIM2.EXE does by the note's third word", () => {
+    const empty = [0, 0, 0, ""];
+    const notes = [0, 100, 40, 3, "Hi.", 200, 50, 0, "Ho.", ...Array.from({ length: 6 }, () => empty).flat()];
+    const goal = [1, ...Array.from({ length: 8 }, () => [NONE, 0, 0, 0, 0, 0, 0, 0]).flat(), 0];
+    const data = bytes(0xacef, 0x112, "T", "G", ...notes, 67, 272, 0, 0, 1000, 0, 0, 0, ...goal);
+    const level = readLevels([resource("TLEV1.LEV", data)], "tim")[0]!.level!;
+    const sheets = (sheet: string, index: number) => (sheet === "HANDLES" ? sprite(8, 8) : spriteOf(sheet, index));
+    const marks = layoutScene(level, LIST, sheets).noteMarks;
+    expect(
+      marks.map((m) => [m.text, m.at, m.composition.placed.map((p) => [p.placement.sprite, p.placement.flip])]),
+    ).toEqual([
+      ["Hi.", { x: 96, y: 40 }, [[42, "h"]]],
+      ["Ho.", { x: 200, y: 50 }, [[41, undefined]]],
+    ]);
+  });
+
   it("tiles a standing wall from state + 4 to state + 7", () => {
     const data = puzzle("T", [{ type: 1, x: 8, y: 8, width: 16, height: 64, flags1: 0xe040 }]);
     const level = readLevels([resource("L1.LEV", data)], "tim")[0]!.level!;
@@ -537,5 +598,20 @@ describe("PLAY_AREAS", () => {
   it("has Toons' screen seen from the view TOONS.EXE starts a puzzle with", () => {
     expect(PLAY_AREAS.toons).toEqual({ x: -91, y: -8, width: 640, height: 400 });
     expect(PLAY_AREAS.tim).toMatchObject({ x: 0, y: 0 });
+  });
+});
+
+describe("goalPartsOf", () => {
+  it("rings only the part a condition names, and every part of the types otherwise", () => {
+    const drawn = (index: number, type: number) => ({ part: { index, type } }) as DrawnPart;
+    const parts = [drawn(0, 13), drawn(1, 13), drawn(2, 9)];
+    const lamp = { type: 13, name: "Lava Lamp" };
+    const indexes = (c: Parameters<typeof goalPartsOf>[0]) => goalPartsOf(c, parts).map((d) => d.part.index);
+    expect(indexes({ kind: "part", part: 1, types: [lamp], tests: [] })).toEqual([1]);
+    expect(indexes({ kind: "count", types: [lamp], tests: [] })).toEqual([0, 1]);
+    expect(indexes({ kind: "word", tests: [] })).toEqual([]);
+    // The second lamp a Toons goal's n-th selection picks, out of the two.
+    const second = { kind: "nth", nth: 2, types: [lamp], tests: [] } as Parameters<typeof goalPartsOf>[0];
+    expect(goalPartsOf(second, parts, 1).map((d) => d.part.index)).toEqual([1]);
   });
 });

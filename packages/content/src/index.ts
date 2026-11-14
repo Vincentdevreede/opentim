@@ -192,7 +192,17 @@ export type {
 } from "./read/behaviour-contact-response-pair.ts";
 export { readProgramGoals, type ProgramGoals, type PuzzleGoal } from "./read/program-goals.ts";
 export { TIM2_SCREEN, summariseTim2Goal, type Tim2Goal } from "./read/tim2-goal.ts";
-export { readTim2Types, tim2Drawing, type Tim2Drawing, type Tim2Types } from "./read/tim2-program.ts";
+export {
+  readPar,
+  readTim2Types,
+  tim2Drawing,
+  tim2MirrorSide,
+  type Tim2Drawing,
+  type Tim2Outline,
+  type Tim2Size,
+  type Tim2Properties,
+  type Tim2Types,
+} from "./read/tim2-program.ts";
 export {
   conditionText,
   summariseGoal,
@@ -200,7 +210,7 @@ export {
   type GoalCondition,
   type GoalSummary,
 } from "./read/goal-conditions.ts";
-export { TIM2_STEP_MS } from "./read/tim2.ts";
+export { TIM2_STEP_MS, tim2LinePixels } from "./read/tim2.ts";
 export { readToonsDrawing, readToonsMemory, type ToonsDrawing, type ToonsMemory } from "./read/toons-drawing.ts";
 export {
   findToonsGoalTable,
