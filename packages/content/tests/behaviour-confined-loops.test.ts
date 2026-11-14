@@ -28,6 +28,9 @@ const byteInWord = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 0x06, 0xc7, 0x46, 0xfc, 
   [0x8b, 0x46, 0xfc, 0x89, 0x44, 0x0c, 0x5e, 0x5d, 0xcb],
 );
 
+/** The same, but after the loop it reads the word's other byte: `mov al, [bp-3]; mov [si+0x0c], al`. */
+const otherByte = byteInWord.slice(0, 31).concat([0x8a, 0x46, 0xfd, 0x88, 0x44, 0x0c, 0x5e, 0x5d, 0xcb]);
+
 describe("confined loops", () => {
   it("goes past a loop that changes only registers and locals when the profile says so", () => {
     const off = analyseRoutine(Uint8Array.from(counting), entry, { stateCount: 4 });
@@ -41,6 +44,14 @@ describe("confined loops", () => {
 
   it("forgets a word local when the loop stores a byte of it", () => {
     const routine = analyseRoutine(Uint8Array.from(byteInWord), entry, { stateCount: 4, confinedLoops: true });
+    expect(routine.status).toBe("complete");
+    const writes = routine.writes.filter((w) => w.object === "part" && w.offset === 0x0c);
+    expect(writes.length).toBeGreaterThan(0);
+    for (const write of writes) expect(write.value.kind).toBe("unknown");
+  });
+
+  it("keeps the rest of a word local unknown when the loop stores a byte of it", () => {
+    const routine = analyseRoutine(Uint8Array.from(otherByte), entry, { stateCount: 4, confinedLoops: true });
     expect(routine.status).toBe("complete");
     const writes = routine.writes.filter((w) => w.object === "part" && w.offset === 0x0c);
     expect(writes.length).toBeGreaterThan(0);

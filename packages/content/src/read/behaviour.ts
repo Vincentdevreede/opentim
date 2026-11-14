@@ -3478,11 +3478,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         for (const operand of confined.locals) {
           const l = location(operand, after);
           if (!l) continue;
-          // A local the loop stored at one width may be read at another: what overlaps it is forgotten too.
+          // A local the loop stored at one width may be read at another: what overlaps it is forgotten too, over its
+          // whole width, so a later read of the bytes the loop didn't store doesn't fall back to the entry value.
           for (const key of [...after.memory.keys()]) {
             const [object, offset, width] = splitKey(key);
             if (object === l.object && offset < l.offset + l.width / 8 && l.offset < offset + width / 8)
-              after.memory.delete(key);
+              after.memory.set(key, tracked(forgotten(`the local at ${hex(offset & 0xffff)}`), [], confined.first));
           }
           after.memory.set(
             memoryKey(l),
