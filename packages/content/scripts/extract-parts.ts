@@ -5,8 +5,8 @@
  *   pnpm --filter @opentim/content extract-parts --tim1 <folder> --evenmore <folder> … --tim2 <folder> --toons <folder>
  *
  * A folder holds `TIM.EXE` (TIM 1, Even More) or `TOONS.EXE` (Toons) and the `RESOURCE` files, or has them in its
- * parent folder, like the French & German versions. Only the lists you give folders for are written. Toons names no
- * parts in its files, so its names list, `toons-names.json`, is kept by hand.
+ * parent folder, like the French & German versions. Only the lists you give folders for are written. Toons has no
+ * list of part names, so its names list, `toons-names.json`, is kept by hand.
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";

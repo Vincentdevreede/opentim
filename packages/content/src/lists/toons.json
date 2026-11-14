@@ -621,7 +621,7 @@
       ]
     },
     {
-      "id": "cushion",
+      "id": "trampoline",
       "type": 24,
       "sheets": ["PART24"],
       "frames": [
@@ -751,7 +751,7 @@
       "tiles": { "width": 16, "middles": 4 }
     },
     {
-      "id": "red-rock-wall",
+      "id": "log-wall",
       "type": 29,
       "sheets": ["PART29"],
       "frames": [
@@ -6443,7 +6443,7 @@
       "frames": [{ "id": 0, "sprites": [{ "sheet": "PART54", "sprite": 0, "x": 0, "y": 0, "layer": 2 }] }]
     },
     {
-      "id": "yellow-ball",
+      "id": "egg",
       "type": 55,
       "sheets": ["PART55"],
       "frames": [
@@ -6681,7 +6681,7 @@
       ]
     },
     {
-      "id": "hanging-string",
+      "id": "pin",
       "type": 63,
       "sheets": ["PART63"],
       "frames": [

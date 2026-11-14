@@ -158,17 +158,39 @@ than TIM's (17 is the pulley, 46 the tunnel).
   without a sheet (66, 67, 70 to 74, 76, 79 and 81) have empty records.
 - **Tiles**: a part a level draws as tiles (walls, the ladder) keeps the tile width and the number of middle tiles in
   `tiles`, which the Levels page uses.
-- **Ids** are in `TOONS_IDS` in `part-ids.ts`, chosen from the sprites and the levels that use each part. The least
-  certain are the walls and inclines, named by their look (`red-brick-wall`, `pink-wall`, `stone-wall`,
-  `red-rock-wall`, `bone-wall`, `yellow-wall`, `candy-incline`, `brick-incline`, `stone-incline`, `wood-incline`,
-  `bone-incline`, `yellow-incline`), and `ant-motor` (25), `cushion` (24), `dust-cloud` (5), `splat` (4), `bullet`
-  (21), `magic-lamp` (53), `yellow-ball` (55), `hanging-string` (63) and `mallet` (65), which no level text names.
+- **Ids** are in `TOONS_IDS` in `part-ids.ts`, chosen from the sprites and the levels that use each part, and fixed
+  where the game's own words say more: 24 is `trampoline` (its code is the link map's `tramp`, see below), 29 is
+  `log-wall` (CAKE27's "log cabin" is 17 pieces of it, and the "stump" Sid stands on in CAKE17 is two), 55 is `egg`
+  (the hen's code makes a part of type 55, file offset `0x56c15`) and 63 is `pin` (BRAN8's "pin torture", BRAN12's
+  "the pin that's pointed at his tail" and LOON21's "House of Pins" all have it). The game's words also back
+  `stone-wall` (the "stone box" of CAKE30 is type 28), `candy-incline` (CAKE21's "candy slide"), `pool-ball` (the 15
+  balls on HARD4's "pool table") and `banana` (TOONS.EXE labels the banana's setting `banana`, as it labels the
+  pistol's `ammo`, the catapult's `boulders` and the hen's `eggs`). The least certain are the walls and inclines
+  still named by their look (`red-brick-wall`, `pink-wall`, `bone-wall`, `yellow-wall`, `brick-incline`,
+  `stone-incline`, `wood-incline`, `bone-incline`, `yellow-incline`), and `ant-motor` (25), `dust-cloud` (5),
+  `splat` (4), `magic-lamp` (53) and `mallet` (65), which nothing in the game names. 5 runs the same reset code as
+  the rocks and the balls, so it may be no cloud at all; 4's code plays the sound the bank calls `splat1`, the same
+  as the egg's.
   The conveyor belt is 0, not 80: TOONS.EXE draws 0 in its own code and lets it be resized from 48 to 128 wide, as
   TIM's conveyor belt; 80 is Chow-Man, whose sprites are a creature that eats and blows gum.
-- **Names**: Toons' files name no parts, so a name is taken only from the game's own words: the title or goal of a
-  level that has a part of that type, like "Teeter-Totter" from the level of that name (CAKE18) or "Ball Bearing" from
-  "bop Al with the ball bearing" (BRAN4). `toons-names.json` keeps, for every name, the level and the words it comes
-  from; a test checks that every name belongs to a part of the list. 44 parts have a name; the others show their id.
+- **Names**: Toons has no list of part names, so a name is taken only from the game's own words: the title or goal
+  of a level that has a part of that type, like "Teeter-Totter" from the level of that name (CAKE18) or "Ball
+  Bearing" from "bop Al with the ball bearing" (BRAN4); a message in `GENERIC.RES` ("bogus eyehooks"); or a routine's
+  name in `TOONS.BMP`. `toons-names.json` keeps, for every name, the level or file and the words it comes from; a
+  test checks that every name belongs to a part of the list. 54 of the 75 parts have a name; the others show their
+  id.
+- **The link map**: the archive entry `TOONS.BMP` is no image but the linker's map of another build of TOONS.EXE,
+  with every routine's name. Its parts' code (`PARTS`) lists each part's callbacks module by module, like
+  `_balloon_reinit`, `_balloon_bounce`, `_balloon_internal`, `_balloon_rope`. The shipped TOONS.EXE has the same
+  modules in the same order in its overlays, and the type table's callbacks point into them, so each module's name
+  goes with the types whose callbacks are in it: `ball` (5 to 11 and 31 to 34 share its reset), `balloon` (23),
+  `explosion` (75), `bullet` (21), `dynamite` (the bomb, 19), `ep` (the electric switch, 2), `eyehook` (15), `gear`
+  (18), `gun` (the pistol, 20), `hc_belt` (the conveyor belt, 0), `mg` (the magnifying glass, 30), `scissors` (16),
+  `teapot` (12), `tramp` (24), `vc` (the vacuum, 13) and `wall` (the walls). The modules match in which callbacks they
+  have and mostly in their order and size (`tramp` is 0x131 bytes in the map, 0x130 in TOONS.EXE). The map's
+  `candle`, `cc`, `fl` (`FLSHLITE5_DATA`), `m_cage` and `scp` have no module in the shipped build. In the main code,
+  the routines line up by size with the map's too: `_orient_pulleys` (file offset `0xb27f`) finds the parts of type
+  17 and calls `_orient_pulley` for each.
 
 The script reads Toons with `--toons <folder>`, a folder with `TOONS.EXE` and the `RESOURCE` files. It never writes
 `toons-names.json`, which is kept by hand.
