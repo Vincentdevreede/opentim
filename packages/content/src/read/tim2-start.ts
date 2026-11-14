@@ -155,7 +155,10 @@ export function tim2ListOrder(level: Level, group: "moving" | "static", tables: 
  *   never last when a part on the board has a higher word, when it has bit 0x1000 and a part on the board has too,
  *   or when it is a rope type and a part on the board has its word; else it is last when the player puts it higher on
  *   the screen than every part of its list with its word (`above`). Two parts of type 11 sort the other way round, the
- *   highest first, so a type 11 part is last when it is put lower than every type 11 part of its list (`below`).
+ *   highest first, so a type 11 part is last when it is put lower than every type 11 part of its list (`below`), which
+ *   it can't be when one of those is lower than a part it must be higher than.
+ * - A part the start takes off with its remote control (`gone`) is neither on a list nor in the bin; this doesn't
+ *   answer for it.
  */
 export function tim2LastOnList(
   level: Level,
@@ -181,12 +184,13 @@ export function tim2LastOnList(
   if (blocker !== undefined) return { can: false, behind: blocker };
   const others = third(index) & LAST ? [] : list.filter((i) => key(i) === key(index));
   const reversed = (i: number) => part.type === UPWARD && level.parts[i]!.type === UPWARD;
-  return {
-    can: true,
-    inBin: true,
-    above: others.filter((i) => !reversed(i)),
-    below: others.filter(reversed),
-  };
+  const above = others.filter((i) => !reversed(i));
+  const below = others.filter(reversed);
+  // No height is both lower than a type 11 part and higher than another part when that part is the higher of the two.
+  const y = (i: number) => level.parts[i]!.position.y;
+  if (above.length && below.length && Math.max(...below.map(y)) > Math.min(...above.map(y)))
+    return { can: false, behind: list.at(-1)! };
+  return { can: true, inBin: true, above, below };
 }
 
 /** Puts `index` on the bin as TIM2.EXE's insertion routine does. */

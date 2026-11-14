@@ -195,6 +195,9 @@ describe("which part can be the last on its list", () => {
       { type: 11, third: FIXED, y: 40 },
     ]);
     expect(tim2ListOrder(placed, "static", upward)).toEqual([1, 2, 0]);
+    // Lower than the type 11 part at 50 and higher than the type 1 part at 40 is no place at all.
+    const nowhere = level([{ type: 11, third: FIXED, y: 50 }, { type: 1, third: FIXED, y: 40 }, { type: 11 }]);
+    expect(tim2LastOnList(nowhere, 2, upward)).toEqual({ can: false, behind: 1 });
   });
 
   it("doesn't count bit 0x1000 that only the file has, as the list order doesn't", () => {
@@ -226,6 +229,25 @@ describe("which part can be the last on its list", () => {
     };
     expect(goal(0).caution).toBeUndefined();
     expect(goal(1).caution).toMatch(/#1 is the last part on its list when the puzzle starts.*fewer than 2/);
+  });
+
+  it("doesn't tell the player to put explosives the start takes off with their remote control", () => {
+    const l = {
+      ...level([
+        { type: 1, third: FIXED },
+        { type: 22, links: [null, 2] },
+        { type: 55, links: [null, 1] },
+      ]),
+      tim2: {
+        notes: [],
+        ignored: [0, 0],
+        spare: 0,
+        goal: { first: 1, last: 0, entries: [{ part: 2, values: [0, 9, 2, 0, 0, 0, 0] }] },
+      },
+    } as unknown as Level;
+    const caution = summariseTim2Goal(l, () => "Thing", tables)!.summary.ways[0]![0]!.caution;
+    expect(caution).toMatch(/takes #2 off with its remote control.*fewer than 2/);
+    expect(caution).not.toMatch(/player puts/);
   });
 
   it("doesn't call a part from the bin last when the puzzle starts", () => {

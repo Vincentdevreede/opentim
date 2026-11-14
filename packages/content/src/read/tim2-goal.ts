@@ -24,7 +24,7 @@
 
 import type { GoalCondition, GoalSummary } from "./goal-conditions.ts";
 import type { Level } from "./level.ts";
-import { tim2LastOnList, type Tim2StartTables } from "./tim2-start.ts";
+import { tim2LastOnList, tim2PuzzleStart, type Tim2StartTables } from "./tim2-start.ts";
 import type { ToonsMemory } from "./toons-drawing.ts";
 import { decodeInstruction, type Instruction, type Operand } from "./x86.ts";
 
@@ -54,6 +54,8 @@ function countCaution(level: Level, index: number, count: number, tables?: Tim2S
   const forgets = `TIM2.EXE forgets this entry, so the goal can be met with fewer than ${count}`;
   if (!tables)
     return `When #${index} is the last part on its list, ${forgets}. Whether it can be last depends on the order of the lists, which TIM2.EXE gives.`;
+  if (tim2PuzzleStart(level, tables).gone.has(index))
+    return `The puzzle start takes #${index} off with its remote control, so it isn't on its list then. When it is the last part on its list, ${forgets}.`;
   const last = tim2LastOnList(level, index, tables);
   if (!last.can) return undefined;
   if (!last.inBin)
