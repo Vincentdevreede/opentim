@@ -28,6 +28,7 @@ import {
   TYPE_RECORD_WRITTEN,
 } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
+import { behaviourProfile } from "./behaviour-program.ts";
 import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
@@ -1040,8 +1041,12 @@ interface Candidate {
 
 /** The part that touched the source, as the bounce callback gets it; `part` is the source, the part it touched. */
 const TOUCHER = "collider";
+/** How a line of what a part's own bounce does to it starts. */
+const OWN_LEAD = "When it touches a part, its own bounce runs on it too and";
 export const TOUCH_ASSUMPTION =
   "The part touches the source, which is another part, and the fields of both meet the tests when the contact dispatch calls the source's bounce; that this happens in a level is not claimed.";
+export const OWN_TOUCH_ASSUMPTION =
+  "The part touches another part, and the fields of both meet the tests when the contact dispatch calls the part's own bounce with it, the touched part in the bounce owner's place; that this happens in a level is not claimed.";
 
 /** Whether a value reads a table, which a line can't look up. */
 function readsTable(
@@ -1183,13 +1188,17 @@ function touchCandidate(
 
 /**
  * By part type: the lines for what other parts do to it without changing its frame, and the decided assumptions that
- * ruled out others. `evaluate` tests a condition against known fields, as the walks do.
+ * ruled out others. `evaluate` tests a condition against known fields, as the walks do. For a type whose own bounce
+ * the game also calls when it touches a part (the profile's `selfBounce`), `ownBounce` has what that bounce sets on it.
  */
 export function effectsFromOthers(
   report: BehaviourReport,
   evaluate: Evaluate,
-): Map<number, { effects: OtherPartEffect[]; assumptions: string[] }> {
-  const result = new Map<number, { effects: OtherPartEffect[]; assumptions: string[] }>();
+): Map<number, { effects: OtherPartEffect[]; assumptions: string[]; ownBounce?: OtherPartEffect[] }> {
+  const result = new Map<
+    number,
+    { effects: OtherPartEffect[]; assumptions: string[]; ownBounce?: OtherPartEffect[] }
+  >();
   const typeOffset = report.layout.fields.find((f) => f.name === "type")?.offset;
   const stateOffset = report.layout.fields.find((f) => f.name === "state")?.offset;
   if (typeOffset === undefined || stateOffset === undefined) return result;
@@ -1429,12 +1438,21 @@ export function effectsFromOthers(
   };
   /** Types whose bounce the game also calls on a part of that type itself, with what it touched (Mel in Even More). */
   const selfCalled = new Set((report.collisionDispatch ?? []).flatMap((d) => d.specialSelfCall?.type ?? []));
+  /** Types whose own bounce the game also calls when a part of the type touches a part, by the game's profile. */
+  const selfBounce = behaviourProfile(report.listId).selfBounce;
+  const ownBounce = (type: number) => selfBounce === "every" || selfBounce.includes(type);
   /**
    * The touch lines of a part: what the bounce of a part it touches sets on it. Paths that set the same, and return
-   * the same, are joined where their tests allow it. `read` are the fields the part's own rules read.
+   * the same, are joined where their tests allow it. `read` are the fields the part's own rules read. With `own`, what
+   * its own bounce sets on it when the game calls that bounce with it, the part it touches in the owner's place.
    */
   const rewritten = rewrittenByResponse(report, evaluate);
-  const touchLines = (part: BehaviourReport["parts"][number], read: Set<number>, assumptions: Set<string>) => {
+  const touchLines = (
+    part: BehaviourReport["parts"][number],
+    read: Set<number>,
+    assumptions: Set<string>,
+    own = false,
+  ) => {
     const readsField = (w: FieldWrite) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte));
     // A field the contact response that always follows a bounce returning nonzero writes again is that response's.
     const responds = (c: TouchCandidate) => c.returns !== undefined && c.returns !== 0 && !!rewritten;
@@ -1452,8 +1470,10 @@ export function effectsFromOthers(
     }
     const groups = new Map<string, { tests: Tests; value: Path }[]>();
     for (const c of touches) {
+      // Its own bounce: `part` is then the part it touches, of any type.
+      if (own && c.sourceType !== part.type) continue;
       // The bounce of such a type may run with a part of the type as the toucher and anything as `part`.
-      if (selfCalled.has(c.sourceType) && part.type === c.sourceType) continue;
+      if (!own && selfCalled.has(c.sourceType) && part.type === c.sourceType) continue;
       const used = { table: false };
       const kept: Predicate[] = [];
       let possible = true;
@@ -1468,8 +1488,9 @@ export function effectsFromOthers(
         kept.push(typed);
       }
       // A write to a field the part's rules read can change its frame: walks are the place for that, unless the
-      // contact response that always follows writes the field again.
-      if (!possible || c.writes.some((w) => readsField(w) && !(responds(c) && redone(w)))) continue;
+      // contact response that always follows writes the field again. No walk starts from its own bounce, so its line
+      // says it instead.
+      if (!possible || (!own && c.writes.some((w) => readsField(w) && !(responds(c) && redone(w))))) continue;
       const settings = settingsOf(c.writes, TOUCHER, part.type, used);
       if (!settings) continue;
       if (fixed) {
@@ -1515,7 +1536,7 @@ export function effectsFromOthers(
         if (rank[from.confidence] > rank[into.confidence]) into.confidence = from.confidence;
       })) {
         const { c, sets } = value;
-        const name = nameOf(c.sourcePart);
+        const name = own ? "touched part" : nameOf(c.sourcePart);
         // Each test with its comparisons and words; a path's own tests when they can't be said in short.
         const list =
           testsInWords(tests) ??
@@ -1561,8 +1582,9 @@ export function effectsFromOthers(
         const only = toucherWords.length ? ` Only when ${toucherWords.join(" and ")}.` : "";
         // The dispatch goes on to a contact response only when the bounce returns something other than 0.
         const ruled = c.writes.filter(readsField).map((w) => fieldName(w.offset));
-        const response =
-          c.returns === undefined
+        const response = own
+          ? `${ruled.length ? ` Its own rules read ${listWords([...new Set(ruled)])}, so this can change its frame.` : ""} The game doesn't use what this bounce returns.`
+          : c.returns === undefined
             ? " The game may go on to a contact response, which can change these again."
             : c.returns === 0
               ? " Its bounce returns 0 then, so no contact response follows."
@@ -1579,14 +1601,15 @@ export function effectsFromOthers(
           condition: conjunction(toucher),
           conditionWords: toucherWords,
           ...(velocityDirection ? { velocityDirection } : {}),
-          touch: c.returns === undefined ? {} : { returns: c.returns },
-          description: `${named(name, true)} it touches${when} ${said.join(" and ")}.${only}${response}`,
+          // The game doesn't use what its own bounce returns.
+          touch: own || c.returns === undefined ? {} : { returns: c.returns },
+          description: `${own ? OWN_LEAD : `${named(name, true)} it touches`}${when} ${said.join(" and ")}.${only}${response}`,
           confidence: value.confidence,
           assumptions: [
             ...new Set([
               ...value.assumptions,
               ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
-              TOUCH_ASSUMPTION,
+              own ? OWN_TOUCH_ASSUMPTION : TOUCH_ASSUMPTION,
             ]),
           ],
           evidence: value.evidence,
@@ -1596,7 +1619,7 @@ export function effectsFromOthers(
       // Lines of one group set the same and differ only in their tests: they are one line with each path as a case.
       const made = lines.splice(start) as (OtherPartEffect & { caseWords: string })[];
       if (made.length === 1) lines.push(withoutCaseWords(made[0]!));
-      else if (made.length > 1) lines.push(casesLine(made));
+      else if (made.length > 1) lines.push(casesLine(made, own));
     }
     return lines;
   };
@@ -1606,7 +1629,7 @@ export function effectsFromOthers(
     return copy;
   };
   /** One line for lines that set the same: the tests every case makes stay on the line, the rest go to `cases`. */
-  const casesLine = (made: (OtherPartEffect & { caseWords: string })[]): OtherPartEffect => {
+  const casesLine = (made: (OtherPartEffect & { caseWords: string })[], own: boolean): OtherPartEffect => {
     const first = made[0]!;
     const common = (list: (line: OtherPartEffect) => Predicate[]) =>
       list(first).filter((term) =>
@@ -1614,9 +1637,12 @@ export function effectsFromOthers(
       );
     const commonWords = (list: (line: OtherPartEffect) => string[]) =>
       list(first).filter((word) => made.every((line) => list(line).includes(word)));
-    const name = nameOf(first.sourcePart);
+    const name = own ? "touched part" : nameOf(first.sourcePart);
     const { said } = sayings(first.sets, name);
-    const tail = / (Its bounce returns|The game may go on).*$/.exec(first.description)?.[0] ?? "";
+    const tail =
+      / (Its bounce returns|The game may go on|Its own rules read|The game doesn't use).*$/.exec(
+        first.description,
+      )?.[0] ?? "";
     const rank: Record<Confidence, number> = { checked: 0, inferred: 1, unresolved: 2 };
     return {
       ...withoutCaseWords(first),
@@ -1631,7 +1657,7 @@ export function effectsFromOthers(
         conditionWords: item.conditionWords,
         words: item.caseWords,
       })),
-      description: `${named(name, true)} it touches ${said.join(" and ")} in ${made.length} cases: ${made
+      description: `${own ? OWN_LEAD : `${named(name, true)} it touches`} ${said.join(" and ")} in ${made.length} cases: ${made
         .map((item, n) => `(${n + 1}) when ${item.caseWords}`)
         .join("; ")}.${tail}`,
       confidence: made.map((item) => item.confidence).reduce((a, b) => (rank[b] > rank[a] ? b : a)),
@@ -1948,8 +1974,13 @@ export function effectsFromOthers(
       });
     }
     for (const line of touchLines(part, read, assumptions)) effects.set(`touch ${effects.size}`, line);
-    if (effects.size || assumptions.size)
-      result.set(part.type, { effects: [...effects.values()], assumptions: [...assumptions] });
+    const own = ownBounce(part.type) ? touchLines(part, read, assumptions, true) : [];
+    if (effects.size || assumptions.size || own.length)
+      result.set(part.type, {
+        effects: [...effects.values()],
+        assumptions: [...assumptions],
+        ...(own.length ? { ownBounce: own } : {}),
+      });
   }
   return result;
 }

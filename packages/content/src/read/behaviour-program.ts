@@ -61,6 +61,15 @@ export interface BehaviourProfile {
    * over many types in one routine, like the frame size helper, and need more than TIM.EXE's.
    */
   helperPaths: number;
+  /**
+   * The types whose own bounce the contact dispatch also calls when a part of the type touches a part, or "every" type.
+   * It passes the touching part, so the bounce runs with that part as the one that touches and the part it touches in
+   * its owner's place, and it doesn't use what that call returns. TIM2.EXE's dispatcher (`0x511f5` in the CD build)
+   * does it for the cupid, Mel Schlemming, the super ball and the blimp (types 33, 54, 59 and 109), TOONS.EXE's
+   * (`0x2281`) for every type, both when bits 0x06 of the touching part's flags are set. TIM.EXE's dispatcher has no
+   * call of this form; Even More's call of Mel's own bounce is read from its dispatcher instead (`specialSelfCall`).
+   */
+  selfBounce: number[] | "every";
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -76,6 +85,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   stateHistory: true,
   numberArguments: false,
   helperPaths: 800,
+  selfBounce: [],
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -93,6 +103,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     stateHistory: true,
     numberArguments: true,
     helperPaths: 4000,
+    selfBounce: [33, 54, 59, 109],
   },
   toons: {
     storage: "overlays",
@@ -106,6 +117,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     stateHistory: false,
     numberArguments: true,
     helperPaths: 4000,
+    selfBounce: "every",
   },
 };
 

@@ -233,6 +233,24 @@ one code path: the existing reading holds for both, with the passed part as the 
 the owner. What the self call adds is that, for those parts, their own bounce code also runs when they touch something,
 and it acts on the part they touch. The bounce callback's assumption now says so.
 
+**What the self call does, under the touching part's own type.** Neither dispatcher uses what the self call returns:
+TIM2.EXE drops it and reads the part's flags again (`0x5122d`), TOONS.EXE pops the argument and goes on (`0x229d`).
+The profile lists the types (`selfBounce`: the four types in TIM 2, every type in Toons), since the reader doesn't read
+the dispatcher's type tests. The descriptions now give such a type `ownBounce` lines: what its own bounce sets on the
+part itself, from the same bounce paths as the touch lines, with its own type settling its tests and the part it
+touches standing in for the owner ("When it touches a part, its own bounce runs on it too and sets +0x16 to 4. Only
+when its field 0x0c & 0x0010 is 0."). A touch line leaves out a write to a field the part's rules read, since a walk
+follows it; no walk starts from the self call, so these lines keep such a write and say it can change the frame. In
+the TIM 2 CD build only the blimp gets lines (it sets its field 0x16 to 4 or 3 by its field 0x0c bit 0x10). The super
+ball's and Mel's bounces also set fields of the touching part from field relations the reader doesn't work out, so
+those paths give no line, and the cupid's bounce, read only in part, sets no field of the touching part on the paths
+it reads. In Toons 8 types get 35 lines. The missile sets its own stateDelta to 1 when it touches a part that isn't one
+of nine types and |its field 0x39| is above 2560; the yellow ball, the piano, the balloon and Eunice the elephant have
+lines like it. The gear (24 lines), the conveyor belt (5) and the vacuum get lines too, though such parts may never
+move: the reader doesn't know which Toons types stay on the fixed list, so it can't leave them out, as for their touch
+lines. TIM 1 and Even More read and describe the same as before: the profile lists no types for TIM.EXE, and Even
+More's self call of Mel's bounce (see [contact](contact.md)) is read from its dispatcher and keeps its own handling.
+
 **TIM 2's set-up routine.** The routine at record `+0x1c` (11 routines, 20 types) is read like a callback, as
 `PartBehaviour.setUp`, with the ways it answers 0. With a part, it allocates the part's extra data and stores its pointer
 in the part. The inclines, the pulley, the conveyor belt, the phazer, the rope end, Mel's house and the message computer
@@ -288,6 +306,8 @@ from 118 to 120.
   pointers, so the list machinery (list head and next helpers, the members a loop finds) needs a far form first.
 - **The part fields.** The layout names only the type and state in TIM 2, and the type, state, flags and a few more in
   Toons; TIM.EXE's other field names (position, speed, size, contact, outline) come from its helpers.
-- **Open:** whether the bounce findings should also be shown under the touching part's own type in the descriptions.
+- **The touching part's own bounce.** Its findings are now shown under the touching part's own type (`ownBounce`, see
+  "What the self call does, under the touching part's own type"). Still open: walks that start from it, and the
+  writes from field relations, like the super ball's bounce.
 - **Goals and frames.** The goals of TIM 2 and Toons are checked by their own readers; the reader's frame drawing,
   outline tables, collision dispatch and gear scheduling still only know TIM.EXE's forms.
