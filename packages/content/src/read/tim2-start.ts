@@ -154,13 +154,14 @@ export function tim2ListOrder(level: Level, group: "moving" | "static", tables: 
  * - A part from the bin goes, as the player drops it, before the first part of its list it should come before. It is
  *   never last when a part on the board has a higher word, when it has bit 0x1000 and a part on the board has too,
  *   or when it is a rope type and a part on the board has its word; else it is last when the player puts it higher on
- *   the screen than every part of its list with its word (`above`).
+ *   the screen than every part of its list with its word (`above`). Two parts of type 11 sort the other way round, the
+ *   highest first, so a type 11 part is last when it is put lower than every type 11 part of its list (`below`).
  */
 export function tim2LastOnList(
   level: Level,
   index: number,
   tables: Tim2StartTables,
-): { can: false; behind: number } | { can: true; above: number[] } {
+): { can: false; behind: number } | { can: true; inBin: boolean; above: number[]; below: number[] } {
   const part = level.parts[index]!;
   const start = tim2PuzzleStart(level, tables);
   const board = (i: number) => !start.bin.includes(i) && !start.gone.has(i);
@@ -168,7 +169,7 @@ export function tim2LastOnList(
   const key = (i: number) => tables.listKeys.get(level.parts[i]!.type) ?? 0;
   if (board(index)) {
     const last = list.at(-1)!;
-    return last === index ? { can: true, above: [] } : { can: false, behind: last };
+    return last === index ? { can: true, inBin: false, above: [], below: [] } : { can: false, behind: last };
   }
   const third = (i: number) => tim2Third(level.parts[i]!, tables);
   const first = (test: (i: number) => boolean) => list.find(test);
@@ -178,7 +179,14 @@ export function tim2LastOnList(
       : (first((i) => key(i) > key(index)) ??
         (FIRST_OF_THEIR_WORD.includes(part.type) ? first((i) => key(i) === key(index)) : undefined));
   if (blocker !== undefined) return { can: false, behind: blocker };
-  return { can: true, above: third(index) & LAST ? [] : list.filter((i) => key(i) === key(index)) };
+  const others = third(index) & LAST ? [] : list.filter((i) => key(i) === key(index));
+  const reversed = (i: number) => part.type === UPWARD && level.parts[i]!.type === UPWARD;
+  return {
+    can: true,
+    inBin: true,
+    above: others.filter((i) => !reversed(i)),
+    below: others.filter(reversed),
+  };
 }
 
 /** Puts `index` on the bin as TIM2.EXE's insertion routine does. */

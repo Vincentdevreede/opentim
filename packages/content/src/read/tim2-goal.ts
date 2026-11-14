@@ -56,10 +56,16 @@ function countCaution(level: Level, index: number, count: number, tables?: Tim2S
     return `When #${index} is the last part on its list, ${forgets}. Whether it can be last depends on the order of the lists, which TIM2.EXE gives.`;
   const last = tim2LastOnList(level, index, tables);
   if (!last.can) return undefined;
-  if (!last.above.length)
+  if (!last.inBin)
     return `#${index} is the last part on its list when the puzzle starts, and then ${forgets}, until a part the player puts or the machine makes comes after it.`;
-  const others = last.above.map((i) => `#${i}`).join(", ");
-  return `When the player puts #${index} higher on the screen than ${others}, it is the last part on its list, and then ${forgets}.`;
+  const parts = (list: number[]) => list.map((i) => `#${i}`).join(", ");
+  const where = [
+    ...(last.above.length ? [`higher on the screen than ${parts(last.above)}`] : []),
+    ...(last.below.length ? [`lower on the screen than ${parts(last.below)}`] : []),
+  ];
+  if (!where.length)
+    return `When the player puts #${index} on the board, it is the last part on its list, and then ${forgets}, until a part the player puts or the machine makes comes after it.`;
+  return `When the player puts #${index} ${where.join(" and ")}, it is the last part on its list, and then ${forgets}.`;
 }
 
 /**

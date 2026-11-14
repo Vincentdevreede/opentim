@@ -196,7 +196,13 @@ function plugLevels(
   const loose = (p: LevelPart) => !p.belt.parts && !p.ropes.some((r) => r.rope);
   for (const file of names) {
     const data = files.get(file)!;
-    const level = readLevel(data, { layout: "tim2", name: file });
+    let level: Level;
+    try {
+      level = readLevel(data, { layout: "tim2", name: file });
+    } catch {
+      // A level that doesn't read can't be the template; the checks above already report it when it is checked.
+      continue;
+    }
     const tied = new Set(level.parts.flatMap((p) => [...(p.ropes[0].rope?.parts ?? []), ...(p.belt.parts ?? [])]));
     const socket = level.parts.find(
       (s) =>
