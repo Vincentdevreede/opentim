@@ -28,7 +28,7 @@ import {
   TYPE_RECORD_WRITTEN,
 } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
-import { behaviourProfile } from "./behaviour-program.ts";
+import { behaviourProfile, TIM_PART_WORDS, type PartWords } from "./behaviour-program.ts";
 import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
@@ -62,7 +62,13 @@ import { conjunction, constant, uniqueEvidence, unsigned } from "./behaviour-ter
  * gives it `0x1000` and the moving list when its starting flags lack `0x4000`, and `0x2000` and the fixed list
  * otherwise.
  */
-export const LIST_FLAGS = 0x06;
+export const LIST_FLAGS = TIM_PART_WORDS.listFlags;
+/**
+ * The words of TIM.EXE's records the descriptions know by place (the profile's `partWords`), for the report's game.
+ * Undefined for TIM 2 and Toons, whose records are kept otherwise: the descriptions then say nothing about those words.
+ */
+export const partWordsOf = (report: Pick<BehaviourReport, "listId">): PartWords | undefined =>
+  behaviourProfile(report.listId ?? "").partWords;
 const MOVING_LIST = 0x1000;
 const FIXED_LIST = 0x2000;
 export const FIXED_TYPE = 0x4000;
@@ -315,19 +321,19 @@ const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[
       "the contact search sets it after a contact; while it is set the mover pulls the part 2 pixels further along its gravity each time it moves it, and the contact dispatch picks the response at 0x3980 over the reflection at 0x3c1c",
   },
   {
-    offset: 0x08,
+    offset: TIM_PART_WORDS.drawingFlags,
     mask: 0x2000,
     name: "out-of-play flag 0x2000",
     words: "the contact dispatch, the contact search and the overlap searches pass over a part with it",
   },
   {
-    offset: 0x08,
+    offset: TIM_PART_WORDS.drawingFlags,
     mask: 0x0040,
     name: "ran-this-step mark 0x0040",
     words: "the step's run loop clears it first and then calls no run callback of a part that has it",
   },
   ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask) => ({
-    offset: 0x0a,
+    offset: TIM_PART_WORDS.marks,
     mask,
     name: `goal mark 0x${mask.toString(16).padStart(4, "0")}`,
     words:
@@ -335,12 +341,25 @@ const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[
   })),
 ];
 /** Where a flag bit lives, in words: "list flags", "drawing flags" or "field 0x0a". */
-const FLAG_FIELDS: Record<number, string> = { [LIST_FLAGS]: "list flags", 0x08: "drawing flags", 0x0a: "field 0x0a" };
+const FLAG_FIELDS: Record<number, string> = {
+  [TIM_PART_WORDS.listFlags]: "list flags",
+  [TIM_PART_WORDS.drawingFlags]: "drawing flags",
+  [TIM_PART_WORDS.marks]: "field 0x0a",
+};
 /**
  * A set or cleared bit in words, like "sets its out-of-play flag 0x2000 in its drawing flags (the contact dispatch ...
- * pass over a part with it)", or undefined when the bit has no proved meaning.
+ * pass over a part with it)", or undefined when the bit has no proved meaning. The meanings are TIM.EXE's, so a game
+ * without TIM.EXE's words (`partWords`) gets none.
  */
-export function flagWords(offset: number, mask: number, set: boolean, whose: string, long = true): string | undefined {
+export function flagWords(
+  words: PartWords | undefined,
+  offset: number,
+  mask: number,
+  set: boolean,
+  whose: string,
+  long = true,
+): string | undefined {
+  if (!words) return undefined;
   const flag = PART_FLAGS.find((f) => f.offset === offset && f.mask === mask);
   if (!flag) return undefined;
   return `${set ? "sets" : "clears"} ${whose} ${flag.name} in ${FLAG_FIELDS[offset]}${long ? ` (${flag.words})` : ""}`;
@@ -380,16 +399,31 @@ export const FINE_POSITION: Record<number, string> = {
   0x1c: "fine vertical position (high word)",
 };
 /**
+ * The fine position word at `offset` of a part of the report's game, as `FINE_POSITION` names TIM.EXE's: the longs sit
+ * 8 bytes before positionX in every game, so they move with it. TIM2.EXE keeps them at 0x1a and 0x1e (its level reset
+ * sets them from the position shifted left by 9, `0x1eda1` in the CD build), TOONS.EXE at 0x17 and 0x1b (`0x1ac6`, in
+ * the routine at `0x17fe`). Undefined for any other word. `axis` is the whole position the long holds.
+ */
+export function finePosition(
+  report: Pick<BehaviourReport, "layout">,
+  offset: number,
+): { words: string; axis: "positionX" | "positionY" } | undefined {
+  const positionX = report.layout.fields.find((field) => field.name === "positionX")?.offset;
+  const key = offset - (positionX === undefined ? 0 : positionX - 0x1e);
+  const words = FINE_POSITION[key];
+  return words ? { words, axis: key < 0x1a ? "positionX" : "positionY" } : undefined;
+}
+/**
  * The contact record a contact search fills in on the part it moves (`0x09eb` to `0x0a06`): the part it touched at
  * `0x84`, two side bytes at `0x86` and `0x87` (`0x0db5`, `0x0dcc`, and the helper at `0x04b0`), the angle at `0x88` and
  * the edge at `0x8a`. The contact flags `0x0002` and `0x0004` at `0x06` say which response route follows (`0x09af` to
- * `0x09e7`), and `0x0001` is set at `0x073f`.
+ * `0x09e7`), and `0x0001` is set at `0x073f`. These are TIM.EXE's words (`partWords`); another game's get none.
  */
-export const CONTACT_RECORD: Record<number, string> = {
-  [LIST_FLAGS]: "contact flags in its list flags at 0x06",
-  0x86: "contact side byte at 0x86",
-  0x87: "contact side byte at 0x87",
-};
+export function contactRecordWords(words: PartWords | undefined, offset: number): string | undefined {
+  if (!words) return undefined;
+  if (offset === words.listFlags) return `contact flags in its list flags at 0x${offset.toString(16).padStart(2, "0")}`;
+  return words.contactSides.includes(offset) ? `contact side byte at 0x${offset.toString(16)}` : undefined;
+}
 
 /** Something another part sets on this part: its velocity to a speed, or a field to a number. */
 export type OtherPartSetting =
@@ -950,13 +984,13 @@ function drawingFlagWords(p: Predicate, report: BehaviourReport): string | undef
   return words && `${p.operator === "!=" ? "" : "not "}${words}`;
 }
 
-/** A test of one list flag of the member, like `(member + 0x06 & 0x1000) != 0`, in words. */
-export function listFlagWords(p: Predicate, member: string): string | undefined {
-  if (p.kind !== "compare" || !["==", "!="].includes(p.operator)) return undefined;
+/** A test of one list flag of the member, like `(member + 0x06 & 0x1000) != 0`, in words; only with TIM.EXE's words. */
+export function listFlagWords(words: PartWords | undefined, p: Predicate, member: string): string | undefined {
+  if (!words || p.kind !== "compare" || !["==", "!="].includes(p.operator)) return undefined;
   const { left, right } = p;
   if (right.kind !== "constant" || right.value !== 0 || left.kind !== "binary" || left.operator !== "&") return;
   const [flags, mask] = left.left.kind === "field" ? [left.left, left.right] : [left.right, left.left];
-  if (flags.kind !== "field" || flags.object !== member || flags.offset !== LIST_FLAGS || mask.kind !== "constant")
+  if (flags.kind !== "field" || flags.object !== member || flags.offset !== words.listFlags || mask.kind !== "constant")
     return undefined;
   const list = mask.value === MOVING_LIST ? "moving" : mask.value === FIXED_LIST ? "fixed" : undefined;
   return list && `${p.operator === "!=" ? "" : "not "}on the ${list} list`;
@@ -1266,7 +1300,9 @@ export function effectsFromOthers(
       // Single bits whose meaning the code proves say it, like the contact flag 0x0001 at 0x06.
       const bits = value.operator === "&" ? ~n & 0xffff : value.operator === "|" ? n : 0;
       const named =
-        bits && (bits & (bits - 1)) === 0 ? flagWords(offset, bits, value.operator === "|", "its", false) : undefined;
+        bits && (bits & (bits - 1)) === 0
+          ? flagWords(partWordsOf(report), offset, bits, value.operator === "|", "its", false)
+          : undefined;
       if (named) return named;
       if (value.operator === "&") return `clears ${`0x${(~n & 0xffff).toString(16).padStart(4, "0")}`} in ${field}`;
       if (value.operator === "|") return `sets ${hex} in ${field}`;
@@ -1411,7 +1447,8 @@ export function effectsFromOthers(
           JSON.stringify(longPart(s.value)) === JSON.stringify(part && { ...part, high: true }),
       );
       if (!part || part.high || !high || low.kind !== "expression") continue;
-      const fine = FINE_POSITION[low.offset] ? (low.offset < 0x1a ? "horizontal" : "vertical") : undefined;
+      const axis = finePosition(report, low.offset)?.axis;
+      const fine = axis && (axis === "positionX" ? "horizontal" : "vertical");
       longs.set(
         low,
         `sets ${fine ? `its fine ${fine} position (the long at 0x${low.offset.toString(16)}, in 1/512 pixels)` : `the long at 0x${low.offset.toString(16).padStart(2, "0")}`} to ${formula(part.word, { field: fieldName, of: (_, what) => what })} × ${2 ** part.shift}`,
@@ -1806,11 +1843,13 @@ export function effectsFromOthers(
   for (const part of report.parts) {
     const effects = new Map<string, OtherPartEffect>();
     const assumptions = new Set<string>();
-    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so.
-    const offList = offMovingList(part, startingFlags);
+    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so. It is about
+    // TIM.EXE's list flags, so only with TIM.EXE's words.
+    const timWords = partWordsOf(report);
+    const offList = timWords && offMovingList(part, startingFlags);
     const known = offList
       ? (member: string) => [
-          { object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST } satisfies Pick<
+          { object: member, offset: timWords.listFlags, width: 16, value: 0, knownMask: MOVING_LIST } satisfies Pick<
             KnownField,
             "object" | "offset" | "width" | "value" | "knownMask"
           >,
@@ -1842,11 +1881,11 @@ export function effectsFromOthers(
         if (!t.set) {
           const test = flagTest(c.member, t);
           searchTerms.push(test);
-          const named = PART_FLAGS.find((flag) => flag.offset === t.offset && flag.mask === t.mask);
+          const named = timWords && PART_FLAGS.find((flag) => flag.offset === t.offset && flag.mask === t.mask);
           if (named) clearNames.set(test, named.name);
           continue;
         }
-        if (isLightableTest(t)) {
+        if (timWords && isLightableTest(t)) {
           if (!LIGHTABLE_PARTS.has(part.id)) possible = false;
           else usesLightable = true;
         } else if (!gives(part.type, t)) possible = false;
@@ -1855,7 +1894,7 @@ export function effectsFromOthers(
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
         const value = evaluate(typed, known(c.member));
         if (value === true) continue;
-        const flag = listFlagWords(typed, c.member);
+        const flag = listFlagWords(timWords, typed, c.member);
         if (value === false) {
           // Ruled out by the decided assumption only when no other test rules it out too.
           if (flag && offList && possible) byList = true;

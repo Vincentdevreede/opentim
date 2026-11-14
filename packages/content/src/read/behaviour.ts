@@ -5678,6 +5678,9 @@ export function readBehaviourInSteps(
   // Where the code finds a type's record by multiplying, the records follow each other from the table's start, this
   // many bytes each. TIM2.EXE finds them through a table of near pointers, so its table holds no records.
   const recordStride = profile.recordLookup === "multiply" ? profile.recordSize : undefined;
+  // The type records are read as TIM.EXE keeps them only for a game with TIM.EXE's words (the profile's `partWords`):
+  // TIM2.EXE and TOONS.EXE keep theirs otherwise, so their type record words aren't settled as TIM.EXE's.
+  const typeRecordStride = profile.partWords ? recordStride : undefined;
   const loaded = loadBehaviourImage(program, profile);
   const image = loaded.image;
   for (const record of list.records) {
@@ -5946,8 +5949,8 @@ export function readBehaviourInSteps(
     if (
       counts.has(address) &&
       typeField !== undefined &&
-      recordStride !== undefined &&
-      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, recordStride)) &&
+      typeRecordStride !== undefined &&
+      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, typeRecordStride)) &&
       ways.some((o) => outgrown(o.condition) || o.fields.some((f) => outgrown(f.value) || outgrown(f.condition)))
     )
       loopsPerType.push(() => {
@@ -5960,7 +5963,7 @@ export function readBehaviourInSteps(
               type,
               typeOffset: typeField,
               table: list.table,
-              stride: recordStride,
+              stride: typeRecordStride,
               records: list.records.length,
               written: TYPE_RECORD_WRITTEN,
             },
@@ -6226,19 +6229,21 @@ export function readBehaviourInSteps(
         engineCalls: [],
         uncertainEffects: true,
       });
+  // The type records as TIM.EXE keeps them: one after the other, with the words it writes while it runs
+  // (`TYPE_RECORD_WRITTEN`) and its speed limit.
   const speedLimits =
-    recordStride !== undefined &&
+    typeRecordStride !== undefined &&
     findSpeedLimitSetup(
       image,
-      { address: list.table, stride: recordStride, count: list.records.length },
+      { address: list.table, stride: typeRecordStride, count: list.records.length },
       list.dataSegment,
     );
   const typeTable =
-    recordStride === undefined
+    typeRecordStride === undefined
       ? undefined
       : {
           address: list.table,
-          stride: recordStride,
+          stride: typeRecordStride,
           words: list.records.map((record) =>
             Array.from(
               { length: record.bytes.length >> 1 },
@@ -6252,7 +6257,8 @@ export function readBehaviourInSteps(
   const frameOffsets = Object.values(frameFields) as number[];
   const sheetList = list.sheetFrames?.size ? proveSheetFrameList(image, list.dataSegment, list.table) : undefined;
   const frameWriteForType = (write: FieldWrite, type: number): FieldWrite => {
-    if (typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset)) return write;
+    if (!typeTable || typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset))
+      return write;
     const used = { table: false };
     const value = frameDrawingForType(
       write.value,

@@ -1,6 +1,7 @@
 /** Verifies the callback table dispatch and the object fields that the drawing code consumes. */
 import { decodeInstruction, type CodeAddress, type Instruction } from "./x86.ts";
 import { TIM_PROFILE, type BehaviourProfile } from "./behaviour-program.ts";
+import { discoverFormFields } from "./behaviour-field-forms.ts";
 import { discoverObjectFieldRoles } from "./behaviour-fields.ts";
 import { findDataSegment } from "./type-table.ts";
 import { instructionEvidence, matchesInstructions, type TimingEvidence } from "./behaviour-timing.ts";
@@ -157,6 +158,7 @@ export function discoverBehaviourLayout(
   });
   if (profile.partPointer === "far") {
     discoverFarPartLayout(image, result, windows, typeReads, options);
+    result.fields.push(...discoverFormFields(image, profile.fieldForms, result.fields, result.diagnostics));
     return result;
   }
   const run = result.callbacks.find((c) => c.role === "run");
@@ -592,6 +594,7 @@ export function discoverBehaviourLayout(
         routine: options.routine,
       }),
     );
+  result.fields.push(...discoverFormFields(image, profile.fieldForms, result.fields, result.diagnostics));
   return result;
 }
 

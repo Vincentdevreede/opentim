@@ -78,6 +78,8 @@ The frame drawing routine (image 0x17d79) is TIM.EXE's with a far record: it rea
 builds from the table (`add ax, 0xf2` and segment 0x3b6a), takes the positions' far pointer from +0x1c and adds twice
 the state, and with bit 0x1000 takes the piece from +0x18 at four times the state.
 
+The other fields the reader names are in [The part fields](#the-part-fields) below.
+
 ## TIM2.EXE
 
 **Records.** 281 types. The data segment has a table of near pointers, one per type, to 72-byte records in the same
@@ -124,7 +126,7 @@ every field through `es`. The fields found so far are TIM.EXE's, 4 bytes further
 | 0x46   | Height the mirroring uses                             | 0x42    |
 
 Pointers in a part are far too: the bounce callbacks read another part's far pointer from 0x9a and 0x9c (TIM.EXE has
-a near pointer at 0x84).
+a near pointer at 0x84). The fields the reader names now are in [The part fields](#the-part-fields) below.
 
 **Drawing.** A part's frame comes from its `.ANM` animation (see [the file formats](../file-formats.md#tim-2)), not
 from pieces in the record, so TIM.EXE's way of proving the state field (the drawing indexes the record's frame
@@ -263,7 +265,8 @@ they never refuse a part either. The reader shows that test as `(… | 17877) ==
 counts with it: the baseball, the soccer ball, the bomb, the pistol, the balloon, the cushion, the ant motor and others
 add 1 to it, set it to 0 and to small numbers, and wrap it. Al and Sid read it as what they are doing. TIM.EXE's state
 history rule doesn't name it in Toons (`stateHistory` in the profile); the field roles name it a counter, as for other
-counted words.
+counted words. The previous state is 0x10: TOONS.EXE's history update copies the state there (see
+[The part fields](#the-part-fields)).
 
 **TIM 1 and Even More with the two new rules.** Measured with both rules on (stop at the program's start, go past
 confined loops), not committed:
@@ -288,6 +291,94 @@ TIM 2's frame chain opens: the frame box routine, the frame size helper (`0x1d6d
 (`0x1d637`, about 90 callers) are read in full, and TIM 2's routines read fully go from 137 to 169 (CD). Toons moves
 from 118 to 120.
 
+## The part fields
+
+TIM.EXE's part fields are named from its frame drawing (`behaviour-layout.ts`) and from what its helpers do with them
+(`behaviour-fields.ts`), all recognised in TIM.EXE's near-pointer forms, so for TIM 2 and Toons the layout named only
+the type, the state and a few flags. Both programs have the same routines as TIM.EXE, written in their own forms: TIM
+2's through a far part pointer (`les bx, [bp+6]` and `es:`), Toons' through a near one at other offsets. Each game's
+profile now lists those routines as forms (`fieldForms`, `behaviour-field-forms.ts`): the routine's bytes, with the
+field offsets as the places to read. A form names a field only where it is found, and the offsets come from the
+matched bytes. Each form is found exactly once in every build (TIM 2 CD, floppy and demo, and Toons) and gives the same
+offsets in all three TIM 2 builds. A name that two forms give must have the same offset in both, and a form that
+disagrees with a field the layout already proved (the type, the state) names nothing.
+
+The names are TIM.EXE's where the routine is TIM.EXE's, so a description says `positionX` in every game. Addresses
+are image addresses of the TIM 2 CD build and the English Toons build.
+
+| Field                     |    TIM.EXE |      TIM 2 |                  Toons | Shown by                                                                                                                                                                                                                                                                              |
+| ------------------------- | ---------: | ---------: | ---------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| positionX, Y              | 0x1e, 0x20 | 0x22, 0x24 |             0x1f, 0x21 | The frame position helper (TIM 2 `0x1d637`, Toons `0x61e9`) copies them into the drawing origin. The level loader puts the file's place there (`check-level-fields`).                                                                                                                 |
+| drawX, Y                  | 0x2a, 0x2c | 0x2e, 0x30 |             0x2b, 0x2d | The same helper: the position, plus the frame's offset, or with a mirror bit the extent less the offset and the frame size.                                                                                                                                                           |
+| drawingFlags              |       0x08 |       0x0c |         0x08 (already) | The same helper tests bit 0x10 (`horizontalFlip`) and 0x20 (`verticalFlip`) to mirror; Toons' frame size helper (`0x6212`) does.                                                                                                                                                      |
+| horizontal/verticalExtent | 0x40, 0x42 | 0x44, 0x46 |             0x41, 0x43 | What a mirrored frame's offset is reflected by in the same helper (TIM 2) and in the frame size helper (Toons `0x6340`).                                                                                                                                                              |
+| frameWidth, Height        | 0x44, 0x46 | 0x48, 0x4a |             0x4d, 0x4f | Subtracted in the reflection; the frame size helper sets them (TIM 2 `0x1d6d6`, Toons `0x6212`).                                                                                                                                                                                      |
+| frameOffsetX, Y           |            |            |             0x45, 0x47 | Toons only: the frame size helper keeps the frame's offset, reflected when mirrored, in the part; the frame position helper adds it to the position.                                                                                                                                  |
+| baseWidth, Height         | 0x50, 0x52 | 0x54, 0x56 |             0x59, 0x5b | The frame size helper copies them into the frame size for the types it names (TIM 2 `0x1d803`; Toons `0x624d`, parts drawn as tiles and types 0 and 40). TIM 2's goal routine reads the middle as position plus half of them; the Toons level loader puts the file's base size there. |
+| previousX, Y              | 0x22, 0x24 | 0x26, 0x28 |             0x23, 0x25 | The motion helper (TIM 2 `0x1df8a`, Toons `0x7b3f`) subtracts them from the position; the history update (TIM 2 `0x1eba5`, Toons `0x88bc`) copies the position into them.                                                                                                             |
+| velocityX, Y              | 0x36, 0x38 | 0x3a, 0x3c |             0x37, 0x39 | The motion helper sets them to the position less the previous one, shifted left by 9 less its argument, as TIM.EXE's does.                                                                                                                                                            |
+| previousState             |       0x0e |       0x12 |                   0x10 | The history update copies the state into it, after it copies it into olderState.                                                                                                                                                                                                      |
+| olderState                |       0x10 |       0x14 |                   0x12 | The same history update.                                                                                                                                                                                                                                                              |
+| stateDelta                |       0x12 |       0x16 |         0x14 (already) | TIM 2: the one routine that adds a field to the state (`0x237c0`, in `0x2374c`), as TIM.EXE's rule finds it.                                                                                                                                                                          |
+| savedPositionX, Y         | 0x8c, 0x8e | 0xa4, 0xa6 | 0x95, 0x97 (lifecycle) | TIM 2: the level reset (`0x1ed1a`, which then calls each part's reset callback) puts them back into the position. Toons: the reader's lifecycle names them once positionX is named.                                                                                                   |
+| savedState                |       0x90 |       0xa8 |         0x99 (already) | TIM 2: the same level reset puts it back into the state.                                                                                                                                                                                                                              |
+| savedDrawingFlags         |       0x94 |       0xac |         0x9d (already) | TIM 2: the same level reset puts it back into the drawing flags.                                                                                                                                                                                                                      |
+| contactPart               |       0x84 | 0x9a (far) |                   0x8d | The contact producer (TIM 2 `0x506ec`, Toons `0x1c51`) stores the part it found; the bounce dispatchers follow it.                                                                                                                                                                    |
+| contactAngle              |       0x88 |       0xa0 |                   0x91 | The same producer stores the edge's angle plus 0x8000.                                                                                                                                                                                                                                |
+| contactEdge               |       0x8a |       0xa2 |                   0x93 | The same producer stores its loop index less 1.                                                                                                                                                                                                                                       |
+| outlinePointCount         |       0x80 |       0x96 |                   0x87 | The same producer's walk along the other part's outline stops at it.                                                                                                                                                                                                                  |
+
+"Already" means the layout named the field before. Not named, though the same routines show them:
+
+- **The outline points.** TIM 2 keeps a near pointer at 0x98 and Toons a far one at 0x89, both to records of 6 bytes
+  (x, y and the edge's angle as words). TIM.EXE's `outlinePoints` is a near pointer to records of 4 bytes with byte
+  coordinates, and the outline tables and the constructor reads take it as that, so the name would mislead them.
+- **The older values of the history update**: the position, the drawing origin and the frame size one step further
+  back (TIM 2 0x2a to 0x38 and 0x4c to 0x52, Toons 0x27 to 0x35 and 0x51 to 0x57). TIM.EXE's layout doesn't name
+  them either.
+- **Links, plugs, ropes, the belt and the extra word.** The level loader shows where they are (see
+  [the levels research](../levels.md)), but TIM.EXE's layout doesn't name them, and the descriptions read them by
+  their own rules.
+- **The contact side bytes** (TIM 2 0x9e and 0x9f, Toons 0x8f and 0x90) and the mass the TIM 2 pair response
+  weights the motion with (0x3e, in `0x4f89d`).
+
+**The fine position** follows positionX: TIM.EXE keeps the longs in 1/512 pixels at 0x16 and 0x1a, 8 and 6 bytes
+before positionX and positionY. TIM 2's level reset sets 0x1a and 0x1e from the position shifted left by 9
+(`0x1eda1`), and in Toons a routine next to the contact producer (`0x17fe`) sets 0x17 and 0x1b from positionX
+and positionY the same way (`0x1ac6`). The descriptions named those
+words by TIM.EXE's offsets, so TIM 2's stateDelta at 0x16 read as a fine position; they now place them by positionX
+(`finePosition` in `describe-effects.ts`), which gives TIM.EXE's offsets for TIM.EXE.
+
+**What it changes.** The read counts stay the same: TIM 2 CD 169 of 667 routines and 0 of 149 parts read fully, Toons
+120 of 454 and 6 of 75. TIM.EXE's helper recognisers that look fields up by name are written for its near forms and its
+offsets, and none of them starts to match in TIM 2 or Toons. The descriptions read the fields by their names now.
+Counted over each part's description texts (each text once), the places that give a field by its offset (`field 0x37`,
+`+0x37`) go from 571 to 310 in the TIM 2 CD build and from 59,438 to 283 in Toons. For example, Toons' conveyor belt
+touched by a gear: "adds 4096 to field 0x37 in 4 cases: (1) when the gear's state - the gear's field 0x10 is -1, and
+(its field 0x93 + 4) & 0x0007 is 0" now reads "adds 4096 to velocityX in 4 cases: (1) when the gear's state - the gear's
+previousState is -1, and (its contactEdge + 4) & 0x0007 is 0". TIM 2's blimp: "its own bounce runs on it too and sets
++0x16 to 4. Only when its field 0x0c & 0x0010 is 0" now reads "sets stateDelta to 4. Only when it is not mirrored". TIM
+1 and Even More read and describe the same as before: their profile has no forms.
+
+**The walks with the new names.** Toons' walks are the same, frame for frame; only their trigger words now use the
+names. TIM 2 CD's change in two ways. The flashlight's walk from its reset now rests at frames 0 and 1 where it joined
+an earlier branch: with previousState named, the walk can tell a frame that stays from one it comes back to. And 321
+more walks start from input cases on the named fields (the mandrill motor's "state-control value is not 0" and the
+like), each of which stops at its first frame because the effects of the run there aren't resolved; they claim nothing
+new, but they make the list longer.
+
+**TIM.EXE's words by place.** Some words the descriptions know from TIM.EXE's routines but not from the layout: the
+list flags at 0x06 (the list bits, the contact flags and the bits the descriptions name), the bits they name in the
+drawing flags at 0x08 and the goal and lightable marks at 0x0a, the contact search's side bytes at 0x86 and 0x87, the
+rope links (0x5a to 0x60), the rope places (0x6a, 0x6c), the rope and belt records (0x66, 0x68, 0x54), the plugs (0x62,
+0x64), the rope ends (0x96, 0x9c), the relay's value (0x14), the found list's link (0x78), and the type record as 58
+bytes with the words TIM.EXE writes while it runs and its speed limit at +0x0a. They were applied to every game, so a
+Toons part's word at 0x0a read as TIM.EXE's goal marks ("sets its goal mark 0x0100 in field 0x0a"), and a Toons type's
+record words were read 58 bytes apart instead of 70. They are now TIM.EXE's profile's `partWords`, and the descriptions
+and the per-type re-read use them only when the profile has them: for TIM 2 and Toons they say nothing of those words,
+the decided assumptions about them (the fixed list, the bullet, the lightable parts) don't apply, and type record words
+aren't settled. TIM 1 and Even More read and describe the same as before.
+
 ## What is left
 
 - **The helpers.** TIM.EXE's shared helpers are recognised by the shape of their code, written for its 58-byte records,
@@ -305,8 +396,11 @@ from 118 to 120.
     (`0x5f5c0` and `0x5f74e`, about 20 callers each), which has no TIM.EXE counterpart.
 - **The loops.** The counted, find-first and list loops are recognised in TIM.EXE's forms. TIM 2's list loops walk far
   pointers, so the list machinery (list head and next helpers, the members a loop finds) needs a far form first.
-- **The part fields.** The layout names only the type and state in TIM 2, and the type, state, flags and a few more in
-  Toons; TIM.EXE's other field names (position, speed, size, contact, outline) come from its helpers.
+- **The part fields.** Position, motion, size, drawing, history, the saved fields and the contact record are named in
+  both games now (see [The part fields](#the-part-fields)). Still unnamed: the outline points (records of another
+  size than TIM.EXE's), the links, plugs, ropes and belt, and words only some types use. The descriptions know some
+  of TIM.EXE's words by their place rather than by the layout (see "TIM.EXE's words by place" above); for TIM 2 and
+  Toons they say nothing of them until those words are named.
 - **The touching part's own bounce.** Its findings are now shown under the touching part's own type (`ownBounce`, see
   "What the self call does, under the touching part's own type"). Still open: walks that start from it, and the
   writes from field relations, like the super ball's bounce.
