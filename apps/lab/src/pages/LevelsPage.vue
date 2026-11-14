@@ -36,6 +36,8 @@ import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
   readTim2Types,
+  readTim2StartTables,
+  type Tim2StartTables,
   readToonsDrawing,
   readToonsGoals,
   readToonsBinKinds,
@@ -343,6 +345,10 @@ const tim2Drawing = computed((): Map<number, Tim2Drawing> | undefined => {
     return undefined;
   }
 });
+/** TIM2.EXE's list and bin tables, which decide the order of a TIM 2 puzzle's bin and what its start does. */
+const tim2Start = computed((): Tim2StartTables | undefined =>
+  isTim2.value && program.value ? readTim2StartTables(program.value.data) : undefined,
+);
 /** TOONS.EXE's drawing code for the types that have their own, and the font the message machine writes its letter in. */
 const toonsCode = computed((): ToonsCode | undefined => {
   if (!isToons.value || !program.value) return undefined;
@@ -365,6 +371,7 @@ const scene = computed(() =>
         solution: showSolution.value,
         toons: toonsCode.value,
         toonsSort: toonsSort.value,
+        tim2Start: tim2Start.value,
       })
     : undefined,
 );
@@ -564,6 +571,7 @@ onBeforeUnmount(() => {
         :header="loadedHeader"
         :record="recordFields"
         :toons-sort="toonsSort"
+        :tim2-start="tim2Start"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

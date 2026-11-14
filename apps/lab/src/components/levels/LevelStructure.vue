@@ -8,11 +8,12 @@ import {
   type LoadedKey,
   type LoadedPlace,
   type PartList,
+  type Tim2StartTables,
 } from "@opentim/content";
 import { computed, nextTick, ref, watch } from "vue";
 import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
-import { groupOf, toonsSetting, toonsStart, type StartGroup, type ToonsSort } from "../../levels.ts";
+import { groupOf, levelStart, toonsSetting, toonsStart, type StartGroup, type ToonsSort } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -44,6 +45,8 @@ const props = defineProps<{
    * start puts in the bin, and the bin is sorted by its own, which TOONS.EXE sets when it starts.
    */
   toonsSort?: ToonsSort;
+  /** TIM2.EXE's list and bin tables, for the order of a TIM 2 bin. */
+  tim2Start?: Tim2StartTables;
 }>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
@@ -68,7 +71,7 @@ const GROUPS: { group: StartGroup; label: string; hint: string }[] = [
 
 /** TIM 2 stores no bin: the puzzle start puts the parts without bit 0x40 of the third flag word there. */
 const TIM2_HINTS: Partial<Record<StartGroup, string>> = {
-  bin: "Parts without bit 0x40 of the third flag word. The file keeps them where the designer left them; TIM2.EXE drops them into the bin when the puzzle starts.",
+  bin: "Parts without bit 0x40 of the third flag word, the belts and ropes tied to them, and a remote control whose explosives go. The file keeps them where the designer left them; TIM2.EXE drops them into the bin when the puzzle starts. In TIM2.EXE’s order: by a table of the types in the program, a type’s parts in the reverse of the order the start puts them there.",
 };
 
 /** Toons stores no bin either: the puzzle start puts the parts without bit 0x40 there, with what is tied to them. */
@@ -91,7 +94,11 @@ const groups = computed(() =>
     parts:
       g.group === "bin" && start.value
         ? start.value.binOrder.map((i) => props.level.parts[i]!)
-        : props.level.parts.filter((p) => groupOf(props.level, p, false, props.toonsSort) === g.group),
+        : g.group === "bin" && props.level.layout === "tim2" && props.tim2Start
+          ? levelStart(props.level, false, undefined, props.tim2Start).bin.map((i) => props.level.parts[i]!)
+          : props.level.parts.filter(
+              (p) => groupOf(props.level, p, false, props.toonsSort, props.tim2Start) === g.group,
+            ),
   })).filter((g) => g.group !== "gone" || g.parts.length),
 );
 

@@ -348,21 +348,31 @@ const BIN_KIND = 0x2a;
 export function readToonsBinKinds(exe: Uint8Array): Map<number, number> {
   try {
     const image = loadImage(exe);
-    const { start, count } = findToonsTypeTable(image);
-    // prettier-ignore
-    const code = [0xb8, ANY, ANY, 0x8e, 0xc0, 0x26, 0x8b, 0x87, ANY, ANY, 0xba, 0x46, 0x00, 0xf7, 0xea, 0xba, ANY, ANY,
-      0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x89, 0x8f, ANY, ANY];
-    for (let at = find(image, code); at >= 0; at = find(image, code, at + 1)) {
-      if (u16(image, at + 16) * 16 + u16(image, at + 25) - BIN_KIND !== start) continue;
-      const table = u16(image, at + 1) * 16 + u16(image, at + 8);
-      const kinds = new Map<number, number>();
-      for (let place = 0; place < count; place++) kinds.set(u16(image, table + 2 * place), place);
-      return kinds;
-    }
+    const { count } = findToonsTypeTable(image);
+    const at = findToonsBinKindsCode(image);
+    if (at === undefined) return new Map();
+    const table = u16(image, at + 1) * 16 + u16(image, at + 8);
+    const kinds = new Map<number, number>();
+    for (let place = 0; place < count; place++) kinds.set(u16(image, table + 2 * place), place);
+    return kinds;
   } catch {
     // No type table: no sort words.
   }
   return new Map();
+}
+
+/**
+ * Where in TOONS.EXE's load image the start-up routine that writes the bin's sort words (`readToonsBinKinds`) does it:
+ * the place of its `mov ax, segment` before it reads the table. Undefined when it isn't found.
+ */
+export function findToonsBinKindsCode(image: Uint8Array): number | undefined {
+  const { start } = findToonsTypeTable(image);
+  // prettier-ignore
+  const code = [0xb8, ANY, ANY, 0x8e, 0xc0, 0x26, 0x8b, 0x87, ANY, ANY, 0xba, 0x46, 0x00, 0xf7, 0xea, 0xba, ANY, ANY,
+    0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0x89, 0x8f, ANY, ANY];
+  for (let at = find(image, code); at >= 0; at = find(image, code, at + 1))
+    if (u16(image, at + 16) * 16 + u16(image, at + 25) - BIN_KIND === start) return at;
+  return undefined;
 }
 
 /**
@@ -440,6 +450,11 @@ export interface ToonsPuzzleStart {
    * the player builds. Only the types whose routine is read: the electric switch and the anvil.
    */
   states: Map<number, number>;
+  /**
+   * The rope places of board parts the setup unties, as a part's index and the place (0 or 1): the places of the parts
+   * a rope in the bin was tied to, and the second place of a pulley, which holds the rope over it.
+   */
+  untied: [number, number][];
 }
 
 /**
@@ -512,10 +527,12 @@ export function toonsPuzzleStart(
       for (const end of p.belt.parts) if (end !== null) beltAt.set(end, p.index);
   }
   // A pulley keeps the rope over it at its second rope place: the level reader takes the record at the first place of
-  // the part the pulley's field names (`0x24f3c`).
+  // the part the pulley's field names (`0x24f3c`) as it reads the pulley. It reads the parts in the file's order and
+  // makes a rope's record as it reads the rope, so a pulley before its rope in the file gets none (HARD6, HARD25).
   for (const p of parts)
-    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined)
+    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined && p.pulley < p.index)
       ropeAt.get(p.index)![1] = ropeAt.get(p.pulley)?.[0] ?? null;
+  const tiedAtFirst = new Map([...ropeAt].map(([index, places]) => [index, places.map((r) => r !== null)]));
   const state = (index: number) => states.get(index) ?? parts[index]!.state[0];
   const fixed = (index: number) => ((parts[index]!.flags[2] ?? 0) & FIXED_IN_PLACE) !== 0;
   const toBin = (index: number) => {
@@ -659,6 +676,10 @@ export function toonsPuzzleStart(
   }
   for (const index of [...states.keys()])
     if (bin.has(index) || states.get(index) === parts[index]!.state[0]) states.delete(index);
+  const untied: [number, number][] = [];
+  for (const [index, tied] of tiedAtFirst)
+    if (!bin.has(index) && !gone.has(index))
+      tied.forEach((was, place) => was && ropeAt.get(index)![place] === null && untied.push([index, place]));
   return {
     bin,
     binOrder,
@@ -666,6 +687,7 @@ export function toonsPuzzleStart(
     unplugged,
     plugs: new Map([...changedPlugs].sort((a, b) => a - b).map((index) => [index, plugs.get(index)!])),
     states,
+    untied,
   };
 }
 

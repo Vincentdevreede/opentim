@@ -683,6 +683,7 @@ describe("toonsPuzzleStart", () => {
     plugPlace?: number;
     /** Bits 0x1 and 0x2 of the third flag word: plugs into a part, takes plugs. */
     plug?: number;
+    pulley?: number;
   };
   const level = (specs: Spec[]) =>
     ({
@@ -702,6 +703,7 @@ describe("toonsPuzzleStart", () => {
         links: p.links ?? [null, null],
         belt: { at: { x: 0, y: 0 }, width: 0, ...(p.belt ? { parts: p.belt } : {}) },
         ...(p.tunnel === undefined ? {} : { tunnel: p.tunnel }),
+        ...(p.pulley === undefined ? {} : { pulley: p.pulley }),
       })),
     }) as unknown as Level;
   const start = (l: Level) => {
@@ -731,6 +733,22 @@ describe("toonsPuzzleStart", () => {
       { type: 14, fixed: false, tie: [0, 1] },
     ]);
     expect(start(l)).toEqual({ bin: [2, 3], gone: [] });
+  });
+
+  it("unties the rope over a pulley only when the pulley comes after the rope in the file", () => {
+    // Rope #2 ties hook #1 to balloon #3, which goes to the bin and takes the rope with it. From the hook it runs over
+    // pulley #4 and then pulley #0; the loader gave #0, read before the rope, no rope over it.
+    const l = level([
+      { type: 17, links: [3, null], pulley: 2 },
+      { type: 15, links: [4, null] },
+      { type: 14, fixed: false, tie: [1, 3] },
+      { type: 23, fixed: false },
+      { type: 17, links: [0, 1], pulley: 2 },
+    ]);
+    expect(toonsPuzzleStart(l, none, none).untied).toEqual([
+      [1, 0],
+      [4, 1],
+    ]);
   });
 
   it("sorts the bin by the type's word, keeping parts of a type in the order the setup puts them there", () => {
