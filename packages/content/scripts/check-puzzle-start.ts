@@ -139,8 +139,14 @@ function checkWithLoader(build: BuildFolder<"tim2" | "toons">, range: Range): Bu
   });
   report(check, "puzzles", puzzles);
   if (build.game === "tim2") report(check, "solutions", solutions);
-  if (tim2) {
-    const made = plugLevels(files, names, tim2);
+  const made = tim2 ? plugLevels(files, names, tim2) : [];
+  // A build whose levels have no part plugged into another (the demo) has nothing to make the levels from.
+  if (tim2 && !made.length)
+    check.lines.push({
+      error: false,
+      text: "  No shipped level has a part plugged into another, so there are no made-up levels to check.",
+    });
+  if (tim2 && made.length) {
     const results = made.map(({ name, data, socket, stateAt }) => {
       try {
         let level = readLevel(data, { layout: "tim2", name });
