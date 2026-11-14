@@ -12,7 +12,7 @@ import { availableParallelism, freemem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Worker } from "node:worker_threads";
 import { decodeImage, isArchiveName, readArchive } from "@opentim/resources";
-import { readProgramParts } from "../src/read/parts.ts";
+import { readProgramParts, readTim2ProgramParts, readToonsParts, type ProgramParts } from "../src/read/parts.ts";
 
 /** The games whose program is TIM.EXE, which most scripts read. */
 export type TimGame = "tim1" | "evenmore";
@@ -76,19 +76,22 @@ export function readProgram({ game, folder }: BuildFolder<Game>): Uint8Array {
   return new Uint8Array(readFileSync(join(folder, PROGRAMS[game])));
 }
 
-/** A TIM 1 or Even More build's program, its resource files and its parts. */
-export function readBuild({ game, folder }: BuildFolder) {
-  const program = readFileSync(join(folder, "TIM.EXE"));
-  const files = readResources(folder);
-  const parts = readProgramParts(
-    game,
-    program,
-    (sheet) => {
-      const data = files.get(`${sheet}.BMP`);
-      return data && decodeImage(data).frames.length;
-    },
-    (sheet) => files.get(`${sheet}.BMP`),
-  );
+/**
+ * A build's program, its resource files and its parts: for TIM 1 and Even More from TIM.EXE, for TIM 2 from its
+ * resources with TIM2.EXE's type records, for Toons from TOONS.EXE. TIM 2 and Toons parts without an id get one, so a
+ * new part never stops a read.
+ */
+export function readBuild(build: BuildFolder<Game>) {
+  const program = readProgram(build);
+  const files = readResources(build.folder);
+  const spriteCount = (sheet: string) => {
+    const data = files.get(`${sheet}.BMP`);
+    return data && decodeImage(data).frames.length;
+  };
+  let parts: ProgramParts;
+  if (build.game === "tim2") parts = readTim2ProgramParts(program, (name) => files.get(name), { keepUnknown: true });
+  else if (build.game === "toons") parts = readToonsParts(program, spriteCount, { keepUnknown: true });
+  else parts = readProgramParts(build.game, program, spriteCount, (sheet) => files.get(`${sheet}.BMP`));
   return { program, files, parts };
 }
 

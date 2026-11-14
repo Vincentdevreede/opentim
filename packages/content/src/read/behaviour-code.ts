@@ -235,16 +235,13 @@ function jumpTable(
     )
     .sort((a, b) => a.address - b.address);
   const shift = preceding.at(-1);
-  if (
-    !shift ||
-    nextAddress(shift).address !== jump.address ||
-    shift.mnemonic !== "shl" ||
-    shift.operands[0]?.kind !== "register" ||
-    shift.operands[0].name !== indexRegister ||
-    shift.operands[1]?.kind !== "immediate" ||
-    shift.operands[1].value !== 1
-  )
-    return undefined;
+  // The index is doubled by `shl reg, 1`, or by `add reg, reg` as TIM2.EXE's code does.
+  const doubled =
+    shift?.operands[0]?.kind === "register" &&
+    shift.operands[0].name === indexRegister &&
+    ((shift.mnemonic === "shl" && shift.operands[1]?.kind === "immediate" && shift.operands[1].value === 1) ||
+      (shift.mnemonic === "add" && shift.operands[1]?.kind === "register" && shift.operands[1].name === indexRegister));
+  if (!shift || nextAddress(shift).address !== jump.address || !doubled) return undefined;
   for (let k = preceding.length - 2; k >= 0; k--) {
     const compare = preceding[k]!;
     const branch = preceding[k + 1];

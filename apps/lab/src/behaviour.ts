@@ -129,6 +129,11 @@ export interface OtherEffect extends Finding {
   /** Set when this part touches the source, rather than the source reaching it. */
   touch?: true;
   /**
+   * Set when it is this part's own bounce, which TIM 2 and Toons also run when the part touches another: the source is
+   * then this part's own type, and the source's conditions are the touched part's.
+   */
+  own?: true;
+  /**
    * What it sets, like `speed` or `velocity`, and to what, as text. A direction on the screen has no `what`. A goal
    * mark keeps its bit in `mark`, to name the mark after the parts that set it.
    */
@@ -649,7 +654,8 @@ export function goalMarkSetters(effects: Record<number, OtherEffect[]>): Map<str
   for (const [type, list] of Object.entries(effects))
     for (const e of list)
       for (const s of e.sets) {
-        if (s.mark === undefined || s.value !== "set") continue;
+        // A part's own bounce setting its own mark doesn't name the mark after another part.
+        if (e.own || s.mark === undefined || s.value !== "set") continue;
         const key = `${type}:${s.mark}`;
         const by = out.get(key) ?? [];
         if (!by.includes(e.source)) by.push(e.source);
@@ -1661,7 +1667,7 @@ function joinFine(sets: OtherEffect["sets"]) {
 function joinSameEffects(effects: OtherEffect[]): OtherEffect[] {
   const joined = new Map<string, OtherEffect>();
   for (const e of effects) {
-    const key = JSON.stringify([e.sourceType, e.touch, e.sets, e.when, e.sourceWhen, e.cases, e.description]);
+    const key = JSON.stringify([e.sourceType, e.touch, e.own, e.sets, e.when, e.sourceWhen, e.cases, e.description]);
     const line = joined.get(key);
     if (!line) {
       joined.set(key, { ...e, assumptions: [...e.assumptions], evidence: [...e.evidence] });
@@ -1679,7 +1685,10 @@ function joinSameEffects(effects: OtherEffect[]): OtherEffect[] {
   return [...joined.values()];
 }
 
-/** What other parts do to each part without changing its frame, by type, from the report's description. */
+/**
+ * What other parts do to each part without changing its frame, by type, from the report's description, and what its
+ * own bounce sets on it when it touches a part (`own`).
+ */
 export function summariseEffects(
   report: BehaviourReport,
   description: BehaviourDescription,
@@ -1691,7 +1700,10 @@ export function summariseEffects(
     description.parts.map((d) => [
       d.type,
       joinSameEffects(
-        d.effectsFromOthers.map((e): OtherEffect => {
+        [
+          ...d.effectsFromOthers.map((e) => ({ e, own: false })),
+          ...(d.ownBounce ?? []).map((e) => ({ e, own: true })),
+        ].map(({ e, own }): OtherEffect => {
           const fieldValue = (offset: number) =>
             e.sets.find((s) => s.kind === "field" && s.offset === offset) as { value: number } | undefined;
           const [x, y] = [fieldValue(0x36), fieldValue(0x38)];
@@ -1726,6 +1738,7 @@ export function summariseEffects(
             sourceType: e.sourceType,
             source: e.sourcePart,
             ...(e.touch ? { touch: true } : {}),
+            ...(own ? { own: true } : {}),
             sets: joinFine(sets),
             when: e.conditionWords.map((w) => tidyWords(w.replace(/^on the /, ""))),
             sourceWhen: e.sourceConditionWords.map(tidyWords),
