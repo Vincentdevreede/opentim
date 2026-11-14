@@ -560,7 +560,12 @@ const sideTabs = computed(() => [
             </p>
             <!-- The lists keep their own row spacing, and reach to the panel's edges like the other lists. -->
             <div class="-mx-3">
-              <InteractionLists :type="part.type" :pairs="interactions" :name-of="nameOfType" />
+              <InteractionLists
+                :type="part.type"
+                :pairs="interactions"
+                :name-of="nameOfType"
+                :own="walks.effects[part.type]?.filter((e) => e.own)"
+              />
             </div>
           </template>
         </template>
