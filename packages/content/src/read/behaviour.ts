@@ -229,6 +229,20 @@ export interface PartBehaviour {
   visibleEffects: FieldWrite[];
   triggers: Trigger[];
   uncertainties: string[];
+  /**
+   * TIM2.EXE's set-up routine (record +0x1c), which the game calls when a part is set up and whose answer 0 refuses
+   * the part: the ways it answers 0. Absent for a type without one, and for TIM.EXE and TOONS.EXE.
+   */
+  setUp?: SetUpRoutine;
+}
+export interface SetUpRoutine {
+  address: number;
+  status: RoutineCode["status"];
+  /** The ways through the routine that answer 0, which refuse the part, as conditions on the part and the globals. */
+  refuses: RoutineOutcome[];
+  /** The ways whose answer the reader can't tell. */
+  unknown: RoutineOutcome[];
+  uncertainties: string[];
 }
 export interface BehaviourReport {
   collisionDispatch?: CollisionDispatch[];
@@ -5669,6 +5683,19 @@ export function readBehaviourInSteps(
     });
     references.set(record.type, callbacks);
   }
+  /** Each type's set-up routine, for a program whose records have one after the callbacks. */
+  const setUps = new Map<number, CodeAddress>();
+  const setUpSlot = profile.otherRoutines.indexOf("set-up");
+  if (setUpSlot >= 0) {
+    const at = callbackFields[5]! + 4 + 4 * setUpSlot;
+    for (const record of list.records) {
+      if (!u16(record.bytes, at) && !u16(record.bytes, at + 2)) continue;
+      const target = loaded.routine(u16(record.bytes, at + 2), u16(record.bytes, at));
+      if (target.address >= image.length) continue;
+      setUps.set(record.type, target);
+      entries.set(target.address, target);
+    }
+  }
   const counts = new Map<number, number>();
   for (const callbacks of references.values())
     for (const c of callbacks) counts.set(c.address, (counts.get(c.address) ?? 0) + 1);
@@ -6319,6 +6346,36 @@ export function readBehaviourInSteps(
         });
     }
     const gearRun = owned.find((routine) => routine.gearRun)?.gearRun;
+    const setUpEntry = setUps.get(part.type);
+    // Read on its own like a callback, not through a helper summary that may cover the same code.
+    const setUpCode = setUpEntry && codes.get(setUpEntry.address);
+    for (const call of setUpCode?.calls ?? [])
+      if (call.target && entries.has(call.target.address)) summarise(call.target.address);
+    const setUpRead =
+      setUpEntry &&
+      setUpCode &&
+      analyseRoutine(image, setUpEntry, {
+        dataSegment: list.dataSegment,
+        stateOffset,
+        argumentOffset: layout.objectArgument.offset,
+        summaries,
+        maxVisits: 12_000,
+        code: setUpCode,
+        engineSummaries,
+        codes,
+        layout,
+        ...(profile.partPointer === "far" ? { partPointer: "far" as const } : {}),
+        ...(profile.confinedLoops ? { confinedLoops: true } : {}),
+      });
+    const setUp: SetUpRoutine | undefined = setUpRead && {
+      address: setUpEntry.address,
+      status: setUpRead.status,
+      refuses: (setUpRead.outcomes ?? []).filter(
+        (o) => o.returnValue?.kind === "constant" && o.returnValue.value === 0,
+      ),
+      unknown: (setUpRead.outcomes ?? []).filter((o) => o.returnValue?.kind !== "constant"),
+      uncertainties: setUpRead.uncertainties,
+    };
     const resetCode = codes.get(resetAddress);
     const gearConnections =
       gearRun && resetCode ? discoverGearConnections(resetCode, codes, gearRun, layout) : undefined;
@@ -6331,6 +6388,7 @@ export function readBehaviourInSteps(
         ? { derivedValues: owned.flatMap((routine) => routine.derivedValues ?? []) }
         : {}),
       frameCount: stateCountOf(part),
+      ...(setUp ? { setUp } : {}),
       routines,
       stateWrites,
       transitions,
