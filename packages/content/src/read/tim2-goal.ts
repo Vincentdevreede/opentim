@@ -73,6 +73,9 @@ export function summariseTim2Goal(level: Level, nameOf: (type: number) => string
         lists: moving ? "the moving list" : "the static list",
         where: [test],
         count: { op: ">=", value: count },
+        caution:
+          `When #${part.index} is the last part on its list, TIM2.EXE forgets this entry, so the goal can be met with ` +
+          `fewer than ${count}. Whether it can end last depends on how the game orders the lists, which isn't read yet.`,
       });
       delete condition.part;
       if (fromBin) condition.tests.push(`#${part.index} out of the parts bin`);

@@ -401,7 +401,8 @@ entry's part is the last on its list there is no part after it, so running out o
 entry is skipped, and the goal can be met with too few parts. Ten levels of the floppy and CD count parts (ELEV8,
 HH14, HH18, HH7 with four counts, MLEV2, TLEV2, TLEV3, TLEV4, TLEV6, TLEV17) and the demo's ELEV2. In the files'
 order none of the counted parts is the last of its group; whether one can end last on its list in a game depends on
-how the game orders the lists, which isn't read yet.
+how the game orders the lists, which isn't read yet. Until then the Lab marks every TIM 2 count with "can pass with
+fewer".
 
 **The parts bin.** A TIM 2 level has no bin list: its third part count is always 0. When a puzzle starts, TIM2.EXE
 (the routine at file offset `0x66cd7` in the floppy build, run only for magic `0xACEF`) walks the static and moving

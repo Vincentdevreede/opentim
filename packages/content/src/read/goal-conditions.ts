@@ -71,6 +71,8 @@ export interface GoalCondition {
   count?: { op: GoalComparison; value: number };
   /** Where the parts must be, when the tests on their place are ranges. */
   area?: GoalArea;
+  /** How the game's routine can let the condition hold while its words say it doesn't, when it can. */
+  caution?: string;
 }
 
 export interface GoalSummary {

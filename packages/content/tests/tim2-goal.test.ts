@@ -46,6 +46,9 @@ describe("TIM 2 goals", () => {
     )!;
     const [lamp, balls, balloon] = goal.summary.ways[0]!;
     expect(lamp).toMatchObject({ kind: "part", part: 2, tests: ["state 1 to 21"] });
+    expect(lamp!.caution).toBeUndefined();
+    // When the counted part ends last on its list, TIM2.EXE forgets the entry.
+    expect(balls!.caution).toMatch(/#1 is the last part on its list.*fewer than 3/);
     expect(balls).toMatchObject({
       kind: "count",
       lists: "the moving list",
