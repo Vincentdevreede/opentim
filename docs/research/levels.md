@@ -583,7 +583,9 @@ in that table. When the table isn't found, the Lab draws walls and patterns by t
   its own size.
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
-  has all of bits `0x1480` in its type's third flag word; the Lab knows it from TIM2.EXE's type table.
+  has all of bits `0x1480` in its type's third flag word; the Lab knows it from TIM2.EXE's type table. A colour of 16
+  or more, which 29 blocks in 14 levels have, is filled with a pattern of the colour's two halves by the 16 colour
+  driver ([the 16 colours](file-formats.md#animations-anm)); in the palette's own 256 colours it would be black.
 - **In a bucket.** The usual draw routine (`0x1562:0x2fbe` in the CD build) draws the rocket (36), Aladdin's lamp
   (45) and the missile (70) cut off below a row the part's record keeps (0xae) when bit `0x10` of their third flag
   word is set: it lowers the bottom of the drawing window to that row for the one part. Only one place sets that bit
@@ -598,7 +600,8 @@ in that table. When the table isn't found, the Lab draws walls and patterns by t
 The play area is 640 × 400: the goal routine counts a part off the screen when its middle is outside it, and the
 interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. It is the top of the
 screen, which TIM2.EXE sets to 640 × 480 in 16 colours with its `HEG:` driver ([the screen](file-formats.md#animations-anm));
-the 256 colour `VGA:` driver, 320 pixels a row, is never used. While a
+the 256 colour `VGA:` driver, 320 pixels a row, is never used. Its 16 colours are the palette's first 16, and the
+Lab shows them so unless the Colours setting asks for the palette's own 256 ([the 16 colours](file-formats.md#animations-anm)). While a
 puzzle is set up, the control panel covers x 0 to 48 and the parts bin x 560 to 640, both 377 high; that is why most
 levels keep their parts between 0 and 568 across and above 377.
 
@@ -608,9 +611,6 @@ What isn't worked out yet, and what the Lab does meanwhile:
 
 - **The demo** has few `.PAR` files, so a mirrored part whose type takes its mirror size from the `.PAR` file is
   mirrored in its own size.
-- **The colours.** TIM2.EXE runs in 16 colours and reads only the `BIN:` chunks of its pictures
-  ([the screen](file-formats.md#animations-anm)); which 16 colours it sets isn't read, and the Lab draws the pictures in
-  256 colours, from the `BIN:` and `VGA:` chunks.
 
 ## Toons levels
 

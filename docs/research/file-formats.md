@@ -376,8 +376,39 @@ driver's own data starts at `0x4550` of the data segment). The `VGA:` driver, wh
 line mode the levels research wondered about, and it isn't the game's. Only the `VGA:` driver marks the screen as one
 of 256 colours (it adds 1 to byte 0x1f of its data, the game's `[0x456f]`), and only then does TIM2.EXE read the
 `VGA:` chunks of the `.BMP` and `.SCR` files (`0x0add:0x8129`, `0x0add:0x7c3c`), the high 4 bits of each pixel. So
-the game shows its pictures in 16 colours, from their `BIN:` chunks. The Lab still draws them in 256 colours; which 16
-colours the game sets for them isn't read yet.
+the game shows its pictures in 16 colours, from their `BIN:` chunks. None of the pictures of the floppy, CD or demo
+has a `VGA:` chunk anyway, and `TIM.PAL` and `TIM2.PAL` have colours only in their first 16 entries.
+
+**The 16 colours.** How the `HEG:` driver turns a colour of the game into one of its 16, read from its code (offsets in
+the unpacked driver, the same in all three builds):
+
+- In each of its three screen set ups it has the BIOS split the 256 colours of the palette into 16 pages of 16 (int
+  10h with ax 0x1013 and bx 0x0100, first at `0x72`), and sets each of the 16 palette registers to its own number (the
+  loop at `0x120`). The page stays the first: neither the driver nor TIM2.EXE writes the attribute controller or asks
+  the BIOS for another page. TIM2.EXE writes the palette into the colour registers with a routine of its own (file
+  offset `0x37b69` in the CD build). So a pixel's 4 bits pick one of the palette's first 16 colours.
+- A picture, a line or a box's outline keeps only the low 4 bits of its colour: the screen has 4 bits a pixel, and the
+  driver writes in write mode 2, where the low 4 bits of the byte are the colour. Colour c shows as the palette's
+  colour c & 15. The line function takes its colour from byte 0x0e of the driver's data (`0x9a3`).
+- A filled box is different. TIM2.EXE's box routine (`0x0add:0x384e` in the CD build) puts each row of the box in a list and calls the
+  driver's fill, the 28th entry of its table (`0xbec`), with the colour in byte 0x0d of the driver's data, and then
+  draws the outline in byte 0x0e with the line routine, unless the two are the same. The fill tests the colour's high
+  4 bits (`and dl, 0xf0` at `0xc31`). When they are 0 it fills with the colour. Otherwise it fills with a pattern of
+  the colour's two halves, like a checkerboard: pixels of even columns of the screen get one half and odd columns the
+  other (the bit masks 0xaa and 0x55), and the halves change places from one row to the next. Which half comes first
+  goes by the screen row and the left end of the box's first row, so in a box that isn't cut off at its left side the
+  pixel in column i from the left and screen row y has the low half when i + y is odd and the high half when it is
+  even. The box routine fills a colour block (type 127) in the low byte of the part's extra word (its draw routine,
+  `0x2354:0xb19f`), and the play area, x 0 to 560, in the level's background colour (file offset `0x1adab`, with the
+  byte the loader reads after the spare byte).
+- The shipped files use colours above 15 only in colour blocks: 29 blocks in 14 levels of the floppy and CD, in 13
+  colours (like 57, 179 and 239), which the palette's own 256 colours show as black. The lines, the boxes of the animations and the background colours are all below 16, and one pixel of
+  `PART60.BMP` (an `SCN:` picture) has colour 16, which shows as black.
+
+`readTim2Driver` (`packages/content/src/read/tim2-colours.ts`) finds those three places in `VM.OVL`'s `HEG:` driver,
+and `tim2SixteenColours` and `tim2FillColour` do what the driver does. The Lab shows TIM 2 in these 16 colours, or in
+the palette's own 256 with the Colours setting on Sprites, Parts and Levels; without `VM.OVL`'s driver it says so and
+shows the palette's own colours.
 
 **Lines.** Command 4 calls TIM2.EXE's line routine (file offset `0x15302` in the floppy build), which cuts the line
 off at the edges of the area being drawn, sorts its ends so it runs to the right and hands it to the video driver's
