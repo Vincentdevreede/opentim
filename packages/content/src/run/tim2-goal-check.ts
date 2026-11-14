@@ -14,6 +14,7 @@ import {
   TIM2_GOAL_ENTRY_SIZE,
   TIM2_GOAL_FIELDS,
   TIM2_SCREEN,
+  Tim2GoalRunsOn,
   type Tim2GoalPart,
   type Tim2GoalRoutine,
   type Tim2GoalWorld,
@@ -203,22 +204,35 @@ export function checkTim2Goals(
       result.trials++;
 
       const seen = new Set<string>();
-      const read = runTim2Goal(world, (test, holds) => seen.add(`${test}:${holds}`));
-      put(data + routine.checks, read.checks);
+      let read: ReturnType<typeof runTim2Goal> | undefined;
+      try {
+        read = runTim2Goal(world, (test, holds) => seen.add(`${test}:${holds}`));
+        put(data + routine.checks, read.checks);
+      } catch (problem) {
+        if (!(problem instanceof Tim2GoalRunsOn)) throw problem;
+      }
 
       cpu.segs[0] = program.dataSegment;
       cpu.segs[2] = STACK_SEGMENT;
       cpu.segs[3] = program.dataSegment;
       cpu.regs[4] = STACK_TOP;
-      let answer: number;
+      let answer: number | undefined;
       try {
         answer = cpu.callFar(routine.segment, routine.offset, [], 300_000);
       } catch (problem) {
-        result.differ++;
-        result.firstDifference ??=
-          problem instanceof CpuRunsOn
-            ? `trial ${trial}: the game ran on`
-            : `trial ${trial}: the game stopped: ${(problem as Error).message}`;
+        // Only the limit counts as running on. Anything else is the game doing something else.
+        if (!(problem instanceof CpuRunsOn)) {
+          result.differ++;
+          result.firstDifference ??= `trial ${trial}: the game stopped: ${(problem as Error).message}`;
+          continue;
+        }
+      }
+      if (!read || answer === undefined) {
+        if (!read && answer === undefined) result.runOn++;
+        else {
+          result.differ++;
+          result.firstDifference ??= `trial ${trial}: ${read ? "the game" : "the read goal"} ran on alone`;
+        }
         continue;
       }
       if (answer !== read.answer) {

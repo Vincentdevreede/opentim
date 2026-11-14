@@ -166,10 +166,10 @@ set-up routines (see below).
 | Build                      | Parts | Parts read fully | Routines | Read fully | Read in part | Helpers recognised |  Time |
 | -------------------------- | ----: | ---------------: | -------: | ---------: | -----------: | -----------------: | ----: |
 | Even More, English CD      |    63 |               63 |      940 |        210 |          730 |                159 |  12 s |
-| Toons, English             |    75 |                6 |      454 |        120 |          334 |                 69 | 110 s |
-| TIM 2, multilingual CD     |   149 |                0 |      667 |        169 |          498 |                 80 |  23 s |
-| TIM 2, multilingual floppy |   149 |                0 |      654 |        169 |          485 |                 80 |  23 s |
-| TIM 2, English demo        |   149 |                0 |      654 |        168 |          486 |                 80 |  22 s |
+| Toons, English             |    75 |                6 |      454 |        122 |          332 |                 72 | 110 s |
+| TIM 2, multilingual CD     |   149 |                0 |      667 |        173 |          494 |                 86 |  23 s |
+| TIM 2, multilingual floppy |   149 |                0 |      654 |        172 |          482 |                 86 |  23 s |
+| TIM 2, English demo        |   149 |                0 |      654 |        171 |          483 |                 86 |  22 s |
 
 In Even More most routines read in part are bounded by a helper's summary (700 of the 730), which is why all its parts
 read fully. In Toons and TIM 2 the reasons are different:
@@ -222,7 +222,8 @@ filled by the routine at `0x137a4`, whose four callers register the handlers of 
 part fields are into the fixed table in `0x4340`. No store goes through a part pointer. So such a loader is read with
 TIM.EXE's resource service assumption (`SCALAR_SERVICE_ASSUMPTION`), and the handler table with
 `HANDLER_TABLE_ASSUMPTION` (`behaviour-scalar-loaders.ts`, the profile's `scalarLoaders`, on for TIM 2 and Toons). TIM 2
-has eight such loaders. The routines they call now count as bounded by the loader, as in Even More, so fewer routines
+has fourteen such loaders in the CD build, six of which store nothing themselves and only call on, and Toons has four.
+The routines they call now count as bounded by the loader, as in Even More, so fewer routines
 count as read fully, while unresolved calls went from 1134 to 1058 and loops from 164 to 135. The frame chain behind the
 loader was then still blocked one step up; see "A helper whose first argument is a number" below.
 

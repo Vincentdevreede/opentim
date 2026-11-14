@@ -56,15 +56,17 @@ const tables: Tim2StartTables = {
 };
 
 describe("TIM 2's puzzle start", () => {
-  it("keeps a list by the type's word, the lowest part first, and a part with bit 0x1000 last", () => {
+  it("keeps a list by the type's word, the lowest part first, and a part whose type has bit 0x1000 last", () => {
+    const l = level([{ type: 3 }, { type: 1, y: 10 }, { type: 1, y: 50 }, { type: 4 }, { type: 2, y: 50, x: 9 }]);
+    expect(tim2ListOrder(l, "static", { ...tables, third: new Map([[4, 0x1000]]) })).toEqual([4, 2, 1, 0, 3]);
+  });
+
+  it("sorts a part whose file alone has bit 0x1000, as the loader keeps only the file's bits 0x140", () => {
     const l = level([
-      { type: 3 },
       { type: 1, y: 10 },
-      { type: 1, y: 50 },
-      { type: 2, third: 0x1000 },
-      { type: 2, y: 50, x: 9 },
+      { type: 2, y: 50, third: 0x1000 },
     ]);
-    expect(tim2ListOrder(l, "static", tables)).toEqual([4, 2, 1, 0, 3]);
+    expect(tim2ListOrder(l, "static", tables)).toEqual([1, 0]);
   });
 
   it("puts a part in the bin before the first of its type or of a later type, so a type's parts come reversed", () => {

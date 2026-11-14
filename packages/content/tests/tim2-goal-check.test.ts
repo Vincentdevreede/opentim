@@ -30,6 +30,23 @@ describe("checkTim2Goals", () => {
     expect(result).toMatchObject({ trials: 20, differ: 0 });
   });
 
+  it("counts a trial in which both run on, and one in which only the game does as a difference", () => {
+    // jmp $: a routine that never ends. The read goal runs on too while its counted part of type 0xffff is on a list.
+    const forever = new Uint8Array(0x10000);
+    forever.set([0xeb, 0xfe], 0x8000);
+    const odd = { type: 0xffff, state: 0, x: 0, y: 0, baseWidth: 1, baseHeight: 1, group: "static" as const };
+    const entries = goal(1).entries.map((e, k) => (k ? e : { part: 0, values: [0, 0, 1, 0, 0, 0, 0] }));
+    const [result] = checkTim2Goals(
+      { memory: forever, dataSegment: 0x100 },
+      routine,
+      [{ ...goal(1), entries, parts: [odd] }],
+      { trials: 20 },
+    );
+    expect(result!.runOn).toBeGreaterThan(0);
+    expect(result!.runOn + result!.differ).toBe(20);
+    if (result!.differ) expect(result!.firstDifference).toMatch(/the game ran on alone/);
+  });
+
   it("says where the routine answers otherwise", () => {
     const [result] = checkTim2Goals(program, routine, [goal(0)], { trials: 20 });
     expect(result).toMatchObject({ differ: 20, firstDifference: "trial 0: the game answers 1, the read goal 0" });

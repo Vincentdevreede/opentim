@@ -212,6 +212,9 @@ function runLoader(build: BuildFolder<"toons" | "tim2">, byType: boolean, range?
   const { machine, start, program } = found;
   const files = readResources(build.folder);
   const names = [...files.keys()].filter((name) => /\.LEV$/i.test(name)).sort();
+  // An empty choice would check nothing and still pass.
+  if (!names.some((_, k) => !range || (k + 1 >= range[0] && k + 1 <= range[1])))
+    return { problem: `no levels${range ? ` in ${range.join("-")} of the ${names.length} it has` : ""}` };
   const results: PuzzleResult[] = [];
   const data = program.dataSegment * 16;
   const header = new Map<string, number[]>();
@@ -471,6 +474,7 @@ if (!isMainThread) {
   let range: [number, number] | undefined;
   if (values.puzzles) {
     const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
+    if (to! < from!) throw new Error(`--puzzles must run from the lower number to the higher, not ${values.puzzles}`);
     range = [from!, to!];
   }
   // `--game` is a TIM 1 or Even More folder; which of the two the recorder says.

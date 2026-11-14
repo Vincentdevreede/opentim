@@ -212,6 +212,13 @@ function atStart(build: BuildFolder<"tim2" | "toons">, range: [number, number] |
   const flagsAt = build.game === "tim2" ? 0x0a : LIST_FLAGS;
   const files = readResources(build.folder);
   const names = [...files.keys()].filter((name) => /\.LEV$/i.test(name)).sort();
+  // An empty choice would check nothing and still pass.
+  if (!names.some((_, k) => !range || (k + 1 >= range[0] && k + 1 <= range[1]))) {
+    console.error(
+      `${build.folder}: no levels${range ? ` in ${range.join("-")} of the ${names.length} it has` : ""}, so no puzzle is started.`,
+    );
+    return 1;
+  }
   console.log(
     `${build.folder}: ${names.length} levels, looked at as the puzzle starts: the game's run loop doesn't run in the emulator`,
   );
@@ -284,6 +291,7 @@ if (!isMainThread) {
   let range: [number, number] | undefined;
   if (values.puzzles) {
     const [from, to = from] = values.puzzles.split("-").map((n) => count("puzzles", n));
+    if (to! < from!) throw new Error(`--puzzles must run from the lower number to the higher, not ${values.puzzles}`);
     range = [from!, to!];
   }
   const builds: BuildFolder<Game>[] = [
