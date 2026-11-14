@@ -914,10 +914,11 @@ describe("the tests a line from another part says", () => {
 });
 
 describe("the fine position", () => {
-  const layout = (positionX?: number) =>
+  const layout = (positionX?: number, listId = "tim1") =>
     ({
+      listId,
       layout: { fields: positionX === undefined ? [] : [{ name: "positionX", offset: positionX }] },
-    }) as unknown as Pick<BehaviourReport, "layout">;
+    }) as unknown as Pick<BehaviourReport, "layout" | "listId">;
 
   it("sits 8 bytes before positionX, so it moves with it from game to game", () => {
     // TIM.EXE: positionX at 0x1e, the longs at 0x16 and 0x1a; the same when positionX isn't named.
@@ -932,6 +933,8 @@ describe("the fine position", () => {
       axis: "positionX",
     });
     expect(finePosition(layout(0x22), 0x1e)).toEqual({ words: "fine vertical position (low word)", axis: "positionY" });
+    // Another game's words aren't known without its positionX.
+    for (const listId of ["tim2", "toons"]) expect(finePosition(layout(undefined, listId), 0x16)).toBeUndefined();
     // TOONS.EXE: positionX at 0x1f, the longs at 0x17 and 0x1b.
     expect(finePosition(layout(0x1f), 0x19)).toEqual({
       words: "fine horizontal position (high word)",

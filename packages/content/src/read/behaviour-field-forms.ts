@@ -151,7 +151,13 @@ export function discoverFormFields(
       const masks = form.masks?.[name] ?? [];
       const old = known.find((field) => field.name === name);
       if (old) {
-        for (const mask of masks) if (!old.masks?.some((m) => m.value === mask.value)) (old.masks ??= []).push(mask);
+        const added = masks.filter((mask) => !old.masks?.some((m) => m.value === mask.value));
+        if (!added.length) continue;
+        (old.masks ??= []).push(...added);
+        // The masks come with the form's proof.
+        for (const item of evidence)
+          if (!old.evidence.some((previous) => previous.address === item.address)) old.evidence.push(item);
+        if (!old.assumptions.includes(form.assumption)) old.assumptions.push(form.assumption);
         continue;
       }
       const field = found.get(name);

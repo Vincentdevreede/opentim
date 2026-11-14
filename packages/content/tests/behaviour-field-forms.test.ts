@@ -112,6 +112,9 @@ describe("part fields from the programs' own routines", () => {
       { value: 0x1000, name: "drawFromPieces" },
       { value: 0x10, name: "horizontalFlip" },
     ]);
+    // The masks it adds come with the form's proof.
+    expect(flags.evidence).toHaveLength(1);
+    expect(flags.assumptions).toEqual(["A test."]);
   });
 
   // Made-up offsets, none of them the games' own, so the names can only come from the bytes.
