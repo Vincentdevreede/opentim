@@ -3714,7 +3714,9 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   if (name === "frameWidth" || name === "frameHeight") return `Updates ${subject} current frame dimensions.`;
   if (name === "horizontalExtent" || name === "verticalExtent" || name === "baseWidth" || name === "baseHeight")
     return `Updates ${subject} stored dimensions.`;
-  if (name === "drawX" || name === "drawY")
+  // TOONS.EXE keeps the frame's offset from the position in the part (frameOffsetX and frameOffsetY), where TIM.EXE
+  // adds it to the drawing origin straight away.
+  if (name === "drawX" || name === "drawY" || name === "frameOffsetX" || name === "frameOffsetY")
     return `Updates where ${subject === "the part's" ? "the" : subject} frame is drawn.`;
   if (name === "positionX" || name === "positionY") return `Updates ${subject} position.`;
   if (name === "velocityX" || name === "velocityY") return `Updates ${subject} motion.`;

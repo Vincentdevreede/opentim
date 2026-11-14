@@ -4,6 +4,7 @@
  * a type record, how the code finds a record and how a routine gets its part); everything else it still finds in the
  * code. See docs/research/behaviour/tim2-and-toons.md.
  */
+import { TIM2_FIELD_FORMS, TOONS_FIELD_FORMS, type FieldForm } from "./behaviour-field-forms.ts";
 import { unpackLzexe } from "./lzexe.ts";
 import type { ListId } from "./parts.ts";
 import { loadImage } from "./toons.ts";
@@ -70,6 +71,12 @@ export interface BehaviourProfile {
    * call of this form; Even More's call of Mel's own bounce is read from its dispatcher instead (`specialSelfCall`).
    */
   selfBounce: number[] | "every";
+  /**
+   * Routines of the program whose code shows what part fields are (`behaviour-field-forms.ts`). TIM.EXE's fields are
+   * named from its frame drawing and its helpers instead; TIM2.EXE and TOONS.EXE write those routines in forms the
+   * layout doesn't read, so their own forms name the fields there.
+   */
+  fieldForms: readonly FieldForm[];
 }
 
 /** TIM.EXE of TIM 1 and Even More. */
@@ -86,6 +93,7 @@ export const TIM_PROFILE: BehaviourProfile = {
   numberArguments: false,
   helperPaths: 800,
   selfBounce: [],
+  fieldForms: [],
 };
 
 export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
@@ -104,6 +112,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     numberArguments: true,
     helperPaths: 4000,
     selfBounce: [33, 54, 59, 109],
+    fieldForms: TIM2_FIELD_FORMS,
   },
   toons: {
     storage: "overlays",
@@ -118,6 +127,7 @@ export const BEHAVIOUR_PROFILES: Record<ListId, BehaviourProfile> = {
     numberArguments: true,
     helperPaths: 4000,
     selfBounce: "every",
+    fieldForms: TOONS_FIELD_FORMS,
   },
 };
 
