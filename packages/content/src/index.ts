@@ -211,6 +211,7 @@ export {
   type GoalSummary,
 } from "./read/goal-conditions.ts";
 export { TIM2_STEP_MS, tim2LinePixels } from "./read/tim2.ts";
+export { readTim2Driver, tim2FillColour, tim2SixteenColours, type Tim2Driver } from "./read/tim2-colours.ts";
 export { readToonsDrawing, readToonsMemory, type ToonsDrawing, type ToonsMemory } from "./read/toons-drawing.ts";
 export {
   findToonsGoalTable,

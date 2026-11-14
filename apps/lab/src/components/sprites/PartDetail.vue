@@ -45,6 +45,7 @@ import FrameStepper from "./FrameStepper.vue";
 import RecordPanel from "./RecordPanel.vue";
 import { FPS, ZOOMS, fitScale, gridStyle, usePlayer, useSpriteKeys } from "./player.ts";
 import { BACKGROUNDS, background } from "../backgrounds.ts";
+import { TIM2_COLOURS, isTim2, sixteenColours, tim2ColourProblem, tim2Colours } from "../tim2-colours.ts";
 import SpriteStage from "./SpriteStage.vue";
 import LabPanelHeader from "../LabPanelHeader.vue";
 import LabPicture from "../LabPicture.vue";
@@ -54,6 +55,7 @@ import LabSection from "../LabSection.vue";
 import LabCaption from "../LabCaption.vue";
 import LabOpenIn from "../LabOpenIn.vue";
 import LabListRow from "../LabListRow.vue";
+import LabAlert from "../LabAlert.vue";
 
 const props = defineProps<{
   part: Part;
@@ -247,7 +249,7 @@ function save() {
   const file = frame.value
     ? `${props.part.id}-frame${frame.value.id}.png`
     : `${shownSprite.value?.sheet}-sprite${shownSprite.value?.index}.png`;
-  download(compositionCanvas(composition.value, colors.value), file);
+  download(compositionCanvas(composition.value, colors.value, { sixteen: sixteenColours.value }), file);
 }
 
 /**
@@ -361,11 +363,15 @@ const sideTabs = computed(() => [
         >
         <LabToggle v-model="grid" :disabled="zoom < 3" title="Pixel grid, from 3×">Grid</LabToggle>
         <div class="flex-1"></div>
+        <LabSegmented v-if="isTim2" v-model="tim2Colours" label="Colours" :options="TIM2_COLOURS" />
         <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
         <LabSegmented v-model="zoom" label="Zoom" :options="zoomOptions" />
       </LabToolbar>
 
       <div class="flex min-h-0 flex-1 flex-col">
+        <LabAlert v-if="tim2ColourProblem" class="m-2 shrink-0" title="Not in 16 colours">
+          <span class="text-soft">{{ tim2ColourProblem }}</span>
+        </LabAlert>
         <SpriteStage :background="background">
           <div v-if="composition.placed.length" class="relative">
             <PartPicture
