@@ -296,6 +296,8 @@ export class GameMachine {
 
   private reset(level: Uint8Array, name: string): void {
     this.cpu.memory.set(this.clean);
+    // The copy goes round the processor, which would keep code it decoded in the last run.
+    this.cpu.forgetCode();
     this.level = level;
     this.name = name;
     this.position = 0;

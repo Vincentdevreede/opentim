@@ -11,8 +11,8 @@
  * - Toons: the goal routines of TOONS.EXE (`src/read/toons-goals.ts`), checked the same way
  *   (`src/run/toons-goal-check.ts`), with the parts lists the list head routine the finder calls picks.
  *
- * Fails when a game's goals aren't found, a goal can't be read, a read goal does something other than the game, or
- * a Toons goal isn't compared in any trial.
+ * Fails when a game's goals or TIM 2's level files aren't found, a goal can't be read, a read goal does something
+ * other than the game, or a Toons goal isn't compared in any trial.
  *
  *   pnpm --filter @opentim/content check-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder>
  *     --toons <game folder> [--trials n]
@@ -28,7 +28,7 @@ import { readLevel } from "../src/read/level.ts";
 import { findGoalTable, readGoalRoutines, type GoalProblem, type GoalRoutine } from "../src/read/puzzle-goals.ts";
 import { readToonsMemory } from "../src/read/toons-drawing.ts";
 import { findToonsGoalTable, toonsFinder } from "../src/read/toons-goals.ts";
-import { findTim2GoalRoutine } from "../src/read/tim2-goal.ts";
+import { findTim2GoalRoutine, tim2GoalWords } from "../src/read/tim2-goal.ts";
 import { findDataSegment } from "../src/read/type-table.ts";
 import { checkGoals, type GoalCheckResult } from "../src/run/goal-check.ts";
 import { readLzexeProgram } from "../src/run/program.ts";
@@ -204,7 +204,7 @@ function checkTim2(build: BuildFolder<"tim2">, trials: number): BuildCheck {
       puzzle,
       name,
       first: goal.first,
-      entries: goal.entries,
+      entries: goal.entries.map((e) => ({ part: e.part, values: tim2GoalWords(e.values) })),
       last: goal.last,
       parts: level.parts.map((part) => ({
         type: part.type,
@@ -225,6 +225,10 @@ function checkTim2(build: BuildFolder<"tim2">, trials: number): BuildCheck {
   );
   for (const problem of unread) error(`  Not read: ${problem}`);
   check.problems += unread.length;
+  if (!names.length) {
+    error("  No level files found, so no shipped goal is checked.");
+    check.problems++;
+  }
   report(check, checkTim2Goals(tim2, routine, goals, { trials }));
   report(check, checkTim2Goals(tim2, routine, madeUpTim2Goals(MADE_UP_TIM2_GOALS), { trials }), "made-up goals");
   return check;

@@ -21,6 +21,9 @@ export const SCALAR_SERVICE_ASSUMPTION =
 export const HANDLER_TABLE_ASSUMPTION =
   "The handlers a resource service calls through a table it keeps in a global are the resource caches' own, and keep the parts as they are.";
 
+const UNKNOWN_SERVICE_EFFECTS =
+  "The resource service can update resource nodes, global state and driver-owned memory; its full backend footprint is unresolved.";
+
 /** How many routines a loader and its callees may have before the reader gives up on proving it. */
 const MAX_ROUTINES = 400;
 const FIRST_ARGUMENT = 6;
@@ -92,9 +95,13 @@ function isScalarLoader(
   return { tree: [...tree], handlers };
 }
 
+/** The summaries that only say a routine calls others or isn't classified, which a scalar loader's summary replaces. */
+const GENERIC_KINDS: EngineSummary["kind"][] = ["call-wrapper", "unclassified"];
+
 /**
- * Summaries for the scalar loaders among the routines read, for routines no other summary covers. Each keeps the parts
- * as they are and leaves its globals unresolved, as TIM.EXE's resource service does.
+ * Summaries for the scalar loaders among the routines read, for routines no other summary covers but a generic one (a
+ * loader that only passes its number on is a call wrapper). Each keeps the parts as they are and leaves its globals
+ * unresolved, as TIM.EXE's resource service does.
  */
 export function discoverScalarLoaders(
   codes: Map<number, RoutineCode>,
@@ -104,7 +111,8 @@ export function discoverScalarLoaders(
 ): EngineSummary[] {
   const found: EngineSummary[] = [];
   for (const code of codes.values()) {
-    if (summaries.has(code.address) || callbacks.has(code.address)) continue;
+    const existing = summaries.get(code.address);
+    if ((existing && !GENERIC_KINDS.includes(existing.kind)) || callbacks.has(code.address)) continue;
     const loader = isScalarLoader(code, codes, callbacks, programStart);
     if (!loader) continue;
     const services = loader.tree
@@ -132,9 +140,8 @@ export function discoverScalarLoaders(
         partMemoryComplete: true,
         preservesArgumentMemory: true,
         preservesPartState: true,
-        unknownEffects: [
-          "The resource service can update resource nodes, global state and driver-owned memory; its full backend footprint is unresolved.",
-        ],
+        unknownEffects: [UNKNOWN_SERVICE_EFFECTS],
+        unknownGlobalEffects: [UNKNOWN_SERVICE_EFFECTS],
       },
     });
   }

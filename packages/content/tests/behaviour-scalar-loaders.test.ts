@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
+import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
 import {
   discoverScalarLoaders,
   numberFirstArgument,
@@ -27,7 +28,16 @@ describe("scalar loaders", () => {
       [0, "scalar-resource-service", "scalar"],
     ]);
     expect(found[0]!.footprint).toMatchObject({ preservesPartState: true, partMemoryComplete: true, complete: false });
+    // What it does to the globals isn't known, so a caller forgets the globals it read before the call.
+    expect(found[0]!.footprint.unknownGlobalEffects?.length).toBe(1);
     expect(found[0]!.assumptions).toEqual([SCALAR_SERVICE_ASSUMPTION]);
+  });
+
+  it("reads a loader that already has a generic summary, but not one with a summary of its own", () => {
+    const summary = (kind: string) => new Map([[0, { address: 0, kind } as EngineSummary]]);
+    const found = discoverScalarLoaders(codes([0xff, 0x76, 0x06]), summary("call-wrapper"), new Set(), 0xffff);
+    expect(found.map((s) => [s.address, s.kind])).toEqual([[0, "scalar-resource-service"]]);
+    expect(discoverScalarLoaders(codes([0xff, 0x76, 0x06]), summary("forwarder"), new Set(), 0xffff)).toEqual([]);
   });
 
   it("doesn't when the argument is used as an address", () => {
