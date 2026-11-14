@@ -72,6 +72,11 @@ function report(check: BuildCheck, what: string, results: { name: string; differ
   });
   for (const r of differ) check.lines.push({ error: true, text: `  ${r.name} differs: ${r.differences.join("; ")}` });
   check.problems += differ.length;
+  // An empty choice would check nothing and still pass.
+  if (!results.length) {
+    check.lines.push({ error: true, text: `  No ${what} in the levels chosen.` });
+    check.problems++;
+  }
 }
 
 /** TIM 2 and Toons: the game's level loader and puzzle start on every level. */
@@ -283,8 +288,10 @@ function differencesTim(
     pick.used = true;
     paired.set(part.index, pick);
   }
-  const extra = records.filter((r) => !r.used).length - unpaired.length;
+  // Counted apart from the pairing, so a part without a record shows even when no record pairs with it.
+  const extra = records.length - (paired.size + unpaired.length);
   if (extra > 0) out.push(`${extra} records on the lists no part of the file pairs with`);
+  if (extra < 0) out.push(`${-extra} placed parts of the file the game made no record for`);
   for (const [index, record] of paired) {
     const part = level.parts[index]!;
     if (u16(record.record, 0x90) !== (part.state[0] & 0xffff))

@@ -15,6 +15,8 @@ export interface StartFields {
   state: number;
   /** The two plugs: a near pointer (Toons) or a far one (TIM 2) to the plugged part, 0 for none. */
   plugs: [number, number];
+  /** True when the plugs are far pointers: the offset, then the segment in the next word. */
+  farPlugs: boolean;
   /** The records of the ropes tied at the two rope places, 0 for none. */
   ropes: [number, number];
   /** The record of the belt round the part, 0 for none. */
@@ -22,9 +24,21 @@ export interface StartFields {
 }
 
 /** Toons' 0xb3-byte part record. */
-export const TOONS_START_FIELDS: StartFields = { state: 0x0e, plugs: [0x6b, 0x6d], ropes: [0x6f, 0x71], belt: 0x5d };
+export const TOONS_START_FIELDS: StartFields = {
+  state: 0x0e,
+  plugs: [0x6b, 0x6d],
+  farPlugs: false,
+  ropes: [0x6f, 0x71],
+  belt: 0x5d,
+};
 /** TIM 2's 0xba-byte part record. */
-export const TIM2_START_FIELDS: StartFields = { state: 0x10, plugs: [0x6e, 0x72], ropes: [0x76, 0x78], belt: 0x58 };
+export const TIM2_START_FIELDS: StartFields = {
+  state: 0x10,
+  plugs: [0x6e, 0x72],
+  farPlugs: true,
+  ropes: [0x76, 0x78],
+  belt: 0x58,
+};
 
 /** What the game's start did, in the same terms as `PuzzleStart`, with the parts on the board. */
 export interface GameStartResult extends Omit<PuzzleStart, "toons"> {
@@ -44,8 +58,17 @@ export function gameStartResult(run: LevelStartRun, fields: StartFields): GameSt
   const plugs = new Map<number, [number | null, number | null]>();
   const untied: [number, number][] = [];
   const unbelted: number[] = [];
+  // A near plug is the offset another record holds for the part; a far one is the record's address, which an offset of
+  // 0 can be too, so it is none only when both words are 0.
   const byPointer = new Map(started.pointers.map((pointer, index) => [pointer, index]));
-  const plugged = (value: number) => (value ? (byPointer.get(value) ?? -1) : null);
+  const byAddress = new Map(started.pool.map((at, index) => [at, index]));
+  const plugWords = (record: Uint8Array, k: number) =>
+    fields.farPlugs ? [word(record, k), word(record, k + 2)] : [word(record, k)];
+  const plugged = (record: Uint8Array, k: number) => {
+    const [offset = 0, segment = 0] = plugWords(record, k);
+    if (!offset && !segment) return null;
+    return (fields.farPlugs ? byAddress.get(segment * 16 + offset) : byPointer.get(offset)) ?? -1;
+  };
   started.pool.forEach((at, index) => {
     if (!at) return;
     if (!board.has(index)) {
@@ -56,8 +79,8 @@ export function gameStartResult(run: LevelStartRun, fields: StartFields): GameSt
     const after = started.records.get(at);
     if (!before || !after) return;
     if (word(before, fields.state) !== word(after, fields.state)) states.set(index, word(after, fields.state));
-    if (fields.plugs.some((k) => word(before, k) !== word(after, k)))
-      plugs.set(index, [plugged(word(after, fields.plugs[0])), plugged(word(after, fields.plugs[1]))]);
+    if (fields.plugs.some((k) => plugWords(before, k).some((w, j) => w !== plugWords(after, k)[j])))
+      plugs.set(index, [plugged(after, fields.plugs[0]), plugged(after, fields.plugs[1])]);
     fields.ropes.forEach((k, place) => {
       if (word(before, k) && !word(after, k)) untied.push([index, place]);
     });

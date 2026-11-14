@@ -38,6 +38,14 @@ export interface Tim2Goal {
 }
 
 /**
+ * An entry's seven words as TIM2.EXE's loader leaves them. Up to version 0x109 an entry keeps one state limit, six
+ * words in all, and the loader uses it as the second limit too.
+ */
+export function tim2GoalWords(values: readonly number[]): readonly number[] {
+  return values.length === 6 ? [values[0]!, ...values] : values;
+}
+
+/**
  * Why a count can pass with fewer parts, or undefined when it can't: TIM2.EXE's goal routine forgets a count whose
  * part is the last on its list (see `runTim2Goal`), and whether the part can be last comes from how the game keeps its
  * lists (`tim2LastOnList`). Without TIM2.EXE's tables the order isn't known, so every count gets the caution.
@@ -69,9 +77,7 @@ export function summariseTim2Goal(
   const conditions: GoalCondition[] = [];
   goal.entries.forEach((entry, i) => {
     if (entry.part === null) return;
-    // Up to version 0x109 an entry keeps one state limit; TIM2.EXE's loader uses it as the second limit too.
-    const values = entry.values.length === 6 ? [entry.values[0]!, ...entry.values] : entry.values;
-    const [low = 0, high = 0, count = 0, x = 0, y = 0, width = 0, height = 0] = values;
+    const [low = 0, high = 0, count = 0, x = 0, y = 0, width = 0, height = 0] = tim2GoalWords(entry.values);
     lines.push(`entry ${i + 1}: part #${entry.part}, ${entry.values.join(", ")}`);
     const part = level.parts[entry.part];
     if (!part) return;
@@ -262,6 +268,17 @@ export interface Tim2GoalWorld<P extends Tim2GoalPart = Tim2GoalPart> {
 export type Tim2GoalAnswer = 0 | 1 | 2;
 
 /**
+ * Thrown when `runTim2Goal` visits more parts than any walk that ends can. TIM2.EXE's routine runs on forever too: a
+ * counted entry whose part has type 0xffff leaves the count's type word at -1, the word that means no entry is
+ * counting, so every visit to that part starts the count again from the first part of the list.
+ */
+export class Tim2GoalRunsOn extends Error {
+  constructor() {
+    super("the goal routine runs on");
+  }
+}
+
+/**
  * Tests a TIM 2 goal as TIM2.EXE's goal routine does, and gives its answer and its check count after. `onTest` hears
  * each test it makes, by name, and whether it held. What the routine does, in order:
  *
@@ -277,7 +294,8 @@ export type Tim2GoalAnswer = 0 | 1 | 2;
  *   end first, the goal isn't met, unless the entry's part is the last on its list: then the routine forgets the entry.
  * - It counts the check, and a goal met before the last word's number of checks isn't met yet.
  *
- * All numbers are words, compared with their sign.
+ * All numbers are words, compared with their sign. A walk that never ends, as the routine's can, throws
+ * `Tim2GoalRunsOn`.
  */
 export function runTim2Goal<P extends Tim2GoalPart>(
   world: Tim2GoalWorld<P>,
@@ -307,10 +325,16 @@ export function runTim2Goal<P extends Tim2GoalPart>(
   let held = 0;
   // Where the walk goes on after an entry has counted: the part after the entry's own, or null after the last one.
   let after: number | null = null;
+  // A walk that ends visits each part once for itself and at most once more for each entry that counts, so this is
+  // plenty.
+  let visits = 0;
+  const all = world.moving.length + world.static.length + 1;
+  const most = all * all * (world.entries.length + 1);
   lists: for (const [list, parts] of [world.moving, world.static].entries()) {
     counting = 0xffff;
     let at = 0;
     while (at < parts.length) {
+      if (++visits > most) throw new Tim2GoalRunsOn();
       const part = parts[at]!;
       if (counting === 0xffff) entry = entryOf(part);
       let next = true;

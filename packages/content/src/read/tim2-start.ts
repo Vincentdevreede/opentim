@@ -14,7 +14,8 @@
  *   before the first that stands higher on the screen (a smaller y at 0xa6), or as high and further left (a smaller x
  *   at 0xa4), so the lowest come first; type 11 the other way up. The rope, type 49 and type 76 go before the first
  *   part of their word. The loader passes 1 for the routine's last word, so a part with bit 0x1000 of its third flag
- *   word goes after every part.
+ *   word goes after every part. The routine tests that bit in the record (0x0e), which the loader fills before it
+ *   (`tim2Third`), so a bit 0x1000 only the file has doesn't count.
  */
 import { readToonsMemory } from "./toons-drawing.ts";
 import type { Level, LevelPart } from "./level.ts";
@@ -109,7 +110,7 @@ export function tim2ListOrder(level: Level, group: "moving" | "static", tables: 
   const key = (p: LevelPart) => tables.listKeys.get(p.type) ?? 0;
   for (const part of level.parts.filter((p) => p.group === group)) {
     let at = list.length;
-    if (!((part.flags[2] ?? 0) & LAST))
+    if (!(tim2Third(part, tables) & LAST))
       for (let k = 0; k < list.length; k++) {
         const cur = list[k]!;
         if (key(part) !== key(cur)) {

@@ -659,7 +659,8 @@ const numbers = (parts: { part: LevelPart }[]) => parts.map((p) => `#${p.part.in
 
 /**
  * Lays out a level for drawing, and lists what the drawing leaves out or guesses. A TIM 2 level takes how TIM2.EXE
- * draws each type (`drawing`), a Toons puzzle TOONS.EXE's drawing code (`toons`) and sort words (`toonsSort`).
+ * draws each type (`drawing`) and its start tables (`tim2Start`, or why they can't be read: `tim2StartProblem`), a Toons
+ * puzzle TOONS.EXE's drawing code (`toons`) and sort words (`toonsSort`).
  */
 export function layoutScene(
   level: Level,
@@ -671,7 +672,14 @@ export function layoutScene(
     toons,
     toonsSort,
     tim2Start,
-  }: { solution?: boolean; toons?: ToonsCode; toonsSort?: ToonsSort; tim2Start?: Tim2StartTables } = {},
+    tim2StartProblem,
+  }: {
+    solution?: boolean;
+    toons?: ToonsCode;
+    toonsSort?: ToonsSort;
+    tim2Start?: Tim2StartTables;
+    tim2StartProblem?: string;
+  } = {},
 ): Scene {
   const groups = new Map(level.parts.map((p) => [p, groupOf(level, p, solution, toonsSort, tim2Start)]));
   const board = level.parts.filter((p) => groups.get(p) !== "bin" && groups.get(p) !== "gone");
@@ -707,6 +715,12 @@ export function layoutScene(
       status: "partial",
       title: "Walls and patterns drawn as frames.",
       detail: "TIM2.EXE’s type table wasn’t found, so its wall, pattern and block rules aren’t known.",
+    });
+  if (level.layout === "tim2" && !tim2Start)
+    notes.push({
+      status: "error",
+      title: "Puzzle start not read from TIM2.EXE.",
+      detail: `${tim2StartProblem ?? "TIM2.EXE’s list and bin tables weren’t found"}. Without them the bin’s order and what the start changes on the board aren’t known, so the bin shows the parts the file doesn’t fix in place, in the file’s order, and the board shows the rest as the file has them.`,
     });
   const outlined = parts.filter((p) => p.how === "outline");
   if (list && outlined.length)

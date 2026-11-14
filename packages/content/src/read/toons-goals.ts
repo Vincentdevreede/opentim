@@ -533,10 +533,14 @@ export function toonsPuzzleStart(
   }
   // A pulley keeps the rope over it at its second rope place: the level reader takes the record at the first place of
   // the part the pulley's field names (`0x24f3c`) as it reads the pulley. It reads the parts in the file's order and
-  // makes a rope's record as it reads the rope, so a pulley before its rope in the file gets none (HARD6, HARD25).
+  // makes a rope's record as it reads the rope, so a pulley before its rope in the file gets none (HARD6, HARD25). The
+  // shipped levels name the rope itself; when a pulley names a part read before it, that part's rope must be read
+  // before the pulley too.
   for (const p of parts)
-    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined && p.pulley < p.index)
-      ropeAt.get(p.index)![1] = ropeAt.get(p.pulley)?.[0] ?? null;
+    if (p.type === TOONS_PULLEY && p.pulley !== null && p.pulley !== undefined && p.pulley < p.index) {
+      const rope = ropeAt.get(p.pulley)?.[0] ?? null;
+      ropeAt.get(p.index)![1] = rope !== null && rope < p.index ? rope : null;
+    }
   const tiedAtFirst = new Map([...ropeAt].map(([index, places]) => [index, places.map((r) => r !== null)]));
   const state = (index: number) => states.get(index) ?? parts[index]!.state[0];
   const fixed = (index: number) => ((parts[index]!.flags[2] ?? 0) & FIXED_IN_PLACE) !== 0;

@@ -3,8 +3,9 @@
  * it, in words. For TIM 1 and Even More that is TIM.EXE's goal routine of the puzzle (`src/read/describe-goals.ts`),
  * for Toons TOONS.EXE's (`src/read/toons-goals.ts`), and for TIM 2 the goal entries the level keeps
  * (`src/read/tim2-goal.ts`). With `--out` it writes one file per game; the builds of a game are compared, and a puzzle
- * whose goal reads differently in another build is named. With `--conditions` each goal is also said as the conditions
- * a level view shows (`src/read/goal-conditions.ts`).
+ * whose goal reads differently in another build is named. A puzzle the first build lacks is listed from the first
+ * build that has it. With `--conditions` each goal is also said as the conditions a level view shows
+ * (`src/read/goal-conditions.ts`).
  *
  *   pnpm --filter @opentim/content list-goals --tim1 <game folder> --evenmore <game folder> --tim2 <game folder>
  *     --toons <game folder> [--out <folder>] [--conditions]
@@ -162,9 +163,20 @@ if (isMainThread) {
       );
     };
     const reference = ranked(first);
+    // A TIM 2 build can have levels the first one lacks: those are listed from the first build that has them.
+    const listed = new Set(first.puzzles.map(key));
+    const puzzles: (BuildGoals["puzzles"][number] & { from?: string })[] = [...first.puzzles];
+    for (const build of builds)
+      for (const p of build.problem ? [] : build.puzzles)
+        if (!listed.has(key(p))) {
+          listed.add(key(p));
+          puzzles.push({ ...p, from: build.folder });
+        }
     const text: string[] = [];
-    for (const p of first.puzzles) {
-      text.push(`${p.name ?? `Puzzle ${p.puzzle}`}${p.title ? `: ${p.title}` : ""}`);
+    for (const p of puzzles) {
+      text.push(
+        `${p.name ?? `Puzzle ${p.puzzle}`}${p.title ? `: ${p.title}` : ""}${p.from ? ` (read from ${p.from}, not in ${first.folder})` : ""}`,
+      );
       if (p.goal) text.push(`  The level says: ${p.goal.replace(/\s+/g, " ").trim()}`);
       text.push(...p.lines.map((line) => `  ${line}`));
       if (values.conditions) text.push("  As conditions:", ...summaryLines(p.summary).map((line) => `    ${line}`));
@@ -177,10 +189,12 @@ if (isMainThread) {
         continue;
       }
       const own = ranked(build);
-      const differ = build.puzzles.filter((p) => reference.get(key(p)) !== own.get(key(p)));
+      const differ = build.puzzles.filter((p) => reference.has(key(p)) && reference.get(key(p)) !== own.get(key(p)));
+      const extra = build.puzzles.filter((p) => !reference.has(key(p)));
       const lacks = first.puzzles.filter((p) => !own.has(key(p)));
       const notes = [
         ...(differ.length ? [`read differently from ${first.folder} in puzzles ${differ.map(key).join(", ")}`] : []),
+        ...(extra.length ? [`puzzles ${first.folder} has no goal for: ${extra.map(key).join(", ")}`] : []),
         ...(lacks.length ? [`no goal for puzzles ${lacks.map(key).join(", ")}`] : []),
       ];
       console.log(

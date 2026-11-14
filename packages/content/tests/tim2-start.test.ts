@@ -69,15 +69,17 @@ const tables: Tim2StartTables = {
 };
 
 describe("TIM 2's puzzle start", () => {
-  it("keeps a list by the type's word, the lowest part first, and a part with bit 0x1000 last", () => {
+  it("keeps a list by the type's word, the lowest part first, and a part whose type has bit 0x1000 last", () => {
+    const l = level([{ type: 3 }, { type: 1, y: 10 }, { type: 1, y: 50 }, { type: 4 }, { type: 2, y: 50, x: 9 }]);
+    expect(tim2ListOrder(l, "static", { ...tables, third: new Map([[4, 0x1000]]) })).toEqual([4, 2, 1, 0, 3]);
+  });
+
+  it("sorts a part whose file alone has bit 0x1000, as the loader keeps only the file's bits 0x140", () => {
     const l = level([
-      { type: 3 },
       { type: 1, y: 10 },
-      { type: 1, y: 50 },
-      { type: 2, third: 0x1000 },
-      { type: 2, y: 50, x: 9 },
+      { type: 2, y: 50, third: 0x1000 },
     ]);
-    expect(tim2ListOrder(l, "static", tables)).toEqual([4, 2, 1, 0, 3]);
+    expect(tim2ListOrder(l, "static", tables)).toEqual([1, 0]);
   });
 
   it("puts a part in the bin before the first of its type or of a later type, so a type's parts come reversed", () => {
@@ -176,6 +178,15 @@ describe("which part can be the last on its list", () => {
     expect(tim2LastOnList(l, 1, last)).toEqual({ can: false, behind: 0 });
     const alone = level([{ type: 1, third: FIXED, y: 9 }, { type: 2 }]);
     expect(tim2LastOnList(alone, 1, last)).toEqual({ can: true, above: [] });
+  });
+
+  it("doesn't count bit 0x1000 that only the file has, as the list order doesn't", () => {
+    const l = level([
+      { type: 1, third: FIXED | 0x1000, y: 50 },
+      { type: 1, third: FIXED, y: 10 },
+    ]);
+    expect(tim2LastOnList(l, 0, tables)).toEqual({ can: false, behind: 1 });
+    expect(tim2LastOnList(l, 1, tables)).toEqual({ can: true, above: [] });
   });
 
   it("warns that a count can pass with fewer parts only when its part can be last", () => {
