@@ -6,6 +6,8 @@
  * time in its metrics file is then measured while the others run, so give `--jobs 1` to compare times.
  *
  *   pnpm --filter @opentim/content extract-behaviour --out <folder> --tim1 <game folder> --evenmore <game folder>
+ *
+ * `--tim2 <game folder>` and `--toons <game folder>` read TIM 2 and Toons builds as well.
  */
 import { createHash } from "node:crypto";
 import { createEvidenceWriter } from "../src/read/behaviour-evidence.ts";
@@ -15,7 +17,16 @@ import { parseArgs } from "node:util";
 import { isMainThread } from "node:worker_threads";
 import { readBehaviourInSteps, transitionCounts, type BehaviourReport } from "../src/read/behaviour.ts";
 import { partSemantics } from "../src/read/behaviour-build-comparison.ts";
-import { buildFolders, inEachBuild, jobsOption, readBuild, type BuildFolder } from "./builds.ts";
+import {
+  buildFolders,
+  folderOptions,
+  GAMES,
+  inEachBuild,
+  jobsOption,
+  readBuild,
+  type BuildFolder,
+  type Game,
+} from "./builds.ts";
 
 function timingSemantics(timing: BehaviourReport["timing"]) {
   return {
@@ -96,7 +107,7 @@ function partSummary(part: BehaviourReport["parts"][number], report: BehaviourRe
 }
 
 /** Reads one build and writes its report and metrics into `out`; gives what the summary needs, or the failure. */
-export function inBuild(build: BuildFolder, out: string) {
+export function inBuild(build: BuildFolder<Game>, out: string) {
   const { game: listId, folder, index } = build;
   try {
     const { program, parts } = readBuild(build);
@@ -136,19 +147,19 @@ if (isMainThread) {
     options: {
       out: { type: "string" },
       jobs: { type: "string" },
-      tim1: { type: "string", multiple: true },
-      evenmore: { type: "string", multiple: true },
+      ...folderOptions(GAMES),
     },
   });
-  if (!values.out || (!values.tim1?.length && !values.evenmore?.length))
-    throw new Error("Give --out <report folder> and at least one --tim1 <game folder> or --evenmore <game folder>");
+  const folders = buildFolders(values, GAMES);
+  if (!values.out || !folders.length)
+    throw new Error("Give --out <report folder> and at least one --tim1, --evenmore, --tim2 or --toons <game folder>");
   const out = resolve(values.out);
   mkdirSync(out, { recursive: true });
   const failures: { listId: string; folder: string; error: string }[] = [];
   const results: NonNullable<ReturnType<typeof inBuild>["result"]>[] = [];
-  await inEachBuild<ReturnType<typeof inBuild>>(
+  await inEachBuild<ReturnType<typeof inBuild>, Game>(
     import.meta.url,
-    buildFolders(values),
+    folders,
     (answer) => {
       if (answer.failure) {
         failures.push(answer.failure);

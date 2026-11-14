@@ -7,6 +7,7 @@ import {
   ANSWER_ASSUMPTION,
   effectsFromOthers,
   FIXED_LIST_ASSUMPTION,
+  OWN_TOUCH_ASSUMPTION,
   predicateForType,
   SCREEN_DIRECTION_ASSUMPTION,
   TOUCH_ASSUMPTION,
@@ -614,6 +615,37 @@ describe("effects of parts that touch", () => {
         "An alligator it touches, when the answer of the query at 0x1d12a is not 0, sets +0x84 to 0. Only when its contactEdge is 0. Its bounce returns 0 then, so no contact response follows.",
     });
     expect(cat[0]!.assumptions).toContain(ANSWER_ASSUMPTION);
+  });
+
+  it("gives a type whose own bounce the game calls when it touches a part what that bounce sets on it", () => {
+    // TIM 2's super ball (59) has the alligator's bounce here; TIM2.EXE also calls it when a super ball touches a part.
+    const own = (list: string, reads: number[] = []) =>
+      effectsFromOthers(
+        {
+          ...report,
+          listId: list,
+          parts: [part("cat", 12), part("super-ball", 59, reads, 0x1da61)],
+        } as unknown as BehaviourReport,
+        evaluateBehaviourCondition,
+      );
+    const [line] = own("tim2").get(59)!.ownBounce!;
+    expect(own("tim2").get(59)!.ownBounce).toHaveLength(1);
+    expect(line).toMatchObject({
+      sourcePart: "super-ball",
+      touch: {},
+      sourceCondition: mirrored(false),
+      conditionWords: ["its contactEdge is 0"],
+      description:
+        "When it touches a part, its own bounce runs on it too and, when the touched part is not mirrored, sets velocityY to -|velocityY|. Only when its contactEdge is 0. The game doesn't use what this bounce returns.",
+    });
+    expect(line!.assumptions).toContain(OWN_TOUCH_ASSUMPTION);
+    // A field its own rules read is said, since no walk starts from its own bounce.
+    expect(own("tim2", [0x38]).get(59)!.ownBounce![0]!.description).toBe(
+      "When it touches a part, its own bounce runs on it too and, when the touched part is not mirrored, sets velocityY to -|velocityY|. Only when its contactEdge is 0. Its own rules read velocityY, so this can change its frame. The game doesn't use what this bounce returns.",
+    );
+    // The cat has no bounce of its own, and TIM.EXE doesn't call a part's own bounce this way.
+    expect(own("toons").get(12)?.ownBounce).toBeUndefined();
+    expect(own("evenmore").get(59)?.ownBounce).toBeUndefined();
   });
 });
 

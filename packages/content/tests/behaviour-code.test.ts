@@ -74,6 +74,18 @@ describe("routine control flow", () => {
     expect(result.instructions.filter((instruction) => instruction.mnemonic === "mov")).toHaveLength(2);
   });
 
+  it("follows a switch whose index is doubled by add bx, bx after a jbe and a jump to the default", () => {
+    // cmp bx, 1; jbe table; jmp default; table: add bx, bx; jmp cs:[bx+0x30]; default: retf
+    const image = new Uint8Array(0x60).fill(0x66);
+    image.set([0x83, 0xfb, 1, 0x76, 2, 0xeb, 7, 0x03, 0xdb, 0x2e, 0xff, 0xa7, 0x30, 0, 0xcb], 0);
+    image.set([0x40, 0, 0x50, 0], 0x30);
+    image.set([0xc7, 0x44, 0x0c, 1, 0, 0xcb], 0x40);
+    image.set([0xc7, 0x44, 0x0c, 2, 0, 0xcb], 0x50);
+    const result = readRoutineCode(image, entry, 0);
+    expect(result.status).toBe("complete");
+    expect(result.edges.filter((edge) => edge.kind === "jump-table").map((edge) => edge.to)).toEqual([0x40, 0x50]);
+  });
+
   it("does not trust a range check when the routine starts after it, on the branch", () => {
     // cmp bx, 1; ja default; shl bx, 1; jmp cs:[bx+0x30]; default: jmp back to the cmp. Read from the ja, so the
     // first pass through the shift has no comparison before it.

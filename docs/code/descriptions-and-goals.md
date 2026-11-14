@@ -11,7 +11,10 @@ sentences and walks, how a puzzle's goal is read, the level files, and the emula
 Its passes, in order:
 
 1. `effectsFromOthers` (`describe-effects.ts`): what other parts do to a part without changing its frame, as
-   "From other parts" lines (`OtherPartEffect`).
+   "From other parts" lines (`OtherPartEffect`). For a type whose own bounce the contact dispatch also calls when it
+   touches a part (`selfBounce` in the profile: TIM 2's cupid, Mel Schlemming, super ball and blimp, and every Toons
+   type), it also gives what that bounce sets on the part itself, as `ownBounce` lines, with the part it touches in the
+   bounce owner's place. These lines say when a write can change the frame, since no walk starts from them.
 2. `hitsFromOthers` (`describe-hits.ts`): what other parts do that can change the frame (`PartHit`). It reports
    progress per source part.
 3. `describePart` for each part:
@@ -24,7 +27,7 @@ Its passes, in order:
      sentence.
 
 The main types (in `describe-behaviour.ts`): `PartBehaviourDescription` (rest, creation, stable states, effects,
-rules, animations, triggers, uncertainties, effects from others, contact, gear), `RestDescription` (`known`, `saved`,
+rules, animations, triggers, uncertainties, effects from others, its own bounce, contact, gear), `RestDescription` (`known`, `saved`,
 `sockets` or `unresolved`), `KnownField` (a value with `knownMask`: bits outside the mask are unknown, not zero),
 `AnimationDescription`, `AnimationTrigger`, `DescribedEffect`, `FrameVisit`.
 

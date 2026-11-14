@@ -41,3 +41,10 @@ it("keeps a part made of a type without a name", () => {
   const pairs = interactionPairs({}, { 18: [made("Creates a part of type 70, which starts on frame 0, at …")] });
   expect(pairs.find((p) => p.source === 18)).toMatchObject({ target: 70, kinds: ["make"] });
 });
+
+it("leaves a part's own bounce out, so a type doesn't act on itself", () => {
+  const own = { ...effect(9, [{ what: "velocityX", value: "0" }], true), own: true } as OtherEffect;
+  expect(interactionPairs({ 9: [own, effect(24, [{ what: "velocityX", value: "256" }])] })).toMatchObject([
+    { source: 24, target: 9 },
+  ]);
+});

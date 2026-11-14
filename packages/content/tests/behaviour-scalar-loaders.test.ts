@@ -1,0 +1,73 @@
+import { describe, expect, it } from "vitest";
+import { readRoutineCode } from "../src/read/behaviour-code.ts";
+import type { EngineSummary } from "../src/read/behaviour-helpers.ts";
+import {
+  discoverScalarLoaders,
+  numberFirstArgument,
+  SCALAR_SERVICE_ASSUMPTION,
+} from "../src/read/behaviour-scalar-loaders.ts";
+
+/**
+ * A loader at 0: push bp; mov bp, sp; push word [bp+6]; call far 0:0x40; add sp, 2; pop bp; retf. The routine at 0x40
+ * opens a file: push bp; mov bp, sp; mov ah, 0x3d; int 0x21; pop bp; retf.
+ */
+function codes(loaderPushes: number[]) {
+  const image = new Uint8Array(0x100);
+  image.set([0x55, 0x8b, 0xec, ...loaderPushes, 0x9a, 0x40, 0, 0, 0, 0x83, 0xc4, 0x02, 0x5d, 0xcb], 0);
+  image.set([0x55, 0x8b, 0xec, 0xb4, 0x3d, 0xcd, 0x21, 0x5d, 0xcb], 0x40);
+  const map = new Map<number, ReturnType<typeof readRoutineCode>>();
+  for (const address of [0, 0x40])
+    map.set(address, readRoutineCode(image, { segment: 0, offset: address, address }, 0));
+  return map;
+}
+
+describe("scalar loaders", () => {
+  it("reads a routine that only passes its number on to code that reaches the system as a resource service", () => {
+    const found = discoverScalarLoaders(codes([0xff, 0x76, 0x06]), new Map(), new Set(), 0xffff);
+    expect(found.map((summary) => [summary.address, summary.kind, summary.argumentKind])).toEqual([
+      [0, "scalar-resource-service", "scalar"],
+    ]);
+    expect(found[0]!.footprint).toMatchObject({ preservesPartState: true, partMemoryComplete: true, complete: false });
+    // What it does to the globals isn't known, so a caller forgets the globals it read before the call.
+    expect(found[0]!.footprint.unknownGlobalEffects?.length).toBe(1);
+    expect(found[0]!.assumptions).toEqual([SCALAR_SERVICE_ASSUMPTION]);
+  });
+
+  it("reads a loader that already has a generic summary, but not one with a summary of its own", () => {
+    const summary = (kind: string) => new Map([[0, { address: 0, kind } as EngineSummary]]);
+    const found = discoverScalarLoaders(codes([0xff, 0x76, 0x06]), summary("call-wrapper"), new Set(), 0xffff);
+    expect(found.map((s) => [s.address, s.kind])).toEqual([[0, "scalar-resource-service"]]);
+    expect(discoverScalarLoaders(codes([0xff, 0x76, 0x06]), summary("forwarder"), new Set(), 0xffff)).toEqual([]);
+  });
+
+  it("doesn't when the argument is used as an address", () => {
+    // mov bx, [bp+6]; push bx instead of push word [bp+6]
+    expect(discoverScalarLoaders(codes([0x8b, 0x5e, 0x06, 0x53]), new Map(), new Set(), 0xffff)).toEqual([]);
+  });
+
+  it("doesn't when a part's callback or the program's start is reached", () => {
+    expect(discoverScalarLoaders(codes([0xff, 0x76, 0x06]), new Map(), new Set([0x40]), 0xffff)).toEqual([]);
+    expect(discoverScalarLoaders(codes([0xff, 0x76, 0x06]), new Map(), new Set(), 0x40)).toEqual([]);
+  });
+});
+
+describe("number arguments", () => {
+  const routine = (body: number[]) =>
+    readRoutineCode(Uint8Array.from([0x55, 0x8b, 0xec, ...body, 0x5d, 0xcb]), { segment: 0, offset: 0, address: 0 }, 0);
+
+  it("takes a first argument that is only compared with a number and pushed on for a number", () => {
+    // cmp word [bp+6], 5; push word [bp+6]; add sp, 2
+    const code = routine([0x83, 0x7e, 0x06, 0x05, 0xff, 0x76, 0x06, 0x83, 0xc4, 0x02]);
+    expect(numberFirstArgument(code, new Map())?.map((e) => e.text)).toEqual([
+      "cmp word [bp+0x06], 0x0005",
+      "push word [bp+0x06]",
+    ]);
+  });
+
+  it("doesn't when the argument is loaded as a pointer or never compared", () => {
+    // les bx, [bp+6]; cmp word es:[bx], 5
+    expect(numberFirstArgument(routine([0xc4, 0x5e, 0x06, 0x26, 0x83, 0x3f, 0x05]), new Map())).toBeUndefined();
+    // push word [bp+6] to a routine that isn't a resource service
+    expect(numberFirstArgument(routine([0xff, 0x76, 0x06, 0x83, 0xc4, 0x02]), new Map())).toBeUndefined();
+  });
+});

@@ -82,6 +82,8 @@ export function interactionPairs(
   };
   for (const [target, list] of Object.entries(effects))
     for (const e of list) {
+      // A part's own bounce isn't one type acting on another: the Interactions tab lists it on its own.
+      if (e.own) continue;
       const p = pairOf(e.sourceType, Number(target));
       p.effects.push(e);
       if (e.touch) p.touches = true;

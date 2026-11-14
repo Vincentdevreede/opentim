@@ -51,8 +51,9 @@ language in a subfolder). The research uses the five TIM 1 and six Even More bui
 
 Run them as `pnpm --filter @opentim/content <name> …`. Most read builds side by side on worker threads through
 `scripts/builds.ts` (`--jobs n`; one build takes up to a minute and about 1.7 GB). A build is a game folder given by
-its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`; the behaviour scripts read only TIM 1 and Even More
-(`readBuild`).
+its game: `--tim1`, `--evenmore`, `--tim2` or `--toons`. `readBuild` gives the parts of all four; `extract-behaviour`,
+`fingerprint-behaviour` and `list-assumptions` read TIM 2 and Toons too (`--game tim2` and `--game toons` for the
+fingerprint), and a Toons read takes about three minutes.
 
 | Script                      | What it does                                                                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |

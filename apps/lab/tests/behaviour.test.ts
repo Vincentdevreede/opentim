@@ -889,6 +889,37 @@ describe("summariseEffects", () => {
     expect(joined!.assumptions).toEqual(["One.", "Two."]);
     expect(joined!.evidence.map((e) => e.address)).toEqual([0x10, 0x20]);
   });
+
+  it("adds what the part's own bounce sets on it to its list, marked as its own, after what others do", () => {
+    const own = {
+      parts: [
+        {
+          type: 12,
+          effectsFromOthers: [effect({ sets: [{ kind: "speed", fields: [0x36, 0x38], speed: 4096, setter: 0x7d97 }] })],
+          ownBounce: [
+            effect({
+              sourceType: 12,
+              sourcePart: "cat",
+              touch: {},
+              sourceCondition: compare("==", field(0x0c), constant(0)),
+              sets: [{ kind: "field", offset: 0x84, width: 16, value: 0 }],
+              description: "When it touches a part, its own bounce runs on it too and sets contactPart to 0.",
+            }),
+          ],
+        },
+      ],
+    } as unknown as BehaviourDescription;
+    const [push, bounce] = summariseEffects(report, own)[12]!;
+    expect(push!.own).toBeUndefined();
+    expect(bounce).toMatchObject({
+      sourceType: 12,
+      source: "cat",
+      touch: true,
+      own: true,
+      sets: [{ what: "contactPart", value: "0" }],
+      sourceConditions: ["state == 0"],
+    });
+  });
 });
 
 describe("summariseRests", () => {
@@ -1076,6 +1107,11 @@ describe("goal marks", () => {
   it("knows the parts that set each mark on a part", () => {
     expect(setters.get("31:512")).toEqual(["Cat", "Alligator"]);
     expect(setters.get("31:256")).toEqual(["Vacuum"]);
+  });
+
+  it("doesn't name a mark after the part whose own bounce sets it on itself", () => {
+    const own = { ...effect(42, "Vacuum", 0x100), own: true } as OtherEffect;
+    expect(goalMarkSetters({ 42: [own] }).size).toBe(0);
   });
 
   it("says a goal's test of a mark by the parts that set it, and keeps a bit no part is seen to set", () => {

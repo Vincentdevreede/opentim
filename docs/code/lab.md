@@ -68,6 +68,8 @@ The biggest file of the Lab. In order:
 
 `behaviour-view.ts` lays one part out for the Behaviour tab (rows by routine, state or walk, folding long lists).
 `interactions.ts` builds the pairs of the Interactions tab (`remove`, `mark`, `push`, `make`, `touch`, `change`).
+`summariseEffects` also puts the description's `ownBounce` lines in the type's own list, marked `own`; the pairs leave
+them out, and the tab lists them under "Its own bounce".
 
 ## Pages and components
 
