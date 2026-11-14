@@ -567,6 +567,16 @@ in that table. When the table isn't found, the Lab draws walls and patterns by t
 - **The colour block** (127) has a routine of its own: it fills the part's box (its position and size) and outlines it
   in one palette colour, the low byte of the part's extra word, or colour 5 when that is 0. Only the colour block
   has all of bits `0x1480` in its type's third flag word; the Lab knows it from TIM2.EXE's type table.
+- **In a bucket.** The usual draw routine (`0x1562:0x2fbe` in the CD build) draws the rocket (36), Aladdin's lamp
+  (45) and the missile (70) cut off below a row the part's record keeps (0xae) when bit `0x10` of their third flag
+  word is set: it lowers the bottom of the drawing window to that row for the one part. Only one place sets that bit
+  (`0x1a31:0x566d`), in the routine (`0x1a31:0x54f1`) the run loop's step (`0x4ee4:0x1c6b`, called from the run loop
+  at `0x4ee4:0x0043`) calls for every bucket (17) and leaky bucket (108): a moving part whose bottom middle is in the
+  bucket's opening (for the rocket the point 42, 61 and for the missile 47, 74 of its box instead) gets the bit and
+  the bucket's top plus 20 as its row, so it looks as if it stands in the bucket. The same step first clears the bit
+  on every moving part (`0x4ee4:0x1e2d`). No type has the bit of its own and the loader doesn't keep it from the
+  file, so nothing is cut off before the machine runs: the Lab, which shows a puzzle as it starts, draws them whole,
+  as the game does then. The floppy and the demo have the same code.
 
 The play area is the screen, 640 × 400: the goal routine counts a part off the screen when its middle is outside it,
 and the interface animations (`CNTRLPNL.ANM`, `PARTSBIN.ANM`) draw their panels in a frame of that size. While a
@@ -579,8 +589,6 @@ What isn't worked out yet, and what the Lab does meanwhile:
 
 - **The demo** has few `.PAR` files, so a mirrored part whose type takes its mirror size from the `.PAR` file is
   mirrored in its own size.
-- **Cut off pictures.** The usual draw routine draws types 36, 45 and 70 with bit `0x10` of the third flag word cut off
-  at a row the part's record keeps (offset `0xae`). What sets that row isn't read, and the Lab draws them whole.
 - **Screen width.** The 256 colour `VGA:` driver in `VM.OVL` addresses rows 320 pixels wide in a 400 line mode, while
   the play area is taken as 640 by 400 from the goal check and the panel animations. How the two fit (a doubled pixel,
   or another mode for the play area) isn't settled. The line rule is the same at any width, so drawing lines doesn't
