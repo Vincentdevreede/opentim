@@ -371,7 +371,7 @@ floppy, 8 of 8 in the demo, and the designer's solutions too.
   explosives are taken off and freed, as Toons takes off a tunnel's other end. That is why the remote controls ELEV22
   #10, HLEV6 #3 and MLEV21 #9 go to the bin although they have bit 0x40: their explosives don't.
 - **Plugs and states.** A part plugged into one that goes to the bin is unplugged by the routine that pulls a plug out
-  (`0x21bf0`): it clears both plug words, calls the type routine at 0x08 of each part's type record, and keeps the
+  (`0x21b4f`): it clears both plug words, calls the type routine at 0x08 of each part's type record, and keeps the
   board part's new state as the one it starts from (0xa8). Read from those routines: the electric switch (21,
   `2354:0x28b8`) and the electrical outlet (120, `2354:0xb119`) keep bit 4 of the state and take 1 for a plug in the
   first place and 2 for one in the second; the generator (26, `2354:0x2f6c`) and the solar panel (38, `2354:0x4f9b`)

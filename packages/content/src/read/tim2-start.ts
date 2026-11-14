@@ -183,7 +183,7 @@ const LASER_PLUG = 96;
 
 /**
  * The state a part on the board takes when the start pulls a plug out of it. The routine that pulls a plug out
- * (file offset `0x21bf0` in the CD build) clears both plug words and calls the type routine at 0x08 of the type's
+ * (file offset `0x21b4f` in the CD build) clears both plug words and calls the type routine at 0x08 of the type's
  * record for both parts, and keeps the state as the one the part starts from (0xa8). The routines of the types the
  * shipped levels unplug, read from TIM2.EXE (in the CD build):
  *
