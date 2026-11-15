@@ -938,6 +938,11 @@ interface AbstractState {
   havocAt?: number;
   globalHavocAt?: number;
   partMemoryHavocAt?: number;
+  /**
+   * The bytes of code segment variables this path stored into, as `code segment <segment>:<offset>`. They stay here
+   * when the path forgets what it stored, so a later read doesn't take the bytes the program starts with.
+   */
+  codeStored?: Set<string>;
   fieldHavoc?: {
     offset: number;
     width: number;
@@ -1035,6 +1040,7 @@ const clone = (s: AbstractState): AbstractState => ({
   fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
   findFirst: s.findFirst && new Set(s.findFirst),
   ownerMayBeListed: s.ownerMayBeListed && new Set(s.ownerMayBeListed),
+  codeStored: s.codeStored && new Set(s.codeStored),
 });
 /** Forgets every global the path knew, after something at `address` may have changed any of them. */
 function forgetGlobals(s: AbstractState, address: number) {
@@ -1731,7 +1737,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const word = typeRecordWord(seg.value, operand.displacement, index, operand.width);
       if (word) return tracked(word.value, [...base.flatMap((v) => v.evidence), ...word.evidence]);
       if (operand.segment === "cs" && index.kind === "constant") {
-        const at = seg.value * 16 + unsigned(index.value + operand.displacement, 16);
+        const offset = unsigned(index.value + operand.displacement, 16);
+        const at = seg.value * 16 + offset;
+        // A variable this path stored into, and then forgot, no longer holds the bytes the program starts with.
+        const stored = [...Array(Math.max(1, operand.width / 8)).keys()].some((byte) =>
+          s.codeStored?.has(`code segment ${hex(seg.value)}:${unsigned(offset + byte, 16)}`),
+        );
+        if (stored)
+          return tracked(
+            unknown(
+              `code segment ${hex(seg.value)}:${hex(offset)}, which this path stored into, after it was forgotten (${hex(s.havocAt ?? entry.address)})`,
+              operand.width,
+            ),
+            base.flatMap((v) => v.evidence),
+          );
         if (operand.width <= 16 && at + operand.width / 8 <= image.length) {
           const value = image[at]! | (operand.width === 16 ? image[at + 1]! << 8 : 0);
           return tracked(constant(value, operand.width), [
@@ -1861,6 +1880,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (l?.object.startsWith("code segment ")) {
       if (!s.assumptions.includes(CODE_VARIABLE_ASSUMPTION))
         s.assumptions = [...s.assumptions, CODE_VARIABLE_ASSUMPTION];
+      s.codeStored = new Set(s.codeStored);
+      for (let byte = 0; byte < l.width / 8; byte++) s.codeStored.add(`${l.object}:${unsigned(l.offset + byte, 16)}`);
     }
     if (!l) {
       l = { object: "unknown", offset: operand.displacement, width: operand.width, uncertain: true, evidence: [] };
@@ -3147,6 +3168,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         s.globalHavocAt,
         s.partMemoryHavocAt,
         s.fieldHavoc,
+        s.codeStored && [...s.codeStored].sort(),
       ]);
       for (const queued of queue.filter((q) => q.at === item.at && q.joinSignature === item.joinSignature)) {
         const terms = (state: AbstractState) => {
