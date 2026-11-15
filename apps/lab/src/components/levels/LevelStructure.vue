@@ -11,7 +11,7 @@ import {
   type Tim2StartTables,
 } from "@opentim/content";
 import { computed, nextTick, ref, watch } from "vue";
-import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
+import { flagWords, recordName, type RecordNames } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
 import { groupOf, levelStart, toonsSetting, toonsStart, type StartGroup, type ToonsSort } from "../../levels.ts";
 import { hex } from "../../ui.ts";
@@ -38,8 +38,11 @@ const props = defineProps<{
   selected?: number;
   /** The header's words in the loaded program, when it is a build the loader was checked on. */
   header?: LoadedHeader;
-  /** The part record's fields as the behaviour read of the loaded program names them, once it is read. */
-  record?: readonly WriterField[];
+  /**
+   * The part record's words by name: the fields the behaviour read of the loaded program names, once it is read, and
+   * for TIM 1 and Even More TIM.EXE's words by place.
+   */
+  record?: RecordNames;
   /**
    * For Toons, the sort words of TOONS.EXE's type table: those of the lists decide which tunnel of a pair the puzzle
    * start puts in the bin, and the bin is sorted by its own, which TOONS.EXE sets when it starts.
@@ -215,8 +218,8 @@ const word = (n: number) => `0x${n.toString(16).toUpperCase().padStart(4, "0")}`
 const index = (i: number | null | undefined) => (i === null || i === undefined ? "none" : `#${i}`);
 const pair = (p: { x: number; y: number }) => `${p.x}, ${p.y}`;
 
-/** The record's flag words the file's three flag words go to, in their order. */
-const FLAG_WORDS = [0x06, 0x08, 0x0a];
+/** The names to say the record's words with; none before they are known. */
+const names = computed<RecordNames>(() => props.record ?? { fields: [] });
 
 /** A part's flags in words, by the names of their bits, with how many bits the program never uses are set. */
 function flagsShown(p: LevelPart): { value: string; note?: string } {
@@ -225,8 +228,11 @@ function flagsShown(p: LevelPart): { value: string; note?: string } {
     const names = p.flags.flatMap((f, k) => (TIM2_FLAGS[k] ?? []).filter(([bit]) => f & bit).map(([, n]) => n));
     return { value: [...names, p.flags.map(word).join(" ")].join(" · ") };
   }
-  if (props.level.layout !== "tim") return { value: p.flags.map(word).join(" ") };
-  const read = p.flags.map((f, k) => flagWords(FLAG_WORDS[k]!, f, props.record));
+  // The record's flag words the file's three flag words go to, in their order: TIM.EXE's.
+  const timWords = names.value.words;
+  if (props.level.layout !== "tim" || !timWords) return { value: p.flags.map(word).join(" ") };
+  const flagWordsAt = [timWords.listFlags, timWords.drawingFlags, timWords.marks];
+  const read = p.flags.map((f, k) => flagWords(flagWordsAt[k]!, f, names.value));
   const words = read.flatMap((r) => r.words);
   const unknown = read.reduce((n, r) => n + r.unknown.toString(2).replace(/0/g, "").length, 0);
   return {
@@ -271,8 +277,8 @@ function loadedTag(place: LoadedPlace): Row["loaded"] {
     .filter(Boolean)
     .join("; ");
   if (place.notKept) return { tag: "not kept", title: `The loader doesn’t keep it: ${what}.`, faint: true };
-  const named = place.at.map((a, k) => recordName(a, props.record) ?? place.names?.[k]);
-  const through = place.through && recordName(place.through.word, props.record);
+  const named = place.at.map((a, k) => recordName(a, names.value) ?? place.names?.[k]);
+  const through = place.through && recordName(place.through.word, names.value);
   const tag = place.through
     ? through
       ? `→ ${through} record`

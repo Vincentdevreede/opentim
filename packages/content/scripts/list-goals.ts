@@ -19,6 +19,7 @@ import { readBehaviour } from "../src/read/behaviour.ts";
 import { readLevel, type LevelLayout } from "../src/read/level.ts";
 import { readProgramGoals, type ProgramGoals } from "../src/read/program-goals.ts";
 import { summariseTim2Goal } from "../src/read/tim2-goal.ts";
+import { readTim2StartTables } from "../src/read/tim2-start.ts";
 import { readPartNames } from "../src/read/tim2.ts";
 import { readToonsGoals } from "../src/read/toons-goals.ts";
 import {
@@ -77,6 +78,8 @@ function fromLevels(build: BuildFolder<"tim2">): BuildGoals {
   const files = readResources(build.folder);
   const info = files.get("INFO.RES");
   const names = info ? readPartNames(info) : new Map<number, string>();
+  // The lists' order, which decides whether a count can pass with fewer parts.
+  const tables = readTim2StartTables(readProgram(build));
   const puzzles: BuildGoals["puzzles"] = [];
   [...files.keys()]
     .filter((file) => /\.LEV$/i.test(file))
@@ -88,7 +91,7 @@ function fromLevels(build: BuildFolder<"tim2">): BuildGoals {
       } catch {
         return;
       }
-      const read = summariseTim2Goal(level, (type) => names.get(type) ?? `type ${type}`);
+      const read = summariseTim2Goal(level, (type) => names.get(type) ?? `type ${type}`, tables);
       if (!read) return;
       puzzles.push({
         puzzle,

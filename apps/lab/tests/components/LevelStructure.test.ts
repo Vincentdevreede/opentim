@@ -1,5 +1,5 @@
 import type { Level, LevelPart, LoadedHeader } from "@opentim/content";
-import { LOADED_HEADERS, EVEN_MORE_FLOPPY_EXE } from "@opentim/content";
+import { LOADED_HEADERS, EVEN_MORE_FLOPPY_EXE, TIM_PART_WORDS } from "@opentim/content";
 import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { expect, it } from "vitest";
@@ -46,9 +46,13 @@ const level = (parts: LevelPart[], layout: Level["layout"] = "tim"): Level => ({
 });
 
 const CHECKED = LOADED_HEADERS.get(EVEN_MORE_FLOPPY_EXE);
+/** TIM.EXE's words by place, as the levels page gives them for TIM 1 and Even More. */
+const TIM = { fields: [], words: TIM_PART_WORDS };
 const html = (l: Level, selected?: number, header: LoadedHeader | undefined = CHECKED) =>
   renderToString(
-    createSSRApp({ render: () => h(LevelStructure, { level: l, name: "L1.LEV", selected, header, toonsSort: SORT }) }),
+    createSSRApp({
+      render: () => h(LevelStructure, { level: l, name: "L1.LEV", selected, header, toonsSort: SORT, record: TIM }),
+    }),
   );
 
 it("tags each field of a part with the name of the record word the loader keeps it in", async () => {

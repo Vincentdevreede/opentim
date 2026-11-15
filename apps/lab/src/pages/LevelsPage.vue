@@ -14,6 +14,7 @@ import LabSearch from "../components/LabSearch.vue";
 import LabSegmented from "../components/LabSegmented.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { BACKGROUND_CLASSES, BACKGROUNDS, background } from "../components/backgrounds.ts";
+import { TIM2_COLOURS, tim2ColourProblem, tim2Colours } from "../components/tim2-colours.ts";
 import LevelCanvas from "../components/levels/LevelCanvas.vue";
 import LevelGoal from "../components/levels/LevelGoal.vue";
 import LevelStructure from "../components/levels/LevelStructure.vue";
@@ -29,6 +30,7 @@ import {
   layoutScene,
   readLevels,
   type LevelEntry,
+  type Note,
   type ToonsCode,
   type ToonsSort,
 } from "../levels.ts";
@@ -36,6 +38,7 @@ import { MESSAGE_FONT } from "../toons-drawing.ts";
 import { readFont } from "@opentim/resources";
 import {
   LOADED_HEADERS,
+  partWordsOf,
   readTim2Types,
   readTim2StartTables,
   type Tim2StartTables,
@@ -51,7 +54,13 @@ import {
   type SpriteOf,
   type Tim2Drawing,
 } from "@opentim/content";
-import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
+import {
+  goalMarkSetters,
+  readBehaviourInBackground,
+  type GoalsResult,
+  type RecordNames,
+  type WriterField,
+} from "../behaviour.ts";
 import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
@@ -133,6 +142,16 @@ const goals = shallowRef<GoalsResult | { status: "reading" }>();
 const markSetters = shallowRef<ReadonlyMap<string, string[]>>(new Map());
 /** The part record's fields as the behaviour read names them, for the structure's tags. */
 const recordFields = shallowRef<readonly WriterField[]>();
+/**
+ * The part record's words the panels can name: the fields the behaviour read names once it is read, and for TIM 1 and
+ * Even More TIM.EXE's words by place, from the game's profile. Another game's words never take TIM.EXE's names.
+ */
+const recordNames = computed<RecordNames>(() => {
+  // Only a known game: the profile of an unknown one would be TIM.EXE's.
+  const listId = listIdOf(edition.value);
+  const words = listId ? partWordsOf({ listId }) : undefined;
+  return { fields: recordFields.value ?? [], ...(words ? { words } : {}) };
+});
 /** The least time one step of the run takes, from the timer ticks the run loop waits for. */
 const stepMilliseconds = ref<number>();
 watch(
@@ -195,7 +214,7 @@ const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefin
   if (current.value?.kind !== "level") return undefined;
   if (level.value?.layout === "tim2") {
     const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name]));
-    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`);
+    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`, tim2Start.value);
     return read
       ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
       : { status: "none", why: "This level has no goal entries." };
@@ -393,6 +412,14 @@ const scene = computed(() =>
     : undefined,
 );
 
+/** The scene's notes, and why a TIM 2 level isn't drawn in its 16 colours when the setting asks for them. */
+const notes = computed((): Note[] => [
+  ...(scene.value?.notes ?? []),
+  ...(isTim2.value && tim2ColourProblem.value
+    ? [{ status: "error" as const, title: "Not in 16 colours.", detail: tim2ColourProblem.value }]
+    : []),
+]);
+
 const stats = computed(() => {
   const s = scene.value;
   if (!s) return [];
@@ -510,6 +537,7 @@ onBeforeUnmount(() => {
           <LabCheckbox v-model="showBounds">Part boxes</LabCheckbox>
           <LabCheckbox v-if="level?.layout !== 'tim'" v-model="showSolution">Solution</LabCheckbox>
           <LabCheckbox v-if="goal?.status === 'done'" v-model="showGoal">Goal</LabCheckbox>
+          <LabSegmented v-if="isTim2" v-model="tim2Colours" label="Colours" :options="TIM2_COLOURS" />
           <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
           <LabSegmented v-model="zoomSetting" label="Zoom" :options="ZOOMS" />
         </LabToolbar>
@@ -556,13 +584,14 @@ onBeforeUnmount(() => {
               :type-counts="typeCounts"
               :part-numbers="goalParts"
               :at-start="toonsParts"
+              :record="recordNames"
             />
           </div>
           <div class="relative min-w-0 flex-[2]">
             <div class="absolute inset-0 flex flex-col">
-              <LabPanelHeader title="Limits and guesses" :meta="scene.notes.length" />
+              <LabPanelHeader title="Limits and guesses" :meta="notes.length" />
               <div class="min-h-0 flex-1 overflow-auto">
-                <LabListRow v-for="n in scene.notes" :key="n.title" inset>
+                <LabListRow v-for="n in notes" :key="n.title" inset>
                   <p class="min-w-0 flex-1 text-soft">
                     <span class="font-semibold text-ink">{{ n.title }}</span> {{ n.detail }}
                   </p>
@@ -570,7 +599,7 @@ onBeforeUnmount(() => {
                     <LabBadge :status="n.status" :label="n.status === 'unsupported' ? 'not done' : n.status" />
                   </template>
                 </LabListRow>
-                <p v-if="!scene.notes.length" class="px-3 py-[5px] text-muted">
+                <p v-if="!notes.length" class="px-3 py-[5px] text-muted">
                   Nothing left out: every part is drawn by the rules of the game’s program.
                 </p>
               </div>
@@ -586,7 +615,7 @@ onBeforeUnmount(() => {
         :list="list"
         :selected="selectedPart"
         :header="loadedHeader"
-        :record="recordFields"
+        :record="recordNames"
         :toons-sort="toonsSort"
         :tim2-start="tim2Start"
         @select="selectedPart = $event"

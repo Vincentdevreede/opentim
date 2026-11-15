@@ -5,7 +5,13 @@ import { hitsFromOthers, PLACE_DIFFERENCE_ASSUMPTION } from "../src/read/describ
 import { evaluateBehaviourCondition } from "../src/read/describe-behaviour.ts";
 import {
   ANSWER_ASSUMPTION,
+  contactRecordWords,
   effectsFromOthers,
+  finePosition,
+  flagWords,
+  listFlagWords,
+  partWordsOf,
+  startingListFlags,
   FIXED_LIST_ASSUMPTION,
   OWN_TOUCH_ASSUMPTION,
   predicateForType,
@@ -905,5 +911,74 @@ describe("the tests a line from another part says", () => {
     const lines = effectsFromOthers(data, evaluateBehaviourCondition).get(4)!.effects;
     expect(lines).toHaveLength(1);
     expect(lines[0]!.description).toContain("Only when |its velocityY| is above 100.");
+  });
+});
+
+describe("the fine position", () => {
+  const layout = (positionX?: number, listId = "tim1") =>
+    ({
+      listId,
+      layout: { fields: positionX === undefined ? [] : [{ name: "positionX", offset: positionX }] },
+    }) as unknown as Pick<BehaviourReport, "layout" | "listId">;
+
+  it("sits 8 bytes before positionX, so it moves with it from game to game", () => {
+    // TIM.EXE: positionX at 0x1e, the longs at 0x16 and 0x1a; the same when positionX isn't named.
+    for (const report of [layout(0x1e), layout()]) {
+      expect(finePosition(report, 0x16)).toEqual({ words: "fine horizontal position (low word)", axis: "positionX" });
+      expect(finePosition(report, 0x1c)).toEqual({ words: "fine vertical position (high word)", axis: "positionY" });
+    }
+    // TIM2.EXE: positionX at 0x22, so 0x16 is another word (its stateDelta) and the longs are at 0x1a and 0x1e.
+    expect(finePosition(layout(0x22), 0x16)).toBeUndefined();
+    expect(finePosition(layout(0x22), 0x1a)).toEqual({
+      words: "fine horizontal position (low word)",
+      axis: "positionX",
+    });
+    expect(finePosition(layout(0x22), 0x1e)).toEqual({ words: "fine vertical position (low word)", axis: "positionY" });
+    // Another game's words aren't known without its positionX.
+    for (const listId of ["tim2", "toons"]) expect(finePosition(layout(undefined, listId), 0x16)).toBeUndefined();
+    // TOONS.EXE: positionX at 0x1f, the longs at 0x17 and 0x1b.
+    expect(finePosition(layout(0x1f), 0x19)).toEqual({
+      words: "fine horizontal position (high word)",
+      axis: "positionX",
+    });
+  });
+});
+
+describe("TIM.EXE's words by place", () => {
+  it("are TIM.EXE's only: TIM 2 and Toons get none, so their words aren't read with TIM.EXE's offsets", () => {
+    for (const listId of ["tim1", "evenmore", "synthetic"])
+      expect(partWordsOf({ listId })).toMatchObject({ listFlags: 0x06, contactSides: [0x86, 0x87] });
+    for (const listId of ["tim2", "toons"]) {
+      const words = partWordsOf({ listId });
+      expect(words).toBeUndefined();
+      expect(flagWords(words, 0x08, 0x2000, true, "its")).toBeUndefined();
+      expect(contactRecordWords(words, 0x86)).toBeUndefined();
+      const onMoving: Predicate = {
+        kind: "compare",
+        operator: "!=",
+        left: { kind: "binary", operator: "&", left: f("part", 0x06), right: c(0x1000), width: 16 },
+        right: c(0),
+        signed: false,
+      };
+      expect(listFlagWords(words, onMoving, "part")).toBeUndefined();
+      expect(listFlagWords(partWordsOf({ listId: "tim1" }), onMoving, "part")).toBe("on the moving list");
+    }
+    const tim = partWordsOf({ listId: "tim1" });
+    expect(flagWords(tim, 0x08, 0x2000, true, "its", false)).toBe("sets its out-of-play flag 0x2000 in drawing flags");
+    expect(contactRecordWords(tim, 0x86)).toBe("contact side byte at 0x86");
+    expect(contactRecordWords(tim, 0x06)).toBe("contact flags in its list flags at 0x06");
+  });
+
+  it("place the flag bits and the starting list flags by the game's words, not by fixed offsets", () => {
+    const moved = { ...partWordsOf({ listId: "tim1" })!, drawingFlags: 0x0c, listFlags: 0x02 };
+    expect(flagWords(moved, 0x0c, 0x2000, true, "its", false)).toBe(
+      "sets its out-of-play flag 0x2000 in drawing flags",
+    );
+    expect(flagWords(moved, 0x08, 0x2000, true, "its", false)).toBeUndefined();
+    const factory = { kind: "part-factory", factory: { startingWords: [{ field: 0x06, values: [0x4000] }] } };
+    const report = (listId: string) => ({ listId, helpers: [factory] }) as unknown as BehaviourReport;
+    expect(startingListFlags(report("tim1"))).toEqual({ field: 0x06, values: [0x4000] });
+    expect(startingListFlags(report("tim2"))).toBeUndefined();
+    expect(startingListFlags(report("toons"))).toBeUndefined();
   });
 });

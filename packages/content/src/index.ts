@@ -101,7 +101,8 @@ export {
   type FrameVisit,
   type DescribedEffect,
 } from "./read/describe-behaviour.ts";
-export { type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
+export { finePosition, partWordsOf, type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
+export { TIM_PART_WORDS, type PartWords } from "./read/behaviour-program.ts";
 export {
   discoverEngineSummaries,
   type EngineSummary,
@@ -211,6 +212,7 @@ export {
   type GoalSummary,
 } from "./read/goal-conditions.ts";
 export { TIM2_STEP_MS, tim2LinePixels } from "./read/tim2.ts";
+export { readTim2Driver, tim2FillColour, tim2SixteenColours, type Tim2Driver } from "./read/tim2-colours.ts";
 export { readToonsDrawing, readToonsMemory, type ToonsDrawing, type ToonsMemory } from "./read/toons-drawing.ts";
 export {
   findToonsGoalTable,
