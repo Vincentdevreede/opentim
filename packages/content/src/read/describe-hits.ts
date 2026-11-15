@@ -20,7 +20,7 @@ import {
   MOVING_SEARCH_ASSUMPTION,
   MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
-  LIST_FLAGS,
+  startingListFlags,
   partWordsOf,
   TYPE_TABLE_ASSUMPTION,
   listFlagWords,
@@ -471,9 +471,7 @@ export function madeIntoFixedList(report: BehaviourReport): Set<number> {
   if (!types) {
     const fixed = fixedListHead(report);
     const moving = movingListHead(report);
-    const starting = report.helpers
-      ?.find((h) => h.kind === "part-factory")
-      ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+    const starting = startingListFlags(report);
     types = new Set();
     if (fixed !== undefined && moving !== undefined && report.helpers && starting) {
       const intoMoving = typesLinkedInto(report.routines, report.helpers, moving).types;
@@ -741,9 +739,7 @@ export function hitsFromOthers(
     if (answer === undefined) known.set(key, (answer = rulesIgnoreLimit(part, offset, range, evaluate)));
     return answer;
   };
-  const startingFlags = report.helpers
-    ?.find((h) => h.kind === "part-factory")
-    ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const startingFlags = startingListFlags(report);
 
   const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
   /** Whether a new part of the type gets the bits: from the factory's table, or from its constructor's first run. */

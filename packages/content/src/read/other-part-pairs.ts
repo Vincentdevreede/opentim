@@ -24,7 +24,7 @@ import {
   MOVING_SEARCH_ASSUMPTION,
   MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
-  LIST_FLAGS,
+  startingListFlags,
   partWordsOf,
   objects,
   offMovingList,
@@ -174,9 +174,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   if (typeOffset === undefined || stateOffset === undefined) return result;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const helpers = new Map((report.helpers ?? []).map((h) => [h.address, h]));
-  const startingFlags = report.helpers
-    ?.find((h) => h.kind === "part-factory")
-    ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const startingFlags = startingListFlags(report);
   const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
   const words = partWordsOf(report);
   const effects = effectsFromOthers(report, evaluate);

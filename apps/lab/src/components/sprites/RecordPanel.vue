@@ -7,6 +7,7 @@ import {
   type TypeRecord,
 } from "@opentim/content";
 import { computed } from "vue";
+import { program } from "../../library.ts";
 import LabDisclosure from "../LabDisclosure.vue";
 import LabFact from "../LabFact.vue";
 import LabFacts from "../LabFacts.vue";
@@ -98,7 +99,11 @@ const dump = computed(() => {
 
 <template>
   <div class="flex flex-col gap-3">
-    <p v-if="!record" class="text-muted">
+    <p v-if="!record && program && program.name.toUpperCase() !== 'TIM.EXE'" class="text-muted">
+      The Lab doesn’t read this game’s type records from
+      <span class="font-mono text-ink">{{ program.name }}</span> yet, so there is no record to show.
+    </p>
+    <p v-else-if="!record" class="text-muted">
       The parts weren’t read from the program, so there is no record to show. Add
       <span class="font-mono text-ink">TIM.EXE</span> to the import to see it.
     </p>

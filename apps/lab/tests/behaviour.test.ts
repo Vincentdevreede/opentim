@@ -1,3 +1,4 @@
+import { TIM_PART_WORDS } from "@opentim/content";
 import type {
   AnimationDescription,
   BehaviourDescription,
@@ -15,10 +16,14 @@ import {
   summariseEffects,
   summariseRests,
   summariseWalks,
+  flagWords,
   goalMarkSetters,
   goalMarkWords,
+  recordName,
   tidyWords,
   type OtherEffect,
+  type RecordNames,
+  type WriterField,
   writer,
 } from "../src/behaviour.ts";
 
@@ -26,6 +31,9 @@ const fields = [
   { offset: 0x0c, name: "state" },
   { offset: 0x12, name: "stateDelta" },
 ];
+/** A TIM 1 or Even More part's names: the fields given, and TIM.EXE's words by place. */
+const tim = (named: readonly WriterField[] = []): RecordNames => ({ fields: named, words: TIM_PART_WORDS });
+const TIM = tim();
 const constant = (value: number): Expression => ({ kind: "constant", value, width: 16 });
 const field = (offset: number, object = "part"): Expression => ({ kind: "field", object, offset, width: 16 });
 const binary = (operator: string, left: Expression, right: Expression): Expression => ({
@@ -46,7 +54,7 @@ const evidence = [{ address: 0x1d034, bytes: [0x55], text: "push bp" }];
 const finding = { confidence: "inferred" as const, assumptions: ["An assumption."], evidence };
 
 describe("writer", () => {
-  const { expression, predicate } = writer(fields);
+  const { expression, predicate } = writer(tim(fields));
 
   it("names the part's fields and writes other places by their offset", () => {
     expect(expression(field(0x0c))).toBe("state");
@@ -104,7 +112,7 @@ describe("writer", () => {
   });
 
   it("gives this part's own fields the names that only hold for it", () => {
-    const gear = writer(fields, new Map([[0x5a, "gearLeft"]]));
+    const gear = writer(tim(fields), new Map([[0x5a, "gearLeft"]]));
     expect(gear.expression(field(0x5a))).toBe("gearLeft");
     expect(gear.expression(field(0x5a, "referenced-by(part+0x78)"))).toBe("found.link0");
   });
@@ -121,7 +129,7 @@ describe("writer", () => {
   });
 
   it("writes a flag word with bits set, cleared or switched by the names of the bits", () => {
-    const flags = writer([...fields, { offset: 0x08, name: "drawingFlags" }, { offset: 0x06, name: "lists" }]);
+    const flags = writer(tim([...fields, { offset: 0x08, name: "drawingFlags" }, { offset: 0x06, name: "lists" }]));
     expect(flags.expression(binary("^", field(0x08), constant(0x10)))).toBe("drawingFlags with mirrored switched");
     expect(flags.expression(binary("|", field(0x08), constant(0x2040)))).toBe(
       "drawingFlags with ran this step and out of play set",
@@ -189,7 +197,7 @@ describe("writer", () => {
     expect(predicate(compare("==", binary("&", set, constant(0x400)), constant(0)))).toBe("not known free this step");
     expect(predicate(compare("!=", binary("&", set, constant(0x40)), constant(0)))).toBe("0x40 != 0");
     // The direction a part was hit from is an angle, a full turn being 0x10000; a masked one stays in bits.
-    const angles = writer([...fields, { offset: 0x88, name: "contactAngle" }]);
+    const angles = writer(tim([...fields, { offset: 0x88, name: "contactAngle" }]));
     const angle = field(0x88, "collider");
     expect(angles.predicate(compare("<", angle, constant(0xe000)))).toBe("collider.contactAngle < 315°");
     expect(angles.predicate(compare("<", binary("+", angle, constant(0x800)), constant(0x1000)))).toBe(
@@ -209,7 +217,7 @@ describe("writer", () => {
 
   it("names what the rope code passes a rope callback, and the record of the rope it is asked about", () => {
     const named = [...fields, { offset: 0x04, name: "type" }];
-    const rope = writer(named, new Map(), "rope");
+    const rope = writer(tim(named), new Map(), "rope");
     const asked =
       'pointer loaded from table 0x2fe1+0x66 indexed by {"kind":"binary","operator":"+","left":{"kind":"field","object":"argument","offset":10,"width":16},"right":{"kind":"field","object":"address of part","offset":0,"width":16},"width":16}';
     // A test of the whole word tests the side and question bits too, so it stays a plain compare.
@@ -231,7 +239,7 @@ describe("writer", () => {
     );
     expect(rope.predicate(compare("==", field(0x0e, asked), constant(0)))).toBe("askedRope.count == 0");
     // Other routines' arguments aren't the rope code's, so they keep the analysis's words.
-    expect(writer(named).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument 12 == 2");
+    expect(writer(tim(named)).predicate(compare("==", field(0x0c, "argument"), constant(2)))).toBe("argument 12 == 2");
   });
 
   it("joins conditions and says when there is none", () => {
@@ -245,17 +253,19 @@ describe("writer", () => {
   });
 
   it("says a test of one named flag bit in words, for the part itself and for another part", () => {
-    const flags = writer([
-      ...fields,
-      {
-        offset: 0x08,
-        name: "drawingFlags",
-        masks: [
-          { value: 0x10, name: "horizontalFlip" },
-          { value: 0x20, name: "verticalFlip" },
-        ],
-      },
-    ]);
+    const flags = writer(
+      tim([
+        ...fields,
+        {
+          offset: 0x08,
+          name: "drawingFlags",
+          masks: [
+            { value: 0x10, name: "horizontalFlip" },
+            { value: 0x20, name: "verticalFlip" },
+          ],
+        },
+      ]),
+    );
     const bit = (offset: number, mask: number, object = "part") => binary("&", field(offset, object), constant(mask));
     expect(flags.predicate(compare("==", bit(0x08, 0x10), constant(0)))).toBe("not mirrored");
     expect(flags.predicate(compare("!=", bit(0x08, 0x20), constant(0)))).toBe("upside down");
@@ -293,52 +303,130 @@ describe("writer", () => {
   });
 });
 
+describe("another game's names", () => {
+  // TIM 2's part record, as its own routines name it: no TIM.EXE words by place.
+  const tim2: RecordNames = {
+    fields: [
+      { offset: 0x0e, name: "state" },
+      {
+        offset: 0x0c,
+        name: "drawingFlags",
+        masks: [
+          { value: 0x10, name: "horizontalFlip" },
+          { value: 0x20, name: "verticalFlip" },
+        ],
+      },
+      { offset: 0x16, name: "stateDelta" },
+      { offset: 0x9a, name: "contactPart" },
+    ],
+  };
+  const { expression, predicate } = writer(tim2);
+  const bit = (offset: number, mask: number) => binary("&", field(offset), constant(mask));
+
+  it("names its fields by its own names and every other word by its offset, never by TIM.EXE's places", () => {
+    expect(expression(field(0x16))).toBe("stateDelta");
+    // TIM.EXE's olderY, link0, socket1, found and fine X are other words in TIM 2.
+    expect(expression(field(0x28))).toBe("part+0x28");
+    expect(expression(field(0x5a))).toBe("part+0x5a");
+    expect(expression(field(0x62))).toBe("part+0x62");
+    expect(expression(field(0x78))).toBe("part+0x78");
+    // What TIM.EXE's belt link points to is unknown here, so its words read by offset too.
+    expect(expression(field(0x0e, "referenced-by(part+0x54)"))).toBe("[part+0x54]+0x0e");
+    // The part a contact search found, by the analysis's name, is a part in every game.
+    expect(expression(field(0x0e, "referenced-by(part+0x9a)"))).toBe("contactPart.state");
+  });
+
+  it("says the bits the analysis names, and only those", () => {
+    expect(predicate(compare("==", bit(0x0c, 0x10), constant(0)))).toBe("not mirrored");
+    expect(expression(binary("^", field(0x0c), constant(0x20)))).toBe("drawingFlags with upside down switched");
+    // TIM.EXE's list flags and out-of-play flag aren't TIM 2's.
+    expect(predicate(compare("!=", bit(0x06, 0x1000), constant(0)))).toBe("part+0x06 & 0x1000 != 0");
+    expect(predicate(compare("==", bit(0x0c, 0x2000), constant(0)))).toBe("drawingFlags & 0x2000 == 0");
+  });
+
+  it("keeps TIM.EXE's rope code words to TIM 1 and Even More", () => {
+    const rope = writer(tim2, new Map(), "rope");
+    expect(rope.predicate(compare("==", field(0x0a, "argument"), constant(1)))).toBe("argument 10 == 1");
+    expect(rope.predicate(compare("==", binary("&", field(0x0c, "argument"), constant(6)), constant(2)))).not.toContain(
+      "pull kind",
+    );
+  });
+
+  it("tidies sentences without TIM.EXE's names", () => {
+    expect(tidyWords("its positionY is not its field 0x28", tim2)).toBe("its positionY is not its field 0x28");
+    expect(tidyWords("drawingFlags & 0x0010 is 0", tim2)).toBe("not mirrored");
+    expect(tidyWords("drawingFlags & 0x0200 is 0", tim2)).toBe("drawingFlags & 0x0200 is 0");
+    expect(tidyWords("Adds 1 to field 0x0e of the record of its rope at 0x66.", tim2)).toBe(
+      "Adds 1 to field 0x0e of the record of its rope at 0x66.",
+    );
+    expect(goalMarkWords("field 0xa has the bits 0x200", [31], new Map([["31:512", ["Cat"]]]), tim2)).toBe(
+      "field 0xa has the bits 0x200",
+    );
+  });
+
+  it("names a word of the record and its flag bits only by the game's own names", () => {
+    expect(recordName(0x16, tim2)).toBe("stateDelta");
+    expect(recordName(0x5a, tim2)).toBeUndefined();
+    expect(recordName(0x5a, TIM)).toBe("link0");
+    expect(flagWords(0x0c, 0x0030, tim2)).toEqual({ words: ["mirrored", "upside down"], unknown: 0 });
+    expect(flagWords(0x06, 0x1000, tim2)).toEqual({ words: [], unknown: 0x1000 });
+    expect(flagWords(0x06, 0x1000, TIM)).toEqual({ words: ["on the moving list"], unknown: 0 });
+  });
+});
+
 describe("tidyWords", () => {
   it("leaves out the bit of a flag the analysis names, and names a field it calls by its offset", () => {
-    expect(tidyWords("its out-of-play flag 0x2000 is clear")).toBe("its out-of-play flag is clear");
-    expect(tidyWords("its positionY is not its field 0x28")).toBe("its positionY is not its olderY");
-    expect(tidyWords("its field 0x70 is 3")).toBe("its field 0x70 is 3");
-    expect(tidyWords("stateDelta after the query at 0x1d2d1")).toBe("stateDelta after the query");
-    expect(tidyWords("the answer of the call at 0x1d2d1")).toBe("the answer of the call");
+    expect(tidyWords("its out-of-play flag 0x2000 is clear", TIM)).toBe("its out-of-play flag is clear");
+    expect(tidyWords("its positionY is not its field 0x28", TIM)).toBe("its positionY is not its olderY");
+    expect(tidyWords("its field 0x70 is 3", TIM)).toBe("its field 0x70 is 3");
+    expect(tidyWords("stateDelta after the query at 0x1d2d1", TIM)).toBe("stateDelta after the query");
+    expect(tidyWords("the answer of the call at 0x1d2d1", TIM)).toBe("the answer of the call");
   });
 
   it("reads masks, flag tests and field offsets in the analysis's sentences in words", () => {
     // A value kept to a word, and a position rounded down to a tile, also with brackets inside.
     // A value with a number past a word keeps its mask: it is the low word only.
-    expect(tidyWords("x is ((65536 + positionX) & 0xffff)")).toBe("x is ((65536 + positionX) & 0xffff)");
-    expect(tidyWords("velocityX + (((16 * (80 - |overlapY|)) & 0xffff) >> 1)")).toBe(
+    expect(tidyWords("x is ((65536 + positionX) & 0xffff)", TIM)).toBe("x is ((65536 + positionX) & 0xffff)");
+    expect(tidyWords("velocityX + (((16 * (80 - |overlapY|)) & 0xffff) >> 1)", TIM)).toBe(
       "velocityX + ((16 * (80 - |overlapY|)) >> 1)",
     );
-    expect(tidyWords("((the explosion's centre X + 24) & 0xfff0) + 8")).toBe(
+    expect(tidyWords("((the explosion's centre X + 24) & 0xfff0) + 8", TIM)).toBe(
       "(the explosion's centre X + 24 rounded down to 16) + 8",
     );
-    expect(tidyWords("drawingFlags & 0x0200 is 0")).toBe("not held this step");
-    expect(tidyWords("drawingFlags & 0x4000 is 0")).toBe("drawingFlags & 0x4000 is 0");
+    expect(tidyWords("drawingFlags & 0x0200 is 0", TIM)).toBe("not held this step");
+    expect(tidyWords("drawingFlags & 0x4000 is 0", TIM)).toBe("drawingFlags & 0x4000 is 0");
     // What a part sets on a part it makes, and where on its rope a rope end starts.
     expect(
-      tidyWords("It also sets 0x5a to its 0x5a and 0x26 to its positionX, and changes its 0x06, 0x16, drawX and 0x70."),
+      tidyWords(
+        "It also sets 0x5a to its 0x5a and 0x26 to its positionX, and changes its 0x06, 0x16, drawX and 0x70.",
+        TIM,
+      ),
     ).toBe(
       "It also sets link0 to its link0 and olderX to its positionX, and changes its lists, fineX, drawX and 0x70.",
     );
-    expect(tidyWords("at positionX = 0x18 of the record of its rope at 0x66")).toBe(
+    expect(tidyWords("at positionX = 0x18 of the record of its rope at 0x66", TIM)).toBe(
       "at positionX = the end1X of its rope",
     );
-    expect(tidyWords("the copy the explosion makes (the allocation at 0x1a91c)")).toBe("the copy the explosion makes");
-    expect(tidyWords("picks the response at 0x3980 over the reflection at 0x3c1c")).toBe(
+    expect(tidyWords("the copy the explosion makes (the allocation at 0x1a91c)", TIM)).toBe(
+      "the copy the explosion makes",
+    );
+    expect(tidyWords("picks the response at 0x3980 over the reflection at 0x3c1c", TIM)).toBe(
       "picks the response over the reflection",
     );
-    expect(tidyWords("Updates another part's counter at 0x9c.")).toBe("Updates another part's counter (its heat).");
-    expect(tidyWords("Adds 1 to field 0x0e of the record of its rope at 0x66.")).toBe(
+    expect(tidyWords("Updates another part's counter at 0x9c.", TIM)).toBe(
+      "Updates another part's counter (its heat).",
+    );
+    expect(tidyWords("Adds 1 to field 0x0e of the record of its rope at 0x66.", TIM)).toBe(
       "Adds 1 to the count of its rope.",
     );
-    expect(tidyWords("Takes 1 from field 0x0e of the record of the rope it is asked about")).toBe(
+    expect(tidyWords("Takes 1 from field 0x0e of the record of the rope it is asked about", TIM)).toBe(
       "Takes 1 from the count of the rope it is asked about",
     );
-    expect(tidyWords("Sets rope link 0x5c of the part tied to its rope link 0x5a")).toBe(
+    expect(tidyWords("Sets rope link 0x5c of the part tied to its rope link 0x5a", TIM)).toBe(
       "Sets link1 of the part tied to its link0",
     );
-    expect(tidyWords("another part's contact side byte at 0x87")).toBe("another part's contact side byte");
-    expect(tidyWords("(((table[0 + (found.type * 58)] ^ 0x8000) >= -32766) * -512)")).toBe(
+    expect(tidyWords("another part's contact side byte at 0x87", TIM)).toBe("another part's contact side byte");
+    expect(tidyWords("(((table[0 + (found.type * 58)] ^ 0x8000) >= -32766) * -512)", TIM)).toBe(
       "((table[0 + (found.type * 58)] >= 2) * -512)",
     );
   });
@@ -1115,14 +1203,16 @@ describe("goal marks", () => {
   });
 
   it("says a goal's test of a mark by the parts that set it, and keeps a bit no part is seen to set", () => {
-    expect(goalMarkWords("field 0xa has the bits 0x200", [31], setters)).toBe("marked by Cat or Alligator");
-    expect(goalMarkWords("field 0xa hasn't the bits 0x100", [31], setters)).toBe("not marked by Vacuum");
-    expect(goalMarkWords("field 0xa has the bits 0x10", [31], setters)).toBe("in a bucket");
-    expect(goalMarkWords("field 0xa has the bits 0x800", [31], setters)).toBe("field 0xa has the bits 0x800");
-    expect(goalMarkWords("part.drawingFlags hasn't the bits 0x2000", [31], setters)).toBe("part in play");
-    expect(goalMarkWords("listFlags has the bits 0x8000", [31], setters)).toBe("placed by the puzzle");
-    expect(goalMarkWords("part.0xa hasn't the bits 0x200", [31], setters)).toBe("part not marked by Cat or Alligator");
-    expect(goalMarkWords("drawingFlags has the bits 0x30", [31], setters)).toBe("drawingFlags has the bits 0x30");
-    expect(goalMarkWords("field 0xa has the bits 0x80", [31], setters)).toBe("goal mark set");
+    expect(goalMarkWords("field 0xa has the bits 0x200", [31], setters, TIM)).toBe("marked by Cat or Alligator");
+    expect(goalMarkWords("field 0xa hasn't the bits 0x100", [31], setters, TIM)).toBe("not marked by Vacuum");
+    expect(goalMarkWords("field 0xa has the bits 0x10", [31], setters, TIM)).toBe("in a bucket");
+    expect(goalMarkWords("field 0xa has the bits 0x800", [31], setters, TIM)).toBe("field 0xa has the bits 0x800");
+    expect(goalMarkWords("part.drawingFlags hasn't the bits 0x2000", [31], setters, TIM)).toBe("part in play");
+    expect(goalMarkWords("listFlags has the bits 0x8000", [31], setters, TIM)).toBe("placed by the puzzle");
+    expect(goalMarkWords("part.0xa hasn't the bits 0x200", [31], setters, TIM)).toBe(
+      "part not marked by Cat or Alligator",
+    );
+    expect(goalMarkWords("drawingFlags has the bits 0x30", [31], setters, TIM)).toBe("drawingFlags has the bits 0x30");
+    expect(goalMarkWords("field 0xa has the bits 0x80", [31], setters, TIM)).toBe("goal mark set");
   });
 });

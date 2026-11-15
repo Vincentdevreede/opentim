@@ -1,4 +1,4 @@
-import type { PuzzleGoal } from "@opentim/content";
+import { TIM_PART_WORDS, type PuzzleGoal } from "@opentim/content";
 import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { expect, it } from "vitest";
@@ -19,7 +19,14 @@ const text = async (g: PuzzleGoal, props: Record<string, unknown> = {}) =>
   visibleText(
     await renderToString(
       createSSRApp({
-        render: () => h(LevelGoal, { goal: { status: "done", goal: g }, areaNumbers: new Map(), ...props }),
+        render: () =>
+          h(LevelGoal, {
+            goal: { status: "done", goal: g },
+            areaNumbers: new Map(),
+            // TIM.EXE's words by place, as the levels page gives them for TIM 1 and Even More.
+            record: { fields: [], words: TIM_PART_WORDS },
+            ...props,
+          }),
       }),
     ),
   );
@@ -61,6 +68,17 @@ it("says other flag tests by their names, and writes the goal routine in the sam
   expect(page).toContain("if its word 2 = 4:");
   expect(page).toContain("if ax ≠ part.olderX:");
   expect(page).not.toContain("0x");
+});
+
+it("leaves the flag bits and fields of a game without TIM.EXE's words as they are", async () => {
+  const g = goal(["field 0xa has the bits 0x200", "drawingFlags hasn't the bits 0x2000"]);
+  (g as { lines: string[] }).lines = ["  if ax ≠ part.0x26:"];
+  const page = await text(g, { markSetters: new Map([["31:512", ["cat"]]]), record: { fields: [] } });
+  expect(page).toContain("field 0xa has the bits 0x200");
+  expect(page).toContain("the bits 0x2000");
+  expect(page).not.toContain("in play");
+  expect(page).toContain("if ax ≠ part.0x26:");
+  expect(page).not.toContain("olderX");
 });
 
 it("calls a word the routine reads with an index its table, apart from its single words", async () => {

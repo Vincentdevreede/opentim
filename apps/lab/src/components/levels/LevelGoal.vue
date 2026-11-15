@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { conditionText, type GoalCondition, type PuzzleGoal, type ToonsGoalParts } from "@opentim/content";
 import { computed } from "vue";
-import { goalMarkWords, tidyWords } from "../../behaviour.ts";
+import { goalMarkWords, tidyWords, type RecordNames } from "../../behaviour.ts";
 import LabBadge from "../LabBadge.vue";
 import LabChip from "../LabChip.vue";
 import LabDisclosure from "../LabDisclosure.vue";
@@ -31,6 +31,8 @@ const props = defineProps<{
   partNumbers?: ReadonlyMap<GoalCondition, number>;
   /** For a Toons condition, its parts as the puzzle starts: whether it holds then, and what the player can change. */
   atStart?: ReadonlyMap<GoalCondition, ToonsGoalParts>;
+  /** The part record's words the game's goals can be said with; without them no field is named. */
+  record?: RecordNames;
 }>();
 
 const summary = computed(() => (props.goal.status === "done" ? props.goal.goal.summary : undefined));
@@ -82,7 +84,8 @@ const ownWords = computed(() => {
  * the goal keeps for itself by its place among them; the goal routine below reads the same way.
  */
 const say = (text: string, types: readonly number[] = goalTypes.value) => {
-  let out = tidyWords(goalMarkWords(text, types, props.markSetters ?? new Map()));
+  const names = props.record ?? { fields: [] };
+  let out = tidyWords(goalMarkWords(text, types, props.markSetters ?? new Map(), names), names);
   for (const [word, name] of ownWords.value) out = out.split(word).join(name);
   // A number of steps as the time it takes at the least: the run loop waits for the same timer ticks every step.
   const ms = props.stepMilliseconds;

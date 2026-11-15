@@ -101,7 +101,8 @@ export {
   type FrameVisit,
   type DescribedEffect,
 } from "./read/describe-behaviour.ts";
-export { type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
+export { finePosition, partWordsOf, type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
+export { TIM_PART_WORDS, type PartWords } from "./read/behaviour-program.ts";
 export {
   discoverEngineSummaries,
   type EngineSummary,

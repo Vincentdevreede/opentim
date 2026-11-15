@@ -1,4 +1,4 @@
-import type { Expression } from "@opentim/content";
+import { TIM_PART_WORDS, type Expression } from "@opentim/content";
 import { describe, expect, it } from "vitest";
 import { valueForState, writer, type Change, type PartSummary, type Walk } from "../src/behaviour.ts";
 import {
@@ -52,7 +52,7 @@ describe("valueForState", () => {
 
 describe("values a test picks", () => {
   it("writes the two values and the test that picks one", () => {
-    const { expression } = writer([{ offset: 0x0c, name: "state" }]);
+    const { expression } = writer({ fields: [{ offset: 0x0c, name: "state" }] });
     const picked = (operator: string, other: string, then: Expression, otherwise: Expression) =>
       binary(
         "+",
@@ -70,7 +70,7 @@ describe("values a test picks", () => {
 
 describe("tidying conditions", () => {
   it("writes an absolute value and a negative constant shorter", () => {
-    const { expression } = writer([{ offset: 0x0c, name: "state" }]);
+    const { expression } = writer({ fields: [{ offset: 0x0c, name: "state" }], words: TIM_PART_WORDS });
     const difference = binary("-", state, { ...state, offset: 0x28 });
     const sign = binary(">>", difference, constant(15));
     const absolute = binary("-", binary("^", difference, sign), sign);
