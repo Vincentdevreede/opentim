@@ -412,13 +412,16 @@ export const FINE_POSITION: Record<number, string> = {
  * The fine position word at `offset` of a part of the report's game, as `FINE_POSITION` names TIM.EXE's: the longs sit
  * 8 bytes before positionX in every game, so they move with it. TIM2.EXE keeps them at 0x1a and 0x1e (its level reset
  * sets them from the position shifted left by 9, `0x1eda1` in the CD build), TOONS.EXE at 0x17 and 0x1b (`0x1ac6`, in
- * the routine at `0x17fe`). Undefined for any other word. `axis` is the whole position the long holds.
+ * the routine at `0x17fe`). Undefined for any other word, and for another game whose positionX isn't known. `axis` is
+ * the whole position the long holds.
  */
 export function finePosition(
-  report: Pick<BehaviourReport, "layout">,
+  report: Pick<BehaviourReport, "layout" | "listId">,
   offset: number,
 ): { words: string; axis: "positionX" | "positionY" } | undefined {
   const positionX = report.layout.fields.find((field) => field.name === "positionX")?.offset;
+  // Without positionX only TIM.EXE's own places are known.
+  if (positionX === undefined && !partWordsOf(report)) return undefined;
   const key = offset - (positionX === undefined ? 0 : positionX - 0x1e);
   const words = FINE_POSITION[key];
   return words ? { words, axis: key < 0x1a ? "positionX" : "positionY" } : undefined;

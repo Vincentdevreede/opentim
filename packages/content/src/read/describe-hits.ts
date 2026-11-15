@@ -892,8 +892,8 @@ export function hitsFromOthers(
       // The source's code must name this part's type: a search may hold parts the source never acts on. Or, when it
       // names none, the program must give this type every flag the search needs: from the factory's table for the
       // type, or from its constructor. The walk still keeps the search's tests, since a part may lose a flag, except
-      // the lightable flag, which the decided assumption settles for every type.
-      const needs = (t: SearchTest) => t.set && (lightable || !isLightableTest(t));
+      // the lightable flag, which the decided assumption settles for every type of a game with TIM.EXE's words.
+      const needs = (t: SearchTest) => t.set && (lightable || !words || !isLightableTest(t));
       if (c.types.size ? !c.types.has(part.type) : !c.touch && c.search!.some((t) => needs(t) && !gives(part.type, t)))
         continue;
       const searchTerms = (c.search ?? []).map((t) => flagTest(c.member, t));
