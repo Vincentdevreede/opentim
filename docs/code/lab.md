@@ -18,8 +18,14 @@ goals, and sounds.
   and stages files, `confirmImport` checks and saves them, `load` publishes them and starts the behaviour read in the
   background. It holds the resources, the edition and the program; parts are read again per page
   (`readLoadedParts` in `parts.ts`). A `generation` counter cancels work that a newer import made stale.
-- `storage.ts`: keeps the files in the browser's private file system (OPFS), one folder per import. Without a secure
-  context an import lasts only for the tab.
+- The game's program is required: `TIM.EXE` for TIM 1, Even More and the Add-On Disk, `TIM2.EXE` and `TOONS.EXE`
+  for the others, demos included. Each version in `version-catalog.json` names its `program`; `programNames` in
+  `edition.ts` gives it, or all three names for a version that isn't known. A staged import without it
+  (`missingProgram`) can't continue, and the start screen names the file to add. `restore` stages a save without the
+  program in the same way instead of loading it.
+- `storage.ts`: keeps the files in the browser's private file system (OPFS), one folder per import. A save holds a
+  lock while it writes; loading removes the folders of saves that never finished, when no save holds that lock. Without
+  a secure context an import lasts only for the tab.
 - `bookmarks.ts`: byte range bookmarks per version, in localStorage. `ui.ts`: shared state in memory (`selectedPart`,
   `behaviourLayout`, `selectedLevel`, …).
 
@@ -43,11 +49,17 @@ status bar. The parts page, the levels page and `load` all share one read.
 The biggest file of the Lab. In order:
 
 - **Types** the worker sends: `PartSummary`, `Walk`, `OtherEffect`, `Doing`, `RestSummary`, `BehaviourSummary`, …
-- **Names**: `PART_FIELDS` (part record offset to name), `LINKS` (what a field points to), `ROPE_ARGUMENTS`,
-  `NAMED_TERMS` (the Lab's own names with their raw form and meaning, for tips), `ROPE_FIELDS` (the rope record).
-- **Flag bits**: `FLAG_BITS` names every used bit of the three flag words (list flags 0x06, drawing flags 0x08, marks
-  0x0a) as set and clear words; `flagWords` and `recordName` use them. The table with what the game does with each
-  bit is in [the research](../research/behaviour/in-the-lab.md#flag-bits).
+- **Names**: `RecordNames` is what one game's part record can be named with: the report's layout fields (for TIM 2
+  and Toons also the fields their own routines show) and, for TIM 1 and Even More only, TIM.EXE's words by place (the
+  game profile's `partWords`, from `partWordsOf`). `recordNamesOf(report)` gives it; the writer, `tidyWords`,
+  `goalMarkWords`, `flagWords` and `recordName` all take it. The Lab's tables of TIM.EXE's places, `PART_FIELDS`
+  (part record offset to name), `LINKS` (what a field points to), `ROPE_ARGUMENTS` and `ROPE_FIELDS` (the rope
+  record), only apply with those words, so a TIM 2 or Toons word the analysis doesn't name reads by its offset.
+  `NAMED_TERMS` has the Lab's own names with their raw form and meaning, for tips.
+- **Flag bits**: `FLAG_BITS` names every used bit of TIM.EXE's three flag words (`lists`, `drawingFlags` and `marks`,
+  placed by `partWords`) as set and clear words, for TIM 1 and Even More; another game's bits read by the names the
+  analysis gives them (the mirror bits). The table with what the game does with each bit is in
+  [the research](../research/behaviour/in-the-lab.md#flag-bits).
 - **`tidyWords`**: rewrites the analysis's own sentences without hex (drops `& 0xffff` unless a number is past a word,
   "rounded down to 16", flag tests as names, no code addresses, fields by name, rope record fields).
 - **Goals**: `goalMarkSetters` (which parts set which goal mark) and `goalMarkWords` ("marked by cat").
@@ -62,18 +74,53 @@ The biggest file of the Lab. In order:
 
 `behaviour-view.ts` lays one part out for the Behaviour tab (rows by routine, state or walk, folding long lists).
 `interactions.ts` builds the pairs of the Interactions tab (`remove`, `mark`, `push`, `make`, `touch`, `change`).
+`summariseEffects` also puts the description's `ownBounce` lines in the type's own list, marked `own`; the pairs leave
+them out, and the tab lists them under "Its own bounce".
 
 ## Pages and components
 
 - **Import** (`components/import/`): start, staged, failed, and the overview of a loaded game.
 - **Files**: file list with search (text, bytes, numbers), bookmarks, and a hex view where each byte says what it is
   (`fields.ts`, `inspect.ts`, `structure.ts`, `markers.ts`).
-- **Sprites**: images and screens with palettes and frames (`components/sprites/ImageDetail.vue`).
+- **Sprites**: images and screens with palettes and frames (`components/sprites/ImageDetail.vue`). The automatic
+  palette (`autoPalette` in `sprites.ts`) is the one a TTM script loads with the image (Toons), else the one with the
+  image's name, else the game's main palette.
+- **TIM 2's colours**: `components/tim2-colours.ts` holds the Colours setting that Sprites, Parts and Levels share
+  and show only for TIM 2: 16 colours as TIM2.EXE's `HEG:` driver shows them (the default), or the palette's own 256.
+  It reads the driver from `VM.OVL` (`readTim2Driver`); without it each page says so in an error note and shows the
+  palette's own colours. In 16 colours `usePalettes().colorsOf` gives each palette as `tim2SixteenColours` makes it,
+  and `compositionCanvas` and `LevelCanvas` fill a box in a colour of 16 or more with the driver's pattern
+  (`patternCanvas`, by `tim2FillColour`).
 - **Parts**: part cards; `PartDetail.vue` has a stage with frames and sprites, and side tabs Frame or Sprite,
   Behaviour (`BehaviourPanel`, three layouts), Interactions (`InteractionLists`) and Type (`RecordPanel`, the 58-byte
-  type record).
-- **Levels**: `LevelCanvas` (the level drawn, goal areas), `LevelGoal` (conditions and the goal routine),
-  `LevelStructure` (every field, where the loader keeps it, flag words).
+  type record, or Toons' 70-byte one). `readLoadedParts` in `parts.ts` reads the parts from `TIM.EXE`, `INFO.RES` or
+  `TOONS.EXE`, or says why it can't (`problem`); the lists committed in `@opentim/content` never stand in. Parts the
+  readers have no id for are `unknown`. `partName(part, listId)` takes Toons' names from Toons' own list. Toons gets
+  no behaviour read.
+- **Levels**: `LevelCanvas` (the level drawn, goal areas), `LevelGoal` (conditions and the goal routine; Toons' goals
+  come from `readToonsGoals` on the page itself, not from the behaviour read; a Toons condition shows which part of its
+  type it is about ("1st", and the level part's number from `goalParts`), what the goal remembers about it in a chip
+  ("once", "never", "2 steps", "30 steps ago"), a part a field holds ("kept angel of al-e-cat #15"), and "not in this
+  level" when the level has fewer parts of the type, from `typeCounts`; a chip from `atStart` says "not at the
+  start" for a condition the level rules out as the puzzle starts, and "ropes" or "bin parts" when the player can
+  change which part it is). `toonsParts` on the page places each condition with `toonsGoalParts` and the type table's
+  sort word (`readToonsListKinds`): `goalParts` numbers the one part a condition is about, and `LevelCanvas` rings
+  those parts (`goalPartSet`, leaving out a condition that doesn't hold at the start) instead of every part of their
+  type,
+  `LevelStructure` (every field, where the loader keeps it, flag words). `levels.ts` lays a level out by its layout:
+  the play area (`PLAY_AREAS`), which parts are tiles (`tiles`, and `toonsTiles` for Toons), the parts bin (`groupOf`, also
+  for TIM 2 and Toons, whose files keep no bin; it follows `puzzleStart` from the content package through `levelStart`,
+  which `check-puzzle-start` checks against each game; for TIM 2 with the tables the page reads from TIM2.EXE
+  (`tim2Start`, `readTim2StartTables`); for Toons that is `toonsPuzzleStart`, through `toonsStart`, with the
+  type table's sort words the page reads from TOONS.EXE and passes as `toonsSort`, and gives `gone` for a tunnel the
+  puzzle start takes off, which the Structure panel lists as "Taken off" and the scene notes). For a Toons puzzle the
+  scene's bin and the Structure panel's are in TOONS.EXE's order, the board is drawn with the states the setup leaves
+  (an unplugged switch, an anvil whose rope went to the bin, the latter a decided assumption in
+  [Toons: assumptions](../research/levels.md#toons-assumptions)), the scene notes the plugs it pulls out, and the
+  Structure panel tags a part's plugs and state with what the start makes of them. For TIM 2 the frame a state picks
+  (`Part.states`) and the wall, tile pattern and colour block routines of TIM2.EXE (`readTim2Types`, `tim2Drawing`),
+  the mirror rule (`tim2MirrorSide`), the background colour and the notes' pictures; without its type table the scene draws frames and notes it. `toons-drawing.ts` follows TOONS.EXE's own drawing code for five Toons types (`toonsPicture`), with the
+  tables `readToonsDrawing` reads and the message machine's font.
 - **Audio**: banks and samples, played as samples or as music through emulated Sound Blaster Pro or AdLib FM, in a
   worker.
 - **Sandbox**: the engine package's `World` in PixiJS.
@@ -96,9 +143,11 @@ scratch script.
 - Colours and sizes come from the theme tokens (`text-ink`, `bg-surface`, `text-meta`, confidence colours `decoded`,
   `partial`, `hypothesis`, `error`).
 
-**To add a name**: a part record word goes in `PART_FIELDS` (and `LINKS` when it points somewhere); the analysis's
-own field names win in the writer, but `tidyWords` only knows `PART_FIELDS`. A flag bit goes in `FLAG_BITS` and the
-flag bits table of the research. A rope record field goes in `ROPE_FIELDS`. Each needs a test in `behaviour.test.ts`.
+**To add a name**: a word every game has goes in the content package, where the analysis names it per game (the
+layout, or a game's `fieldForms`). A TIM.EXE word the analysis doesn't name goes in `PART_FIELDS` (and `LINKS` when it
+points somewhere); it then names TIM 1 and Even More only. The analysis's own field names win in the writer, but
+`tidyWords` only knows `PART_FIELDS`. A TIM.EXE flag bit goes in `FLAG_BITS` and the flag bits table of the research.
+A rope record field goes in `ROPE_FIELDS`. Each needs a test in `behaviour.test.ts`.
 
 **To add a tab** to a part: add it to `sideTabs` in `PartDetail.vue` and add its panel branch; `LabTabs` with
 `tabPanel()` from `components/tabs.ts` does the keys and ARIA.

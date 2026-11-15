@@ -6,6 +6,7 @@
       "name": "The Incredible Machine",
       "languages": ["en"],
       "parts": "tim1",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -34,6 +35,7 @@
       "name": "Even More! The Incredible Machine",
       "languages": ["fr"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -66,6 +68,7 @@
       "name": "The Incredible Machine (Installation Media)",
       "languages": ["fr", "de"],
       "parts": "tim1",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "FRENCH.RES",
@@ -91,6 +94,7 @@
       "name": "The Incredible Machine",
       "languages": ["fr"],
       "parts": "tim1",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -115,6 +119,7 @@
       "name": "The Incredible Machine",
       "languages": ["de"],
       "parts": "tim1",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -139,6 +144,7 @@
       "name": "The Incredible Machine: Add On Disk",
       "languages": ["en"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -167,6 +173,7 @@
       "name": "Even More! The Incredible Machine (Floppy)",
       "languages": ["en"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -195,6 +202,7 @@
       "name": "Even More! The Incredible Machine (Installation Media)",
       "languages": ["fr", "de"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "FRENCH.RES",
@@ -236,6 +244,7 @@
       "name": "Even More! The Incredible Machine",
       "languages": ["de"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -268,6 +277,7 @@
       "name": "Even More! The Incredible Machine (CD)",
       "languages": ["en"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -283,6 +293,7 @@
       "id": "toons-en-cd-demo",
       "name": "Sid & Al's Incredible Toons (CD Demo)",
       "languages": ["en"],
+      "program": "TOONS.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -299,6 +310,7 @@
       "name": "The Incredible Machine 2 (Floppy)",
       "languages": ["en", "fr", "de", "es"],
       "parts": "tim2",
+      "program": "TIM2.EXE",
       "files": [
         {
           "name": "ENGLISH.DAT",
@@ -331,6 +343,7 @@
       "name": "The Incredible Machine 2 (CD)",
       "languages": ["en", "fr", "de", "es"],
       "parts": "tim2",
+      "program": "TIM2.EXE",
       "files": [
         {
           "name": "ENGLISH.DAT",
@@ -362,6 +375,8 @@
       "id": "toons-en-floppy",
       "name": "Sid & Al's Incredible Toons",
       "languages": ["en"],
+      "parts": "toons",
+      "program": "TOONS.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -377,6 +392,7 @@
       "id": "tim1-en-demo",
       "name": "The Incredible Machine (Demo)",
       "languages": ["en"],
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -393,6 +409,7 @@
       "name": "Even More! The Incredible Machine (Demo)",
       "languages": ["en"],
       "parts": "evenmore",
+      "program": "TIM.EXE",
       "files": [
         {
           "name": "RESOURCE.001",
@@ -409,6 +426,7 @@
       "name": "The Incredible Machine 2 (Demo)",
       "languages": ["en"],
       "parts": "tim2",
+      "program": "TIM2.EXE",
       "files": [
         {
           "name": "RESOURCE.001",

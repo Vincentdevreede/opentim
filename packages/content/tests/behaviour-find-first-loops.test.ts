@@ -12,7 +12,7 @@ const HEADER = 38;
  * Searches the parts that overlap the owner, then walks the found list: a part of type 5 makes the owner go to frame 2
  * and ends the walk; any other part is passed over. With `passWrite`, a passed part also changes the owner's state.
  */
-function fixture(passWrite = false) {
+function fixture(passWrite = false, pass: number[] = passWrite ? [0xc7, 0x44, 12, 3, 0] : []) {
   const image = new Uint8Array(0x140);
   // prettier-ignore
   const bytes = [
@@ -25,13 +25,12 @@ function fixture(passWrite = false) {
     0x0b, 0xff, 0x75, 0xea, // header: or di,di; jne body
     0x5f, 0x5e, 0x5d, 0xcb, // pop di; pop si; pop bp; retf
   ];
-  if (passWrite) bytes.splice(35, 0, 0xc7, 0x44, 12, 3, 0);
-  if (passWrite) {
-    // The pass write moves the head and its jumps along by five bytes.
-    bytes[19] = 23;
-    bytes[25] = 9;
-    bytes[34] = 8;
-    bytes[46] = 0xe5;
+  if (pass.length) {
+    // What a pass does before it goes on moves the head and its jumps along.
+    bytes.splice(35, 0, ...pass);
+    bytes[19] = 18 + pass.length;
+    bytes[34] = 3 + pass.length;
+    bytes[41 + pass.length] = 0xea - pass.length;
   }
   image.set(bytes);
   image[0x100] = 0xcb;
@@ -56,6 +55,13 @@ describe("find-first loops", () => {
     const { image, helpers } = fixture();
     const loop = discoverFindFirstLoops(readRoutineCode(image, entry, 0), helpers).get(HEADER);
     expect(loop).toMatchObject({ node: "di", excludesOwner: true, passWrites: [] });
+  });
+
+  it("counts the register a pass changes without naming it", () => {
+    // cwd
+    const { image, helpers } = fixture(false, [0x99]);
+    const loop = discoverFindFirstLoops(readRoutineCode(image, entry, 0), helpers).get(HEADER + 1);
+    expect(loop?.registers).toContain("dx");
   });
 
   it("follows no member and one member instead of a loop invariant", () => {

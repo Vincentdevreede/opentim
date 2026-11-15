@@ -7,12 +7,13 @@ import {
   type LoadedHeader,
   type LoadedKey,
   type LoadedPlace,
-  type PartGroup,
   type PartList,
+  type Tim2StartTables,
 } from "@opentim/content";
 import { computed, nextTick, ref, watch } from "vue";
-import { flagWords, recordName, type WriterField } from "../../behaviour.ts";
+import { flagWords, recordName, type RecordNames } from "../../behaviour.ts";
 import { partName } from "../../parts.ts";
+import { groupOf, levelStart, toonsSetting, toonsStart, type StartGroup, type ToonsSort } from "../../levels.ts";
 import { hex } from "../../ui.ts";
 import LabBadge from "../LabBadge.vue";
 import LabButton from "../LabButton.vue";
@@ -37,12 +38,22 @@ const props = defineProps<{
   selected?: number;
   /** The header's words in the loaded program, when it is a build the loader was checked on. */
   header?: LoadedHeader;
-  /** The part record's fields as the behaviour read of the loaded program names them, once it is read. */
-  record?: readonly WriterField[];
+  /**
+   * The part record's words by name: the fields the behaviour read of the loaded program names, once it is read, and
+   * for TIM 1 and Even More TIM.EXE's words by place.
+   */
+  record?: RecordNames;
+  /**
+   * For Toons, the sort words of TOONS.EXE's type table: those of the lists decide which tunnel of a pair the puzzle
+   * start puts in the bin, and the bin is sorted by its own, which TOONS.EXE sets when it starts.
+   */
+  toonsSort?: ToonsSort;
+  /** TIM2.EXE's list and bin tables, for the order of a TIM 2 bin. */
+  tim2Start?: Tim2StartTables;
 }>();
 const emit = defineEmits<{ select: [index: number]; viewBytes: [offset: number] }>();
 
-const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
+const GROUPS: { group: StartGroup; label: string; hint: string }[] = [
   {
     group: "static",
     label: "Static",
@@ -54,6 +65,57 @@ const GROUPS: { group: PartGroup; label: string; hint: string }[] = [
     label: "Parts bin",
     hint: "Parts the player can place, not on the board. The loader puts them on the third list, in this order.",
   },
+  {
+    group: "gone",
+    label: "Taken off",
+    hint: "The other end of a tunnel in the bin. TOONS.EXE frees it as the puzzle starts and makes a new one when the player puts the tunnel on the board.",
+  },
+];
+
+/** TIM 2 stores no bin: the puzzle start puts the parts without bit 0x40 of the third flag word there. */
+const TIM2_HINTS: Partial<Record<StartGroup, string>> = {
+  bin: "Parts without bit 0x40 of the third flag word, the belts and ropes tied to them, and a remote control whose explosives go. The file keeps them where the designer left them; TIM2.EXE drops them into the bin when the puzzle starts. In TIM2.EXE’s order: by a table of the types in the program, a type’s parts in the reverse of the order the start puts them there.",
+};
+
+/** Toons stores no bin either: the puzzle start puts the parts without bit 0x40 there, with what is tied to them. */
+const TOONS_HINTS: Partial<Record<StartGroup, string>> = {
+  bin: "Parts without bit 0x40 of the third flag word, and the ropes and belts tied to them. The file keeps them where the designer left them; TOONS.EXE puts them in the bin when the puzzle starts. In TOONS.EXE’s order: by a table of the types in the program, a type’s parts in the order the setup puts them there.",
+};
+
+/** How TOONS.EXE's puzzle setup leaves a Toons level: the bin in its order, and the plugs it pulls out. */
+const start = computed(() =>
+  props.level.layout === "toons" && props.toonsSort ? toonsStart(props.level, props.toonsSort) : undefined,
+);
+
+/** The parts of each group as the puzzle starts, leaving out a group that only Toons has when it is empty. */
+const groups = computed(() =>
+  GROUPS.map((g) => ({
+    ...g,
+    hint:
+      (props.level.layout === "tim2" ? TIM2_HINTS : props.level.layout === "toons" ? TOONS_HINTS : {})[g.group] ??
+      g.hint,
+    parts:
+      g.group === "bin" && start.value
+        ? start.value.binOrder.map((i) => props.level.parts[i]!)
+        : g.group === "bin" && props.level.layout === "tim2" && props.tim2Start
+          ? levelStart(props.level, false, undefined, props.tim2Start).bin.map((i) => props.level.parts[i]!)
+          : props.level.parts.filter(
+              (p) => groupOf(props.level, p, false, props.toonsSort, props.tim2Start) === g.group,
+            ),
+  })).filter((g) => g.group !== "gone" || g.parts.length),
+);
+
+/** The bits of TIM 2's flag words that are known, by word: the game keeps only these from the file. */
+const TIM2_FLAGS: [number, string][][] = [
+  [],
+  [
+    [0x10, "mirrored"],
+    [0x20, "upside down"],
+  ],
+  [
+    [0x40, "fixed on the board"],
+    [0x100, "not in the solution"],
+  ],
 ];
 
 /** What each header field means, and how sure that is. TIM.EXE is the program of TIM 1. */
@@ -80,6 +142,16 @@ const MEANING: Record<string, { status: "decoded" | "hypothesis" | "unsupported"
     label: "scroll",
     title: "How far the view scrolls down, in the same way.",
   },
+  spareByte: {
+    status: "decoded",
+    label: "kept",
+    title: "TIM2.EXE keeps this byte and writes it back when it saves the level, and uses it for nothing else.",
+  },
+  background: {
+    status: "decoded",
+    label: "colour",
+    title: "The palette colour TIM2.EXE fills the play area with, behind the parts. A new level gets 3.",
+  },
   binFlag: {
     status: "decoded",
     label: "bin switch",
@@ -97,7 +169,7 @@ const open = ref(new Set<number>());
 const byType = computed(() => new Map(props.list?.parts.map((p) => [p.type, p])));
 const nameOf = (p: LevelPart) => {
   const listPart = byType.value.get(p.type);
-  return listPart ? partName(listPart).name : `Type ${p.type}`;
+  return listPart ? partName(listPart, props.list?.id).name : `Type ${p.type}`;
 };
 
 watch(
@@ -146,14 +218,21 @@ const word = (n: number) => `0x${n.toString(16).toUpperCase().padStart(4, "0")}`
 const index = (i: number | null | undefined) => (i === null || i === undefined ? "none" : `#${i}`);
 const pair = (p: { x: number; y: number }) => `${p.x}, ${p.y}`;
 
-/** The record's flag words the file's three flag words go to, in their order. */
-const FLAG_WORDS = [0x06, 0x08, 0x0a];
+/** The names to say the record's words with; none before they are known. */
+const names = computed<RecordNames>(() => props.record ?? { fields: [] });
 
 /** A part's flags in words, by the names of their bits, with how many bits the program never uses are set. */
 function flagsShown(p: LevelPart): { value: string; note?: string } {
   // The bits' meanings come from the TIM loader and record; other layouts keep their words in hex.
-  if (props.level.layout !== "tim") return { value: p.flags.map(word).join(" ") };
-  const read = p.flags.map((f, k) => flagWords(FLAG_WORDS[k]!, f, props.record));
+  if (props.level.layout === "tim2") {
+    const names = p.flags.flatMap((f, k) => (TIM2_FLAGS[k] ?? []).filter(([bit]) => f & bit).map(([, n]) => n));
+    return { value: [...names, p.flags.map(word).join(" ")].join(" · ") };
+  }
+  // The record's flag words the file's three flag words go to, in their order: TIM.EXE's.
+  const timWords = names.value.words;
+  if (props.level.layout !== "tim" || !timWords) return { value: p.flags.map(word).join(" ") };
+  const flagWordsAt = [timWords.listFlags, timWords.drawingFlags, timWords.marks];
+  const read = p.flags.map((f, k) => flagWords(flagWordsAt[k]!, f, names.value));
   const words = read.flatMap((r) => r.words);
   const unknown = read.reduce((n, r) => n + r.unknown.toString(2).replace(/0/g, "").length, 0);
   return {
@@ -179,6 +258,8 @@ interface Row {
   link?: number;
   /** Where the loader keeps the field, as a short tag and what it means. */
   loaded?: { tag: string; title: string; faint?: boolean };
+  /** What the puzzle start makes of the field, as a short tag and what it means. */
+  start?: { tag: string; title: string };
 }
 
 const words = (at: number[]) => at.map((a) => hex(a, 2)).join(" ");
@@ -196,8 +277,8 @@ function loadedTag(place: LoadedPlace): Row["loaded"] {
     .filter(Boolean)
     .join("; ");
   if (place.notKept) return { tag: "not kept", title: `The loader doesn’t keep it: ${what}.`, faint: true };
-  const named = place.at.map((a, k) => recordName(a, props.record) ?? place.names?.[k]);
-  const through = place.through && recordName(place.through.word, props.record);
+  const named = place.at.map((a, k) => recordName(a, names.value) ?? place.names?.[k]);
+  const through = place.through && recordName(place.through.word, names.value);
   const tag = place.through
     ? through
       ? `→ ${through} record`
@@ -211,6 +292,31 @@ function loadedTag(place: LoadedPlace): Row["loaded"] {
   return { tag, title: what ? `${where}: ${what}.` : `${where}.` };
 }
 
+/**
+ * The plugs TOONS.EXE's puzzle setup pulls out of a part, or the part's own plug when `own` (`0xb7b3`), with the
+ * part's plugs after it.
+ */
+function plugsAtStart(p: LevelPart, own = false): Row["start"] {
+  const pulled = start.value?.unplugged.filter((u) => u.part === p.index || (!own && u.into === p.index)) ?? [];
+  if (!pulled.length) return undefined;
+  const after = start.value?.plugs.get(p.index);
+  return {
+    tag: `unplugged at the start${after?.some((l) => l !== null) ? `: ${after.map(index).join(", ")}` : ""}`,
+    title: `${pulled.map((u) => `#${u.part} out of place ${u.place + 1} of #${u.into}`).join("; ")}. TOONS.EXE pulls a part’s plug out when its puzzle setup puts the part, or the part it is plugged into, in the bin.`,
+  };
+}
+
+/** The state TOONS.EXE's puzzle setup leaves a part on the board with, when it changes it. */
+function stateAtStart(p: LevelPart): Row["start"] {
+  const state = start.value?.states.get(p.index);
+  if (state === undefined) return undefined;
+  return {
+    tag: `${state} at the start`,
+    title:
+      "Pulling a plug out or untying a rope as the puzzle starts runs the part’s own routine, which sets its state again: an electric switch shows the plugs it still has, an anvil whether a rope is tied to it. The level is drawn with this state.",
+  };
+}
+
 /** The fields of a part, as rows of name, value and, when the meaning isn't clear, a note. */
 function rows(p: LevelPart): Row[] {
   // Only TIM 1 and Even More levels were loaded with the game's loader.
@@ -218,7 +324,7 @@ function rows(p: LevelPart): Row[] {
   const out: Row[] = [
     { key: "type", value: `${p.type} · ${nameOf(p)}`, loaded: at("type") },
     { key: "flags", ...flagsShown(p), raw: p.flags.map(word).join(" "), loaded: at("flags") },
-    { key: "state", value: p.state.join(", "), loaded: at("state") },
+    { key: "state", value: p.state.join(", "), loaded: at("state"), start: stateAtStart(p) },
     { key: "position", value: pair(p.position), loaded: at("position") },
     { key: "size", value: `${p.size.width} × ${p.size.height}`, loaded: at("size") },
     { key: "base size", value: `${p.baseSize.width} × ${p.baseSize.height}`, loaded: at("baseSize") },
@@ -260,17 +366,29 @@ function rows(p: LevelPart): Row[] {
     });
   }
   if (p.plugs?.some((l) => l !== null))
-    out.push({ key: "plugs", value: p.plugs.map(index).join(", "), loaded: at("plugs") });
+    out.push({ key: "plugs", value: p.plugs.map(index).join(", "), loaded: at("plugs"), start: plugsAtStart(p) });
   if (p.pulley !== undefined) out.push({ key: "pulley", value: index(p.pulley), loaded: at("pulley") });
   if (p.tunnel !== undefined) out.push({ key: "tunnel", value: index(p.tunnel) });
-  if (p.toons)
+  if (p.plugPlace !== undefined) {
+    const plugged = p.plugs?.[0];
+    // A part with bit 0x2 of the third flag word takes plugs: its plugs are the parts in it, and the byte isn't used.
+    const takesPlugs = props.level.layout === "toons" && ((p.flags[2] ?? 0) & 0x2) !== 0;
+    out.push(
+      takesPlugs
+        ? { key: "plugPlace", value: `${p.plugPlace}, not used: it takes plugs` }
+        : plugged === null || plugged === undefined
+          ? { key: "plugPlace", value: String(p.plugPlace), note: "no plug" }
+          : { key: "plugPlace", value: `place ${p.plugPlace + 1} of #${plugged}`, start: plugsAtStart(p, true) },
+    );
+  }
+  if (p.setting !== undefined) {
+    const words = toonsSetting(p.type, p.setting);
     out.push({
-      key: "toons",
-      value: [p.toons.byte !== undefined ? `byte ${p.toons.byte}` : "", `word ${p.toons.word}`]
-        .filter(Boolean)
-        .join(", "),
-      note: "meaning unknown",
+      key: "setting",
+      value: words ?? String(p.setting),
+      ...(words ? {} : { note: "not read for this part" }),
     });
+  }
   if (p.outline)
     out.push({ key: "outline", value: p.outline.map(pair).join(" · ") || "none", note: "TIM.EXE skips it" });
   out.push({ key: "bytes", value: `${hex(p.offset, 4)}, ${p.length} bytes`, link: p.offset });
@@ -322,14 +440,9 @@ function rows(p: LevelPart): Row[] {
         </LabFact>
       </LabFacts>
 
-      <template v-for="g in GROUPS" :key="g.group">
-        <LabListHeading
-          :title="g.label"
-          :meta="String(level.parts.filter((p) => p.group === g.group).length)"
-          :hint="g.hint"
-          class="font-sans"
-        />
-        <div v-for="p in level.parts.filter((p) => p.group === g.group)" :key="p.index" :data-structure-part="p.index">
+      <template v-for="g in groups" :key="g.group">
+        <LabListHeading :title="g.label" :meta="String(g.parts.length)" :hint="g.hint" class="font-sans" />
+        <div v-for="p in g.parts" :key="p.index" :data-structure-part="p.index">
           <LabListRow
             :name="`#${p.index}`"
             name-width="2rem"
@@ -357,6 +470,9 @@ function rows(p: LevelPart): Row[] {
                 <span v-else :title="r.raw">{{ r.value }}</span>
                 <!-- The note and where the loader keeps the field go under the value, so the value keeps its width. -->
                 <span v-if="r.note" class="block font-sans text-2xs text-hypothesis">{{ r.note }}</span>
+                <span v-if="r.start" class="block font-sans text-2xs text-faint" :title="r.start.title">{{
+                  r.start.tag
+                }}</span>
                 <span
                   v-if="r.loaded"
                   class="block text-2xs text-faint"

@@ -67,30 +67,26 @@ const cards = computed(() => [
 ]);
 
 /** The parts of the loaded game, read from its program or from INFO.RES, for the Parts card. */
-const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
-/** The badge of the Parts card: where the parts were read from, or that the lab has no list for this game. */
+const loadedParts = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value),
+);
+/** The badge of the Parts card: where the parts were read from, or why the lab has none for this game. */
 const partsBadge = computed(() => {
   const l = loadedParts.value;
   if (!l)
     return {
       status: "unsupported" as const,
-      title: "The lab has no parts list for these files yet. It has lists for TIM 1, Even More and TIM 2.",
+      title: "The lab can’t read the parts of these files yet. It reads those of TIM 1, Even More, TIM 2 and Toons.",
     };
-  if (l.source === "committed")
-    return { status: "unsupported" as const, title: `Not read from the loaded files. ${l.problem ?? ""}`.trim() };
+  if (l.source === undefined) return { status: "error" as const, title: l.problem };
   const from = l.source === "program" ? (program.value?.name ?? "the program") : "INFO.RES";
-  // Parts our list doesn't have yet make the list incomplete; parts that only differ don't.
-  if (l.missing.length)
+  // Parts OpenTIM has no id for yet make the list incomplete.
+  if (l.unknown.length)
     return {
       status: "partial" as const,
-      title: `Read from ${from}. Our list is missing parts ${l.missing.join(", ")}.`,
+      title: `Read from ${from}. OpenTIM has no id for parts ${l.unknown.join(", ")} yet.`,
     };
-  return {
-    status: "decoded" as const,
-    title: l.differs.length
-      ? `Read from ${from}. Parts ${l.differs.join(", ")} differ from the list committed to OpenTIM.`
-      : `Read from ${from}, the same as the committed list.`,
-  };
+  return { status: "decoded" as const, title: `Read from ${from}.` };
 });
 
 /** The badge of a kind: what its decoder made of the loaded files of that kind, or what the lab can do with it. */
@@ -246,7 +242,7 @@ watchEffect(() => (crumb.value = ["Overview", ...(selected.value ? [selected.val
             <span class="flex items-center gap-1 text-ui text-soft"
               >Parts<LabIcon name="chevronRight" :size="12" class="text-muted"
             /></span>
-            <span class="font-mono text-stat leading-none">{{ loadedParts?.list.parts.length ?? 0 }}</span>
+            <span class="font-mono text-stat leading-none">{{ loadedParts?.list?.parts.length ?? 0 }}</span>
             <LabBadge v-bind="partsBadge" class="self-start" />
           </button>
         </template>

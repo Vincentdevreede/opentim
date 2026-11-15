@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import type { OtherEffect } from "../behaviour.ts";
 import { INTERACTION_COLOURS, INTERACTION_LABELS, type InteractionPair } from "../interactions.ts";
 import LabListHeading from "./LabListHeading.vue";
 import BehaviourEffect from "./sprites/BehaviourEffect.vue";
@@ -7,12 +8,14 @@ import BehaviourDoing from "./sprites/BehaviourDoing.vue";
 
 /**
  * What a part does to other parts and what they do to it, one row per other part, with how it reaches it and a
- * square for each kind. A row opens in place to its ways, as the Behaviour tab says them.
+ * square for each kind. A row opens in place to its ways, as the Behaviour tab says them. Last, what its own bounce
+ * does to it when it touches a part, in TIM 2 and Toons (`own`).
  */
 const props = defineProps<{
   type: number;
   pairs: readonly InteractionPair[];
   nameOf: (type: number) => string;
+  own?: readonly OtherEffect[];
 }>();
 
 const does = computed(() => props.pairs.filter((p) => p.source === props.type));
@@ -70,5 +73,9 @@ const kindWords = (p: InteractionPair) => p.kinds.map((k) => INTERACTION_LABELS[
       </div>
     </template>
     <p v-if="!section.list.length" class="px-3 py-[5px] text-muted">Nothing found</p>
+  </template>
+  <template v-if="own?.length">
+    <LabListHeading title="Its own bounce" :meta="String(own.length)" />
+    <BehaviourEffect v-for="(e, k) in own" :key="k" :effect="e" :name="nameOf(type)" />
   </template>
 </template>

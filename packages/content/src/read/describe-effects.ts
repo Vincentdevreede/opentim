@@ -28,6 +28,7 @@ import {
   TYPE_RECORD_WRITTEN,
 } from "./behaviour.ts";
 import { directionError } from "./behaviour-centre-angle.ts";
+import { behaviourProfile, type PartWords } from "./behaviour-program.ts";
 import { limitForAir } from "./behaviour-speed-limits.ts";
 import {
   compareWords,
@@ -57,11 +58,24 @@ import {
 import { conjunction, constant, uniqueEvidence, unsigned } from "./behaviour-terms.ts";
 
 /**
- * The list flags of a part at `0x06`: the routine that puts a part on a list (`0x6469` in Even More, English floppy)
- * gives it `0x1000` and the moving list when its starting flags lack `0x4000`, and `0x2000` and the fixed list
- * otherwise.
+ * The words of TIM.EXE's records the descriptions know by place (the profile's `partWords`), for the report's game.
+ * Undefined for TIM 2 and Toons, whose records are kept otherwise: the descriptions then say nothing about those words.
  */
-export const LIST_FLAGS = 0x06;
+export const partWordsOf = (report: Pick<BehaviourReport, "listId">): PartWords | undefined =>
+  behaviourProfile(report.listId ?? "").partWords;
+/**
+ * The starting list flags the part factory gives each type, in the report's game's list flags (`partWords.listFlags`,
+ * `0x06` in TIM.EXE): the routine that puts a part on a list (`0x6469` in Even More, English floppy) gives it `0x1000`
+ * and the moving list when its starting flags lack `0x4000`, and `0x2000` and the fixed list otherwise. Undefined for a
+ * game without TIM.EXE's words.
+ */
+export function startingListFlags(report: Pick<BehaviourReport, "listId" | "helpers">) {
+  const words = partWordsOf(report);
+  if (!words) return undefined;
+  return report.helpers
+    ?.find((h) => h.kind === "part-factory")
+    ?.factory?.startingWords?.find((w) => w.field === words.listFlags);
+}
 const MOVING_LIST = 0x1000;
 const FIXED_LIST = 0x2000;
 export const FIXED_TYPE = 0x4000;
@@ -305,28 +319,28 @@ export const TYPE_TABLE_ASSUMPTION =
  *   (`0x256e`), and one check wants `0x0400` on fish bowls (`0x28ae`). A search of the whole program for tests of these
  *   bits, in all eleven builds, finds no other.
  */
-const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[] = [
+const partFlags = (words: PartWords): { offset: number; mask: number; name: string; words: string }[] => [
   {
-    offset: LIST_FLAGS,
+    offset: words.listFlags,
     mask: 0x0001,
     name: "contact flag 0x0001",
     words:
       "the contact search sets it after a contact; while it is set the mover pulls the part 2 pixels further along its gravity each time it moves it, and the contact dispatch picks the response at 0x3980 over the reflection at 0x3c1c",
   },
   {
-    offset: 0x08,
+    offset: words.drawingFlags,
     mask: 0x2000,
     name: "out-of-play flag 0x2000",
     words: "the contact dispatch, the contact search and the overlap searches pass over a part with it",
   },
   {
-    offset: 0x08,
+    offset: words.drawingFlags,
     mask: 0x0040,
     name: "ran-this-step mark 0x0040",
     words: "the step's run loop clears it first and then calls no run callback of a part that has it",
   },
   ...[0x0080, 0x0100, 0x0200, 0x0400].map((mask) => ({
-    offset: 0x0a,
+    offset: words.marks,
     mask,
     name: `goal mark 0x${mask.toString(16).padStart(4, "0")}`,
     words:
@@ -334,15 +348,31 @@ const PART_FLAGS: { offset: number; mask: number; name: string; words: string }[
   })),
 ];
 /** Where a flag bit lives, in words: "list flags", "drawing flags" or "field 0x0a". */
-const FLAG_FIELDS: Record<number, string> = { [LIST_FLAGS]: "list flags", 0x08: "drawing flags", 0x0a: "field 0x0a" };
+const flagField = (words: PartWords, offset: number): string | undefined =>
+  offset === words.listFlags
+    ? "list flags"
+    : offset === words.drawingFlags
+      ? "drawing flags"
+      : offset === words.marks
+        ? `field 0x${offset.toString(16).padStart(2, "0")}`
+        : undefined;
 /**
  * A set or cleared bit in words, like "sets its out-of-play flag 0x2000 in its drawing flags (the contact dispatch ...
- * pass over a part with it)", or undefined when the bit has no proved meaning.
+ * pass over a part with it)", or undefined when the bit has no proved meaning. The meanings are TIM.EXE's, so a game
+ * without TIM.EXE's words (`partWords`) gets none.
  */
-export function flagWords(offset: number, mask: number, set: boolean, whose: string, long = true): string | undefined {
-  const flag = PART_FLAGS.find((f) => f.offset === offset && f.mask === mask);
+export function flagWords(
+  words: PartWords | undefined,
+  offset: number,
+  mask: number,
+  set: boolean,
+  whose: string,
+  long = true,
+): string | undefined {
+  if (!words) return undefined;
+  const flag = partFlags(words).find((f) => f.offset === offset && f.mask === mask);
   if (!flag) return undefined;
-  return `${set ? "sets" : "clears"} ${whose} ${flag.name} in ${FLAG_FIELDS[offset]}${long ? ` (${flag.words})` : ""}`;
+  return `${set ? "sets" : "clears"} ${whose} ${flag.name} in ${flagField(words, offset)}${long ? ` (${flag.words})` : ""}`;
 }
 /**
  * The bits a value sets and clears in its own field, when it is the field with bits set by `or` and cleared by `and`,
@@ -379,16 +409,34 @@ export const FINE_POSITION: Record<number, string> = {
   0x1c: "fine vertical position (high word)",
 };
 /**
+ * The fine position word at `offset` of a part of the report's game, as `FINE_POSITION` names TIM.EXE's: the longs sit
+ * 8 bytes before positionX in every game, so they move with it. TIM2.EXE keeps them at 0x1a and 0x1e (its level reset
+ * sets them from the position shifted left by 9, `0x1eda1` in the CD build), TOONS.EXE at 0x17 and 0x1b (`0x1ac6`, in
+ * the routine at `0x17fe`). Undefined for any other word, and for another game whose positionX isn't known. `axis` is
+ * the whole position the long holds.
+ */
+export function finePosition(
+  report: Pick<BehaviourReport, "layout" | "listId">,
+  offset: number,
+): { words: string; axis: "positionX" | "positionY" } | undefined {
+  const positionX = report.layout.fields.find((field) => field.name === "positionX")?.offset;
+  // Without positionX only TIM.EXE's own places are known.
+  if (positionX === undefined && !partWordsOf(report)) return undefined;
+  const key = offset - (positionX === undefined ? 0 : positionX - 0x1e);
+  const words = FINE_POSITION[key];
+  return words ? { words, axis: key < 0x1a ? "positionX" : "positionY" } : undefined;
+}
+/**
  * The contact record a contact search fills in on the part it moves (`0x09eb` to `0x0a06`): the part it touched at
  * `0x84`, two side bytes at `0x86` and `0x87` (`0x0db5`, `0x0dcc`, and the helper at `0x04b0`), the angle at `0x88` and
  * the edge at `0x8a`. The contact flags `0x0002` and `0x0004` at `0x06` say which response route follows (`0x09af` to
- * `0x09e7`), and `0x0001` is set at `0x073f`.
+ * `0x09e7`), and `0x0001` is set at `0x073f`. These are TIM.EXE's words (`partWords`); another game's get none.
  */
-export const CONTACT_RECORD: Record<number, string> = {
-  [LIST_FLAGS]: "contact flags in its list flags at 0x06",
-  0x86: "contact side byte at 0x86",
-  0x87: "contact side byte at 0x87",
-};
+export function contactRecordWords(words: PartWords | undefined, offset: number): string | undefined {
+  if (!words) return undefined;
+  if (offset === words.listFlags) return `contact flags in its list flags at 0x${offset.toString(16).padStart(2, "0")}`;
+  return words.contactSides.includes(offset) ? `contact side byte at 0x${offset.toString(16)}` : undefined;
+}
 
 /** Something another part sets on this part: its velocity to a speed, or a field to a number. */
 export type OtherPartSetting =
@@ -835,8 +883,9 @@ export function settleForType(
   // A type whose limit is the same number in every level, like the bullet's 12288.
   const fixed = table?.speedLimits?.fixed.find((f) => f.type === type)?.limit;
   if (fixed !== undefined) return { value: kept.speed, kept: true, limit: fixed };
-  // Any other type's limit is one the level's air pressure gives, by the decided assumption within a range.
-  const range = speedLimitRange(table);
+  // A type whose every way stores the base minus the air pressure's value has a limit the level's air pressure gives,
+  // by the decided assumption within a range. Any other type's limit isn't known.
+  const range = table?.speedLimits?.based.includes(type) ? speedLimitRange(table) : undefined;
   return range ? { value: kept.speed, kept: true, range } : { value: kept.speed, kept: true };
 }
 /** A speed limit that is a number in every level, as the words give it after "its speed limit". */
@@ -948,13 +997,13 @@ function drawingFlagWords(p: Predicate, report: BehaviourReport): string | undef
   return words && `${p.operator === "!=" ? "" : "not "}${words}`;
 }
 
-/** A test of one list flag of the member, like `(member + 0x06 & 0x1000) != 0`, in words. */
-export function listFlagWords(p: Predicate, member: string): string | undefined {
-  if (p.kind !== "compare" || !["==", "!="].includes(p.operator)) return undefined;
+/** A test of one list flag of the member, like `(member + 0x06 & 0x1000) != 0`, in words; only with TIM.EXE's words. */
+export function listFlagWords(words: PartWords | undefined, p: Predicate, member: string): string | undefined {
+  if (!words || p.kind !== "compare" || !["==", "!="].includes(p.operator)) return undefined;
   const { left, right } = p;
   if (right.kind !== "constant" || right.value !== 0 || left.kind !== "binary" || left.operator !== "&") return;
   const [flags, mask] = left.left.kind === "field" ? [left.left, left.right] : [left.right, left.left];
-  if (flags.kind !== "field" || flags.object !== member || flags.offset !== LIST_FLAGS || mask.kind !== "constant")
+  if (flags.kind !== "field" || flags.object !== member || flags.offset !== words.listFlags || mask.kind !== "constant")
     return undefined;
   const list = mask.value === MOVING_LIST ? "moving" : mask.value === FIXED_LIST ? "fixed" : undefined;
   return list && `${p.operator === "!=" ? "" : "not "}on the ${list} list`;
@@ -1039,8 +1088,12 @@ interface Candidate {
 
 /** The part that touched the source, as the bounce callback gets it; `part` is the source, the part it touched. */
 const TOUCHER = "collider";
+/** How a line of what a part's own bounce does to it starts. */
+const OWN_LEAD = "When it touches a part, its own bounce runs on it too and";
 export const TOUCH_ASSUMPTION =
   "The part touches the source, which is another part, and the fields of both meet the tests when the contact dispatch calls the source's bounce; that this happens in a level is not claimed.";
+export const OWN_TOUCH_ASSUMPTION =
+  "The part touches another part, and the fields of both meet the tests when the contact dispatch calls the part's own bounce with it, the touched part in the bounce owner's place; that this happens in a level is not claimed.";
 
 /** Whether a value reads a table, which a line can't look up. */
 function readsTable(
@@ -1182,13 +1235,17 @@ function touchCandidate(
 
 /**
  * By part type: the lines for what other parts do to it without changing its frame, and the decided assumptions that
- * ruled out others. `evaluate` tests a condition against known fields, as the walks do.
+ * ruled out others. `evaluate` tests a condition against known fields, as the walks do. For a type whose own bounce
+ * the game also calls when it touches a part (the profile's `selfBounce`), `ownBounce` has what that bounce sets on it.
  */
 export function effectsFromOthers(
   report: BehaviourReport,
   evaluate: Evaluate,
-): Map<number, { effects: OtherPartEffect[]; assumptions: string[] }> {
-  const result = new Map<number, { effects: OtherPartEffect[]; assumptions: string[] }>();
+): Map<number, { effects: OtherPartEffect[]; assumptions: string[]; ownBounce?: OtherPartEffect[] }> {
+  const result = new Map<
+    number,
+    { effects: OtherPartEffect[]; assumptions: string[]; ownBounce?: OtherPartEffect[] }
+  >();
   const typeOffset = report.layout.fields.find((f) => f.name === "type")?.offset;
   const stateOffset = report.layout.fields.find((f) => f.name === "state")?.offset;
   if (typeOffset === undefined || stateOffset === undefined) return result;
@@ -1197,9 +1254,7 @@ export function effectsFromOthers(
   // The words an overlap search stores in the parts it finds, named by the axis its code measures them on.
   for (const h of report.helpers ?? [])
     for (const o of h.list?.overlaps ?? []) if (!fieldNames.has(o.offset)) fieldNames.set(o.offset, `overlap${o.axis}`);
-  const startingFlags = report.helpers
-    ?.find((h) => h.kind === "part-factory")
-    ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const startingFlags = startingListFlags(report);
   const fixedType = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
 
   const factory = report.helpers?.find((h) => h.kind === "part-factory")?.factory;
@@ -1256,7 +1311,9 @@ export function effectsFromOthers(
       // Single bits whose meaning the code proves say it, like the contact flag 0x0001 at 0x06.
       const bits = value.operator === "&" ? ~n & 0xffff : value.operator === "|" ? n : 0;
       const named =
-        bits && (bits & (bits - 1)) === 0 ? flagWords(offset, bits, value.operator === "|", "its", false) : undefined;
+        bits && (bits & (bits - 1)) === 0
+          ? flagWords(partWordsOf(report), offset, bits, value.operator === "|", "its", false)
+          : undefined;
       if (named) return named;
       if (value.operator === "&") return `clears ${`0x${(~n & 0xffff).toString(16).padStart(4, "0")}`} in ${field}`;
       if (value.operator === "|") return `sets ${hex} in ${field}`;
@@ -1401,7 +1458,8 @@ export function effectsFromOthers(
           JSON.stringify(longPart(s.value)) === JSON.stringify(part && { ...part, high: true }),
       );
       if (!part || part.high || !high || low.kind !== "expression") continue;
-      const fine = FINE_POSITION[low.offset] ? (low.offset < 0x1a ? "horizontal" : "vertical") : undefined;
+      const axis = finePosition(report, low.offset)?.axis;
+      const fine = axis && (axis === "positionX" ? "horizontal" : "vertical");
       longs.set(
         low,
         `sets ${fine ? `its fine ${fine} position (the long at 0x${low.offset.toString(16)}, in 1/512 pixels)` : `the long at 0x${low.offset.toString(16).padStart(2, "0")}`} to ${formula(part.word, { field: fieldName, of: (_, what) => what })} × ${2 ** part.shift}`,
@@ -1428,12 +1486,21 @@ export function effectsFromOthers(
   };
   /** Types whose bounce the game also calls on a part of that type itself, with what it touched (Mel in Even More). */
   const selfCalled = new Set((report.collisionDispatch ?? []).flatMap((d) => d.specialSelfCall?.type ?? []));
+  /** Types whose own bounce the game also calls when a part of the type touches a part, by the game's profile. */
+  const selfBounce = behaviourProfile(report.listId).selfBounce;
+  const ownBounce = (type: number) => selfBounce === "every" || selfBounce.includes(type);
   /**
    * The touch lines of a part: what the bounce of a part it touches sets on it. Paths that set the same, and return
-   * the same, are joined where their tests allow it. `read` are the fields the part's own rules read.
+   * the same, are joined where their tests allow it. `read` are the fields the part's own rules read. With `own`, what
+   * its own bounce sets on it when the game calls that bounce with it, the part it touches in the owner's place.
    */
   const rewritten = rewrittenByResponse(report, evaluate);
-  const touchLines = (part: BehaviourReport["parts"][number], read: Set<number>, assumptions: Set<string>) => {
+  const touchLines = (
+    part: BehaviourReport["parts"][number],
+    read: Set<number>,
+    assumptions: Set<string>,
+    own = false,
+  ) => {
     const readsField = (w: FieldWrite) => [...Array(w.width / 8).keys()].some((byte) => read.has(w.offset + byte));
     // A field the contact response that always follows a bounce returning nonzero writes again is that response's.
     const responds = (c: TouchCandidate) => c.returns !== undefined && c.returns !== 0 && !!rewritten;
@@ -1451,8 +1518,10 @@ export function effectsFromOthers(
     }
     const groups = new Map<string, { tests: Tests; value: Path }[]>();
     for (const c of touches) {
+      // Its own bounce: `part` is then the part it touches, of any type.
+      if (own && c.sourceType !== part.type) continue;
       // The bounce of such a type may run with a part of the type as the toucher and anything as `part`.
-      if (selfCalled.has(c.sourceType) && part.type === c.sourceType) continue;
+      if (!own && selfCalled.has(c.sourceType) && part.type === c.sourceType) continue;
       const used = { table: false };
       const kept: Predicate[] = [];
       let possible = true;
@@ -1467,8 +1536,9 @@ export function effectsFromOthers(
         kept.push(typed);
       }
       // A write to a field the part's rules read can change its frame: walks are the place for that, unless the
-      // contact response that always follows writes the field again.
-      if (!possible || c.writes.some((w) => readsField(w) && !(responds(c) && redone(w)))) continue;
+      // contact response that always follows writes the field again. No walk starts from its own bounce, so its line
+      // says it instead.
+      if (!possible || (!own && c.writes.some((w) => readsField(w) && !(responds(c) && redone(w))))) continue;
       const settings = settingsOf(c.writes, TOUCHER, part.type, used);
       if (!settings) continue;
       if (fixed) {
@@ -1481,7 +1551,8 @@ export function effectsFromOthers(
       }
       const tests = testsOf(kept);
       if (!tests || impossible(tests)) continue;
-      const key = JSON.stringify([c.routine, settings.sets, c.returns ?? null]);
+      // Two types that share a bounce each get their own line, which names them.
+      const key = JSON.stringify([c.sourceType, c.routine, settings.sets, c.returns ?? null]);
       const group = groups.get(key) ?? [];
       groups.set(key, group);
       group.push({
@@ -1513,7 +1584,7 @@ export function effectsFromOthers(
         if (rank[from.confidence] > rank[into.confidence]) into.confidence = from.confidence;
       })) {
         const { c, sets } = value;
-        const name = nameOf(c.sourcePart);
+        const name = own ? "touched part" : nameOf(c.sourcePart);
         // Each test with its comparisons and words; a path's own tests when they can't be said in short.
         const list =
           testsInWords(tests) ??
@@ -1559,8 +1630,9 @@ export function effectsFromOthers(
         const only = toucherWords.length ? ` Only when ${toucherWords.join(" and ")}.` : "";
         // The dispatch goes on to a contact response only when the bounce returns something other than 0.
         const ruled = c.writes.filter(readsField).map((w) => fieldName(w.offset));
-        const response =
-          c.returns === undefined
+        const response = own
+          ? `${ruled.length ? ` Its own rules read ${listWords([...new Set(ruled)])}, so this can change its frame.` : ""} The game doesn't use what this bounce returns.`
+          : c.returns === undefined
             ? " The game may go on to a contact response, which can change these again."
             : c.returns === 0
               ? " Its bounce returns 0 then, so no contact response follows."
@@ -1577,14 +1649,15 @@ export function effectsFromOthers(
           condition: conjunction(toucher),
           conditionWords: toucherWords,
           ...(velocityDirection ? { velocityDirection } : {}),
-          touch: c.returns === undefined ? {} : { returns: c.returns },
-          description: `${named(name, true)} it touches${when} ${said.join(" and ")}.${only}${response}`,
+          // The game doesn't use what its own bounce returns.
+          touch: own || c.returns === undefined ? {} : { returns: c.returns },
+          description: `${own ? OWN_LEAD : `${named(name, true)} it touches`}${when} ${said.join(" and ")}.${only}${response}`,
           confidence: value.confidence,
           assumptions: [
             ...new Set([
               ...value.assumptions,
               ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
-              TOUCH_ASSUMPTION,
+              own ? OWN_TOUCH_ASSUMPTION : TOUCH_ASSUMPTION,
             ]),
           ],
           evidence: value.evidence,
@@ -1594,7 +1667,7 @@ export function effectsFromOthers(
       // Lines of one group set the same and differ only in their tests: they are one line with each path as a case.
       const made = lines.splice(start) as (OtherPartEffect & { caseWords: string })[];
       if (made.length === 1) lines.push(withoutCaseWords(made[0]!));
-      else if (made.length > 1) lines.push(casesLine(made));
+      else if (made.length > 1) lines.push(casesLine(made, own));
     }
     return lines;
   };
@@ -1604,7 +1677,7 @@ export function effectsFromOthers(
     return copy;
   };
   /** One line for lines that set the same: the tests every case makes stay on the line, the rest go to `cases`. */
-  const casesLine = (made: (OtherPartEffect & { caseWords: string })[]): OtherPartEffect => {
+  const casesLine = (made: (OtherPartEffect & { caseWords: string })[], own: boolean): OtherPartEffect => {
     const first = made[0]!;
     const common = (list: (line: OtherPartEffect) => Predicate[]) =>
       list(first).filter((term) =>
@@ -1612,9 +1685,12 @@ export function effectsFromOthers(
       );
     const commonWords = (list: (line: OtherPartEffect) => string[]) =>
       list(first).filter((word) => made.every((line) => list(line).includes(word)));
-    const name = nameOf(first.sourcePart);
+    const name = own ? "touched part" : nameOf(first.sourcePart);
     const { said } = sayings(first.sets, name);
-    const tail = / (Its bounce returns|The game may go on).*$/.exec(first.description)?.[0] ?? "";
+    const tail =
+      / (Its bounce returns|The game may go on|Its own rules read|The game doesn't use).*$/.exec(
+        first.description,
+      )?.[0] ?? "";
     const rank: Record<Confidence, number> = { checked: 0, inferred: 1, unresolved: 2 };
     return {
       ...withoutCaseWords(first),
@@ -1629,7 +1705,7 @@ export function effectsFromOthers(
         conditionWords: item.conditionWords,
         words: item.caseWords,
       })),
-      description: `${named(name, true)} it touches ${said.join(" and ")} in ${made.length} cases: ${made
+      description: `${own ? OWN_LEAD : `${named(name, true)} it touches`} ${said.join(" and ")} in ${made.length} cases: ${made
         .map((item, n) => `(${n + 1}) when ${item.caseWords}`)
         .join("; ")}.${tail}`,
       confidence: made.map((item) => item.confidence).reduce((a, b) => (rank[b] > rank[a] ? b : a)),
@@ -1778,11 +1854,13 @@ export function effectsFromOthers(
   for (const part of report.parts) {
     const effects = new Map<string, OtherPartEffect>();
     const assumptions = new Set<string>();
-    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so.
-    const offList = offMovingList(part, startingFlags);
+    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so. It is about
+    // TIM.EXE's list flags, so only with TIM.EXE's words.
+    const timWords = partWordsOf(report);
+    const offList = timWords && offMovingList(part, startingFlags);
     const known = offList
       ? (member: string) => [
-          { object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST } satisfies Pick<
+          { object: member, offset: timWords.listFlags, width: 16, value: 0, knownMask: MOVING_LIST } satisfies Pick<
             KnownField,
             "object" | "offset" | "width" | "value" | "knownMask"
           >,
@@ -1798,7 +1876,9 @@ export function effectsFromOthers(
       if (c.onlyType !== undefined && c.onlyType !== part.type) continue;
       const used = { table: false };
       const conditionTerms: Predicate[] = [],
-        words: string[] = [];
+        words: string[] = [],
+        // The list flag's words, like "on the moving list": the only ones a sentence says with "it is" in front.
+        onListWords = new Set<string>();
       let possible = true,
         decided = true,
         byList = false,
@@ -1812,11 +1892,12 @@ export function effectsFromOthers(
         if (!t.set) {
           const test = flagTest(c.member, t);
           searchTerms.push(test);
-          const named = PART_FLAGS.find((flag) => flag.offset === t.offset && flag.mask === t.mask);
+          const named =
+            timWords && partFlags(timWords).find((flag) => flag.offset === t.offset && flag.mask === t.mask);
           if (named) clearNames.set(test, named.name);
           continue;
         }
-        if (isLightableTest(t)) {
+        if (timWords && isLightableTest(t)) {
           if (!LIGHTABLE_PARTS.has(part.id)) possible = false;
           else usesLightable = true;
         } else if (!gives(part.type, t)) possible = false;
@@ -1825,7 +1906,7 @@ export function effectsFromOthers(
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
         const value = evaluate(typed, known(c.member));
         if (value === true) continue;
-        const flag = listFlagWords(typed, c.member);
+        const flag = listFlagWords(timWords, typed, c.member);
         if (value === false) {
           // Ruled out by the decided assumption only when no other test rules it out too.
           if (flag && offList && possible) byList = true;
@@ -1848,6 +1929,7 @@ export function effectsFromOthers(
         conditionTerms.push(own);
         // A flag the search needs clear says its name, like "its out-of-play flag 0x2000 is clear".
         const cleared = clearNames.get(term);
+        if (flag) onListWords.add(flag);
         words.push(
           flag ??
             (cleared
@@ -1895,13 +1977,29 @@ export function effectsFromOthers(
       const searchedSaid = c.searched.length
         ? ` Then it runs the contact search on it, which may change its ${listWords(c.searched.map((offset) => fieldName(offset)))}; what that search finds there, only the run knows.`
         : "";
-      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (/^\(*(its|the game) /.test(w) ? w : `it is ${w}`)).join(" and ")}.` : ""}${searchedSaid}`;
-      // Outcomes join only when their source tests match too, so a line never drops another outcome's source test.
-      const key = JSON.stringify([c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
+      const description = `${named(name, true)} that reaches it${when} ${said.join(" and ")}.${words.length ? ` Only when ${words.map((w) => (onListWords.has(w) ? `it is ${w}` : w)).join(" and ")}.` : ""}${searchedSaid}`;
+      // Outcomes join only when their source and its tests match too, so a line never drops another outcome's source
+      // or source test.
+      const key = JSON.stringify([c.sourceType, c.routine, sets, conditionTerms, c.sourceTerms, placeSaid, c.searched]);
       const prior = effects.get(key);
       const evidence = uniqueEvidence([...c.outcome.evidence, ...c.writes.flatMap((w) => w.evidence)]);
+      // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
+      const confidence: Confidence = c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence;
+      const lineAssumptions = [
+        ...c.outcome.assumptions,
+        ...c.writes.flatMap((w) => w.assumptions),
+        ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
+        ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
+        ...proofs,
+        ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
+        ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
+        "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
+      ];
+      // Paths that make the same line join: the weaker confidence, and every path's assumptions and evidence.
       if (prior) {
         prior.evidence = uniqueEvidence([...prior.evidence, ...evidence]);
+        if (confidence === "inferred" && prior.confidence === "checked") prior.confidence = confidence;
+        prior.assumptions = [...new Set([...prior.assumptions, ...lineAssumptions])];
         continue;
       }
       effects.set(key, {
@@ -1921,26 +2019,19 @@ export function effectsFromOthers(
         ...(c.place.length ? { place: c.place } : {}),
         ...(c.searched.length ? { searched: c.searched } : {}),
         description,
-        // A way open only at the overlap its search stored reads it as the part's own field, which holds it.
-        confidence: c.outcome.confidence === "unresolved" ? "inferred" : c.outcome.confidence,
-        assumptions: [
-          ...new Set([
-            ...c.outcome.assumptions,
-            ...c.writes.flatMap((w) => w.assumptions),
-            ...(used.table || c.sourceTable ? [TYPE_TABLE_ASSUMPTION] : []),
-            ...(usesLightable ? [LIGHTABLE_ASSUMPTION] : []),
-            ...proofs,
-            ...(velocityDirection ? [SCREEN_DIRECTION_ASSUMPTION] : []),
-            ...(c.place.some((t) => t.compared) ? [PLACE_DIFFERENCE_ASSUMPTION] : []),
-            "The part is in the source's overlap list and the source's own fields meet the source condition; that this happens in a level is not claimed.",
-          ]),
-        ],
+        confidence,
+        assumptions: [...new Set(lineAssumptions)],
         evidence,
       });
     }
     for (const line of touchLines(part, read, assumptions)) effects.set(`touch ${effects.size}`, line);
-    if (effects.size || assumptions.size)
-      result.set(part.type, { effects: [...effects.values()], assumptions: [...assumptions] });
+    const own = ownBounce(part.type) ? touchLines(part, read, assumptions, true) : [];
+    if (effects.size || assumptions.size || own.length)
+      result.set(part.type, {
+        effects: [...effects.values()],
+        assumptions: [...assumptions],
+        ...(own.length ? { ownBounce: own } : {}),
+      });
   }
   return result;
 }

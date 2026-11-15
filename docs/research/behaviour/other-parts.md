@@ -1168,6 +1168,6 @@ code does with it (addresses in Even More, English floppy):
   `0x0e` of the record of the rope it is asked about, its link at `0x66` or `0x68` picked by the callback's rope
   number.
 
-The flag meanings are a table in `describe-effects.ts` (`PART_FLAGS`), and the touch lines use them too: "clears its
+The flag meanings are a table in `describe-effects.ts` (`partFlags`, placed by the game's `partWords`), and the touch lines use them too: "clears its
 contact flag 0x0001 in list flags and sets its fine vertical position (the long at 0x1a, in 1/512 pixels) to
 positionY × 512". The comparison now counts 0 vague effect lines in both recorded builds.

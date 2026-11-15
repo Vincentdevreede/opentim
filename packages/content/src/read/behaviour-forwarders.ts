@@ -106,14 +106,12 @@ export function addStatePreservingForwarders(
             (writesFirst(i) &&
               register(i.operands[0], "bp") &&
               i !== move &&
-              !(i.mnemonic === "pop" && returns.some((r) => r.address === i.address + i.size))) ||
-            (writesFirst(i) &&
-              register(i.operands[0], "sp") &&
-              !(i.mnemonic === "mov" && register(i.operands[1], "bp")) &&
-              !(["add", "sub"].includes(i.mnemonic) && i.operands[1]?.kind === "immediate")),
+              !(i.mnemonic === "pop" && returns.some((r) => r.address === i.address + i.size))),
         )
       )
         continue;
+      // The stack walk below knows only pushes, pops, the calls and `mov sp, bp`, so SP may change only by that
+      // move, after the last call.
       const lastCall = Math.max(...code.calls.map((call) => call.instruction));
       if (
         code.instructions.some(

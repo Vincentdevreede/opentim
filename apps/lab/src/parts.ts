@@ -1,9 +1,10 @@
 /** The parts of the loaded version, read from its files, for the Sprites page. */
 
 import {
-  PART_LISTS,
+  partNamesOf,
   readProgramParts,
   readTim2Parts,
+  readToonsParts,
   type Part,
   type PartList,
   type ProgramParts,
@@ -18,112 +19,109 @@ export const listIdOf = (edition?: Edition) => (edition?.status === "recognized"
 
 export interface LoadedParts {
   list: PartList;
-  /** Where the parts come from: the loaded program, the loaded resources, or the list committed to OpenTIM. */
-  source: "program" | "resources" | "committed";
+  /** Where the parts come from: the game's program, or for TIM 2 its resources. */
+  source: "program" | "resources";
   /** The records of the program's type table, by part number, when read from the program. */
   records: Map<number, TypeRecord>;
   /** Everything read from the program, which the behaviour analysis starts from. */
   program?: ProgramParts;
-  /** Why the parts couldn't be read from the loaded files. */
-  problem?: string;
-  /** The numbers of the parts that differ from the committed list, when read from the loaded files. */
-  differs: number[];
-  /** The numbers of the parts the loaded files have and the committed list doesn't. */
-  missing: number[];
+  /** The numbers of the parts OpenTIM has no id for yet, which the list calls `part-` and the number. */
+  unknown: number[];
+  problem?: never;
 }
 
-/** The numbers of the parts in `list` that `committed` doesn't have at all. */
-function newParts(list: PartList, committed: PartList): number[] {
-  const known = new Set(committed.parts.map((p) => p.type));
-  return list.parts
+/** Why the parts of the loaded files couldn't be read. */
+export interface PartsProblem {
+  problem: string;
+  list?: never;
+  source?: never;
+  records?: never;
+  program?: never;
+  unknown?: never;
+}
+
+/** The numbers of the parts the reader kept without an id of their own. */
+const unknownParts = (list: PartList) =>
+  list.parts
+    .filter((p) => p.id === `part-${p.type}`)
     .map((p) => p.type)
-    .filter((t) => !known.has(t))
     .sort((a, b) => a - b);
-}
-
-/** The numbers of the parts that aren't the same in both lists. */
-function differences(list: PartList, committed: PartList): number[] {
-  const types = new Set([...list.parts, ...committed.parts].map((p) => p.type));
-  const find = (l: PartList, type: number) => JSON.stringify(l.parts.find((p) => p.type === type));
-  return [...types].filter((t) => find(list, t) !== find(committed, t)).sort((a, b) => a - b);
-}
 
 /**
- * Reads the parts of the loaded files: TIM 1 and Even More from their program, TIM 2 from `INFO.RES` and its
- * animations. Without those files, or when they can't be read, the committed list stands in, with the reason.
+ * Reads the parts of the loaded files: TIM 1, Even More and Toons from their program, TIM 2 from `INFO.RES` and its
+ * animations. When they can't be read, it says why. Undefined for a version without a parts reader.
  */
 export function readLoadedParts(
   listId: string | undefined,
   resources: readonly Resource[],
-  program?: { name: string; data: Uint8Array },
-): LoadedParts | undefined {
-  const committed = listId ? PART_LISTS[listId] : undefined;
-  if (!listId || !committed) return undefined;
+  program: { name: string; data: Uint8Array },
+): LoadedParts | PartsProblem | undefined {
   const byName = new Map(resources.map((r) => [r.name, r]));
-  const fallback = (problem: string): LoadedParts => ({
-    list: committed,
-    source: "committed",
-    records: new Map(),
-    problem,
-    differs: [],
-    missing: [],
-  });
+  const spriteCount = (sheet: string) => {
+    const r = byName.get(sheetFile(sheet));
+    const d = r && decode(r);
+    return d?.status === "decoded" ? d.image.frames.length : undefined;
+  };
+  const from = (name: string) =>
+    program.name === name ? undefined : { problem: `This game’s parts are read from ${name}, not ${program.name}.` };
   try {
     if (listId === "tim1" || listId === "evenmore") {
-      if (program?.name !== "TIM.EXE") return fallback("Add TIM.EXE to read the parts from the program.");
-      const spriteCount = (sheet: string) => {
-        const r = byName.get(sheetFile(sheet));
-        const d = r && decode(r);
-        return d?.status === "decoded" ? d.image.frames.length : undefined;
-      };
+      const wrong = from("TIM.EXE");
+      if (wrong) return wrong;
       const read = readProgramParts(listId, program.data, spriteCount, (sheet) => byName.get(sheetFile(sheet))?.data);
       return {
         list: read.list,
         source: "program",
         records: new Map(read.records.map((r) => [r.type, r])),
         program: read,
-        differs: differences(read.list, committed),
-        missing: newParts(read.list, committed),
+        unknown: unknownParts(read.list),
+      };
+    }
+    if (listId === "toons") {
+      const wrong = from("TOONS.EXE");
+      if (wrong) return wrong;
+      // No behaviour read: it knows TIM.EXE only, so the records are shown without `program`.
+      const read = readToonsParts(program.data, spriteCount, { keepUnknown: true });
+      return {
+        list: read.list,
+        source: "program",
+        records: new Map(read.records.map((r) => [r.type, r])),
+        unknown: unknownParts(read.list),
       };
     }
     if (listId === "tim2") {
-      if (!byName.has("INFO.RES")) return fallback("INFO.RES isn’t in the loaded files.");
-      // A part our list doesn't know yet is kept, so it shows as missing from our list.
+      if (!byName.has("INFO.RES")) return { problem: "INFO.RES isn’t in the loaded files." };
+      // A part OpenTIM has no id for yet is kept, so it shows as unknown.
       const list = readTim2Parts((name) => byName.get(name)?.data, { keepUnknown: true });
-      return {
-        list,
-        source: "resources",
-        records: new Map(),
-        differs: differences(list, committed),
-        missing: newParts(list, committed),
-      };
+      return { list, source: "resources", records: new Map(), unknown: unknownParts(list) };
     }
   } catch (error) {
-    return fallback(`Couldn’t read the parts from the loaded files: ${(error as Error).message}`);
+    return { problem: `Couldn’t read the parts from the loaded files: ${(error as Error).message}` };
   }
-  return fallback("The lab can’t read the parts of this game from its files yet.");
+  return undefined;
 }
 
-/** TIM 2 names its parts; the same object has the same id in the other lists. */
-const GAME_NAMES = new Map((PART_LISTS.tim2?.parts ?? []).flatMap((p) => (p.name ? [[p.id, p.name] as const] : [])));
-
-/** The name to show for a part: the game's own when it has one, else its id in words. */
-export function partName(part: Part): { name: string; source: "game" | "id" } {
+/**
+ * The name to show for a part: the game's own when it has one, else its id in words. Toons parts take their names
+ * from Toons' own list, never from the TIM games'.
+ */
+export function partName(part: Part, listId?: string): { name: string; source: "game" | "id" } {
   const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const name = part.name ?? GAME_NAMES.get(part.id);
+  const name = part.name ?? partNamesOf(listId).get(part.id);
   return name ? { name: capital(name), source: "game" } : { name: capital(part.id.replace(/-/g, " ")), source: "id" };
 }
 
 export type PartOrder = "number" | "name";
 
 /** The parts that match a search on name, id or number, in this order. */
-export function findParts(parts: readonly Part[], query: string, order: PartOrder): Part[] {
+export function findParts(parts: readonly Part[], query: string, order: PartOrder, listId?: string): Part[] {
   const q = query.trim().toLowerCase();
+  const name = (p: Part) => partName(p, listId).name;
   const found = parts.filter(
-    (p) => !q || String(p.type) === q || p.id.includes(q) || partName(p).name.toLowerCase().includes(q),
+    (p) => !q || String(p.type) === q || p.id.includes(q) || name(p).toLowerCase().includes(q),
   );
   return order === "name"
-    ? found.sort((a, b) => partName(a).name.localeCompare(partName(b).name))
+    ? found.sort((a, b) => name(a).localeCompare(name(b)))
     : found.sort((a, b) => a.type - b.type);
 }
 
@@ -131,13 +129,15 @@ export function findParts(parts: readonly Part[], query: string, order: PartOrde
 export const sheetFile = (sheet: string) => `${sheet}.BMP`;
 
 /**
- * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. TIM 2 keeps
- * its frames in `.ANM` files the lab doesn't read yet; in TIM 1 and Even More, a part without frames has a record in
- * `TIM.EXE` that doesn't place its sprites, so the program draws it in its own code.
+ * Why a part of this list has no frames, in a sentence for its grey dot, or undefined when it has frames. In TIM 2 the
+ * part's `.ANM` file then draws no sprites; in TIM 1 and Even More, a part without frames has a record in `TIM.EXE`
+ * that doesn't place its sprites, so the program draws it in its own code.
  */
 export function whyNoFrames(listId: string, part: Part): string | undefined {
   if (part.frames.length) return undefined;
   if (!part.sheets.length) return "It has no sprite sheet: the game draws it without sprites, so there are no frames.";
-  if (listId === "tim2") return "TIM 2 keeps its frames in the part’s .ANM file, which the lab doesn’t read yet.";
+  if (listId === "tim2") return "Its .ANM file has no frames with sprites: the game draws it another way.";
+  if (listId === "toons")
+    return "It has no PART sheet: TOONS.EXE draws it from the CAT or SID sheet of what it is doing, and those tables weren’t found in this TOONS.EXE.";
   return "Its record in TIM.EXE doesn’t place its sprites: the game draws it in its own code, like walls from tiles. Not worked out yet.";
 }

@@ -17,7 +17,8 @@ import { discoverGearScheduling, type GearScheduling } from "./behaviour-gear-sc
 import type { GearConflictValue } from "./behaviour-gear-model.ts";
 import type { BehaviourLayout } from "./behaviour-layout.ts";
 import type { ProgramParts } from "./parts.ts";
-import { unpackLzexe } from "./lzexe.ts";
+import { behaviourProfile, loadBehaviourImage } from "./behaviour-program.ts";
+import { discoverScalarLoaders, NO_PART_ARGUMENT, numberFirstArgument } from "./behaviour-scalar-loaders.ts";
 import { findSpeedLimitSetup, type SpeedLimitSetup } from "./behaviour-speed-limits.ts";
 import { type CodeAddress, type Instruction, type Operand } from "./x86.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
@@ -42,7 +43,16 @@ import { compileScalarStep, pureScalarFrame, type ScalarStep } from "./behaviour
 import { privateStackOutputs } from "./behaviour-buffer-effects.ts";
 import { engineFromObjectRelation } from "./behaviour-geometry-relations.ts";
 import { discoverCountedLoops, type LoopSummary } from "./behaviour-loops.ts";
-import { constant, evidenceOf, field, uniqueEvidence, unknown, unsigned } from "./behaviour-terms.ts";
+import {
+  constant,
+  evidenceOf,
+  field,
+  implicitMemory,
+  implicitRegisterWrites,
+  uniqueEvidence,
+  unknown,
+  unsigned,
+} from "./behaviour-terms.ts";
 
 /** The name of whether a helper's allocation found room at a call, like the wall split's copy: only the run knows. */
 export const allocationAnswer = (call: string) => `allocation answer of the call at ${call}`;
@@ -130,6 +140,10 @@ export interface RoutineOutcome extends Finding {
   keepsState?: true;
   condition: Predicate;
   fields: FieldWrite[];
+  /** The globals the path leaves, for a caller to compose. */
+  globals?: FieldWrite[];
+  /** Something on the path may have changed any global, so a caller forgets the globals it knew before the call. */
+  forgetsGlobals?: true;
   returnValue: Expression;
   returnConfidence?: Confidence;
   returnPointer?: { object: string; displacement: number };
@@ -214,6 +228,20 @@ export interface PartBehaviour {
   reset: FieldWrite[];
   visibleEffects: FieldWrite[];
   triggers: Trigger[];
+  uncertainties: string[];
+  /**
+   * TIM2.EXE's set-up routine (record +0x1c), which the game calls when a part is set up and whose answer 0 refuses
+   * the part: the ways it answers 0. Absent for a type without one, and for TIM.EXE and TOONS.EXE.
+   */
+  setUp?: SetUpRoutine;
+}
+export interface SetUpRoutine {
+  address: number;
+  status: RoutineCode["status"];
+  /** The ways through the routine that answer 0, which refuse the part, as conditions on the part and the globals. */
+  refuses: RoutineOutcome[];
+  /** The ways whose answer the reader can't tell. */
+  unknown: RoutineOutcome[];
   uncertainties: string[];
 }
 export interface BehaviourReport {
@@ -328,6 +356,7 @@ const selectedWrite = (effect: { offset: number; width: number }, i: Instruction
     unresolved: true,
   }) as Expression;
 const stateCountOf = (part: { states?: unknown[]; frames?: unknown[] }) => (part.states ?? part.frames ?? []).length;
+const FRESH_OBJECT = /^(nullable allocation|fresh object) returned at 0x[0-9a-f]+$/;
 const signed = (n: number, width: number) => {
   const u = unsigned(n, width);
   return u >= 2 ** (width - 1) ? u - 2 ** width : u;
@@ -909,6 +938,11 @@ interface AbstractState {
   havocAt?: number;
   globalHavocAt?: number;
   partMemoryHavocAt?: number;
+  /**
+   * The bytes of code segment variables this path stored into, as `code segment <segment>:<offset>`. They stay here
+   * when the path forgets what it stored, so a later read doesn't take the bytes the program starts with.
+   */
+  codeStored?: Set<string>;
   fieldHavoc?: {
     offset: number;
     width: number;
@@ -930,6 +964,8 @@ interface AbstractState {
    * but was asked by something not proved to be the owner.
    */
   ownerMayBeListed?: Set<number>;
+  /** The loops this path already went past as confined loops (see `CONFINED_LOOP_ASSUMPTION`), by their first address. */
+  widened?: Set<number>;
   assumptions: string[];
 }
 interface Location {
@@ -965,6 +1001,10 @@ export interface RoutineOptions {
   engineSummaries?: Map<number, EngineSummary>;
   objectArgument?: "part" | "collider";
   ownerLink?: number;
+  /** How the program passes a part: TIM.EXE and TOONS.EXE as a near pointer, TIM2.EXE as a far one. */
+  partPointer?: "near" | "far";
+  /** Read loops that change only registers and private locals as confined loops (`BehaviourProfile.confinedLoops`). */
+  confinedLoops?: boolean;
   /** Summaries of callees already found by following code references. */
   summaries?: Map<number, RoutineAnalysis>;
   /**
@@ -1000,7 +1040,13 @@ const clone = (s: AbstractState): AbstractState => ({
   fieldHavoc: s.fieldHavoc && [...s.fieldHavoc],
   findFirst: s.findFirst && new Set(s.findFirst),
   ownerMayBeListed: s.ownerMayBeListed && new Set(s.ownerMayBeListed),
+  codeStored: s.codeStored && new Set(s.codeStored),
 });
+/** Forgets every global the path knew, after something at `address` may have changed any of them. */
+function forgetGlobals(s: AbstractState, address: number) {
+  for (const key of s.memory.keys()) if (key.startsWith("data:")) s.memory.delete(key);
+  s.globalHavocAt = address;
+}
 const wordOfByte: Record<string, string> = {
   al: "ax",
   ah: "ax",
@@ -1172,6 +1218,140 @@ function liveRegisters(code: RoutineCode): Map<number, Set<string>> {
  * Analyses a routine as a graph of symbolic transfer functions. Each acyclic path is retained; a back edge is a
  * loss of information, not an invitation to run the loop. The finite path budget is reported whenever reached.
  */
+export const CODE_VARIABLE_ASSUMPTION =
+  "A store to a fixed place in a code segment changes a variable the program keeps there, not code it runs; it isn't part or data segment memory.";
+
+export const CONFINED_LOOP_ASSUMPTION =
+  "A loop that changes only registers and private locals ends; after it those registers and locals hold values the reader doesn't know, and everything else is as before the loop.";
+
+interface ConfinedLoop {
+  /** The loop's lowest address, which names it. */
+  first: number;
+  body: Set<number>;
+  /** Where the code goes on when it leaves the loop. */
+  exits: number[];
+  registers: string[];
+  locals: Extract<Operand, { kind: "memory" }>[];
+  evidence: Evidence[];
+}
+
+/** Registers a confined loop may not change: the stack and frame pointers and the segments other than ES. */
+const FIXED_REGISTERS = ["sp", "bp", "ss", "ds", "cs"];
+
+/**
+ * The loops of a routine that change nothing but registers and private locals (`[bp-n]`): no calls, no other stores,
+ * no string, port or interrupt instructions, no pushes or pops, and every way on from the loop known. A loop is a
+ * strongly connected part of the routine's graph; each of its instructions maps to it, since a path can come back to
+ * any of them first.
+ */
+function discoverConfinedLoops(code: RoutineCode): Map<number, ConfinedLoop> {
+  const result = new Map<number, ConfinedLoop>();
+  const successors = new Map<number, number[]>();
+  for (const edge of code.edges)
+    if (edge.to !== null) successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+  const instructions = new Map(code.instructions.map((i) => [i.address, i]));
+  // Tarjan's strongly connected components, without recursion.
+  let counter = 0;
+  const index = new Map<number, number>();
+  const low = new Map<number, number>();
+  const onStack = new Set<number>();
+  const stack: number[] = [];
+  const components: number[][] = [];
+  for (const start of code.instructions.map((i) => i.address)) {
+    if (index.has(start)) continue;
+    const work: { node: number; next: number }[] = [{ node: start, next: 0 }];
+    index.set(start, counter);
+    low.set(start, counter++);
+    stack.push(start);
+    onStack.add(start);
+    while (work.length) {
+      const top = work.at(-1)!;
+      const out = successors.get(top.node) ?? [];
+      if (top.next < out.length) {
+        const to = out[top.next++]!;
+        if (!instructions.has(to)) continue;
+        if (!index.has(to)) {
+          index.set(to, counter);
+          low.set(to, counter++);
+          stack.push(to);
+          onStack.add(to);
+          work.push({ node: to, next: 0 });
+        } else if (onStack.has(to)) low.set(top.node, Math.min(low.get(top.node)!, index.get(to)!));
+        continue;
+      }
+      work.pop();
+      if (work.length) {
+        const parent = work.at(-1)!.node;
+        low.set(parent, Math.min(low.get(parent)!, low.get(top.node)!));
+      }
+      if (low.get(top.node) === index.get(top.node)) {
+        const component: number[] = [];
+        let member: number;
+        do {
+          member = stack.pop()!;
+          onStack.delete(member);
+          component.push(member);
+        } while (member !== top.node);
+        components.push(component);
+      }
+    }
+  }
+  for (const component of components) {
+    const body = new Set(component);
+    const looping = component.length > 1 || (successors.get(component[0]!) ?? []).includes(component[0]!);
+    if (!looping) continue;
+    const registers = new Set<string>();
+    const locals: Extract<Operand, { kind: "memory" }>[] = [];
+    let confined = true;
+    for (const address of component) {
+      const i = instructions.get(address)!;
+      const first = i.operands[0];
+      if (
+        i.flow === "call" ||
+        i.flow === "return" ||
+        i.flow === "stop" ||
+        implicitMemory(i) ||
+        /^(push|pop|in|out|lods|scas|cmps|rep|lock|hlt|cli|sti|leave)/.test(i.mnemonic) ||
+        code.edges.some((edge) => edge.from === address && edge.to === null)
+      ) {
+        confined = false;
+        break;
+      }
+      const writing =
+        !["cmp", "test", "nop", "clc", "stc", "cmc", "cld", "std"].includes(i.mnemonic) && i.flow === "next";
+      if (writing && first?.kind === "memory") {
+        if (first.segment !== "ss" || first.base.join() !== "bp" || first.displacement >= 0) {
+          confined = false;
+          break;
+        }
+        locals.push(first);
+      }
+      if (writing && first?.kind === "register") registers.add(first.name);
+      if (i.mnemonic === "xchg" && i.operands[1]?.kind === "register") registers.add(i.operands[1].name);
+      for (const register of implicitRegisterWrites(i)) registers.add(register);
+      if (i.mnemonic === "les") registers.add("es");
+      if (i.mnemonic === "lds") registers.add("ds");
+    }
+    if (!confined || [...registers].some((r) => FIXED_REGISTERS.includes(r))) continue;
+    const exits = [
+      ...new Set(
+        code.edges.filter((edge) => body.has(edge.from) && edge.to !== null && !body.has(edge.to)).map((e) => e.to!),
+      ),
+    ];
+    if (!exits.length) continue;
+    const loop: ConfinedLoop = {
+      first: Math.min(...component),
+      body,
+      exits,
+      registers: [...registers],
+      locals,
+      evidence: component.sort((a, b) => a - b).map((address) => evidenceOf(instructions.get(address)!)),
+    };
+    for (const address of component) result.set(address, loop);
+  }
+  return result;
+}
+
 export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: RoutineOptions = {}): RoutineAnalysis {
   const code = options.code ?? readRoutineCode(image, entry, options.dataSegment ?? 0);
   const carryNeeded = liveCarryOutputs(code);
@@ -1190,6 +1370,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
   const provenLoops = discoverCountedLoops(code, options.engineSummaries ?? new Map(), stateOffset);
   const loopsByHeader = new Map(provenLoops.map((loop) => [loop.header, loop]));
   const findFirstLoops = discoverFindFirstLoops(code, options.engineSummaries ?? new Map());
+  const confinedLoops = options.confinedLoops ? discoverConfinedLoops(code) : new Map<number, ConfinedLoop>();
   const usedLoops: LoopSummary[] = [];
   const firstArgumentOffset = code.instructions.some((instruction) => instruction.mnemonic === "retf") ? 6 : 4;
   const listLoopsByHeader = new Map(
@@ -1362,16 +1543,16 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       // LES/LDS explicitly associates the segment register with the same far pointer.
       const paired = seg.kind === "pointer" && seg.object === pointer.value.object;
       if (!validSegment && !paired) return undefined;
+      const offset =
+        pointer.value.displacement +
+        operand.displacement +
+        addressBases
+          .filter((v) => v !== pointer)
+          .reduce((n, v) => n + (v.value.kind === "constant" ? v.value.value : 0), 0);
       return {
         object: pointer.value.object,
-        offset: unsigned(
-          pointer.value.displacement +
-            operand.displacement +
-            addressBases
-              .filter((v) => v !== pointer)
-              .reduce((n, v) => n + (v.value.kind === "constant" ? v.value.value : 0), 0),
-          16,
-        ),
+        // Frame cells are kept at signed offsets from BP, so a pointer to a local reaches the cell BP reaches.
+        offset: pointer.value.object === "stack" ? signed(offset, 16) : unsigned(offset, 16),
         width: operand.width,
         uncertain: pointer.value.object !== "part",
         evidence: base.flatMap((v) => v.evidence),
@@ -1397,12 +1578,44 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       return { object: "data", offset: operand.displacement, width: operand.width, uncertain: false, evidence: [] };
     return undefined;
   };
+  /** A variable the program keeps at a fixed place in its code segment, apart from the parts and the data segment. */
+  const codeVariable = (operand: Extract<Operand, { kind: "memory" }>, s: AbstractState): Location | undefined => {
+    if (operand.segment !== "cs" || !operand.direct || operand.base.length) return undefined;
+    const segment = registerRead("cs", s).value;
+    if (segment.kind !== "constant") return undefined;
+    return {
+      object: `code segment ${hex(segment.value)}`,
+      offset: operand.displacement,
+      width: operand.width,
+      uncertain: false,
+      evidence: [],
+    };
+  };
   const readUnrefined = (operand: Operand | undefined, s: AbstractState): Tracked => {
     if (!operand) return tracked(unknown("Missing operand"));
     if (operand.kind === "register") return registerRead(operand.name, s);
     if (operand.kind === "immediate") return tracked(constant(unsigned(operand.value, operand.width), operand.width));
     if (operand.kind === "address") return tracked(constant(operand.address));
-    const l = location(operand, s);
+    let l = location(operand, s);
+    if (!l) {
+      // A code segment variable this path stored into reads what was stored; one it didn't reads as the program holds
+      // it (below).
+      const variable = codeVariable(operand, s);
+      if (
+        variable &&
+        [...s.memory.keys()].some((key) => {
+          const parts = key.split(":"),
+            width = Number(parts.pop()),
+            offset = Number(parts.pop());
+          return (
+            parts.join(":") === variable.object &&
+            offset < variable.offset + variable.width / 8 &&
+            variable.offset < offset + width / 8
+          );
+        })
+      )
+        l = variable;
+    }
     const cached = l && s.memory.get(memoryKey(l));
     if (cached) {
       if (cached.value.kind === "unknown" && l && l.object !== "stack") {
@@ -1421,34 +1634,35 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       }
       return cached;
     }
-    if (
-      l &&
-      !["stack", "data"].includes(l.object) &&
-      (s.havoc ||
-        s.partMemoryHavocAt !== undefined ||
-        s.fieldHavoc?.some((f) => l.offset < f.offset + f.width / 8 && f.offset < l.offset + l.width / 8))
-    ) {
-      // A partial store supersedes an earlier field version even when no exact-width cell remains cached.
-      for (const [key, cell] of [...s.memory].reverse()) {
+    if (l) {
+      // A store at another width or offset that overlaps the read supersedes the version the routine started with.
+      let latest: { offset: number; width: number; cell: Tracked } | undefined;
+      for (const [key, cell] of s.memory) {
         const parts = key.split(":"),
           width = Number(parts.pop()),
           offset = Number(parts.pop()),
           object = parts.join(":");
         if (
-          object !== l.object ||
-          cell.writtenAt === undefined ||
-          offset >= l.offset + l.width / 8 ||
-          l.offset >= offset + width / 8
+          object === l.object &&
+          cell.writtenAt !== undefined &&
+          offset < l.offset + l.width / 8 &&
+          l.offset < offset + width / 8
         )
-          continue;
+          latest = { offset, width, cell };
+      }
+      if (latest) {
+        const { offset, width, cell } = latest;
         if (offset <= l.offset && offset + width / 8 >= l.offset + l.width / 8 && cell.value.kind === "constant")
           return tracked(
             constant(unsigned(cell.value.value >>> ((l.offset - offset) * 8), l.width), l.width),
             cell.evidence,
           );
+        // A local mixed from stores of other widths is no pointer the analysis can follow.
+        if (l.object === "stack")
+          return tracked(unknown(`Local mixed from a store at ${hex(cell.writtenAt!)}`, l.width), cell.evidence);
         return tracked(
           {
-            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt)}`, l.offset, l.width),
+            ...field(`${l.object} after overlapping write at ${hex(cell.writtenAt!)}`, l.offset, l.width),
             unresolved: true,
           } as Expression,
           cell.evidence,
@@ -1523,7 +1737,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const word = typeRecordWord(seg.value, operand.displacement, index, operand.width);
       if (word) return tracked(word.value, [...base.flatMap((v) => v.evidence), ...word.evidence]);
       if (operand.segment === "cs" && index.kind === "constant") {
-        const at = seg.value * 16 + unsigned(index.value + operand.displacement, 16);
+        const offset = unsigned(index.value + operand.displacement, 16);
+        const at = seg.value * 16 + offset;
+        // A variable this path stored into, and then forgot, no longer holds the bytes the program starts with.
+        const stored = [...Array(Math.max(1, operand.width / 8)).keys()].some((byte) =>
+          s.codeStored?.has(`code segment ${hex(seg.value)}:${unsigned(offset + byte, 16)}`),
+        );
+        if (stored)
+          return tracked(
+            unknown(
+              `code segment ${hex(seg.value)}:${hex(offset)}, which this path stored into, after it was forgotten (${hex(s.havocAt ?? entry.address)})`,
+              operand.width,
+            ),
+            base.flatMap((v) => v.evidence),
+          );
         if (operand.width <= 16 && at + operand.width / 8 <= image.length) {
           const value = image[at]! | (operand.width === 16 ? image[at + 1]! << 8 : 0);
           return tracked(constant(value, operand.width), [
@@ -1536,6 +1763,12 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           ]);
         }
       }
+      // Every read through an unknown address would have the same text, and could pass for one value of the run.
+      if (index.kind === "unknown")
+        return tracked(
+          unknown(`Read through an unknown address: ${index.reason}`, operand.width),
+          base.flatMap((v) => v.evidence),
+        );
       return tracked(
         { kind: "table", segment: seg.value, offset: operand.displacement, index, width: operand.width },
         base.flatMap((v) => v.evidence),
@@ -1643,6 +1876,13 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     }
     if (operand.kind !== "memory") return;
     let l = location(operand, s);
+    if (!l) l = codeVariable(operand, s);
+    if (l?.object.startsWith("code segment ")) {
+      if (!s.assumptions.includes(CODE_VARIABLE_ASSUMPTION))
+        s.assumptions = [...s.assumptions, CODE_VARIABLE_ASSUMPTION];
+      s.codeStored = new Set(s.codeStored);
+      for (let byte = 0; byte < l.width / 8; byte++) s.codeStored.add(`${l.object}:${unsigned(l.offset + byte, 16)}`);
+    }
     if (!l) {
       l = { object: "unknown", offset: operand.displacement, width: operand.width, uncertain: true, evidence: [] };
       diagnostics.add(`Object pointer is lost at ${hex(i.address)}: ${i.text}`);
@@ -1667,7 +1907,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const expr = asExpression(value.value);
     const f = finding(expr, condition, s, [...e, ...l.evidence]);
     if (l.uncertain) f.confidence = "unresolved";
-    if (!["stack", "data"].includes(l.object))
+    if (l.object !== "stack")
       writes.push({
         ...f,
         object: l.object,
@@ -1744,6 +1984,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     const nested = /^referenced-by\((.*)\+0x([0-9a-f]+)\)$/.exec(object);
     // The part another argument of the helper points at, like the explosion the wall split gets: the caller's argument.
     if (nested?.[1] === "argument") return formalArgument(args, base, parseInt(nested[2]!, 16));
+    // A far pointer the helper loaded from its own arguments (`les bx, [bp+n]`): the caller's argument at that place.
+    if (nested?.[1] === "stack" && options.partPointer === "far") {
+      const frameOffset = parseInt(nested[2]!, 16) + 2;
+      if (frameOffset > 2) return formalArgument(args, base, frameOffset);
+    }
     if (nested) return memoryAt(formalObject(nested[1]!, args, base, s, ownerOffset), parseInt(nested[2]!, 16), 16, s);
     return tracked(unknown(`Object identity ${object} is not mapped in the caller`));
   };
@@ -1840,7 +2085,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (expression.kind === "field") {
       if (expression.object.startsWith("address of ")) {
         const pointer = formalObject(expression.object.slice("address of ".length), args, base, s, ownerOffset);
-        return tracked(asExpression(pointer.value), pointer.evidence);
+        // The caller's pointer stays one, so a store through a copy of it, like one kept in a global, reaches its object.
+        return pointer.value.kind === "pointer" ? pointer : tracked(asExpression(pointer.value), pointer.evidence);
       }
       if (expression.object === "argument") return formalArgument(args, base, expression.offset);
       // Whether a helper's allocation found room, like the wall split's copy: only the run knows, so it is named.
@@ -1877,6 +2123,20 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
     if (expression.kind === "binary") {
       const left = formalValue(expression.left, args, base, s, ownerOffset, budget);
       const right = formalValue(expression.right, args, base, s, ownerOffset, budget);
+      // A pointer moved by a constant stays a pointer, so a store through it, like `[pointer-0x14]`, reaches its object.
+      if (
+        left.value.kind === "pointer" &&
+        right.value.kind === "constant" &&
+        (expression.operator === "+" || expression.operator === "-")
+      )
+        return tracked(
+          {
+            ...left.value,
+            displacement:
+              left.value.displacement + (expression.operator === "+" ? right.value.value : -right.value.value),
+          },
+          uniqueEvidence([...left.evidence, ...right.evidence]),
+        );
       return tracked(
         binary(expression.operator, asExpression(left.value), asExpression(right.value), expression.width, budget),
         uniqueEvidence([...left.evidence, ...right.evidence]),
@@ -2908,6 +3168,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         s.globalHavocAt,
         s.partMemoryHavocAt,
         s.fieldHavoc,
+        s.codeStored && [...s.codeStored].sort(),
       ]);
       for (const queued of queue.filter((q) => q.at === item.at && q.joinSignature === item.joinSignature)) {
         const terms = (state: AbstractState) => {
@@ -3084,7 +3345,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       : null;
     if (from?.length === 0 || !possible(condition)) return;
     const f = finding(to, condition, s, [...(value?.evidence ?? []), evidenceOf(i)]);
-    const updates: FieldWrite[] = [];
+    const updates: FieldWrite[] = [],
+      globals: FieldWrite[] = [];
     for (const [key, final] of s.memory) {
       const split = key.lastIndexOf(":");
       const before = key.slice(0, split);
@@ -3092,9 +3354,9 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       const object = before.slice(0, separator);
       const offset = Number(before.slice(separator + 1));
       const width = Number(key.slice(split + 1));
-      if (object === "stack" || object === "data") continue;
+      if (object === "stack") continue;
       const expression = asExpression(final.value);
-      updates.push({
+      (object === "data" ? globals : updates).push({
         object,
         offset,
         width,
@@ -3137,6 +3399,8 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       ...(!s.uncertain && s.partMemoryHavocAt !== undefined ? { keepsState: true as const } : {}),
       condition,
       fields: updates,
+      ...(globals.length ? { globals } : {}),
+      ...(s.globalHavocAt !== undefined ? { forgetsGlobals: true as const } : {}),
       returnValue: asExpression(returned.value),
       ...(returned.value.kind === "pointer"
         ? { returnPointer: { object: returned.value.object, displacement: returned.value.displacement } }
@@ -3227,6 +3491,36 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         if (i.address === s.observationHeader) recordIteration(s, i);
         continue;
       }
+      const confined = confinedLoops.get(i.address);
+      if (confined && !s.widened?.has(confined.first)) {
+        // Past any number of passes, the loop has changed only its registers and locals: forget those and leave it.
+        const after = clone(s);
+        const forgotten = (what: string) => unknown(`${what} after the loop at ${hex(confined.first)}`);
+        for (const register of confined.registers) registerWrite(register, tracked(forgotten(register)), after);
+        for (const operand of confined.locals) {
+          const l = location(operand, after);
+          if (!l) continue;
+          // A local the loop stored at one width may be read at another: what overlaps it is forgotten too, over its
+          // whole width, so a later read of the bytes the loop didn't store doesn't fall back to the entry value.
+          for (const key of [...after.memory.keys()]) {
+            const [object, offset, width] = splitKey(key);
+            if (object === l.object && offset < l.offset + l.width / 8 && l.offset < offset + width / 8)
+              after.memory.set(key, tracked(forgotten(`the local at ${hex(offset & 0xffff)}`), [], confined.first));
+          }
+          after.memory.set(
+            memoryKey(l),
+            tracked(forgotten(`the local at ${hex(l.offset & 0xffff)}`), [], confined.first),
+          );
+        }
+        after.flags = undefined;
+        after.carry = undefined;
+        for (const address of confined.body) after.visited.add(address);
+        after.widened = new Set([...(s.widened ?? []), confined.first]);
+        after.assumptions = [...new Set([...after.assumptions, CONFINED_LOOP_ASSUMPTION])];
+        after.evidence = uniqueEvidence([...after.evidence, ...confined.evidence]);
+        for (const exit of confined.exits) enqueue({ at: exit, state: clone(after) });
+        continue;
+      }
       uncertainEffects = true;
       diagnostics.add(`Back edge to ${hex(i.address)} requires a loop invariant; its effects remain unresolved`);
       unresolvedExit(s, i, `Loop invariant at ${hex(i.address)} is unresolved`);
@@ -3295,13 +3589,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         // A listed member's field is never the owner's: the scan's summary lists every field it may write on the owner
         // as the owner's own (a query that may list the owner, or a global list), and otherwise the owner is not on the
         // list (the query's checked test against the part that asks, or the external list's contract).
-        if (s.fieldHavoc?.length && !["stack", "data", "buffer"].includes(effect.object))
-          s.fieldHavoc.push({
-            offset: effect.offset,
-            width: effect.width,
-            address: i.address,
-            exceptOwner: effect.object !== "part",
-          });
+        if (!["stack", "data", "buffer"].includes(effect.object))
+          s.fieldHavoc = [
+            ...(s.fieldHavoc ?? []),
+            { offset: effect.offset, width: effect.width, address: i.address, exceptOwner: effect.object !== "part" },
+          ];
         if (effect.object === "stack" && effect.operand) {
           if (
             list.possibleFields.indexOf(effect) !==
@@ -3660,13 +3952,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
                 if (!["part", "stack", "data"].includes(parts.join(":"))) s.memory.delete(key);
               }
             } else if (effect.object !== "data") {
-              if (s.fieldHavoc?.length)
-                s.fieldHavoc.push({
+              s.fieldHavoc = [
+                ...(s.fieldHavoc ?? []),
+                {
                   offset: effect.offset,
                   width: effect.width,
                   address: i.address,
                   exceptOwner: effect.preservesOwnerValue ?? false,
-                });
+                },
+              ];
               // Related-object aliases can change a field of the owner, but the invariant excludes the state.
               for (const [key] of s.memory) {
                 const parts = key.split(":");
@@ -3806,12 +4100,15 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         options.tableReads && l?.object === "stack"
           ? read({ ...source, displacement: source.displacement + 2, width: 16 }, s)
           : undefined;
+      // A far part pointer: the argument itself, or (in a bounce callback) the touched part's link to the owner.
       const object =
         l?.object === "stack" && l.offset + 2 === argumentOffset
-          ? "part"
-          : l
-            ? `referenced-by(${l.object}+${hex(l.offset)})`
-            : undefined;
+          ? (options.objectArgument ?? "part")
+          : l?.object === "collider" && l.offset === options.ownerLink
+            ? "part"
+            : l
+              ? `referenced-by(${l.object}+${hex(l.offset)})`
+              : undefined;
       // A far pointer with a constant segment addresses a table there: the register gets its offset word.
       const ptr =
         segmentWord?.value.kind === "constant"
@@ -4025,13 +4322,14 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
         const third = read(i.operands[2], s);
         write(dest, tracked(binary("*", bv, asExpression(third.value)), [...e, ...third.evidence]), s, i);
       } else {
-        const ax = registerRead(
-          dest?.kind === "memory" || dest?.kind === "register" ? (dest.width === 8 ? "al" : "ax") : "ax",
-          s,
-        );
+        const bytes = (dest?.kind === "memory" || dest?.kind === "register") && dest.width === 8;
+        const ax = registerRead(bytes ? "al" : "ax", s);
+        // A signed product of bytes fills AX, so both bytes are widened with their sign first, as CBW does.
+        const widen = (value: Expression) =>
+          bytes && i.mnemonic === "imul" ? binary(">>", binary("<<", value, constant(8), 16), constant(8), 16) : value;
         write(
           { kind: "register", name: "ax", width: 16 },
-          tracked(binary("*", asExpression(ax.value), av, 16), [...ax.evidence, ...e]),
+          tracked(binary("*", widen(asExpression(ax.value)), widen(av), 16), [...ax.evidence, ...e]),
           s,
           i,
         );
@@ -4687,7 +4985,7 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             summary.objectPointer.argumentOffset,
           );
           if (!possible(conjunction([...s.conditions, condition]))) continue;
-          const mapped = outcome.fields.map((effect) => ({
+          const mapped = [...outcome.fields, ...(outcome.globals ?? [])].map((effect) => ({
             effect,
             pointer: formalObject(
               effect.object,
@@ -4711,15 +5009,17 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
           branch.conditions.push(condition);
           branch.assumptions = [...new Set([...branch.assumptions, ...outcome.assumptions])];
           branch.evidence.push(evidenceOf(i), ...outcome.evidence);
+          if (outcome.forgetsGlobals) forgetGlobals(branch, i.address);
           for (const item of mapped) {
+            const global = item.effect.object === "data";
             branch.registers.set("__summary_owner", item.pointer);
             write(
               {
                 kind: "memory",
                 segment: "ds",
-                base: ["__summary_owner"],
+                base: global ? [] : ["__summary_owner"],
                 displacement: item.effect.offset,
-                direct: false,
+                direct: global,
                 width: item.effect.width === 8 ? 8 : 16,
               },
               tracked(
@@ -4888,6 +5188,50 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
             tracked(unknown(`Unresolved side effects of call at ${hex(i.address)}`), [evidenceOf(i)]),
           );
           s.stateWritten = true;
+        }
+      }
+      // A helper's stores to globals or through another pointer, like a local whose address the caller passed or an
+      // object the part points to, may have been made: what they reach is no longer known.
+      if (summary && !summary.uncertainEffects) {
+        if (summary.outcomes?.some((outcome) => outcome.forgetsGlobals)) forgetGlobals(s, i.address);
+        const base = summary.objectPointer.argumentBase ?? summary.objectPointer.argumentOffset;
+        for (const effect of summary.writes) {
+          // Storage the helper allocated is new: nothing the caller knew can be in it. The part's fields are composed
+          // above when the caller passes its own part; any other first argument is reached like any other pointer.
+          if (effect.object === "stack" || (effect.object === "part" && passesPart) || FRESH_OBJECT.test(effect.object))
+            continue;
+          const global = effect.object === "data";
+          const pointer = global
+            ? tracked(constant(0))
+            : formalObject(effect.object, args, base, s, summary.objectPointer.argumentOffset);
+          if (global || pointer.value.kind === "pointer") {
+            s.registers.set("__summary_other", pointer);
+            write(
+              {
+                kind: "memory",
+                segment: "ds",
+                base: global ? [] : ["__summary_other"],
+                displacement: effect.offset,
+                direct: global,
+                width: effect.width === 8 ? 8 : 16,
+              },
+              tracked(unknown(`Possible effect of helper ${hex(summary.address)} on ${effect.object}`), [
+                evidenceOf(i),
+                ...effect.evidence,
+              ]),
+              s,
+              i,
+            );
+            s.registers.delete("__summary_other");
+            continue;
+          }
+          s.uncertain = true;
+          uncertainEffects = true;
+          const passesLocal = args.some((arg) => arg.value.kind === "pointer" && arg.value.object === "stack");
+          for (const key of s.memory.keys())
+            if (key.startsWith("stack:") ? passesLocal && Number(key.split(":")[1]) < 0 : !key.startsWith("part:"))
+              s.memory.delete(key);
+          diagnostics.add(`Effects of call at ${hex(i.address)} on ${effect.object} are not fully composed`);
         }
       }
       for (const name of ["ax", "bx", "cx", "dx", "es"])
@@ -5062,7 +5406,11 @@ export function analyseRoutine(image: Uint8Array, entry: CodeAddress, options: R
       registers: [...pointerRegisters],
       confidence: pointerRegisters.size ? "inferred" : "unresolved",
       assumptions: [
-        `The first argument is a near part pointer at frame offset ${argumentOffset}, conditional on the caller passing that pointer.`,
+        argumentOffset < 0
+          ? "The routine takes no part: its first argument is a number, which it only compares or passes on as one."
+          : options.partPointer === "far"
+            ? `The first argument is a far part pointer at frame offsets ${argumentOffset} and ${argumentOffset + 2}, conditional on the caller passing that pointer.`
+            : `The first argument is a near part pointer at frame offset ${argumentOffset}, conditional on the caller passing that pointer.`,
         "Callees preserve SI, DI, BP and DS; volatile registers are discarded.",
       ],
       evidence: uniqueEvidence(pointerEvidence),
@@ -5343,12 +5691,29 @@ export function readBehaviourInSteps(
 ): { report: BehaviourReport; readLoopsPerType(onProgress?: ReadProgress): void } {
   /** The loops over found parts to read once for each type, after the rest. */
   const loopsPerType: (() => void)[] = [];
-  const image = unpackLzexe(program);
+  /** Starts the routines' reads over. A loop queued for a read that is forgotten would be read again for nothing. */
+  const forgetSummaries = () => {
+    summaries.clear();
+    loopsPerType.length = 0;
+  };
+  const profile = behaviourProfile(list.list.id);
+  // Where the code finds a type's record by multiplying, the records follow each other from the table's start, this
+  // many bytes each. TIM2.EXE finds them through a table of near pointers, so its table holds no records.
+  const recordStride = profile.recordLookup === "multiply" ? profile.recordSize : undefined;
+  // The type records are read as TIM.EXE keeps them only for a game with TIM.EXE's words (the profile's `partWords`):
+  // TIM2.EXE and TOONS.EXE keep theirs otherwise, so their type record words aren't settled as TIM.EXE's.
+  const typeRecordStride = profile.partWords ? recordStride : undefined;
+  const loaded = loadBehaviourImage(program, profile);
+  const image = loaded.image;
   for (const record of list.records) {
-    if (!record.bytes.every((byte, index) => image[record.at + index] === byte))
+    if (!record.bytes.every((byte, index) => loaded.loadImage[record.at + index] === byte))
       throw new Error(`Type record ${record.type} does not belong to this program at ${hex(record.at)}`);
   }
-  const layout = discoverBehaviourLayout(image, list.table, list.records.length);
+  const layout = discoverBehaviourLayout(image, list.table, list.records.length, {
+    profile,
+    records: list.records.map((record) => record.at),
+    routine: loaded.routine,
+  });
   if (
     layout.callbacks.length !== 6 ||
     layout.objectArgument.offset === undefined ||
@@ -5367,9 +5732,7 @@ export function readBehaviourInSteps(
   for (const record of list.records) {
     const callbacks = Array.from({ length: 6 }, (_, slot): CallbackReference => {
       const at = callbackFields[slot]!;
-      const offset = u16(record.bytes, at);
-      const segment = u16(record.bytes, at + 2);
-      const address = segment * 16 + offset;
+      const { segment, offset, address } = loaded.routine(u16(record.bytes, at + 2), u16(record.bytes, at));
       if (address >= image.length)
         throw new Error(
           `Type ${record.type} callback ${hex(at)} points outside the image: ${hex(segment)}:${hex(offset)}`,
@@ -5391,6 +5754,19 @@ export function readBehaviourInSteps(
     });
     references.set(record.type, callbacks);
   }
+  /** Each type's set-up routine, for a program whose records have one after the callbacks. */
+  const setUps = new Map<number, CodeAddress>();
+  const setUpSlot = profile.otherRoutines.indexOf("set-up");
+  if (setUpSlot >= 0) {
+    const at = callbackFields[5]! + 4 + 4 * setUpSlot;
+    for (const record of list.records) {
+      if (!u16(record.bytes, at) && !u16(record.bytes, at + 2)) continue;
+      const target = loaded.routine(u16(record.bytes, at + 2), u16(record.bytes, at));
+      if (target.address >= image.length) continue;
+      setUps.set(record.type, target);
+      entries.set(target.address, target);
+    }
+  }
   const counts = new Map<number, number>();
   for (const callbacks of references.values())
     for (const c of callbacks) counts.set(c.address, (counts.get(c.address) ?? 0) + 1);
@@ -5402,11 +5778,20 @@ export function readBehaviourInSteps(
     if (codes.has(entry.address)) continue;
     const code = readRoutineCode(image, entry, list.dataSegment);
     codes.set(entry.address, code);
-    for (const call of code.calls)
+    for (const call of code.calls) {
+      if (profile.stopAtProgramStart && call.target?.address === loaded.entry) {
+        // Following a call to the program's start would read the whole program as a callee.
+        code.uncertainties.push(
+          `The call at ${hex(call.instruction)} goes to the program's start (${hex(call.target.segment)}:${hex(call.target.offset)}); the reader doesn't follow it, so what it does is unresolved.`,
+        );
+        if (code.status === "complete") code.status = "partial";
+        continue;
+      }
       if (call.target && call.target.address < image.length && !codes.has(call.target.address)) {
         entries.set(call.target.address, call.target);
         pending.push(call.target);
       }
+    }
   }
   for (const callback of layout.callbacks)
     if (!callback.objectSource) {
@@ -5430,6 +5815,18 @@ export function readBehaviourInSteps(
         };
     }
   const helpers = discoverEngineSummaries(image, codes, layout, list.table, list.dataSegment, list.records.length);
+  if (profile.scalarLoaders)
+    for (const loader of discoverScalarLoaders(
+      codes,
+      new Map(helpers.map((helper) => [helper.address, helper])),
+      new Set(counts.keys()),
+      loaded.entry,
+    )) {
+      // A loader's summary takes the place of the generic one it may have had.
+      const at = helpers.findIndex((helper) => helper.address === loader.address);
+      if (at >= 0) helpers[at] = loader;
+      else helpers.push(loader);
+    }
   const lifecycle = discoverBehaviourLifecycle(image, codes, layout);
   for (const field of discoverLifecycleFieldRoles(lifecycle, layout))
     if (!layout.fields.some((known) => known.offset === field.offset)) layout.fields.push(field);
@@ -5498,13 +5895,18 @@ export function readBehaviourInSteps(
     const callbackArguments = [...(callbackSlots.get(address) ?? [])].map(
       (slot) => layout.callbacks[slot]?.objectSource?.argumentOffset ?? layout.objectArgument.offset!,
     );
-    const argumentOffset = counts.has(address)
-      ? callbackArguments.length && callbackArguments.every((offset) => offset === callbackArguments[0])
-        ? callbackArguments[0]!
-        : layout.objectArgument.offset
-      : returnKinds.size === 1 && returnKinds.has("ret")
-        ? 4
-        : 6;
+    // A helper whose first argument the code shows to be a number takes no part (TIM 2 and Toons).
+    const takesNumber =
+      profile.numberArguments && code && !counts.has(address) && numberFirstArgument(code, engineSummaries);
+    const argumentOffset = takesNumber
+      ? NO_PART_ARGUMENT
+      : counts.has(address)
+        ? callbackArguments.length && callbackArguments.every((offset) => offset === callbackArguments[0])
+          ? callbackArguments[0]!
+          : layout.objectArgument.offset
+        : returnKinds.size === 1 && returnKinds.has("ret")
+          ? 4
+          : 6;
     let externalList: ListLoopSummary | undefined;
     if (code && !counts.has(address)) {
       const consumers = discoverExternalListConsumers(code, engineSummaries, stateOffset);
@@ -5545,11 +5947,13 @@ export function readBehaviourInSteps(
       stateOffset,
       argumentOffset,
       summaries,
-      maxVisits: counts.has(address) ? 12_000 : 800,
+      maxVisits: counts.has(address) ? 12_000 : profile.helperPaths,
       code,
       engineSummaries,
       codes,
       layout,
+      ...(profile.partPointer === "far" ? { partPointer: "far" as const } : {}),
+      ...(profile.confinedLoops ? { confinedLoops: true } : {}),
       ...(externalList ? { externalList } : {}),
       ...(callbackSlots.get(address)?.size === 1 &&
       callbackSlots.get(address)!.has(0) &&
@@ -5567,7 +5971,8 @@ export function readBehaviourInSteps(
     if (
       counts.has(address) &&
       typeField !== undefined &&
-      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, 58)) &&
+      typeRecordStride !== undefined &&
+      ways.some((o) => readsTypeRecordOf(o, o.object, typeField, list.table, typeRecordStride)) &&
       ways.some((o) => outgrown(o.condition) || o.fields.some((f) => outgrown(f.value) || outgrown(f.condition)))
     )
       loopsPerType.push(() => {
@@ -5580,7 +5985,7 @@ export function readBehaviourInSteps(
               type,
               typeOffset: typeField,
               table: list.table,
-              stride: 58,
+              stride: typeRecordStride,
               records: list.records.length,
               written: TYPE_RECORD_WRITTEN,
             },
@@ -5698,6 +6103,10 @@ export function readBehaviourInSteps(
     for (const callback of callbacks) summarise(callback.address);
     onProgress?.(done + 1, references.size);
   }
+  // The routines a set-up routine calls are read now too: a routine nothing has read by then gets a stand-in below.
+  for (const setUp of setUps.values())
+    for (const call of codes.get(setUp.address)?.calls ?? [])
+      if (call.target && entries.has(call.target.address)) summarise(call.target.address);
 
   /**
    * The fields the byte relay's owner keeps, by decided assumptions about the parts that call it. A routine that calls
@@ -5793,11 +6202,11 @@ export function readBehaviourInSteps(
             : undefined;
       if (base === undefined || base + operand.displacement - ropeField !== list.table) continue;
       const word = (at: number) => image[at]! | (image[at + 1]! << 8);
-      const ropeCallbackAt = (type: number) => {
-        const at = list.table + type * 58 + ropeField;
+      const ropeCallbackAt = (record: ProgramParts["records"][number]) => {
+        const at = record.at + ropeField;
         return word(at + 2) * 16 + word(at);
       };
-      const targets = [...new Set(list.records.map((record) => ropeCallbackAt(record.type)))];
+      const targets = [...new Set(list.records.map(ropeCallbackAt))];
       if (!targets.every((target) => entries.has(target))) continue;
       // A question can come back to the part that asked, and then that part's own rope callback runs on it. The parts
       // that ask are the parts of the routines that call the query. When each is named directly by the type table and
@@ -5813,11 +6222,11 @@ export function readBehaviourInSteps(
             .filter((record) =>
               references.get(record.type)!.some((callback) => callers.some((c) => c.address === callback.address)),
             )
-            .map((record) => targets.indexOf(ropeCallbackAt(record.type)))
+            .map((record) => targets.indexOf(ropeCallbackAt(record)))
         : undefined;
-      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, () => summaries.clear());
+      settleRopeDispatch(query, targets, asking, summarise, engineSummaries, helpers, forgetSummaries);
     }
-    summaries.clear();
+    forgetSummaries();
   }
   for (const [address, code] of codes)
     if (!summaries.has(address))
@@ -5842,28 +6251,36 @@ export function readBehaviourInSteps(
         engineCalls: [],
         uncertainEffects: true,
       });
-  const speedLimits = findSpeedLimitSetup(
-    image,
-    { address: list.table, stride: 58, count: list.records.length },
-    list.dataSegment,
-  );
-  const typeTable = {
-    address: list.table,
-    stride: 58,
-    words: list.records.map((record) =>
-      Array.from(
-        { length: record.bytes.length >> 1 },
-        (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
-      ),
-    ),
-    ...(speedLimits ? { speedLimits } : {}),
-  };
+  // The type records as TIM.EXE keeps them: one after the other, with the words it writes while it runs
+  // (`TYPE_RECORD_WRITTEN`) and its speed limit.
+  const speedLimits =
+    typeRecordStride !== undefined &&
+    findSpeedLimitSetup(
+      image,
+      { address: list.table, stride: typeRecordStride, count: list.records.length },
+      list.dataSegment,
+    );
+  const typeTable =
+    typeRecordStride === undefined
+      ? undefined
+      : {
+          address: list.table,
+          stride: typeRecordStride,
+          words: list.records.map((record) =>
+            Array.from(
+              { length: record.bytes.length >> 1 },
+              (_, n) => record.bytes[n * 2]! | (record.bytes[n * 2 + 1]! << 8),
+            ),
+          ),
+          ...(speedLimits ? { speedLimits } : {}),
+        };
   // A part's own rules run on a part of its type, so a drawing field it writes is worked out for that type.
   const typeOffset = layout.fields.find((f) => f.name === "type")?.offset;
   const frameOffsets = Object.values(frameFields) as number[];
   const sheetList = list.sheetFrames?.size ? proveSheetFrameList(image, list.dataSegment, list.table) : undefined;
   const frameWriteForType = (write: FieldWrite, type: number): FieldWrite => {
-    if (typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset)) return write;
+    if (!typeTable || typeOffset === undefined || write.object !== "part" || !frameOffsets.includes(write.offset))
+      return write;
     const used = { table: false };
     const value = frameDrawingForType(
       write.value,
@@ -6021,6 +6438,35 @@ export function readBehaviourInSteps(
         });
     }
     const gearRun = owned.find((routine) => routine.gearRun)?.gearRun;
+    const setUpEntry = setUps.get(part.type);
+    // Read on its own like a callback, not through a helper summary that may cover the same code. Its callees were read
+    // right after the callbacks.
+    const setUpCode = setUpEntry && codes.get(setUpEntry.address);
+    const setUpRead =
+      setUpEntry &&
+      setUpCode &&
+      analyseRoutine(image, setUpEntry, {
+        dataSegment: list.dataSegment,
+        stateOffset,
+        argumentOffset: layout.objectArgument.offset,
+        summaries,
+        maxVisits: 12_000,
+        code: setUpCode,
+        engineSummaries,
+        codes,
+        layout,
+        ...(profile.partPointer === "far" ? { partPointer: "far" as const } : {}),
+        ...(profile.confinedLoops ? { confinedLoops: true } : {}),
+      });
+    const setUp: SetUpRoutine | undefined = setUpRead && {
+      address: setUpEntry.address,
+      status: setUpRead.status,
+      refuses: (setUpRead.outcomes ?? []).filter(
+        (o) => o.returnValue?.kind === "constant" && o.returnValue.value === 0,
+      ),
+      unknown: (setUpRead.outcomes ?? []).filter((o) => o.returnValue?.kind !== "constant"),
+      uncertainties: setUpRead.uncertainties,
+    };
     const resetCode = codes.get(resetAddress);
     const gearConnections =
       gearRun && resetCode ? discoverGearConnections(resetCode, codes, gearRun, layout) : undefined;
@@ -6033,6 +6479,7 @@ export function readBehaviourInSteps(
         ? { derivedValues: owned.flatMap((routine) => routine.derivedValues ?? []) }
         : {}),
       frameCount: stateCountOf(part),
+      ...(setUp ? { setUp } : {}),
       routines,
       stateWrites,
       transitions,
@@ -6171,7 +6618,7 @@ export function readBehaviourInSteps(
     timing,
     helpers: helpers.sort((a, b) => a.address - b.address),
     lifecycle,
-    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment),
+    creation: discoverCreationDefaults(image, helpers, layout, list.dataSegment, codes),
     parts,
     relatedObjectEffects,
     routines: [...summaries.values()].sort((a, b) => a.address - b.address),

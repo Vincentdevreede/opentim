@@ -42,6 +42,8 @@ import { crumb, fmCard, formatBytes, hex, openAt, selectedSound } from "../ui.ts
 const router = useRouter();
 const query = ref("");
 const rate = ref(RAW_RATE);
+/** TIM2.EXE and TOONS.EXE both play their samples at `RAW_RATE`. */
+const rateKnown = computed(() => rate.value === RAW_RATE);
 const rateOptions = RATES.map((r) => ({ value: r, label: `${r / 1000} kHz` }));
 
 const sections = computed(() => audioSections(resources.value));
@@ -81,7 +83,14 @@ const job = computed<RenderJob | undefined>(() => {
   const d = decoded.value;
   const item = current.value;
   if (!adlib.value || d?.status !== "decoded" || patch.value.status !== "found" || !item) return undefined;
-  return { key: `${item.key}:${fmCard.value}`, sound: d.sound.data, patch: patch.value.data, card: fmCard.value };
+  return {
+    key: `${item.key}:${fmCard.value}`,
+    sound: d.sound.data,
+    patch: patch.value.data,
+    card: fmCard.value,
+    // Only the AdLib driver differs between builds; the Sound Blaster Pro driver is the same file in all of them.
+    sameInstrumentFirst: fmCard.value === "adlib" && patch.value.sameInstrumentFirst,
+  };
 });
 const rendered = useRendered(job);
 const { progress: renderProgress, error: renderError, rendering } = rendered;
@@ -111,7 +120,7 @@ const rowMeta = (item: AudioItem) =>
 
 /** How the lab plays an item: its sample as it is, its MIDI on the emulated AdLib, or not at all. */
 function statusOf(item: AudioItem): { status: Confidence; label: string } {
-  if (item.type === "raw") return { status: "hypothesis", label: "sample · rate guessed" };
+  if (item.type === "raw") return { status: "decoded", label: "sample" };
   const d = decodeEntry(item.entry);
   if (d.status === "error") return { status: "error", label: "decode error" };
   if (!d.adlib)
@@ -286,9 +295,10 @@ const factClass = "flex min-w-0 flex-col gap-1 border-line p-3";
             <template v-if="current.type === 'raw'">
               <LabSegmented v-model="rate" label="Playback rate" :options="rateOptions" />
               <LabBadge
-                status="hypothesis"
-                label="rate guessed"
-                title="The .RAW files have no header with their rate. 11 kHz is the rate of most samples in the sound banks."
+                v-if="rateKnown"
+                status="decoded"
+                label="game’s rate"
+                title="TIM2.EXE and TOONS.EXE set 11,025 Hz with their sound driver’s rate call before they play a .RAW file."
               />
             </template>
           </div>

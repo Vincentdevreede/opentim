@@ -68,8 +68,8 @@ function seekTo(e: MouseEvent) {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== " " || e.ctrlKey || e.metaKey || e.altKey || !(e.target instanceof HTMLElement)) return;
-  // A focused button already presses itself on Space.
-  if (e.target.closest("input, textarea, select, button, [contenteditable]")) return;
+  // A focused button presses itself on Space, and a disclosure's summary opens.
+  if (e.target.closest("input, textarea, select, button, summary, [contenteditable]")) return;
   e.preventDefault();
   if (!e.repeat) toggle();
 }

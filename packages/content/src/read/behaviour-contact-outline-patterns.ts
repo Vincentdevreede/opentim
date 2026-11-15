@@ -1,6 +1,24 @@
 /** Complete outline-search graphs; all context words, tables and callees are bound from operands. */
-export const candidateOutlinePatterns = [
-  `push bp
+export interface OutlinePattern {
+  code: string;
+  /** The index register that addresses the outer outline record; the other one addresses the inner record. */
+  outerRecord: "SI" | "DI";
+  /** Where the routine keeps the values the report names, as offsets from BP. Pairs are X then Y. */
+  frame: {
+    previousInner: number;
+    outerStart: [number, number];
+    outerEnd: [number, number];
+    testOutput: [number, number];
+    translatedStart: [number, number];
+    translatedEnd: [number, number];
+    /** The subject's centre X minus the cached outer start X, kept before the refresh. Only the subject search has it. */
+    centreBeforeRefresh?: number;
+  };
+}
+
+export const candidateOutlinePatterns: OutlinePattern[] = [
+  {
+    code: `push bp
 mov bp,sp
 sub sp,#64
 push si
@@ -324,7 +342,18 @@ pop si
 mov sp,bp
 pop bp
 retf`,
-  `push bp
+    outerRecord: "SI",
+    frame: {
+      previousInner: -12,
+      outerStart: [-16, -22],
+      outerEnd: [-18, -24],
+      testOutput: [-64, -62],
+      translatedStart: [-52, -50],
+      translatedEnd: [-48, -46],
+    },
+  },
+  {
+    code: `push bp
 mov bp,sp
 sub sp,#64
 push si
@@ -663,7 +692,18 @@ pop si
 mov sp,bp
 pop bp
 retf`,
-  `push bp
+    outerRecord: "SI",
+    frame: {
+      previousInner: -12,
+      outerStart: [-16, -22],
+      outerEnd: [-18, -24],
+      testOutput: [-64, -62],
+      translatedStart: [-52, -50],
+      translatedEnd: [-48, -46],
+    },
+  },
+  {
+    code: `push bp
 mov bp,sp
 sub sp,#64
 push si
@@ -1004,10 +1044,21 @@ pop si
 mov sp,bp
 pop bp
 retf`,
+    outerRecord: "SI",
+    frame: {
+      previousInner: -12,
+      outerStart: [-16, -22],
+      outerEnd: [-18, -24],
+      testOutput: [-64, -62],
+      translatedStart: [-52, -50],
+      translatedEnd: [-48, -46],
+    },
+  },
 ];
 
-export const subjectOutlinePatterns = [
-  `push bp
+export const subjectOutlinePatterns: OutlinePattern[] = [
+  {
+    code: `push bp
 mov bp,sp
 sub sp,#64
 push si
@@ -1351,7 +1402,19 @@ pop si
 mov sp,bp
 pop bp
 retf`,
-  `push bp
+    outerRecord: "SI",
+    frame: {
+      previousInner: -12,
+      outerStart: [-16, -22],
+      outerEnd: [-18, -24],
+      testOutput: [-64, -62],
+      translatedStart: [-52, -50],
+      translatedEnd: [-48, -46],
+      centreBeforeRefresh: -32,
+    },
+  },
+  {
+    code: `push bp
 mov bp,sp
 sub sp,#64
 push si
@@ -1713,7 +1776,19 @@ pop si
 mov sp,bp
 pop bp
 retf`,
-  `push bp
+    outerRecord: "SI",
+    frame: {
+      previousInner: -12,
+      outerStart: [-16, -22],
+      outerEnd: [-18, -24],
+      testOutput: [-64, -62],
+      translatedStart: [-52, -50],
+      translatedEnd: [-48, -46],
+      centreBeforeRefresh: -32,
+    },
+  },
+  {
+    code: `push bp
 mov bp,sp
 sub sp,#68
 push si
@@ -2083,4 +2158,15 @@ pop si
 mov sp,bp
 pop bp
 retf`,
+    outerRecord: "DI",
+    frame: {
+      previousInner: -12,
+      outerStart: [-16, -22],
+      outerEnd: [-18, -24],
+      testOutput: [-68, -66],
+      translatedStart: [-56, -54],
+      translatedEnd: [-52, -50],
+      centreBeforeRefresh: -36,
+    },
+  },
 ];

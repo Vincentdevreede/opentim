@@ -19,6 +19,8 @@ const LIST_NAMES = new Map([
 
 export interface PuzzleGoal {
   puzzle: number;
+  /** The level the goal is for, when the program names its levels itself, like Toons' `CAKE1`. */
+  name?: string;
   /** The goal routine said as pseudo-code, one line per statement. */
   lines: string[];
   summary: GoalSummary;

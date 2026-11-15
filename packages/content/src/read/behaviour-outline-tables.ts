@@ -156,8 +156,10 @@ function copyLoop(code: RoutineCode, outlineOffset: number) {
       store(at(4 + k), 1) &&
       local(at(5 + k).operands[0]) === counter &&
       at(5 + k).mnemonic === "inc" &&
+      at(6 + k).mnemonic === "add" &&
       local(at(6 + k).operands[0]) === pointer &&
       immediate(at(6 + k).operands[1]) === 4 &&
+      at(7 + k).mnemonic === "add" &&
       register(at(7 + k).operands[0], table) &&
       immediate(at(7 + k).operands[1]) === 2;
     if (!ok) continue;

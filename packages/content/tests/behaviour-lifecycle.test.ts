@@ -3,12 +3,23 @@ import { discoverBehaviourLifecycle, discoverLifecycleFieldRoles } from "../src/
 import { readRoutineCode } from "../src/read/behaviour-code.ts";
 import type { BehaviourLayout } from "../src/read/behaviour-layout.ts";
 
-function fixture(state = 0x28, saved = 0x72, mode: "plain" | "conditional" | "changedObject" = "plain") {
+function fixture(
+  state = 0x28,
+  saved = 0x72,
+  mode: "plain" | "conditional" | "changedObject" | "byteSource" | "signExtended" = "plain",
+) {
   const image = new Uint8Array(0x1000).fill(0x66);
   image.set([0xb8, 0, 1, 0x8e, 0xd8], 0);
   image.set([0x9a, 0, 1, 0, 0], 0x20);
   const prologue = [0x55, 0x8b, 0xec, 0x56, 0x8b, 0x76, 6];
-  const restore = [0x8b, 0x44, saved, 0x89, 0x44, state];
+  const restore =
+    mode === "byteSource"
+      ? // mov ax,[si+saved]; mov [si+0x30],ax; mov al,[si+0x3a]; cbw; mov [si+state],ax
+        [0x8b, 0x44, saved, 0x89, 0x44, 0x30, 0x8a, 0x44, 0x3a, 0x98, 0x89, 0x44, state]
+      : mode === "signExtended"
+        ? // mov ax,[si+saved]; cwd; mov [si+state],ax: cwd writes dx only.
+          [0x8b, 0x44, saved, 0x99, 0x89, 0x44, state]
+        : [0x8b, 0x44, saved, 0x89, 0x44, state];
   const dispatch = [
     0x56, 0x8b, 0x44, 4, 0xba, 58, 0, 0xf7, 0xea, 0xba, 0x80, 0, 0x8b, 0xd8, 0x8e, 0xc2, 0x26, 0xff, 0x9f, 0x2a, 0,
   ];
@@ -126,6 +137,18 @@ describe("engine lifecycle facts", () => {
   it("rejects writes to an object register reassigned before the reset dispatch", () => {
     const { image, codes, layout } = fixture(0x28, 0x72, "changedObject");
     expect(discoverBehaviourLifecycle(image, codes, layout).reset).toEqual([]);
+  });
+
+  it("does not trace the stored state past a byte load and sign extension of its register", () => {
+    const { image, codes, layout } = fixture(0x28, 0x72, "byteSource");
+    const lifecycle = discoverBehaviourLifecycle(image, codes, layout);
+    expect(lifecycle.reset.some((reset) => reset.stateSource === 0x72)).toBe(false);
+    expect(discoverLifecycleFieldRoles(lifecycle, layout).some((role) => role.offset === 0x72)).toBe(false);
+  });
+
+  it("traces the stored state past a cwd, which leaves ax as it was", () => {
+    const { image, codes, layout } = fixture(0x28, 0x72, "signExtended");
+    expect(discoverBehaviourLifecycle(image, codes, layout).reset[0]?.stateSource).toBe(0x72);
   });
 
   it("retains unconditional paired state history writes without assigning them a cycle rate", () => {

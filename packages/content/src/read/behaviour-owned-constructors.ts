@@ -94,6 +94,38 @@ export function ownedConstructorContract(
   };
 }
 
+/**
+ * The proof behind a part factory's allocation: the cleanup its failure path calls, the heap release that cleanup ends
+ * in, and that the allocator it calls fills every block it returns with zero.
+ */
+export function proveFactoryAllocation(
+  factory: EngineSummary,
+  codes: Map<number, RoutineCode>,
+  summaries: Map<number, EngineSummary>,
+) {
+  const metadata = factory.factory,
+    code = codes.get(factory.address),
+    size = factory.allocationSize;
+  if (!metadata || !code || !size) return;
+  const evidenceAddresses = new Set(metadata.noConstructor.evidence.map((e) => e.address));
+  const cleanup = code.calls
+    .map((call) => call.target && codes.get(call.target.address))
+    .filter((c): c is RoutineCode => !!c && evidenceAddresses.has(c.address))
+    .map((c) => discoverConstructorCleanup(c, size))
+    .find((c) => c !== undefined);
+  const releaseCode = cleanup && codes.get(cleanup.release);
+  if (!cleanup || !releaseCode) return;
+  const release = proveOwnedHeapRelease(releaseCode, codes, summaries, evidenceAddresses);
+  if (!release) return;
+  const allocate = code.calls
+    .map((call) => call.target && summaries.get(call.target.address))
+    .find((callee) => callee?.kind === "nullable-allocation");
+  const allocateCode = allocate && codes.get(allocate.address);
+  const cleared = allocateCode && proveClearedAllocation(allocateCode, codes, release);
+  if (!cleared) return;
+  return { metadata, code, size, evidenceAddresses, cleanup, release, allocate: allocate.address, cleared };
+}
+
 export function addOwnedConstructors(
   image: Uint8Array,
   codes: Map<number, RoutineCode>,
@@ -103,26 +135,9 @@ export function addOwnedConstructors(
   dataSegment: number,
 ) {
   for (const factory of summaries.values()) {
-    const metadata = factory.factory,
-      code = codes.get(factory.address),
-      size = factory.allocationSize;
-    if (!metadata || !code || !size || tableAddress === undefined) continue;
-    const evidenceAddresses = new Set(metadata.noConstructor.evidence.map((e) => e.address));
-    const cleanup = code.calls
-      .map((call) => call.target && codes.get(call.target.address))
-      .filter((c): c is RoutineCode => !!c && evidenceAddresses.has(c.address))
-      .map((c) => discoverConstructorCleanup(c, size))
-      .find((c) => c !== undefined);
-    const releaseCode = cleanup && codes.get(cleanup.release);
-    if (!cleanup || !releaseCode) continue;
-    const release = proveOwnedHeapRelease(releaseCode, codes, summaries, evidenceAddresses);
-    if (!release) continue;
-    const allocate = code.calls
-      .map((call) => call.target && summaries.get(call.target.address))
-      .find((callee) => callee?.kind === "nullable-allocation");
-    const allocateCode = allocate && codes.get(allocate.address);
-    const cleared = allocateCode && proveClearedAllocation(allocateCode, codes, release);
-    if (!cleared) continue;
+    const proof = tableAddress === undefined ? undefined : proveFactoryAllocation(factory, codes, summaries);
+    if (!proof) continue;
+    const { metadata, code, cleanup, release, cleared } = proof;
     // Every shared prefix and suffix call has already been checked by the null-constructor proof. Check that none
     // of its explicit or transitive owner stores can overwrite a cleanup-owned word before or after construction.
     const directOverlap = metadata.noConstructor.writes.some((w) =>

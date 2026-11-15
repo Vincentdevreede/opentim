@@ -326,7 +326,7 @@ export function frameDrawingForType(
   e: Expression,
   type: number,
   typeOffset: number,
-  table: { address: number; stride: number; words: number[][] },
+  table: { address: number; stride: number; words: number[][] } | undefined,
   build: Build,
   used: { table: boolean },
 ): Expression {
@@ -353,8 +353,9 @@ export function frameDrawingForType(
     return { ...e, offset: (e.offset + index.right.value) & 0xffff, index: index.left };
   if (index.kind !== "constant") return index === e.index ? e : { ...e, index };
   const offset = (e.offset + index.value) & 0xffff;
-  const at = e.segment * 16 + offset - table.address - type * table.stride;
-  if (e.width === 16 && FRAME_TABLE_WORDS.includes(at) && table.words[type]?.[at / 2] !== undefined) {
+  // Without a table of records one after another (TIM2.EXE reaches its records through pointers), no word is known.
+  const at = table ? e.segment * 16 + offset - table.address - type * table.stride : -1;
+  if (table && e.width === 16 && FRAME_TABLE_WORDS.includes(at) && table.words[type]?.[at / 2] !== undefined) {
     used.table = true;
     return constant(table.words[type]![at / 2]!);
   }

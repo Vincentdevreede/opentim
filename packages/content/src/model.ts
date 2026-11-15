@@ -19,7 +19,10 @@ export interface Part {
   id: string;
   /** The number the original game uses for the part, in its levels and sheet names. */
   type: number;
-  /** The game's own English name for the part, when the game has one. */
+  /**
+   * The game's own English name, when a part is read from files that name it (TIM 2's `INFO.RES`). The committed lists
+   * leave it out: `names.json` holds the names, by id, for every list.
+   */
   name?: string;
   /** The sprite sheets the part's sprites come from, like `PART18`. Empty for parts drawn as lines, like the belt. */
   sheets: string[];
@@ -29,6 +32,28 @@ export interface Part {
    * of its sheets. In TIM 1 and Even More, the game's state N shows frame N.
    */
   frames: Frame[];
+  /**
+   * The frame each of the game's states shows, when state N doesn't show frame N. TIM 2's animations have such a list:
+   * a level saves a state, and the state picks the frame.
+   */
+  states?: number[];
+  /**
+   * TIM 2's animations in the game's order: each sequence starts at a state and runs until the next one starts. The
+   * program asks for a sequence by its number.
+   */
+  sequences?: { sequence: number; state: number }[];
+  /** The size TIM 2 mirrors a whole frame in: the game measures a mirrored sprite's place from its far side. */
+  mirrorBox?: { width: number; height: number };
+  /**
+   * How Toons draws the part when a level marks it to be drawn as tiles, like a wall: tiles this wide (16 or 32) and 16
+   * high, with this many middle tiles taking turns between the two end tiles.
+   */
+  tiles?: { width: number; middles: number };
+  /**
+   * The size in TIM 2's `.PAR` file of the part. TIM2.EXE mirrors most parts in it, and gives it to a part whose type
+   * has no size of its own.
+   */
+  parSize?: { width: number; height: number };
   /** Values from the original program whose meaning isn't known yet, by where they were found. Never used for drawing. */
   raw?: Record<string, number>;
 }
@@ -38,7 +63,21 @@ export interface Frame {
   /** The frame's number in the original game. */
   id: number;
   sprites: Placement[];
+  /** Boxes and lines the frame draws too, like the fishing line of TIM 2's fish tank. */
+  shapes?: Shape[];
+  /** The frame's box in a TIM 2 animation, relative to the part's origin. TIM2.EXE mirrors parts by it. */
+  box?: { x: number; y: number; width: number; height: number };
 }
+
+/**
+ * A box or a line in a frame, in units relative to the part's origin, with colours as indexes of the game's palette.
+ * `after` is how many of the frame's sprites the game draws before it.
+ */
+export type Shape =
+  /** A box: its outline in `colour`, filled with `fill` when it has one. */
+  | { kind: "box"; x: number; y: number; width: number; height: number; colour: number; fill?: number; after: number }
+  /** A line between two points, both drawn. */
+  | { kind: "line"; x1: number; y1: number; x2: number; y2: number; colour: number; after: number };
 
 /** A sprite put in a frame. */
 export interface Placement {

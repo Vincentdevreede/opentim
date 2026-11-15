@@ -3,6 +3,11 @@
  * from its code. It plays the instruments of patch `003` on an OPL2 and turns MIDI events into the same register
  * writes: the same voice allocation, the same volume tables, pitch in quarter semitones with a bend of up to an octave,
  * and drums on MIDI channel 10. The tables below are the driver's own, the same in every version of the games.
+ *
+ * The `ADL` file comes in two versions. The one in TIM 1, TIM 2, Toons and Even More's CD gives a new note the free
+ * voice used longest ago. The one in Even More's floppy, demo and French builds and in the Add On Disk first looks for
+ * a free voice that already has the channel's instrument ({@link prefersSameInstrument}). The `SBP` driver is the same
+ * file in every build and doesn't look for one.
  */
 
 export interface Operator {
@@ -104,6 +109,28 @@ export interface OplPort {
  */
 export type FmCard = "adlib" | "sbpro";
 
+/**
+ * The loop the longer `ADL` driver runs first when it picks a voice: for each voice in the order they were last used,
+ * `mov bl,cs:[si+1c7h]`, `cmp byte cs:[bx+19bh],0ffh` (the voice is free) and `cmp cs:[bx+1bch],dl` (it has the
+ * channel's instrument).
+ */
+const SAME_INSTRUMENT_LOOP = [
+  0x2e, 0x8a, 0x9c, 0xc7, 0x01, 0x2e, 0x80, 0xbf, 0x9b, 0x01, 0xff, 0x75, 0x0e, 0x2e, 0x38, 0x97, 0xbc, 0x01,
+];
+
+/** True when an unpacked `ADL` driver gives a new note a free voice with the channel's instrument first. */
+export function prefersSameInstrument(driver: Uint8Array): boolean {
+  const first = SAME_INSTRUMENT_LOOP[0]!;
+  for (let i = driver.indexOf(first); i >= 0; i = driver.indexOf(first, i + 1))
+    if (SAME_INSTRUMENT_LOOP.every((b, k) => driver[i + k] === b)) return true;
+  return false;
+}
+
+export interface DriverOptions {
+  /** Look for a free voice with the channel's instrument first, as the longer `ADL` driver does. */
+  sameInstrumentFirst?: boolean;
+}
+
 const VOICES = 9;
 const DRUM_CHANNEL = 9;
 /** Drum key 27 uses instrument 128, up to key 88 with instrument 189. */
@@ -204,11 +231,13 @@ export class AdlibDriver {
   private readonly opl: OplPort;
   private readonly bank: AdlibBank;
   private readonly card: FmCard;
+  private readonly sameInstrumentFirst: boolean;
 
-  constructor(opl: OplPort, bank: AdlibBank, card: FmCard = "adlib") {
+  constructor(opl: OplPort, bank: AdlibBank, card: FmCard = "adlib", options: DriverOptions = {}) {
     this.opl = opl;
     this.bank = bank;
     this.card = card;
+    this.sameInstrumentFirst = options.sameInstrumentFirst ?? false;
     // The driver's reset: clear every register and enable the waveforms.
     for (let r = 0; r < 0xf6; r++) opl.write(r, 0);
     opl.write(0x01, 0x20);
@@ -280,11 +309,14 @@ export class AdlibDriver {
 
   /** Finds a voice for a new note on a channel, or -1 when the note is dropped. */
   private allocate(channel: number): number {
-    for (const i of this.order) {
-      if (this.voices[i]!.note === FREE) {
-        this.voices[i]!.channel = channel;
-        return i;
-      }
+    // The free voice used longest ago, or with the longer driver first a free voice that has the channel's instrument.
+    const free = this.order.filter((i) => this.voices[i]!.note === FREE);
+    const program = this.channels[channel]!.program;
+    const same = this.sameInstrumentFirst ? free.find((i) => this.voices[i]!.instrument === program) : undefined;
+    const voice = same ?? free[0];
+    if (voice !== undefined) {
+      this.voices[voice]!.channel = channel;
+      return voice;
     }
     // Take a voice from the channel furthest over its reservation, or else from this channel.
     let over = 0;
@@ -456,17 +488,17 @@ export class AdlibDriver {
 
   /**
    * Scales the level of the operators that are heard: the carrier, and the modulator too in additive instruments. On
-   * the Sound Blaster Pro it is written to one chip.
+   * the Sound Blaster Pro it is written to one chip. The carrier comes first, as in the driver.
    */
   private loudness(index: number, loudness: number, chip?: number) {
     const ins = this.bank.instruments[this.voices[index]!.instrument];
     if (!ins) return;
     const share = LEVELS[loudness]!;
-    ins.operators.forEach((op, i) => {
-      if (i === 0 && !ins.additive) return;
+    for (const i of ins.additive ? [1, 0] : [1]) {
+      const op = ins.operators[i]!;
       const reg = OFFSETS[MODULATORS[index]! + i * 3]!;
       this.opl.write(0x40 + reg, (op.ksl << 6) | (63 - Math.floor((share * (63 - op.level)) / 63)), chip);
-    });
+    }
   }
 }
 

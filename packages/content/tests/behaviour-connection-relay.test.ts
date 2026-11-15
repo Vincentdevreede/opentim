@@ -58,6 +58,8 @@ describe("rope and belt helper summaries", () => {
       ["argument", 0x1a],
     ]);
     expect(summary.connected?.partFields.map((field) => field.offset)).toEqual([0x96, 0x9c]);
+    // Each pulley's loop runs twice and writes two words of its rope record in each pass.
+    expect(summary.connected?.recordFields.map((field) => field.offset)).toEqual([0x14, 0x16, 0x18, 0x1a]);
     expect(summary.connected?.recordLinks).toEqual([0x54, 0x66, 0x68]);
   });
 

@@ -2,7 +2,7 @@
 import type { RoutineCode, RoutineCall } from "./behaviour-code.ts";
 import type { EngineSummary, EngineWrite } from "./behaviour-helpers.ts";
 import type { Instruction, Operand } from "./x86.ts";
-import { implicitMemory, isRegister } from "./behaviour-terms.ts";
+import { implicitMemory, implicitRegisterWrites, isRegister } from "./behaviour-terms.ts";
 
 const stack = (operand: Operand | undefined): operand is Extract<Operand, { kind: "memory" }> =>
   operand?.kind === "memory" && operand.segment === "ss" && operand.base.join() === "bp";
@@ -78,6 +78,7 @@ function argumentBases(code: RoutineCode, first: number): Map<number, Map<string
       if (input === undefined || dest.width !== 16) state.delete(name);
       else state.set(name, input);
     }
+    for (const name of implicitRegisterWrites(i)) state.delete(name);
     for (const next of outgoing.get(address) ?? []) {
       const before = states.get(next);
       const joined =

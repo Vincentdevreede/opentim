@@ -120,6 +120,22 @@ describe("summariseGoal", () => {
     });
   });
 
+  it("says the number of an unsigned test as it is, also from 0x8000 up", () => {
+    const below = (left: GoalValue, right: GoalValue): GoalTest => ({ op: "<", signed: false, left, right });
+    const atLeast = (left: GoalValue, right: GoalValue): GoalTest => ({ op: ">=", signed: false, left, right });
+    expect(text(summary(walk(MOVING, [when(below(field("si", 0x1e), c(40000)), [met])])))).toEqual([
+      ["some part on the moving list: positionX < 40000 (unsigned)"],
+    ]);
+    const range = walk(MOVING, [
+      when(atLeast(field("si", 0x1e), c(100)), [when(below(field("si", 0x1e), c(40000)), [met])]),
+    ]);
+    expect(text(summary(range))).toEqual([["some part on the moving list: 100 ≤ positionX < 40000 (unsigned)"]]);
+  });
+
+  it("gives no way for a goal no part can meet, as a part of two types at once", () => {
+    expect(text(summary(walk(MOVING, [ofType(0, [ofType(2, [met])])])))).toEqual([]);
+  });
+
   it("leaves out a test another way of failing already asks, so a box of tests reads as ranges", () => {
     // if x < 342 fail, else if x > 442 fail, else if y < 218 fail
     const goal = summary([
@@ -199,6 +215,27 @@ describe("summariseGoal", () => {
           "else becomes word 0x5068 from the step before + 1",
         ],
       },
+    ]);
+  });
+
+  it("says a word a walk sets once some part passed a test, as that having held at some step", () => {
+    const body = [
+      when(t(word(STEPS), "==", c(0)), [set(word(KEPT), c(0))]),
+      ...walk(FIXED, [ofType(6, [when(t(field("si", 0x12), "==", c(0)), [set(word(KEPT), c(1))])])]),
+      when(t(word(KEPT), "==", c(1)), [met]),
+    ];
+    const routines = new Map([[0x100, { address: 0x100, segment: 0, offset: 0x100, body }]]);
+    const goal = summariseGoal(routines, 0x100, { ...names, firstStep: STEPS });
+    expect(goal.ways).toEqual([
+      [
+        {
+          kind: "some",
+          lists: "the fixed list",
+          types: [{ type: 6, name: "mouse-motor" }],
+          tests: ["stateDelta = 0"],
+          once: "so far",
+        },
+      ],
     ]);
   });
 

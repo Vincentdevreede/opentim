@@ -17,6 +17,7 @@ import {
   runGoal,
   UnsetValue,
 } from "../read/puzzle-goals.ts";
+import { CpuRunsOn } from "./cpu.ts";
 import { Dos } from "./dos.ts";
 import { readLzexeProgram } from "./program.ts";
 
@@ -35,7 +36,7 @@ export interface GoalCheckResult {
   dividesByZero: number;
   /** Trials where both ran past their limit, like a search for a part the made-up lists don't have. */
   runOn: number;
-  /** Trials where the routine and the read program left different words, or only one of them ran on. */
+  /** Trials where the routine and the read program left different words, only one of them ran on, or the game stopped. */
   differ: number;
   /** The first difference, in words. */
   firstDifference?: string;
@@ -260,7 +261,13 @@ export function checkGoals(
       let gameRanOn = false;
       try {
         dos.callFar(dos.load + goal.segment, goal.offset, [], 300_000, `the goal of puzzle ${goal.puzzle}`);
-      } catch {
+      } catch (problem) {
+        // Only the limit counts as running on. Anything else, like a divide error, is the game doing something else.
+        if (!(problem instanceof CpuRunsOn)) {
+          result.differ++;
+          result.firstDifference ??= `trial ${trial}: the game stopped: ${(problem as Error).message}`;
+          continue;
+        }
         gameRanOn = true;
       }
       if (ranOn || gameRanOn) {

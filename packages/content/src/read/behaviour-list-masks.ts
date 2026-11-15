@@ -9,6 +9,7 @@
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression, Predicate } from "./behaviour.ts";
+import { writesRegister } from "./behaviour-terms.ts";
 import type { Instruction, Operand } from "./x86.ts";
 
 /** Where a mask comes from: the search's argument at a frame offset, kept to the bits of `and`, or a constant. */
@@ -19,18 +20,6 @@ const frameArgument = (o: Operand | undefined) =>
   o?.kind === "memory" && o.segment === "ss" && o.base.join() === "bp" && o.displacement > 0 && o.width === 16
     ? o.displacement
     : undefined;
-/** Whether two register names share bits, like `ax` and `al`. */
-const overlaps = (a: string, b: string) =>
-  a === b ||
-  (/^[abcd][xlh]$/.test(a) &&
-    /^[abcd][xlh]$/.test(b) &&
-    a[0] === b[0] &&
-    (a[1] === "x" || b[1] === "x" || a[1] === b[1]));
-const writes = (i: Instruction, name: string) =>
-  (isRegister(i.operands[0]) && overlaps(i.operands[0].name, name) && !["cmp", "test", "push"].includes(i.mnemonic)) ||
-  (["pop", "xchg"].includes(i.mnemonic) && i.operands.some((o) => isRegister(o) && overlaps(o.name, name))) ||
-  (["mul", "imul", "div", "idiv", "cwd", "cbw", "lodsw", "lodsb", "in"].includes(i.mnemonic) &&
-    ["ax", "dx", "al", "ah", "dl", "dh"].includes(name));
 
 /**
  * The word a call pushes as its argument number `index` (0 the last pushed, at the callee's first argument), when it
@@ -96,11 +85,11 @@ export function pushedWord(code: RoutineCode, call: number, index: number): List
   };
   const after = (i: Instruction) => code.edges.flatMap((e) => (e.from === i.address && e.to !== null ? [e.to] : []));
   const loads = order.filter(
-    (i) => writes(i, name) && i.mnemonic === "mov" && frameArgument(i.operands[1]) !== undefined,
+    (i) => writesRegister(i, name) && i.mnemonic === "mov" && frameArgument(i.operands[1]) !== undefined,
   );
   if (loads.length !== 1) return undefined;
   const only = loads[0]!;
-  const others = order.filter((i) => i !== only && writes(i, name));
+  const others = order.filter((i) => i !== only && writesRegister(i, name));
   if (reaches([order[0]!.address], push, only.address)) return undefined;
   if (others.some((w) => reaches(after(w), push, only.address))) return undefined;
   return { argument: frameArgument(only.operands[1])! };
@@ -261,7 +250,7 @@ function madePartType(
   const pushed = order[k]?.operands[0];
   if (!isRegister(pushed)) return undefined;
   // Its register was last set by `mov reg, ax`, with the factory's call at most three instructions before.
-  for (k--; k >= 0 && !writes(order[k]!, pushed.name); k--);
+  for (k--; k >= 0 && !writesRegister(order[k]!, pushed.name); k--);
   const set = order[k];
   if (!set || set.mnemonic !== "mov" || !isRegister(set.operands[1]) || set.operands[1].name !== "ax") return undefined;
   // Nothing may jump into the instructions after the factory's call up to the insertion from outside them.

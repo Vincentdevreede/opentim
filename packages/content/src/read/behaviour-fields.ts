@@ -3,7 +3,7 @@ import type { FieldContext, LayoutField } from "./behaviour-layout.ts";
 import { readRoutineCode, type RoutineCode } from "./behaviour-code.ts";
 import { findDataSegment, RECORD_SIZE } from "./type-table.ts";
 import type { Instruction, Operand } from "./x86.ts";
-import { isRegister, memoryOperand } from "./behaviour-terms.ts";
+import { implicitRegisterWrites, isRegister, memoryOperand, wholeRegister } from "./behaviour-terms.ts";
 
 interface RoutineContext {
   code: RoutineCode;
@@ -51,7 +51,8 @@ function objectRegisters(code: RoutineCode): Map<number, number> {
     const [destination, source] = instruction.operands;
     if (instruction.flow === "call") for (const name of ["ax", "bx", "cx", "dx"]) state &= ~bit(name);
     else if (destination?.kind === "register" && !["cmp", "test", "push"].includes(instruction.mnemonic)) {
-      if (registers.includes(destination.name)) {
+      const name = wholeRegister(destination.name);
+      if (registers.includes(name)) {
         const isArgument =
           instruction.mnemonic === "mov" &&
           source?.kind === "memory" &&
@@ -63,9 +64,10 @@ function objectRegisters(code: RoutineCode): Map<number, number> {
           source?.kind === "register" &&
           registers.includes(source.name) &&
           (state & bit(source.name)) !== 0;
-        state = isArgument || isCopy ? state | bit(destination.name) : state & ~bit(destination.name);
+        state = destination.width === 16 && (isArgument || isCopy) ? state | bit(name) : state & ~bit(name);
       } else if (destination.name === "ds") state = 0;
     }
+    for (const name of implicitRegisterWrites(instruction)) state &= ~bit(name);
     for (const next of outgoing.get(at) ?? []) {
       const previous = states.get(next);
       const merged = previous === undefined ? state : previous & state;
@@ -88,8 +90,17 @@ export function discoverObjectFieldRoles(
   typeCount: number,
   callbacks: { field: number; role: string; objectSource?: { path: number[]; evidence: LayoutField["evidence"] } }[],
   known: LayoutField[],
+  {
+    records,
+    recordSize = RECORD_SIZE,
+    routine: follow = (segment, offset) => ({ segment, offset, address: segment * 16 + offset }),
+  }: {
+    records?: number[];
+    recordSize?: number;
+    routine?: (segment: number, offset: number) => { segment: number; offset: number; address: number };
+  } = {},
 ): LayoutField[] {
-  if (!Number.isInteger(typeCount) || typeCount < 0 || table < 0 || table + RECORD_SIZE * typeCount > image.length)
+  if (!Number.isInteger(typeCount) || typeCount < 0 || table < 0 || table + recordSize * typeCount > image.length)
     throw new Error("Object field discovery needs an in-image type table and its checked record count");
   const ds = findDataSegment(image);
   const word = (at: number) => image[at]! | (image[at + 1]! << 8);
@@ -97,11 +108,10 @@ export function discoverObjectFieldRoles(
   const pending: { address: number; segment: number; offset: number }[] = [];
   for (let partType = 0; partType < typeCount; partType++)
     for (const callback of callbacks) {
-      const at = table + partType * RECORD_SIZE + callback.field;
-      const offset = word(at),
-        segment = word(at + 2),
-        address = segment * 16 + offset;
-      if ((!offset && !segment) || address >= image.length) continue;
+      const at = (records?.[partType] ?? table + partType * recordSize) + callback.field;
+      if (!word(at) && !word(at + 2)) continue;
+      const { segment, offset, address } = follow(word(at + 2), word(at));
+      if (address >= image.length) continue;
       let routine = routines.get(address);
       if (!routine) {
         routine = { code: readRoutineCode(image, { address, segment, offset }, ds), uses: [] };

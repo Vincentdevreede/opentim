@@ -41,7 +41,7 @@ interface PartList {
 interface Part {
   id: string; // "bowling-ball": stable, other data will refer to it
   type: number; // the number the original game uses, as in PART18.BMP
-  name?: string; // the game's own English name, when it has one: "Bowling Ball" in TIM 2
+  name?: string; // the game's own name, only when read from files that have one; the lists keep it in names.json
   sheets: string[]; // the sprite sheets its sprites come from, like "PART18"; empty for parts drawn as lines
   frames: Frame[]; // empty when the program draws the part another way, or the list doesn't know yet
   /** Values from the original program whose meaning isn't known yet. Never used for drawing. */
@@ -103,7 +103,7 @@ pnpm --filter @opentim/content extract-parts --tim1 <folder> --tim1 <folder> --e
 
 The ids are chosen by hand, in `packages/content/src/part-ids.ts`; everything else comes from the games. The readers
 are in `packages/content/src/read`. The lab, a research tool, uses them too: it reads the parts from the files it
-loads, `TIM.EXE` included, and compares them with the committed list.
+loads, the game's program included, which it needs to open a game. It doesn't use the committed lists.
 
 - **TIM 1 and Even More** keep a table with a 58-byte record per part type in their program, `TIM.EXE`. The script
   unpacks the program (LZEXE 0.91), finds its data segment and searches the table: the place where the frames use
@@ -113,17 +113,27 @@ loads, `TIM.EXE` included, and compares them with the committed list.
 - A type without pieces shows sprite N as frame N on its one layer. Its record then points at `0x18` to a position
   per frame, or the sheet has a single sprite at the origin. The program draws the remaining types its own way, like
   walls and pipes from tiles and the gear and pulley in code, so they have no frames yet.
-- **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers and names from there and doesn't need
-  the program. Each part's `.ANM` animation names its sheets. The frames are left out for now: the `.ANM` frames and
-  sequences become frames and animations together with the animation work.
+- **TIM 2** names every part in `INFO.RES`, so the `tim2` list takes its numbers from there and doesn't need the
+  program. The names go into `names.json`, a list of names by id that every game shares: a TIM 1 part shows the name
+  of the same object in TIM 2, and a part TIM 2 doesn't have shows its id. Each part's `.ANM` animation names its sheets and holds its frames: frame N is frame N of the
+  animation, its sprites in the order the game draws them, all on layer 0, and its boxes and lines as `shapes` (the
+  fish tank, the hedge trimmers and the coffee pot draw some), each with how many sprites come before it. Sounds in a
+  frame are left out. The script checks the frames across the
+  builds. The list holds every frame of the animations, so it is far larger than the TIM 1 and Even More lists
+  (about 790 KB). A part also keeps the animation's steps as `states` (the frame each state shows; a level saves a
+  state) and its sequences as `sequences` (each starts at a state and runs until the next starts); `partSequences`
+  gives each sequence's states and frames, and the Parts page plays them in that order. `mirrorBox` is the animation's
+  size, which the game mirrors a whole frame in.
+  [The file formats](file-formats.md#animations-anm) have the layout.
 
 | Version                       | List       | Status                                                            |
 | ----------------------------- | ---------- | ----------------------------------------------------------------- |
 | TIM 1 English, French, German | `tim1`     | Checked: the same 51 parts in all four builds                     |
 | Even More, all five builds    | `evenmore` | Checked: the same 63 parts in every build, the demo included      |
 | The Add-On Disk               | `evenmore` | Assumed: same sheets as Even More; its program isn't LZEXE-packed |
-| TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts; frames not yet                       |
+| TIM 2 floppy and CD           | `tim2`     | Checked: the same 149 parts and frames in both builds             |
 | TIM 2 demo                    | `tim2`     | Same numbers and names, but most sheets are missing               |
+| Toons (floppy)                | `toons`    | Read from the one build there is: 75 parts                        |
 | TIM 1 demo                    | none yet   | Different table layout, not checked                               |
 
 TIM 1 has records for types 51–54 but no sheets; Even More fills them in, so they are only in `evenmore`. In both
@@ -131,8 +141,60 @@ games, sheets 55–57 are title and credits pictures, not parts. TIM 2 continues
 same slots, and 66–148 are new. Its sheets `PART149` to `PART294` have no entry in `INFO.RES`: scenery like
 mountains, planets and paintings.
 
-What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast, and for
-TIM 2 the meaning of the flip flags and sequence numbers.
+What is a guess is marked as one, in the lists and in the lab: how frames follow each other and how fast in TIM 1
+and Even More. In TIM 2 a sequence number is a name only the part's own code knows (see
+[the animations](file-formats.md#animations-anm)). TIM 2's speed is its machine's step, about 29.6 a second.
+
+## Sid & Al's Incredible Toons
+
+Toons is a game of its own, so it has its own list, `toons`, and its own names, `toons-names.json`: a Toons part never
+takes a TIM id or a TIM name, even where TIM has a similar object. Its numbers run from 0 to 84 and mean other things
+than TIM's (17 is the pulley, 46 the tunnel).
+
+- **Frames** come from `TOONS.EXE`'s type table (`readToonsParts`, see [the file formats](file-formats.md#toonsexe)): a
+  type with a frame list shows its pieces, else state N shows sprite N of its sheet, at the record's position for N.
+  A type is a part when it has a `PART` sheet; 36 and 37, Al and Sid, have none, but they are in the list too, with
+  frames from the `CAT` and `SID` sheet of what they are doing, which TOONS.EXE draws them from. The ten other types
+  without a sheet (66, 67, 70 to 74, 76, 79 and 81) have empty records.
+- **Tiles**: a part a level draws as tiles (walls, the ladder) keeps the tile width and the number of middle tiles in
+  `tiles`, which the Levels page uses.
+- **Ids** are in `TOONS_IDS` in `part-ids.ts`, chosen from the sprites and the levels that use each part, and fixed
+  where the game's own words say more: 24 is `trampoline` (its code is the link map's `tramp`, see below), 29 is
+  `log-wall` (CAKE27's "log cabin" is 17 pieces of it, and the "stump" Sid stands on in CAKE17 is two), 55 is `egg`
+  (the hen's code makes a part of type 55, file offset `0x56c15`) and 63 is `pin` (BRAN8's "pin torture", BRAN12's
+  "the pin that's pointed at his tail" and LOON21's "House of Pins" all have it). The game's words also back
+  `stone-wall` (the "stone box" of CAKE30 is type 28), `candy-incline` (CAKE21's "candy slide"), `pool-ball` (the 15
+  balls on HARD4's "pool table") and `banana` (TOONS.EXE labels the banana's setting `banana`, as it labels the
+  pistol's `ammo`, the catapult's `boulders` and the hen's `eggs`). The least certain are the walls and inclines
+  still named by their look (`red-brick-wall`, `pink-wall`, `bone-wall`, `yellow-wall`, `brick-incline`,
+  `stone-incline`, `wood-incline`, `bone-incline`, `yellow-incline`), and `ant-motor` (25), `dust-cloud` (5),
+  `splat` (4), `magic-lamp` (53) and `mallet` (65), which nothing in the game names. 5 runs the same reset code as
+  the rocks and the balls, so it may be no cloud at all; 4's code plays the sound the bank calls `splat1`, the same
+  as the egg's.
+  The conveyor belt is 0, not 80: TOONS.EXE draws 0 in its own code and lets it be resized from 48 to 128 wide, as
+  TIM's conveyor belt; 80 is Chow-Man, whose sprites are a creature that eats and blows gum.
+- **Names**: Toons has no list of part names, so a name is taken only from the game's own words: the title or goal
+  of a level that has a part of that type, like "Teeter-Totter" from the level of that name (CAKE18) or "Ball
+  Bearing" from "bop Al with the ball bearing" (BRAN4); a message in `GENERIC.RES` ("bogus eyehooks"); or a routine's
+  name in `TOONS.BMP`. `toons-names.json` keeps, for every name, the level or file and the words it comes from; a
+  test checks that every name belongs to a part of the list. Two names are chosen for the project: "Rainbow Ball",
+  since CAKE26 only says "the ball", and "Splat" (4), after the sound its code plays, which nothing in the game
+  names. 55 of the 75 parts have a name; the others show their id.
+- **The link map**: the archive entry `TOONS.BMP` is no image but the linker's map of another build of TOONS.EXE,
+  with every routine's name. Its parts' code (`PARTS`) lists each part's callbacks module by module, like
+  `_balloon_reinit`, `_balloon_bounce`, `_balloon_internal`, `_balloon_rope`. The shipped TOONS.EXE has the same
+  modules in the same order in its overlays, and the type table's callbacks point into them, so each module's name
+  goes with the types whose callbacks are in it: `ball` (5 to 11 and 31 to 34 share its reset), `balloon` (23),
+  `explosion` (75), `bullet` (21), `dynamite` (the bomb, 19), `ep` (the electric switch, 2), `eyehook` (15), `gear`
+  (18), `gun` (the pistol, 20), `hc_belt` (the conveyor belt, 0), `mg` (the magnifying glass, 30), `scissors` (16),
+  `teapot` (12), `tramp` (24), `vc` (the vacuum, 13) and `wall` (the walls). The modules match in which callbacks they
+  have and mostly in their order and size (`tramp` is 0x131 bytes in the map, 0x130 in TOONS.EXE). The map's
+  `candle`, `cc`, `fl` (`FLSHLITE5_DATA`), `m_cage` and `scp` have no module in the shipped build. In the main code,
+  the routines line up by size with the map's too: `_orient_pulleys` (file offset `0xb27f`) finds the parts of type
+  17 and calls `_orient_pulley` for each.
+
+The script reads Toons with `--toons <folder>`, a folder with `TOONS.EXE` and the `RESOURCE` files. It never writes
+`toons-names.json`, which is kept by hand.
 
 ## Not decided yet
 
@@ -140,4 +202,5 @@ TIM 2 the meaning of the flip flags and sequence numbers.
 - Mixing a pack with imported files, and scaling.
 - Where physics lives. It differs per game, so it likely belongs to each game's list as a ruleset that the level
   chooses, apart from the pack that the player chooses.
-- Whether TIM 2's scenery sheets become parts.
+- Whether TIM 2's scenery sheets become parts. The levels place them as types 150 to 280, each with its own
+  `PART<n>.ANM`, and the lab draws them as types the list doesn't have.

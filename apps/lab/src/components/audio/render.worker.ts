@@ -9,6 +9,7 @@ addEventListener("message", (e: MessageEvent<RenderRequest>) => {
     let last = 0;
     const pcm = renderAdlib(e.data.sound, readAdlibBank(e.data.patch), {
       card: e.data.card,
+      sameInstrumentFirst: e.data.sameInstrumentFirst,
       onProgress: (done) => {
         if (done - last < 0.02) return;
         last = done;

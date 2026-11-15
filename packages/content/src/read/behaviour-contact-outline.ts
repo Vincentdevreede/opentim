@@ -1,6 +1,10 @@
 /** Describes both ordered outline searches as guarded relations, without choosing geometry or evaluating game code. */
 import { matchHeapRoutine } from "./behaviour-heap-release.ts";
-import { candidateOutlinePatterns, subjectOutlinePatterns } from "./behaviour-contact-outline-patterns.ts";
+import {
+  candidateOutlinePatterns,
+  subjectOutlinePatterns,
+  type OutlinePattern,
+} from "./behaviour-contact-outline-patterns.ts";
 import type { RoutineCode } from "./behaviour-code.ts";
 import type { EngineSummary } from "./behaviour-helpers.ts";
 import type { Expression, Finding, Predicate } from "./behaviour.ts";
@@ -277,6 +281,75 @@ export function outlineFormulae(reverse: boolean, context: OutlineContext): Outl
   };
 }
 
+/** When a committed contact sets 2 rather than 4. Some forms of the code test the candidate's type first, others don't. */
+export function commitSetTwoWhen(pattern: string): Predicate {
+  const flags = either(
+    compare("!=", binary("&", binary("|", field("subject", 8), field("candidate", 8)), constant(32768)), constant(0)),
+    compare("!=", binary("&", field("candidate", 6), constant(16384)), constant(0)),
+  );
+  return pattern.includes("cmp 16:ds[bx+4],#63")
+    ? all(compare("!=", field("candidate", 4), constant(63)), flags)
+    : flags;
+}
+
+/** Names the values the relation uses, with where the matched form of the code keeps them. */
+export function outlineSymbols(pattern: OutlinePattern): ContactOutline["symbols"] {
+  const { frame } = pattern,
+    inner = pattern.outerRecord === "SI" ? "DI" : "SI";
+  return [
+    {
+      object: "outer boundary record",
+      meaning: `The record addressed by ${pattern.outerRecord} for the current outer edge.`,
+    },
+    {
+      object: "previous inner boundary record",
+      meaning: "The preceding inner record's orientation, cached in the private frame.",
+      frameOffsets: [frame.previousInner],
+    },
+    {
+      object: "current inner boundary record",
+      meaning: `The record addressed by ${inner} for the current vertex and its outgoing edge.`,
+    },
+    {
+      object: "outer edge start",
+      meaning: "Cached world coordinates at this iteration; these can predate earlier position corrections.",
+      frameOffsets: [...frame.outerStart],
+    },
+    {
+      object: "outer edge end",
+      meaning: "Cached endpoint coordinates, including the remembered entry point when closing.",
+      frameOffsets: [...frame.outerEnd],
+    },
+    {
+      object: "first test output",
+      meaning: "The first segment-test output before the probe gate or any second test.",
+      frameOffsets: [...frame.testOutput],
+    },
+    {
+      object: "correction output",
+      meaning:
+        "The same local pair at a later phase: a second test overwrites both words even on failure, while the line solve overwrites only Y and retains the first test X. A zero-divisor fallback retains the first test output.",
+      frameOffsets: [...frame.testOutput],
+    },
+    {
+      object: "translated boundary start",
+      meaning: "The sector table words, negated in the reverse pass.",
+      frameOffsets: [...frame.translatedStart],
+    },
+    {
+      object: "translated boundary end",
+      meaning: "The extended endpoint plus the same sector table words.",
+      frameOffsets: [...frame.translatedEnd],
+    },
+    {
+      object: "centre before refresh",
+      meaning:
+        "Subject centre X minus cached outer start X, captured before the geometry and bounds refresh in the reverse pass.",
+      frameOffsets: frame.centreBeforeRefresh === undefined ? undefined : [frame.centreBeforeRefresh],
+    },
+  ];
+}
+
 const validWord = (n: number | undefined): n is number => n !== undefined && n >= 0 && n <= 65534;
 /** Complete graph, dependencies and context identities are checked before any semantic relation is exposed. */
 export function addContactOutlineSummaries(
@@ -288,11 +361,15 @@ export function addContactOutlineSummaries(
     const prior = summaries.get(code.address);
     if (!prior?.contactSearch || !prior.globalObjectWrites?.length) continue;
     let bound: Map<string, number> | undefined,
-      reverse = false;
+      reverse = false,
+      matched: OutlinePattern | undefined;
     for (const [mode, patterns] of [candidateOutlinePatterns, subjectOutlinePatterns].entries()) {
       for (const pattern of patterns) {
-        bound = matchHeapRoutine(code, pattern, new Map());
-        if (bound) break;
+        bound = matchHeapRoutine(code, pattern.code, new Map());
+        if (bound) {
+          matched = pattern;
+          break;
+        }
       }
       if (bound) {
         reverse = mode === 1;
@@ -301,6 +378,7 @@ export function addContactOutlineSummaries(
     }
     if (
       !bound ||
+      !matched ||
       bound.get("subject") !== prior.contactSearch.subjectGlobal ||
       bound.get("candidate") !== prior.contactSearch.candidateGlobal
     )
@@ -402,8 +480,6 @@ export function addContactOutlineSummaries(
       width: 16,
     });
     const tableOffset = (offset: number) => (reverse ? binary("-", constant(0), table(offset)) : table(offset));
-    const candidateFlags = field("candidate", 8),
-      subjectFlags = field("subject", 8);
     const translated = { start: point("translated boundary start"), end: point("translated boundary end") };
     const centre = binary("-", global(context.subjectCenterX), field("outer edge start", 0));
     const mapSideInput = (expression: Expression): Expression => {
@@ -458,55 +534,7 @@ export function addContactOutlineSummaries(
         compare("==", global(context.movementY), constant(0)),
       ),
       context,
-      symbols: [
-        { object: "outer boundary record", meaning: "The record addressed by SI for the current outer edge." },
-        {
-          object: "previous inner boundary record",
-          meaning: "The preceding inner record's orientation, cached in the private frame.",
-          frameOffsets: [-12],
-        },
-        {
-          object: "current inner boundary record",
-          meaning: "The record addressed by DI for the current vertex and its outgoing edge.",
-        },
-        {
-          object: "outer edge start",
-          meaning: "Cached world coordinates at this iteration; these can predate earlier position corrections.",
-          frameOffsets: [-16, -22],
-        },
-        {
-          object: "outer edge end",
-          meaning: "Cached endpoint coordinates, including the remembered entry point when closing.",
-          frameOffsets: [-18, -24],
-        },
-        {
-          object: "first test output",
-          meaning: "The first segment-test output before the probe gate or any second test.",
-          frameOffsets: [-64, -62],
-        },
-        {
-          object: "correction output",
-          meaning:
-            "The same local pair at a later phase: a second test overwrites both words even on failure, while the line solve overwrites only Y and retains the first test X. A zero-divisor fallback retains the first test output.",
-          frameOffsets: [-64, -62],
-        },
-        {
-          object: "translated boundary start",
-          meaning: "The sector table words, negated in the reverse pass.",
-          frameOffsets: [-52, -50],
-        },
-        {
-          object: "translated boundary end",
-          meaning: "The extended endpoint plus the same sector table words.",
-          frameOffsets: [-48, -46],
-        },
-        {
-          object: "centre before refresh",
-          meaning:
-            "Subject centre X minus cached outer start X, captured before the geometry and bounds refresh in the reverse pass.",
-          frameOffsets: reverse ? [-32] : undefined,
-        },
-      ],
+      symbols: outlineSymbols(matched),
       loops: {
         outerPart: reverse ? "subject" : "candidate",
         innerPart: reverse ? "candidate" : "subject",
@@ -586,13 +614,7 @@ export function addContactOutlineSummaries(
         flagsField: 6,
         flagsAndMask: 65529,
         clearedMask: 6,
-        setTwoWhen: all(
-          compare("!=", field("candidate", 4), constant(63)),
-          either(
-            compare("!=", binary("&", binary("|", subjectFlags, candidateFlags), constant(32768)), constant(0)),
-            compare("!=", binary("&", field("candidate", 6), constant(16384)), constant(0)),
-          ),
-        ),
+        setTwoWhen: commitSetTwoWhen(matched.code),
         otherwiseSetMask: 4,
         contactPartField: 132,
         contactAngleField: 136,

@@ -14,16 +14,54 @@ import LabSearch from "../components/LabSearch.vue";
 import LabSegmented from "../components/LabSegmented.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { BACKGROUND_CLASSES, BACKGROUNDS, background } from "../components/backgrounds.ts";
+import { TIM2_COLOURS, tim2ColourProblem, tim2Colours } from "../components/tim2-colours.ts";
 import LevelCanvas from "../components/levels/LevelCanvas.vue";
 import LevelGoal from "../components/levels/LevelGoal.vue";
 import LevelStructure from "../components/levels/LevelStructure.vue";
 import { AUTO, usePalettes } from "../components/sprites/palettes.ts";
 import type { Confidence } from "../kinds.ts";
 import { edition, program, resources, selected as selectedFile } from "../library.ts";
-import { MARGIN, PLAY_AREA, layoutOf, layoutScene, readLevels, type LevelEntry } from "../levels.ts";
-import { LOADED_HEADERS, type GoalCondition, type SpriteOf } from "@opentim/content";
-import { goalMarkSetters, readBehaviourInBackground, type GoalsResult, type WriterField } from "../behaviour.ts";
-import { listIdOf, readLoadedParts, sheetFile } from "../parts.ts";
+import {
+  LAYOUT_NAMES,
+  MARGIN,
+  PLAY_AREA,
+  goalPartsOf,
+  layoutOf,
+  layoutScene,
+  readLevels,
+  type LevelEntry,
+  type Note,
+  type ToonsCode,
+  type ToonsSort,
+} from "../levels.ts";
+import { MESSAGE_FONT } from "../toons-drawing.ts";
+import { readFont } from "@opentim/resources";
+import {
+  LOADED_HEADERS,
+  partWordsOf,
+  readTim2Types,
+  readTim2StartTables,
+  type Tim2StartTables,
+  readToonsDrawing,
+  readToonsGoals,
+  readToonsBinKinds,
+  readToonsListKinds,
+  summariseTim2Goal,
+  toonsGoalParts,
+  tim2Drawing as drawingOf,
+  type GoalCondition,
+  type ToonsGoalParts,
+  type SpriteOf,
+  type Tim2Drawing,
+} from "@opentim/content";
+import {
+  goalMarkSetters,
+  readBehaviourInBackground,
+  type GoalsResult,
+  type RecordNames,
+  type WriterField,
+} from "../behaviour.ts";
+import { listIdOf, partName, readLoadedParts, sheetFile } from "../parts.ts";
 import { decode } from "../sprites.ts";
 import { crumb, openAt, selectedLevel } from "../ui.ts";
 import LabNoMatch from "../components/LabNoMatch.vue";
@@ -50,13 +88,16 @@ const observer = new ResizeObserver(([entry]) => {
 /** The zoom: fitted to the space, or a fixed one. Before the space is measured, the fit is 1. */
 const zoom = computed(() => {
   if (zoomSetting.value !== "fit") return Number(zoomSetting.value);
+  const area = scene.value?.area ?? PLAY_AREA;
   const fit = Math.min(
-    (room.value.width - PADDING) / (PLAY_AREA.width + 2 * MARGIN),
-    (room.value.height - PADDING) / (PLAY_AREA.height + 2 * MARGIN),
+    (room.value.width - PADDING) / (area.width + 2 * MARGIN),
+    (room.value.height - PADDING) / (area.height + 2 * MARGIN),
   );
   return fit > 0 ? fit : 1;
 });
 const showBounds = ref(true);
+/** For TIM 2 and Toons: the puzzle with the parts of the bin where the file puts them, which is the solution. */
+const showSolution = ref(false);
 const showGoal = ref(true);
 const selectedPart = ref<number>();
 
@@ -90,7 +131,9 @@ const level = computed(() => current.value?.level);
 /** Where the loaded program's loader puts the header's numbers, for a build the loader was checked on. */
 const loadedHeader = computed(() => (program.value ? LOADED_HEADERS.get(program.value.sha256) : undefined));
 
-const loadedParts = computed(() => readLoadedParts(listIdOf(edition.value), resources.value, program.value));
+const loadedParts = computed(
+  () => program.value && readLoadedParts(listIdOf(edition.value), resources.value, program.value),
+);
 const list = computed(() => loadedParts.value?.list);
 
 /** Every puzzle's goal, read from the program in the background after its behaviour, which names the goals. */
@@ -99,6 +142,16 @@ const goals = shallowRef<GoalsResult | { status: "reading" }>();
 const markSetters = shallowRef<ReadonlyMap<string, string[]>>(new Map());
 /** The part record's fields as the behaviour read names them, for the structure's tags. */
 const recordFields = shallowRef<readonly WriterField[]>();
+/**
+ * The part record's words the panels can name: the fields the behaviour read names once it is read, and for TIM 1 and
+ * Even More TIM.EXE's words by place, from the game's profile. Another game's words never take TIM.EXE's names.
+ */
+const recordNames = computed<RecordNames>(() => {
+  // Only a known game: the profile of an unknown one would be TIM.EXE's.
+  const listId = listIdOf(edition.value);
+  const words = listId ? partWordsOf({ listId }) : undefined;
+  return { fields: recordFields.value ?? [], ...(words ? { words } : {}) };
+});
 /** The least time one step of the run takes, from the timer ticks the run loop waits for. */
 const stepMilliseconds = ref<number>();
 watch(
@@ -122,9 +175,33 @@ watch(
     void reading.walks.then((result) => {
       if (program.value?.data === data && result.status === "done") markSetters.value = goalMarkSetters(result.effects);
     });
+    // The walks with the loops read per type replace the first ones, as on the Parts page, and can add who sets a mark.
+    void reading.perType.then((result) => {
+      if (program.value?.data === data && result.status === "done") markSetters.value = goalMarkSetters(result.effects);
+    });
   },
   { immediate: true },
 );
+
+/** True while a Toons level is shown, whose goals, drawing and sort words come from TOONS.EXE. */
+const isToons = computed(() => level.value?.layout === "toons");
+/** Toons' goals, read from TOONS.EXE: one routine per puzzle, named by the level it is for. */
+const toonsGoals = computed(() => {
+  if (!isToons.value || !program.value) return undefined;
+  const byType = new Map(list.value?.parts.map((p) => [p.type, p.id]));
+  try {
+    return byType.size ? readToonsGoals(program.value.data, byType) : readToonsGoals(program.value.data);
+  } catch (e) {
+    return { problem: e instanceof Error ? e.message : String(e), goals: [] };
+  }
+});
+
+/** How many parts of each type the level has, bin included, for a goal that finds the n-th part of a type. */
+const typeCounts = computed(() => {
+  const counts = new Map<number, number>();
+  for (const part of level.value?.parts ?? []) counts.set(part.type, (counts.get(part.type) ?? 0) + 1);
+  return counts;
+});
 
 /** The puzzle a level file is, by its name: `L12.LEV` is puzzle 12, whose goal routine TIM.EXE picks by that number. */
 const puzzle = computed(() => {
@@ -135,9 +212,23 @@ const puzzle = computed(() => {
 /** The goal of the level shown, or why there is none. */
 const goal = computed<InstanceType<typeof LevelGoal>["$props"]["goal"] | undefined>(() => {
   if (current.value?.kind !== "level") return undefined;
+  if (level.value?.layout === "tim2") {
+    const byType = new Map(list.value?.parts.map((p) => [p.type, partName(p, list.value?.id).name]));
+    const read = summariseTim2Goal(level.value, (type) => byType.get(type) ?? `type ${type}`, tim2Start.value);
+    return read
+      ? { status: "done", goal: { puzzle: 0, ...read }, from: "level" }
+      : { status: "none", why: "This level has no goal entries." };
+  }
+  if (level.value?.layout === "toons") {
+    const read = toonsGoals.value;
+    if (!read) return undefined;
+    if (read.problem) return { status: "none", why: `The goals couldn’t be read: ${read.problem}` };
+    const name = current.value?.resource.name.replace(/\.LEV$/i, "").toUpperCase();
+    const found = read.goals.find((g) => g.name === name);
+    return found ? { status: "done", goal: found } : { status: "none", why: `TOONS.EXE has no goal for ${name}.` };
+  }
   if (puzzle.value === undefined) return { status: "none", why: "Only puzzle files, named like L12.LEV, have a goal." };
   const g = goals.value;
-  if (!program.value) return { status: "none", why: "The goals are read from TIM.EXE, which isn’t loaded." };
   if (!g) return { status: "none", why: "The goals are read from TIM 1 and Even More only, so far." };
   if (g.status === "reading") return g;
   if (g.status === "error") return { status: "none", why: `The goals couldn’t be read: ${g.message}` };
@@ -157,13 +248,21 @@ const goalAreas = computed(() => {
     number: number;
     box: { x: number; y: number; width: number; height: number };
   }[] = [];
-  const edge = { left: -MARGIN, top: -MARGIN, right: PLAY_AREA.width + MARGIN, bottom: PLAY_AREA.height + MARGIN };
+  const edge = {
+    left: s.area.x - MARGIN,
+    top: s.area.y - MARGIN,
+    right: s.area.x + s.area.width + MARGIN,
+    bottom: s.area.y + s.area.height + MARGIN,
+  };
   for (const c of g.goal.summary.ways.flat()) {
     if (!c.area) continue;
     // The goal tests a part's position, which is where its picture starts; the area is where the picture is when its
-    // position is in range, from a part of the same type in the level. Without one it is the range of positions.
-    const types = new Set(c.types?.map((t) => t.type));
-    const like = s.parts.find((d) => (!types.size || types.has(d.part.type)) && d.box.width && d.box.height);
+    // position is in range, from the part the condition is about or one of the same type in the level. Without one it
+    // is the range of positions.
+    const one = goalParts.value.get(c);
+    const looked =
+      c.part !== undefined || one !== undefined || c.types?.length ? goalPartsOf(c, s.parts, one) : s.parts;
+    const like = looked.find((d) => d.box.width && d.box.height);
     const at = like
       ? {
           x: like.box.x - like.part.position.x,
@@ -186,11 +285,57 @@ const goalAreas = computed(() => {
   return out;
 });
 const areaNumbers = computed(() => new Map(goalAreas.value.map((a) => [a.condition, a.number])));
-/** The types of the parts the goal's conditions look at. */
-const goalTypes = computed(() => {
+/**
+ * The words of TOONS.EXE's type table a Toons level's parts lists and parts bin are sorted by, the second as TOONS.EXE
+ * sets them when it starts.
+ */
+const toonsSort = computed((): ToonsSort | undefined =>
+  isToons.value && program.value
+    ? { kinds: readToonsListKinds(program.value.data), binKinds: readToonsBinKinds(program.value.data) }
+    : undefined,
+);
+/**
+ * For a Toons goal, the level parts each condition is about when the puzzle starts, in the order TOONS.EXE keeps its
+ * lists, with the parts on the board where the file puts them and the ropes the puzzle start leaves tied: the n-th part
+ * of a type, the first one whose ropes pass a test, and whether a test of only the ropes and the type holds then.
+ */
+const toonsParts = computed(() => {
+  const out = new Map<GoalCondition, ToonsGoalParts>();
   const g = goal.value;
-  if (g?.status !== "done") return new Set<number>();
-  return new Set(g.goal.summary.ways.flat().flatMap((c) => c.types?.map((t) => t.type) ?? []));
+  const l = level.value;
+  const sort = toonsSort.value;
+  if (g?.status !== "done" || l?.layout !== "toons" || !sort) return out;
+  for (const c of g.goal.summary.ways.flat()) {
+    const found = toonsGoalParts(l, c, sort.kinds, sort.binKinds);
+    if (found) out.set(c, found);
+  }
+  return out;
+});
+/** The one level part a condition is about, to number it in the condition. */
+const goalParts = computed(
+  () =>
+    new Map(
+      [...toonsParts.value]
+        .filter(([c, found]) => found.parts.length === 1 && c.kind !== "every")
+        .map(([c, found]) => [c, found.parts[0]!]),
+    ),
+);
+/**
+ * The parts the goal's conditions look at, by their index in the level, ringed on the drawing: for a Toons goal the
+ * parts TOONS.EXE's lists give when the puzzle starts (none for a condition that can't hold then), otherwise the part a
+ * condition names or every part of its types.
+ */
+const ringedParts = computed(() => {
+  const g = goal.value;
+  const s = scene.value;
+  if (g?.status !== "done" || !s) return new Set<number>();
+  return new Set(
+    g.goal.summary.ways.flat().flatMap((c) => {
+      const found = toonsParts.value.get(c);
+      if (found) return found.holds === false ? [] : found.parts;
+      return goalPartsOf(c, s.parts).map((d) => d.part.index);
+    }),
+  );
 });
 
 /** The decoded sprites of each sheet, as the Sprites page reads them. */
@@ -211,19 +356,86 @@ const spriteOf = computed<SpriteOf>(() => (sheet, sprite) => sheets.value(sheet)
 const { colorsOf, choose } = usePalettes();
 const paletteOf = (sheet: string) => colorsOf(choose(sheetFile(sheet), AUTO)?.name);
 
-const scene = computed(() => (level.value ? layoutScene(level.value, list.value, spriteOf.value) : undefined));
+/** True while a TIM 2 level is shown, which TIM2.EXE's type table says how to draw. */
+const isTim2 = computed(() => level.value?.layout === "tim2");
+/**
+ * How TIM2.EXE draws each type: walls and tile patterns have routines of their own. Undefined when its type table
+ * isn't found, which the scene notes.
+ */
+const tim2Drawing = computed((): Map<number, Tim2Drawing> | undefined => {
+  if (!isTim2.value || !program.value) return undefined;
+  try {
+    return drawingOf(readTim2Types(program.value.data));
+  } catch {
+    return undefined;
+  }
+});
+/**
+ * TIM2.EXE's list and bin tables, which decide the order of a TIM 2 puzzle's bin and what its start does, or why they
+ * can't be read, which the scene notes. A damaged program file shouldn't stop the level from being shown.
+ */
+const tim2StartRead = computed((): { tables?: Tim2StartTables; problem?: string } => {
+  if (!isTim2.value || !program.value) return {};
+  try {
+    const tables = readTim2StartTables(program.value.data);
+    return tables ? { tables } : {};
+  } catch (e) {
+    return { problem: `TIM2.EXE can’t be read: ${e instanceof Error ? e.message : String(e)}` };
+  }
+});
+const tim2Start = computed(() => tim2StartRead.value.tables);
+/** TOONS.EXE's drawing code for the types that have their own, and the font the message machine writes its letter in. */
+const toonsCode = computed((): ToonsCode | undefined => {
+  if (!isToons.value || !program.value) return undefined;
+  try {
+    const drawing = readToonsDrawing(program.value.data);
+    if (!drawing) return undefined;
+    const fontFile = resources.value.find((r) => r.name === MESSAGE_FONT);
+    try {
+      return fontFile ? { drawing, font: readFont(fontFile.data) } : { drawing };
+    } catch {
+      return { drawing };
+    }
+  } catch {
+    return undefined;
+  }
+});
+const scene = computed(() =>
+  level.value
+    ? layoutScene(level.value, list.value, spriteOf.value, tim2Drawing.value, {
+        solution: showSolution.value,
+        toons: toonsCode.value,
+        toonsSort: toonsSort.value,
+        tim2Start: tim2Start.value,
+        tim2StartProblem: tim2StartRead.value.problem,
+      })
+    : undefined,
+);
+
+/** The scene's notes, and why a TIM 2 level isn't drawn in its 16 colours when the setting asks for them. */
+const notes = computed((): Note[] => [
+  ...(scene.value?.notes ?? []),
+  ...(isTim2.value && tim2ColourProblem.value
+    ? [{ status: "error" as const, title: "Not in 16 colours.", detail: tim2ColourProblem.value }]
+    : []),
+]);
 
 const stats = computed(() => {
   const s = scene.value;
   if (!s) return [];
   const count = (how: string[]) => s.parts.filter((p) => how.includes(p.how)).length;
   return [
-    { label: "Layout", value: level.value!.layout === "toons" ? "Toons" : "TIM 1, Even More" },
+    { label: "Layout", value: LAYOUT_NAMES[level.value!.layout] },
     { label: "Version", value: `0x${level.value!.version.toString(16)}` },
-    { label: "Play area", value: `${PLAY_AREA.width} × ${PLAY_AREA.height}` },
+    {
+      label: "Play area",
+      value: `${s.area.width} × ${s.area.height}${s.area.x || s.area.y ? ` from ${s.area.x}, ${s.area.y}` : ""}`,
+    },
     { label: "Put together from frames", value: String(count(["frame"])) },
     { label: "One sprite by state", value: String(count(["sprite"])) },
     { label: "Tiled", value: String(count(["tiles"])) },
+    ...(count(["code"]) ? [{ label: "By their own code", value: String(count(["code"])) }] : []),
+    ...(count(["block"]) ? [{ label: "Colour blocks", value: String(count(["block"])) }] : []),
     { label: "Drawn as a box", value: String(count(["outline"])) },
     { label: "Ropes and belts", value: String(s.lines.length) },
     { label: "In the parts bin", value: `${s.bin.length}, not drawn` },
@@ -323,7 +535,9 @@ onBeforeUnmount(() => {
           <LabBadge v-bind="status" />
           <div class="flex-1"></div>
           <LabCheckbox v-model="showBounds">Part boxes</LabCheckbox>
+          <LabCheckbox v-if="level?.layout !== 'tim'" v-model="showSolution">Solution</LabCheckbox>
           <LabCheckbox v-if="goal?.status === 'done'" v-model="showGoal">Goal</LabCheckbox>
+          <LabSegmented v-if="isTim2" v-model="tim2Colours" label="Colours" :options="TIM2_COLOURS" />
           <LabSegmented v-model="background" label="Background" :options="BACKGROUNDS" />
           <LabSegmented v-model="zoomSetting" label="Zoom" :options="ZOOMS" />
         </LabToolbar>
@@ -340,11 +554,12 @@ onBeforeUnmount(() => {
                 :scene="scene"
                 :palette-of="paletteOf"
                 :line-palette="paletteOf('PART0')"
+                :area-colour="background === 'game' ? level.tim2?.background : undefined"
                 :zoom="zoom"
                 :bounds="showBounds"
                 :selected="selectedPart"
                 :goal-areas="showGoal ? goalAreas : undefined"
-                :goal-types="showGoal ? goalTypes : undefined"
+                :goal-parts="showGoal ? ringedParts : undefined"
                 @select="selectedPart = $event"
               />
             </div>
@@ -366,13 +581,17 @@ onBeforeUnmount(() => {
               :area-numbers="areaNumbers"
               :mark-setters="markSetters"
               :step-milliseconds="stepMilliseconds"
+              :type-counts="typeCounts"
+              :part-numbers="goalParts"
+              :at-start="toonsParts"
+              :record="recordNames"
             />
           </div>
           <div class="relative min-w-0 flex-[2]">
             <div class="absolute inset-0 flex flex-col">
-              <LabPanelHeader title="Limits and guesses" :meta="scene.notes.length" />
+              <LabPanelHeader title="Limits and guesses" :meta="notes.length" />
               <div class="min-h-0 flex-1 overflow-auto">
-                <LabListRow v-for="n in scene.notes" :key="n.title" inset>
+                <LabListRow v-for="n in notes" :key="n.title" inset>
                   <p class="min-w-0 flex-1 text-soft">
                     <span class="font-semibold text-ink">{{ n.title }}</span> {{ n.detail }}
                   </p>
@@ -380,7 +599,7 @@ onBeforeUnmount(() => {
                     <LabBadge :status="n.status" :label="n.status === 'unsupported' ? 'not done' : n.status" />
                   </template>
                 </LabListRow>
-                <p v-if="!scene.notes.length" class="px-3 py-[5px] text-muted">
+                <p v-if="!notes.length" class="px-3 py-[5px] text-muted">
                   Nothing left out: every part is drawn by the rules of the game’s program.
                 </p>
               </div>
@@ -396,7 +615,9 @@ onBeforeUnmount(() => {
         :list="list"
         :selected="selectedPart"
         :header="loadedHeader"
-        :record="recordFields"
+        :record="recordNames"
+        :toons-sort="toonsSort"
+        :tim2-start="tim2Start"
         @select="selectedPart = $event"
         @view-bytes="viewBytes"
       />

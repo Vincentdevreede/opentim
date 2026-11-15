@@ -21,3 +21,4 @@ The research is split by topic:
 - [Frames, outlines and resets](frames-and-resets.md): outlines, resets, starting frames, drawing, parts a part makes, speed limits, sheet frames.
 - [Gears](gears.md): the gear relation, scheduling, drivers and connections.
 - [Contact](contact.md): contact searches, callbacks and responses.
+- [TIM2.EXE and TOONS.EXE](tim2-and-toons.md): how the programs of TIM 2 and Toons differ from TIM.EXE, for the reader.

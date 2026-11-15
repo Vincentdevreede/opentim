@@ -22,7 +22,8 @@ import LabToolbar from "../components/LabToolbar.vue";
 
 const router = useRouter();
 const query = ref("");
-const startSprite = openSprite.value;
+/** The sprite a link from another page asked for. It only counts for the image the page opened with. */
+const startSprite = ref(openSprite.value);
 openSprite.value = undefined;
 
 const { colorsOf, choose } = usePalettes();
@@ -52,6 +53,9 @@ const galleryColors = (image: string) => colorsOf(choose(image, AUTO)?.name);
 function pick(file: string) {
   selected.value = file;
 }
+
+// A sprite asked for by another page belongs to the image that was open then, also when loading files picks another.
+watch(selected, () => (startSprite.value = undefined));
 
 function viewBytes(r: Resource, offset?: number) {
   selected.value = r.name;

@@ -1,4 +1,4 @@
-import { PART_LISTS } from "@opentim/content";
+import { GAMES } from "@opentim/content";
 import { describe, expect, it } from "vitest";
 import {
   LANGUAGES,
@@ -7,7 +7,9 @@ import {
   detectEdition,
   editionLanguages,
   editionName,
+  isProgramName,
   isVersionFile,
+  programNames,
   sha256,
 } from "../src/edition.ts";
 import catalog from "../src/version-catalog.json";
@@ -101,6 +103,18 @@ describe("version-catalog.json", () => {
       expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
     expect(new Set(profile.files.map((f) => f.name)).size).toBe(profile.files.length);
+    expect(isProgramName(profile.program), profile.program).toBe(true);
+    expect(profile.program).toBe(profile.program.toUpperCase());
+  });
+
+  it("names each game's own program", () => {
+    const program = (prefix: string) => [
+      ...new Set(PROFILES.filter((p) => p.id.startsWith(prefix)).map((p) => p.program)),
+    ];
+    expect(program("tim1")).toEqual(["TIM.EXE"]);
+    expect(program("evenmore")).toEqual(["TIM.EXE"]);
+    expect(program("tim2")).toEqual(["TIM2.EXE"]);
+    expect(program("toons")).toEqual(["TOONS.EXE"]);
   });
 
   it("has unique ids and no two versions with the same files", () => {
@@ -115,7 +129,7 @@ describe("version-catalog.json", () => {
   });
 
   it("links versions only to part lists that exist", () => {
-    const missing = PROFILES.filter((p) => p.parts !== undefined && !PART_LISTS[p.parts]).map((p) => p.id);
+    const missing = PROFILES.filter((p) => p.parts !== undefined && !(p.parts in GAMES)).map((p) => p.id);
     expect(missing).toEqual([]);
   });
 });
@@ -134,11 +148,40 @@ describe("catalogEntry", () => {
       { name: "RESOURCE.MAP", sha256: "b".repeat(64) },
     ]);
     expect(entry.requiresExtraction).toBeUndefined();
+    expect(entry.program).toBe("TODO.EXE");
+  });
+
+  it("takes the program from the files", () => {
+    const entry = JSON.parse(
+      catalogEntry([
+        { name: "RESOURCE.001", sha256: "a".repeat(64) },
+        { name: "tim2.exe", sha256: "b".repeat(64) },
+      ]),
+    );
+    expect(entry.program).toBe("TIM2.EXE");
+    expect(entry.files).toEqual([{ name: "RESOURCE.001", sha256: "a".repeat(64) }]);
   });
 
   it("marks installation media", () => {
     const entry = JSON.parse(catalogEntry([{ name: "FRENCH.RES", sha256: "a".repeat(64) }]));
     expect(entry.requiresExtraction).toBe(true);
+  });
+});
+
+describe("programNames", () => {
+  const profile = (id: string) => PROFILES.find((p) => p.id === id)!;
+
+  it("names the recognised version's program", () => {
+    expect(programNames({ status: "recognized", profile: profile("tim2-en-demo") })).toEqual(["TIM2.EXE"]);
+    expect(programNames({ status: "recognized", profile: profile("toons-en-floppy") })).toEqual(["TOONS.EXE"]);
+  });
+
+  it("names the program every version the files could be has, else every game's", () => {
+    const could = (...ids: string[]) =>
+      programNames({ status: "incomplete", candidates: ids.map((id) => ({ profile: profile(id), missing: [] })) });
+    expect(could("tim1-en", "tim1-addon-en")).toEqual(["TIM.EXE"]);
+    expect(could("tim1-en", "toons-en-floppy")).toEqual(["TIM.EXE", "TIM2.EXE", "TOONS.EXE"]);
+    expect(programNames({ status: "unknown" })).toEqual(["TIM.EXE", "TIM2.EXE", "TOONS.EXE"]);
   });
 });
 

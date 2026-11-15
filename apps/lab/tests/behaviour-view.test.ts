@@ -1,4 +1,4 @@
-import type { Expression } from "@opentim/content";
+import { TIM_PART_WORDS, type Expression } from "@opentim/content";
 import { describe, expect, it } from "vitest";
 import { valueForState, writer, type Change, type PartSummary, type Walk } from "../src/behaviour.ts";
 import {
@@ -52,7 +52,7 @@ describe("valueForState", () => {
 
 describe("values a test picks", () => {
   it("writes the two values and the test that picks one", () => {
-    const { expression } = writer([{ offset: 0x0c, name: "state" }]);
+    const { expression } = writer({ fields: [{ offset: 0x0c, name: "state" }] });
     const picked = (operator: string, other: string, then: Expression, otherwise: Expression) =>
       binary(
         "+",
@@ -70,7 +70,7 @@ describe("values a test picks", () => {
 
 describe("tidying conditions", () => {
   it("writes an absolute value and a negative constant shorter", () => {
-    const { expression } = writer([{ offset: 0x0c, name: "state" }]);
+    const { expression } = writer({ fields: [{ offset: 0x0c, name: "state" }], words: TIM_PART_WORDS });
     const difference = binary("-", state, { ...state, offset: 0x28 });
     const sign = binary(">>", difference, constant(15));
     const absolute = binary("-", binary("^", difference, sign), sign);
@@ -232,6 +232,16 @@ describe("hits in words", () => {
     expect(outlineSides(outline([]))).toBeUndefined();
   });
 
+  it("gives no sides when the reset leaves a point out", () => {
+    const gap = outline([
+      [0, 0],
+      [8, 0],
+      [8, 8],
+    ]);
+    gap.reset = gap.reset.filter((w) => !w.target.startsWith("outline[0]"));
+    expect(outlineSides(gap)).toBeUndefined();
+  });
+
   it("says which way the hit surface faces and which edge was hit", () => {
     expect(readTerm("(collider.contactAngle + 0x4000) & 0x8000 == 0")).toBe("hit from above");
     expect(readTerm("(collider.contactAngle + 0x4000) & 0x8000 != 0")).toBe("hit from below");
@@ -247,6 +257,10 @@ describe("hits in words", () => {
       "collider.contactEdge == 0",
       "collider.contactEdge != 0",
     ]);
+  });
+
+  it("keeps not equal to a number when the other side of equal isn't a number", () => {
+    expect(tidyTerms(["link0 == found", "link0 != 0"])).toEqual(["link0 == found", "link0 != 0"]);
   });
 });
 
@@ -273,6 +287,11 @@ describe("writeRows", () => {
       ["outline", ["(0,0)", "(frameWidth,0)"]],
       ["state", ["0"]],
     ]);
+  });
+
+  it("lists the writes one by one when a point is left out", () => {
+    const rows = writeRows([write("outline[1].x", "8"), write("outline[1].y", "0")]);
+    expect(rows.map((r) => r.values)).toEqual([["outline[1].x = 8", "outline[1].y = 0"]]);
   });
 
   it("writes an equality with a 16-bit word as its signed value", () => {
@@ -325,6 +344,16 @@ describe("outlineShape", () => {
       { x: 31, y: 15 },
       { x: 0, y: 15 },
     ]);
+  });
+
+  it("gives nothing when the reset leaves a point out", () => {
+    const gap = part([
+      ["0", "0"],
+      ["8", "0"],
+      ["8", "8"],
+    ]);
+    gap.reset = gap.reset.filter((w) => !w.target.startsWith("outline[1]"));
+    expect(outlineShape(gap, { width: 32, height: 16 })).toBeUndefined();
   });
 
   it("gives nothing when a point depends on more than the frame's size", () => {

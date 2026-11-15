@@ -1,13 +1,18 @@
 import evenmore from "./lists/evenmore.json" with { type: "json" };
+import names from "./lists/names.json" with { type: "json" };
 import tim1 from "./lists/tim1.json" with { type: "json" };
 import tim2 from "./lists/tim2.json" with { type: "json" };
+import toons from "./lists/toons.json" with { type: "json" };
+import toonsNames from "./lists/toons-names.json" with { type: "json" };
 import type { PartList } from "./model.ts";
 
-export type { Frame, Part, PartList, Placement } from "./model.ts";
+export type { Frame, Part, PartList, Placement, Shape } from "./model.ts";
 export {
   compose,
+  composeFrame,
   coverSprites,
   drawOrder,
+  partSequences,
   type Bounds,
   type Composition,
   type Placed,
@@ -17,6 +22,7 @@ export {
   GAMES,
   readProgramParts,
   readTim2Parts,
+  readToonsParts,
   type SpriteCount,
   type SheetData,
   type ListId,
@@ -24,11 +30,35 @@ export {
   type TypeRecord,
 } from "./read/parts.ts";
 export { RECORD_FIELDS, RECORD_SIZE, type RecordField } from "./read/type-table.ts";
+export {
+  TOONS_CRITTERS,
+  TOONS_RECORD_FIELDS,
+  TOONS_RECORD_SIZE,
+  readToonsActions,
+  type ToonsAction,
+} from "./read/toons.ts";
 
 /** Every part list, by id. The version catalog says which list belongs to a version of a game. */
 export const PART_LISTS: Record<string, PartList> = Object.fromEntries(
-  ([tim1, evenmore, tim2] as PartList[]).map((list) => [list.id, list]),
+  ([tim1, evenmore, tim2, toons] as PartList[]).map((list) => [list.id, list]),
 );
+
+/**
+ * The English name of each part, by id. The names are the game's own, from TIM 2's `INFO.RES`; the same object has the
+ * same id in every list, so a TIM 1 part gets the name of the same object in TIM 2. A part TIM 2 doesn't have has none.
+ */
+export const PART_NAMES: ReadonlyMap<string, string> = new Map(names.names.map((n) => [n.id, n.name]));
+
+/**
+ * The names of Sid & Al's Incredible Toons' parts, by id. Toons has its own ids and its own names, apart from the TIM
+ * games: it has no list of part names, so each name is the game's own words, from the title or goal of a level that has
+ * the part, a message in `GENERIC.RES` or a routine's name in the link map `TOONS.BMP` (`toons-names.json` says which).
+ */
+export const TOONS_PART_NAMES: ReadonlyMap<string, string> = new Map(toonsNames.names.map((n) => [n.id, n.name]));
+
+/** The names of a list's parts, by id: Toons has its own, the TIM games share theirs. */
+export const partNamesOf = (listId: string | undefined): ReadonlyMap<string, string> =>
+  listId === "toons" ? TOONS_PART_NAMES : PART_NAMES;
 
 /** The part with this number in a list, if the list has one. */
 export const partOfType = (list: PartList, type: number) => list.parts.find((part) => part.type === type);
@@ -71,7 +101,8 @@ export {
   type FrameVisit,
   type DescribedEffect,
 } from "./read/describe-behaviour.ts";
-export { type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
+export { finePosition, partWordsOf, type OtherPartEffect, type OtherPartSetting } from "./read/describe-effects.ts";
+export { TIM_PART_WORDS, type PartWords } from "./read/behaviour-program.ts";
 export {
   discoverEngineSummaries,
   type EngineSummary,
@@ -127,12 +158,15 @@ export type { ContactResponse } from "./read/behaviour-contact-response.ts";
 export {
   LEVEL_MAGIC,
   LevelError,
+  PULLEY,
   TIM2_LEVEL_MAGIC,
   readLevel,
   type Level,
   type LevelField,
+  type LevelGoalEntry,
   type LevelKind,
   type LevelLayout,
+  type LevelNote,
   type LevelPart,
   type PartGroup,
   type RopeSlot,
@@ -158,6 +192,18 @@ export type {
   PairCentreAngle,
 } from "./read/behaviour-contact-response-pair.ts";
 export { readProgramGoals, type ProgramGoals, type PuzzleGoal } from "./read/program-goals.ts";
+export { TIM2_SCREEN, summariseTim2Goal, type Tim2Goal } from "./read/tim2-goal.ts";
+export {
+  readPar,
+  readTim2Types,
+  tim2Drawing,
+  tim2MirrorSide,
+  type Tim2Drawing,
+  type Tim2Outline,
+  type Tim2Size,
+  type Tim2Properties,
+  type Tim2Types,
+} from "./read/tim2-program.ts";
 export {
   conditionText,
   summariseGoal,
@@ -165,3 +211,34 @@ export {
   type GoalCondition,
   type GoalSummary,
 } from "./read/goal-conditions.ts";
+export { TIM2_STEP_MS, tim2LinePixels } from "./read/tim2.ts";
+export { readTim2Driver, tim2FillColour, tim2SixteenColours, type Tim2Driver } from "./read/tim2-colours.ts";
+export { readToonsDrawing, readToonsMemory, type ToonsDrawing, type ToonsMemory } from "./read/toons-drawing.ts";
+export {
+  findToonsGoalTable,
+  readToonsBinKinds,
+  readToonsGoals,
+  readToonsListKinds,
+  toonsGoalParts,
+  toonsListOrder,
+  toonsPuzzleStart,
+  toonsRopePlaces,
+  type ToonsGoalParts,
+  type ToonsPuzzleStart,
+  type ToonsGoalTable,
+  type ToonsUnplug,
+} from "./read/toons-goals.ts";
+export {
+  puzzleStart,
+  TIM2_FIXED,
+  TIM2_NOT_IN_SOLUTION,
+  type PuzzleStart,
+  type ToonsSort,
+} from "./read/puzzle-start.ts";
+export {
+  readTim2StartTables,
+  tim2ListOrder,
+  tim2PuzzleStart,
+  type Tim2PuzzleStart,
+  type Tim2StartTables,
+} from "./read/tim2-start.ts";

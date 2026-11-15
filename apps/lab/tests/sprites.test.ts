@@ -18,6 +18,15 @@ describe("autoPalette", () => {
     });
   });
 
+  it("prefers the palette a TTM script shows the image with", () => {
+    const scripted = new Map([["TITLE.SCR", "GAME.PAL"]]);
+    expect(autoPalette("title.scr", ["GAME.PAL", "TITLE.PAL"], scripted)).toEqual({
+      name: "GAME.PAL",
+      reason: "loaded with it by a TTM script",
+    });
+    expect(autoPalette("TITLE.SCR", ["TITLE.PAL"], scripted)?.name).toBe("TITLE.PAL");
+  });
+
   it("falls back to the game's main palette", () => {
     expect(autoPalette("PART1.BMP", ["SIERRA.PAL", "TIM.PAL"])?.name).toBe("TIM.PAL");
     expect(autoPalette("CATBUTT.BMP", ["DYNAMIX.PAL", "GAME.PAL", "TITLE.PAL"])?.name).toBe("GAME.PAL");

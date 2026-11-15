@@ -24,6 +24,7 @@
     "check-goals": "node scripts/check-goals.ts",
     "list-goals": "node scripts/list-goals.ts",
     "check-level-fields": "node scripts/check-level-fields.ts",
+    "check-puzzle-start": "node scripts/check-puzzle-start.ts",
     "fingerprint-behaviour": "node scripts/fingerprint-behaviour.ts"
   },
   "dependencies": {

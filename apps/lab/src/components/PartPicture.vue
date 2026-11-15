@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, useTemplateRef, watchEffect } from "vue";
 import type { Composition } from "@opentim/content";
 import { compositionCanvas } from "./pixels.ts";
+import { sixteenColours } from "./tim2-colours.ts";
 
 /** Draws a frame of a part at its own size; CSS scales it up with sharp pixels. It is drawn once it scrolls into view. */
 const props = withDefaults(
@@ -33,7 +34,7 @@ watchEffect(() => {
   if (!el || !visible.value) return;
   const context = el.getContext("2d");
   if (!context) return;
-  const picture = compositionCanvas(composition, palette);
+  const picture = compositionCanvas(composition, palette, { sixteen: sixteenColours.value });
   el.width = picture.width;
   el.height = picture.height;
   context.drawImage(picture, 0, 0);

@@ -13,6 +13,8 @@ export interface Profile {
   languages: string[];
   /** The id of the version's part list in `@opentim/content`, like `tim1`, when there is one. */
   parts?: string;
+  /** The game's program, which the Lab needs to open the version: `TIM.EXE`, `TIM2.EXE` or `TOONS.EXE`. */
+  program: string;
   /** Every file that counts for recognition, with upper-case names. */
   files: FileHash[];
   /** True for installation media, whose files still have to be unpacked. */
@@ -43,8 +45,21 @@ export const LANGUAGES: Record<string, string> = { en: "English", fr: "French", 
 export const isVersionFile = (name: string) =>
   (/^RESOURCE\./i.test(name) && !/\.CFG$/i.test(name)) || /^(ENGLISH|FRENCH|GERMAN|SPANISH)\.(DAT|RES)$/i.test(name);
 
+/** The programs of the games: TIM 1, Even More and the Add-On Disk have `TIM.EXE`, TIM 2 and Toons their own. */
+export const PROGRAM_NAMES = ["TIM.EXE", "TIM2.EXE", "TOONS.EXE"];
+
 /** True for the program of a game: `TIM.EXE`, `TIM2.EXE` or `TOONS.EXE`. It doesn't count for recognition. */
 export const isProgramName = (name: string) => /^(TIM|TIM2|TOONS)\.EXE$/i.test(name);
+
+/**
+ * The program a version needs, as the names it can have: the recognised version's own, the one every version the files
+ * could be has, or else any of the games' programs.
+ */
+export function programNames(edition: Edition): string[] {
+  if (edition.status === "recognized") return [edition.profile.program];
+  const names = new Set(edition.status === "incomplete" ? edition.candidates.map((c) => c.profile.program) : []);
+  return names.size === 1 ? [...names] : PROGRAM_NAMES;
+}
 
 /**
  * Finds the version with exactly these files: the same names and hashes, none missing and none extra. Without one,
@@ -83,6 +98,7 @@ export function catalogEntry(files: readonly FileHash[]): string {
     id: "TODO-game-language",
     name: "TODO Game name (Edition)",
     languages: [],
+    program: files.find((f) => isProgramName(f.name))?.name.toUpperCase() ?? "TODO.EXE",
     files: counted
       .map((f) => ({ name: f.name.toUpperCase(), sha256: f.sha256 }))
       .sort((a, b) => a.name.localeCompare(b.name)),

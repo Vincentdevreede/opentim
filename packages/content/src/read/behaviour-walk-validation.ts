@@ -192,10 +192,11 @@ const RECORDER_PART_SIZE = 0x300;
  * The bytes of a part that the run routine may write, or undefined when that can't be shown. It counts every data
  * write by its offset whatever pointer it goes through, and the routines it calls in its own code segment; a call that
  * leaves the segment is skipped by the recorder and writes nothing. It gives up on string instructions, interrupts,
- * calls it can't follow and a pointer the routine moves by an offset (`lea`, `add` and the like on a register it writes
- * through), since then an offset no longer says which field is written.
+ * calls it can't follow, a pointer the routine moves by an offset (`lea`, `add` and the like on a register it writes
+ * through, or on a register or local it copies the pointer from) and a store whose address adds two registers, since
+ * then an offset no longer says which field is written.
  */
-function runWrites(
+export function runWrites(
   report: BehaviourReport,
   routine: RoutineAnalysis | undefined,
   seen = new Set<number>(),
@@ -208,13 +209,69 @@ function runWrites(
   const written = new Set<number>();
   const runs = routine.instructions.filter((i) => !never.has(i.address));
   const bases = new Set(
-    runs.flatMap((i) => (i.operands[0]?.kind === "memory" && !NOT_WRITING.has(i.mnemonic) ? i.operands[0].base : [])),
+    runs.flatMap((i) =>
+      i.operands[0]?.kind === "memory" && i.operands[0].segment !== "ss" && !NOT_WRITING.has(i.mnemonic)
+        ? i.operands[0].base
+        : [],
+    ),
   );
   const callAt = new Map(routine.calls.map((call) => [call.instruction, call]));
+  // The registers and locals that may hold something other than a pointer as it was loaded: a value worked out, or a
+  // copy of one. A pointer may come from memory, or from a register or local that only ever holds such a pointer.
+  const half: Record<string, string> = {
+    al: "ax",
+    ah: "ax",
+    bl: "bx",
+    bh: "bx",
+    cl: "cx",
+    ch: "cx",
+    dl: "dx",
+    dh: "dx",
+  };
+  const slot = (o: Instruction["operands"][number] | undefined): string | undefined =>
+    o?.kind === "register"
+      ? (half[o.name] ?? o.name)
+      : o?.kind === "memory" && o.segment === "ss" && o.base.join() === "bp" && o.displacement < 0
+        ? `local ${o.displacement}`
+        : undefined;
+  const worked = new Set<string>();
+  const loaded = (i: Instruction, name: string) => {
+    const source = i.operands[1];
+    if (i.mnemonic === "mov" && source?.kind === "immediate") return source.value === 0;
+    if (i.mnemonic === "mov") {
+      const from = slot(source);
+      return from === undefined ? source?.kind === "memory" : !worked.has(from);
+    }
+    if (["xor", "or", "and"].includes(i.mnemonic)) return slot(source) === name;
+    return ["pop", "les", "lds"].includes(i.mnemonic);
+  };
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const i of runs) {
+      const changed = [
+        ...(NOT_WRITING.has(i.mnemonic) ? [] : [slot(i.operands[0])]),
+        ...(i.mnemonic === "xchg" ? [slot(i.operands[1])] : []),
+        ...(["mul", "imul", "div", "idiv", "cwd", "cbw"].includes(i.mnemonic) ? ["ax", "dx"] : []),
+      ];
+      for (const name of changed)
+        if (
+          name &&
+          !worked.has(name) &&
+          (i.mnemonic === "xchg" ||
+            name !== slot(i.operands[0]) ||
+            (i.operands[0]?.kind === "register" && i.operands[0].width !== 16) ||
+            !loaded(i, name))
+        ) {
+          worked.add(name);
+          grew = true;
+        }
+    }
+  }
+  // A pointer may be loaded, copied, tested, cleared or restored, never moved by an offset.
+  if ([...bases].some((name) => worked.has(name))) return undefined;
   for (const i of runs) {
     if (/^(stos|movs|ins|rep|cmps|scas|lods)/.test(i.mnemonic) || i.mnemonic === "int") return undefined;
-    const destination = i.operands[0],
-      source = i.operands[1];
+    const destination = i.operands[0];
     if (i.flow === "call") {
       const target = callAt.get(i.address)?.target;
       if (!target) return undefined;
@@ -228,26 +285,16 @@ function runWrites(
       for (const byte of callee) written.add(byte);
       continue;
     }
-    if (destination?.kind === "register" && bases.has(destination.name) && !NOT_WRITING.has(i.mnemonic)) {
-      // A pointer may be loaded, copied, tested, cleared or restored, never moved by an offset.
-      const plain =
-        (i.mnemonic === "mov" && (source?.kind === "memory" || source?.kind === "register")) ||
-        (i.mnemonic === "mov" && source?.kind === "immediate" && source.value === 0) ||
-        (i.mnemonic === "xor" && source?.kind === "register" && source.name === destination.name) ||
-        // A test of the pointer against itself keeps it.
-        (["or", "and"].includes(i.mnemonic) && source?.kind === "register" && source.name === destination.name) ||
-        i.mnemonic === "pop" ||
-        i.mnemonic === "les" ||
-        i.mnemonic === "lds";
-      if (!plain) return undefined;
-    }
     if (
       i.flow === "next" &&
       destination?.kind === "memory" &&
       destination.segment !== "ss" &&
       !NOT_WRITING.has(i.mnemonic)
-    )
+    ) {
+      // With two registers in the address, the displacement no longer says which field is written.
+      if (destination.base.length > 1) return undefined;
       for (let byte = 0; byte < destination.width / 8; byte++) written.add(destination.displacement + byte);
+    }
   }
   return written;
 }

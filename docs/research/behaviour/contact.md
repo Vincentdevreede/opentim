@@ -28,8 +28,9 @@ eligible members of the selected global lists. The first contact test requires s
 second also requires strict overlap for the previous contact, but admits touching rectangle boundaries for a listed
 candidate. Both tests can run for one candidate, and accepted updates can change the subject and scratch bounds
 before later candidates. The report therefore does not call this a first-hit or nearest-contact search. Even More's
-scanner additionally excludes four unordered type pairs through its checked scalar filter. TIM 1 has no corresponding
-call in this scanner. The remaining first candidate filter is retained as a read-only helper result.
+scanner additionally excludes four unordered type pairs through its checked scalar filter. TIM 1's scanner has no such
+call, but it tests the types itself: a subject of type 12 skips a candidate of type 42, in that order only. The
+remaining first candidate filter is retained as a read-only helper result.
 
 `contactSegment` describes the endpoint test's actual integer calculations. Coefficients and the determinant wrap
 to words. The nonzero-determinant case uses full signed word products, wrapped long subtraction and a separately

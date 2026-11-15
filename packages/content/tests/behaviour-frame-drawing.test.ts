@@ -285,4 +285,15 @@ describe("the frame drawing helpers", () => {
         expect(evaluate(forType(write(offset), type), fixed)).toBe(expected.get(offset));
     }
   });
+
+  it("keep the record's words unread without a table of records one after another", () => {
+    const { summaries } = fixture();
+    const width = summaries.get(POSITION)!.writes.find((w) => w.offset === 0x44)!.value;
+    const build = (operator: string, left: Expression, right: Expression, size?: number) =>
+      binary(operator, left, right, size, Infinity);
+    const used = { table: false };
+    const sized = JSON.stringify(frameDrawingForType(width, 3, 4, undefined, build, used));
+    expect(used.table).toBe(false);
+    expect(sized).toContain(`"segment":${TYPES},"offset":${3 * 58 + 0x1a}`);
+  });
 });

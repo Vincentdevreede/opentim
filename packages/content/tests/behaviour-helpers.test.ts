@@ -849,4 +849,16 @@ describe("structural engine summaries", () => {
     expect(summary.footprint.unknownGlobalEffects!.length).toBeGreaterThan(0);
     expect(summary.assumptions.some((s) => s.includes("no hidden access"))).toBe(true);
   });
+
+  it("does not tie a store to the part when the routine replaces its argument first", () => {
+    // p = p->field20; p->field10 = 1, with the argument kept in its stack slot.
+    const image = new Uint8Array(0x800);
+    image.set([0x55, 0x8b, 0xec, 0x8b, 0x5e, 4, 0x8b, 0x47, 0x20, 0x89, 0x46, 4, 0x8b, 0x5e, 4], 0x100);
+    image.set([0xc7, 0x47, 0x10, 1, 0, 0x5d, 0xc3], 0x10f);
+    const summary = discoverEngineSummaries(image, codes(image, 0x100), layout()).find((s) => s.address === 0x100);
+    expect(
+      summary?.footprint.complete &&
+        summary.writes.some((w) => w.root === "argument" && !w.path.length && w.offset === 0x10),
+    ).toBeFalsy();
+  });
 });

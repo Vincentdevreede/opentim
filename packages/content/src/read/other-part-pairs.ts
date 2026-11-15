@@ -24,7 +24,8 @@ import {
   MOVING_SEARCH_ASSUMPTION,
   MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
-  LIST_FLAGS,
+  startingListFlags,
+  partWordsOf,
   objects,
   offMovingList,
   onlyAnswersOpen,
@@ -125,7 +126,7 @@ export const LIMIT_RULE_FIELD =
   "its rules read a velocity the source keeps within the part's speed limit, a word the game works out for each level, so a walk can't follow it";
 const UNDECIDED_TEST =
   "a test of the part's own fields isn't settled by its type, and the source names no type and its search's flag tests aren't all read";
-const UNCLASSIFIED = "not described, for a reason this check doesn't name";
+export const UNCLASSIFIED = "not described, for a reason this check doesn't name";
 export const CONSUMER_UNREAD =
   "the helper that walks the list is read only as a footprint (which member fields it may write), not path by path";
 
@@ -173,10 +174,9 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
   if (typeOffset === undefined || stateOffset === undefined) return result;
   const routines = new Map(report.routines.map((r) => [r.address, r]));
   const helpers = new Map((report.helpers ?? []).map((h) => [h.address, h]));
-  const startingFlags = report.helpers
-    ?.find((h) => h.kind === "part-factory")
-    ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
+  const startingFlags = startingListFlags(report);
   const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
+  const words = partWordsOf(report);
   const effects = effectsFromOthers(report, evaluate);
   const hits = hitsFromOthers(report, evaluate);
   /** The fields each part's own rules read, its state included. */
@@ -466,22 +466,30 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         searchesOnlyMovingList(report, path.routine, path.header)
       )
         ruled.add(MOVING_SEARCH_ASSUMPTION);
-      const offList = offMovingList(target, startingFlags);
+      // Both decided assumptions are about TIM.EXE's words, so only with them.
+      const offList = words && offMovingList(target, startingFlags);
       const lightable = LIGHTABLE_PARTS.has(target.id);
+      const listKnown = offList
+        ? [{ object: path.member, offset: words.listFlags, width: 16, value: 0, knownMask: 0x1000 }]
+        : [];
       const known = [
-        ...(offList ? [{ object: path.member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: 0x1000 }] : []),
-        {
-          object: path.member,
-          ...LIGHTABLE,
-          width: 16,
-          value: lightable ? LIGHTABLE.mask : 0,
-          knownMask: LIGHTABLE.mask,
-        },
+        ...listKnown,
+        ...(words
+          ? [
+              {
+                object: path.member,
+                ...LIGHTABLE,
+                width: 16,
+                value: lightable ? LIGHTABLE.mask : 0,
+                knownMask: LIGHTABLE.mask,
+              },
+            ]
+          : []),
       ];
       for (const term of path.memberTerms) {
         const value = typed(term, path.member, target.type);
-        if (offList && evaluate(value, known.slice(0, 1)) === false) ruled.add(offList);
-        else if (evaluate(value, known) === false) ruled.add(LIGHTABLE_ASSUMPTION);
+        if (offList && evaluate(value, listKnown) === false) ruled.add(offList);
+        else if (words && evaluate(value, known) === false) ruled.add(LIGHTABLE_ASSUMPTION);
       }
       // Without a named type, the search that filled the list keeps only parts with its flags.
       if (path.way === "overlap list" && path.header !== undefined) {
@@ -494,7 +502,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
             t.left.offset === typeOffset,
         );
         const tests = named ? [] : (searchTests(report, path.routine, path.header) ?? []);
-        if (tests.some((t) => t.set && isLightableTest(t)) && !lightable) ruled.add(LIGHTABLE_ASSUMPTION);
+        if (words && tests.some((t) => t.set && isLightableTest(t)) && !lightable) ruled.add(LIGHTABLE_ASSUMPTION);
       }
       const key = `${path.sourceType}:${target.type}:${path.routine}:${path.way}`;
       const list = groups.get(key) ?? [];
@@ -569,6 +577,11 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
       a.routine - b.routine,
   );
   return result;
+}
+
+/** The pairs that aren't described and that the check can't explain: no reason, or one it doesn't name. */
+export function unexplainedPairs(pairs: OtherPartPairs): OtherPartPair[] {
+  return pairs.pairs.filter((p) => p.status !== "described" && (!p.reasons.length || p.reasons.includes(UNCLASSIFIED)));
 }
 
 /** The pairs as text, by source: which targets, how, and where each one is described. */

@@ -61,6 +61,28 @@ has one frame, sized by a `DIM:` chunk (u16 width, u16 height).
 
 In a sheet, colour 0 is transparent; a screen covers everything.
 
+## TTM scripts (.TTM)
+
+`readTtmFiles` (`ttm.ts`). Toons plays its title, the Dynamix logo, the credits and the finale from TTM scripts, which
+`TOONS.EXE` names (`TITLE.TTM`, `DYNAMIX.TTM`, `CREDITS.TTM`, `FINALE.TTM`). A script is chunks: `VER:` (the version,
+`4.14`), `PAG:` and `TT3:`, which holds the commands packed like a `BIN:` chunk. A command is a u16 whose low 4 bits
+are the number of u16 arguments after it, or 15 for one NUL-terminated name, padded to an even length. Three commands
+load files: `F01F` a screen, `F02F` a sprite sheet and `F05F` a palette. What the other commands do isn't read.
+
+The Lab shows an image the scripts load with the palette its script loads (`ttmPalettes`): the last one loaded before
+it, or the first one after it, since `TITLE.TTM` loads `TITLE.SCR` before `game.PAL`. So Toons' title screen shows with
+`GAME.PAL`, not with `TITLE.PAL`, which nothing in `TOONS.EXE` or the scripts names; `DYNAMXTP.BMP` shows with
+`DYNAMIX.PAL`. Every other Toons image gets `GAME.PAL`, the palette `TOONS.EXE` loads for play.
+
+## Fonts (.FNT)
+
+`readFont` (`font.ts`). A font is one `FNT:` chunk: a byte `0xff`, the widest glyph's width, the height, a byte that may
+be the baseline (not read), the first character and the number of characters, the unpacked size (u16), then the glyphs
+packed like a `BIN:` chunk (a compression byte and the u32 unpacked size first). Unpacked, they are an offset (u16) per
+character into the bitmaps, a width (byte) per character, and the bitmaps: one bit a pixel, the high bit leftmost,
+each row rounded up to whole bytes. All eight of Toons' fonts read this way. The Lab draws the message machine's
+letter with `TUXEDO.FNT`, as TOONS.EXE does.
+
 ## Sound banks (.SX)
 
 `readSoundBank` and `decodeSound` (`sound.ts`). A `SND:` container with an `INF:` chunk, a `DAT:` chunk per sound and
@@ -78,7 +100,29 @@ the language packages). Unpacked, a sound is a Sierra SCI sound patch:
 A track is a MIDI channel (its first byte has the channel in its low 4 bits), or a digitized sample when its first
 byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, followed by unsigned 8-bit mono PCM.
 
-`.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header; the Lab plays them at 11,025 Hz, a guess.
+`.RAW` files (TIM 2 and Toons) are unsigned 8-bit mono PCM without a header. TIM 2 plays them at 11,025 Hz:
+TIM2.EXE names a file `SX_` and four digits, like the number an animation's sound command gives, and before it plays
+one it calls its digital sound driver's rate function (function 6) with a word that holds 11,025 and that nothing else
+writes. The digital drivers are the `aud` files in `SX.OVL` (`ASB` for the Sound Blaster, `APS`, `APA`); the Sound
+Blaster one turns the rate into the card's time constant, 256 − 1,000,000 ÷ rate, and also starts at 11,025 Hz.
+Toons plays them at 11,025 Hz too: TOONS.EXE (not packed; its data segment at file offset `0x4c9f0`) also names its
+samples `SX_0000.RAW` with the number filled in, and its play routine (file offset `0x14775`) calls the digital
+driver's function 6 with the word at `[0x3a5a]` before it plays one. That word starts at 11,025 in the file, and the
+only code that writes it (`0x1494c`) sets it to 11,025 again. Toons' own `ASB` driver in its `SX.OVL` is shorter than
+TIM 2's, but its function 6 keeps the rate in the same way and turns it into the same time constant (and, on a card
+that takes the rate itself, sends it as it is). The Lab plays the `.RAW` files of both games at 11,025 Hz.
+
+**TIM 2's music** is in `TIM2.SX`, the same format as TIM 1's bank: 38 sounds, the same in the floppy, the CD and the
+demo. Sounds 1000 to 1023 are the songs, and a level's music word is the number of its song (the levels use 1000 to
+1021 and 1023). The other 14 are part sounds numbered like their part, such as 5 for the conveyor belt. `MUSIC.RES`
+lists the songs by number with the name the game shows, like `1002 New Age`; `MUSIC2.RES` is a shorter list of the
+same kind, and `SOUND.RES` names some of the `.RAW` sounds, like `3001 Yeee Haaa!!`.
+
+**Toons' music** is in `TOONS.SX`, the same format: 151 sounds. Sounds 1001 (`toonsthm`), 1002 (`toonsind`) and 1100
+to 1128 are the songs, and a level's music word is the number of its song, as in TIM 2: the levels use 1001, 1002 and
+1100 to 1127, and three levels have 0. The others are short MIDI sounds (1 to 37), two at 2003 and 2011, and the sounds
+from 3001 up, which share their numbers with the `.RAW` files (`SX_3001.RAW` is `fling`). Toons has no list of song
+names like TIM 2's `MUSIC.RES`; the bank's own names are short file names like `TS_BEACH`.
 
 ## The sound drivers (SX.OVL)
 
@@ -86,6 +130,14 @@ byte is `FE`: then `FE`, a byte, and u16 rate, size, loop start and loop end, fo
 three-letter files are the drivers (`ADL` AdLib, `M32` MT-32, `GMD` General MIDI and more); the numbered ones are SCI
 patch resources (a 2-byte header `89 00`), like `003` with the AdLib instruments. `packages/sound` plays music with
 them.
+
+The `ADL` driver comes in two versions. TIM 1, TIM 2, Toons and Even More's CD have a 9,295 byte one; Even More's
+floppy, demo and French builds and the Add On Disk have one that is 50 bytes longer. The extra bytes are one loop at the
+start of the voice allocator (`0x1ad7` in the longer file): it takes a free voice that already has the channel's
+instrument before any other free voice. Apart from that loop and the addresses it moves, the two files are the same.
+`prefersSameInstrument` (`adlib.ts`) finds the loop, and the Lab plays each build's music with its own version. The
+`SBP` driver is the same 9,701 byte file in every build and has no such loop. Since TIM 2's and Toons' `ADL` is TIM 1's
+file, `packages/sound` plays their songs as the games do, each with its own instruments from its patch `003`.
 
 ## Language packages (FRENCH.RES, GERMAN.RES)
 
@@ -98,8 +150,8 @@ copies the usual names (`RESOURCE.F03` becomes `RESOURCE.003`, `RESOURCE.FAP` be
 
 ## Level files (.LEV, .TIM, .GKC)
 
-`readLevel` (`packages/content/src/read/level.ts`). TIM 1, Even More and Toons; TIM 2 levels (magic `0xACEF`) aren't
-read yet. Nothing says whether a file is a puzzle or freeform, so the reader tries both and keeps the one that ends at
+`readLevel` (`packages/content/src/read/level.ts`). TIM 1, Even More and Toons here; TIM 2 has
+[its own layout](#tim-2-levels). Nothing says whether a file is a puzzle or freeform, so the reader tries both and keeps the one that ends at
 the last byte. Texts are NUL-terminated.
 
 **Header**
@@ -134,9 +186,34 @@ Then the static parts, the moving parts, from version `0x105` a `binFlag` word, 
 | pulley         | 2                                     | Only for the pulley (type 7; 17 in Toons).                                                                    |
 | outline        | 2 + 2 per point                       | Before version `0x102`, not in Toons.                                                                         |
 
-A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46), and an
-unknown word (and from version `0x106` a byte before it). What the game's loader does with each field is in
+A part link is the index of a part in the file, `0xFFFF` for none. Toons parts have a tunnel link (type 46, the
+tunnel: the tunnel at its other end), from version `0x106` a byte with the plug place (which of the plugged part's
+two plug places the part takes), and a word with the part's setting, like the timer's time or the message machine's
+letter ([the levels](levels.md#toons-levels)). What the game's loader does with each field is in
 [the levels](levels.md#what-the-loader-keeps).
+
+### TIM 2 levels
+
+`readLevel` reads a file with magic `0xACEF` in TIM 2's layout (`readTim2` in `level.ts`), as TIM2.EXE's loader does.
+All numbers are words unless said otherwise.
+
+| Field                | Size                 | Notes                                                                                                               |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| magic, version       | 2 each               | `0xACEF`; the version is `0x111` to `0x113` in the shipped levels.                                                  |
+| spare, background    | 1 each               | From version `0x113`. A byte the game only writes back, and the palette colour of the play area.                    |
+| title, goal          | text                 | Always there.                                                                                                       |
+| notes                | 2, then 8 notes      | From version `0x110`. A note: x, y, from version `0x112` its picture, and text.                                     |
+| airPressure, gravity | 2 each               |                                                                                                                     |
+| two words            | 2 each               | Where TIM 1 has the scroll limits. The game reads them and sets them to 0.                                          |
+| music                | 2                    |                                                                                                                     |
+| static, moving       | 2 each               | Part counts.                                                                                                        |
+| a third count        | 2                    | Read and not kept; 0 in every shipped level.                                                                        |
+| parts                |                      | The static parts, then the moving parts.                                                                            |
+| goal                 | 2, 8 × 16 (or 14), 2 | From version `0x107`: a word, eight entries of a part link and seven words (six up to version `0x109`), and a word. |
+
+A part is laid out as in TIM 1 from version `0x102`, with signed sizes, and the programmable ball (87) adds six words
+from version `0x111`. Versions `0x108` and `0x109` keep the notes after the goal instead of in the header. What the
+game does with the fields is in [the levels](levels.md#tim-2-levels).
 
 ## TIM.EXE
 
@@ -147,8 +224,255 @@ unknown word (and from version `0x106` a byte before it). What the game's loader
   friction, acceleration, terminal velocity, the size limits, the frame lists (`0x14` to `0x1a` are pointers) and the
   outline points, and ends with six far pointers to the part's callbacks, 4 bytes each from `0x22`: bounce, run, reset, flip, resize and rope.
   The Lab's Type tab shows a record field by field.
-- **Part records**: in memory, each placed part is a `0xA0`-byte record. Its words are named in `PART_FIELDS`
-  (`apps/lab/src/behaviour.ts`), its flag bits in [flag bits](behaviour/in-the-lab.md#flag-bits).
+- **Part records**: in memory, each placed part is a `0xA0`-byte record. Its words are named by the behaviour read's
+  layout and, for the words it doesn't name, in `PART_FIELDS` (`apps/lab/src/behaviour.ts`); its flag bits in
+  [flag bits](behaviour/in-the-lab.md#flag-bits).
 - **Goals**: each puzzle's goal is a routine in TIM.EXE, not in the level file; see [the levels](levels.md).
 
-TIM 2 keeps its part names in `INFO.RES` and its animation sheets in `.ANM` files (`tim2.ts`).
+## TOONS.EXE
+
+Sid & Al's Incredible Toons' program isn't packed. Its load image is the bytes after the EXE header, up to the size the
+header gives (`loadImage` in `packages/content/src/read/toons.ts`); what follows is the Borland overlay data (`FBOV`).
+Far pointers in it are segment and offset as in the image, before DOS relocates them.
+
+**Type table.** One 70-byte record per type, 85 types. `findToonsTypeTable` finds it where the code reaches it:
+`mov dx, 70; imul dx; add ax, start; mov [bp+n], segment` (TOONS.EXE does this in every routine that looks at a type's
+record), and the count where the routines that walk every type stop (`cmp si, 85`). The record is TIM 1's with far
+pointers, so the fields after them move up (`TOONS_RECORD_FIELDS`):
+
+| Offset | Size | What                                                                                                                    |
+| ------ | ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| 0x00   | 2×6  | Density, mass, bounciness, friction, acceleration and terminal velocity, as in TIM 1. One loop works out 0x08 and 0x0a. |
+| 0x0c   | 2×4  | Size limits, as in TIM 1 (a guess from TIM 1; walls have 640 × 400 and 32 × 32).                                        |
+| 0x14   | 4    | 0 in the file: TOONS.EXE puts the loaded `PART` sheet here.                                                             |
+| 0x18   | 4    | Frames: a far pointer per frame to a chain of pieces, or 0.                                                             |
+| 0x1c   | 4    | Positions: two signed bytes per state, or 0.                                                                            |
+| 0x20   | 4    | Sizes: a width and height word per state, or 0. The program sets a part's size from it, else from the state's sprite.   |
+| 0x26   | 1×2  | The layers the type is drawn on, 0xff when unused.                                                                      |
+| 0x2a   | 2    | Sorts the bin: TOONS.EXE writes the type's place in a table here at start (the file has mostly the type's number).      |
+| 0x2c   | 2    | How many middle tiles take turns when the part is drawn as tiles (the low byte).                                        |
+| 0x2e   | 4×6  | Far pointers to the type's code, most into the overlay stubs, where TIM 1 has its six callbacks.                        |
+
+A piece is 17 bytes: a far pointer to the next piece (0 ends the frame), the layer, four sprite numbers (0xff ends
+them) and a signed x and y byte per sprite. The frame list has no count; the positions and sizes follow it in every
+record that has them, so the reader ends it there.
+
+**Drawing.** TOONS.EXE loads the sheet of type N as `part` + N + `.bmp`, except for 36 and 37, Al and Sid, whose
+sheets it loads by what they are doing (`catwalk`, `sidrun`, …). It draws a part:
+
+- as tiles when bit 0x40 of its first flag word is set: tiles 16 high and 16 wide (32 for the ladder, type 45). A row
+  starts with the sprite of the state, takes the middle sprites (state + 1 up to state + middles) in turn and ends with
+  state + middles + 1; a column starts with state + middles + 2, takes the next middles in turn and ends with state + 2
+  × middles + 3. A part both wider and taller repeats the state.
+- with its own code for types 0 (conveyor belt), 1 (belt), 14 (rope), 36 and 37 (Al and Sid), 38 (timer), 39
+  (counter), 40 (thumpulator) and 42 (message machine); 76 isn't drawn (see below);
+- else from the frame list when bit 0x1000 of its drawing flags is set, and else as sprite N for state N, at the
+  record's position for N or at the origin. In the shipped levels every part of a type with a frame list has the
+  bit, except the teeter-totter, whose list and positions give the same picture, and the thumpulator, which has its own
+  code.
+
+**Own drawing code.** The routine that draws a part (file offset `0x1e310`) draws a part with bit 0x40 of its first
+flag word as tiles, and else looks its type up in a table of ten types that follows it, with the code for each. The
+belt and the rope are drawn by the main program (`0x1d85a`, `0x1dc0d`), type 76 not at all, Al and Sid as described
+below, and five types by code in an overlay of their own. Each is followed by the Lab:
+
+- **The conveyor belt** (`0x6fd8d`) is a row of 16-pixel tiles as wide as the part, from its own sheet. Three tables
+  of 6 bytes from `0x3eb10` give, by the part's state, the sprite of the first tile (1, 1, 2, 2, 0, 0), the last (7,
+  7, 8, 8, 9, 9) and the ones between (3, 3, 4, 4, 6, 6). Between, sprite 4 is 5 on every other tile, and sprite 6
+  moves 1 pixel down on every other tile; the last tile keeps the place of the tile before it. It draws no frame and
+  isn't mirrored.
+- **The timer** (`0x53a9f`) draws its frame, but first puts sprite 13 for sprite 12 in it when the part is mirrored
+  (and 12 for 13 when it isn't), so the face reads the right way round.
+- **The counter** (`0x5401d`) draws its frame, then two lights over it, sprite 21 at 21, 9 and sprite 22 at 66, 12,
+  the other way round while it counts up, and then its count's ones and tens, each the sprite of its digit, at a
+  place per digit from two tables of 10 pairs (`0x3be2c` and `0x3be40`), 1 pixel further across. The lights and the
+  digits aren't mirrored.
+- **The thumpulator** (`0x54c62`) draws itself from its setting, not its state: a top piece (sprite 0, or sprite 1 five
+  pixels lower when bit 0x100 is set), then from 17 pixels down a section of 65 pixels for each of bits 4 to 7, and a
+  bottom piece (sprite 7, or 6 with bit 0x200, at 21 across, or 19 with bit 0x100). Each section shows frame 0, or for
+  the section bits 0 to 3 name, the frame in bits 10 to 12, and one of three pieces in turn from a table at `0x3c139`
+  (a place and a sprite: 57, 22 with sprite 13, 63, 27 with 14, 56, 14 with 15), moved across by a number per frame
+  (`0x3c142`: 0, 0, 10, 20, 30, 40, 20). Mirrored, every piece is mirrored in the part's width.
+- **The message machine** (`0x55595`) draws sprite 0, then its setting as text centred on 26, 30, then its frame over
+  both. The text is in `tuxedo.fnt` (loaded at `0x25f65`): each letter outlined in black one pixel left, right, up and
+  down, with a black shadow 2 pixels left and down, in a colour from a list of five (4, 10, 14, 15 and 12, at
+  `0x4d4dc`) picked by the letter's code and its place on the screen, never colour 12 (the background it is set to)
+  nor the colour of the letter before (`0x6942b`). In the shipped levels the frame of state 0 covers the letter.
+
+`readToonsDrawing` (`packages/content/src/read/toons-drawing.ts`) finds the drawing routine by its search through the
+ten types, follows each case to its code (through the overlay manager's stubs, see below) and reads the tables each
+routine reads, in the order it reads them. The numbers in the code itself, like the counter's light places, are
+constants in the Lab (`apps/lab/src/toons-drawing.ts`).
+
+**Overlays.** Most of TOONS.EXE's part code is in Borland overlays. The overlay data after the load image starts with
+`FBOV`, its size, the file offset of a segment table (8 bytes a segment: the segment, a word, its flags and a word) and
+the number of segments. A segment with flags 3 is an overlay's stub: `int 3Fh` at 0, the file offset of the overlay's
+code from the end of the `FBOV` header at 4, its size at 8, the size of its fixups (after the code) at 10, and from 0x20
+an `int 3Fh` and the routine's offset per routine, 5 bytes each. A fixup is a place in the code that holds a segment as
+8 times its entry in the segment table. `readToonsMemory` lays every overlay after the load image with its fixups
+applied, as the overlay manager would load it, and leads a far pointer into a stub to the overlay's routine.
+
+**Al and Sid.** Before it draws Al or Sid (file offset `0x3027f`), TOONS.EXE looks up the part's action (the word at
+record offset `0x0c`) in a table of near pointers, Al's at `0x4569d` and Sid's at `0x49894`, to a 12-byte entry in
+the data segment (from `0x4e642` and `0x4eafe`): the action's frame count, the number of its sheet, and four words
+that aren't read. It loads that sheet, named in a list of 9-byte names (`0x4e8e2` and `0x4ed9e`, like `catroot`) with
+`.bmp` added, puts it in the type's record as the sheet, and draws the frame of the part's state from the type's own
+frame list, as for any part. The frame list holds every frame of every action, one action after another: a second
+table (`0x3f0a0` and `0x403c0`, 6 bytes an action) gives each action's first frame (stored negative for some; without the sign it lines up with the frame
+counts) and a far pointer to the action's code. Al has 60 actions and 520 frames, Sid 56 and 485. Some
+actions have no entry or no name, so their frames have no sheet (Al's `catjump` and a few other sheets are in the
+files but named nowhere). `readToonsActions` (`packages/content/src/read/toons.ts`) finds the four tables by the code
+that reads them, and the `toons` part list gives each of Al's and Sid's frames the sheet of its action.
+
+## TIM 2
+
+TIM 2 has one archive, `RESOURCE.001`. Its sheets and screens are read like those of TIM 1, and it draws them with
+`TIM.PAL` (TIM2.EXE loads `tim.pal`; `TIM2.PAL` has the same colours). Its part names are in `INFO.RES`, one line per
+part: the number with a dot, a tab, the name, a tab and the help text.
+
+### Animations (.ANM)
+
+`readAnimation` (`packages/content/src/read/tim2.ts`). Every part has one, `PART<n>.ANM`, and so do the screens and the
+help pictures. An animation is an `ANM:` chunk and a `TAG:` chunk. The `TAG:` chunk names the sheets: a u16 count, then
+per sheet its u16 number and its NUL-terminated file name, like `1` and `part18x.BMP`.
+
+The `ANM:` chunk, as TIM2.EXE's loader reads it:
+
+| Bytes          | What                                                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 2              | `TB`.                                                                                                                                     |
+| 2              | Version: 1000 or 1001. The game refuses a higher one.                                                                                     |
+| 2 × 4          | The number of steps, frames and sequences, and the size of the commands in bytes.                                                         |
+| 2 × 2          | Width and height: the box the game mirrors a whole frame in.                                                                              |
+| 2 per step     | The frame the step shows. Without steps, step N shows frame N.                                                                            |
+| 10 per frame   | The frame's box (x, y, width, height, signed, from the animation's origin) and where its commands start, in words from the first command. |
+| 4 per sequence | The step the sequence starts at and its number. The game finds a sequence by its number and the other way round.                          |
+| size           | The commands.                                                                                                                             |
+
+A frame is commands, each a u16 number followed by its words, and ends with a 0. TIM2.EXE keeps the length of each in a
+table and draws a frame by running them in order. Positions are from the frame's top left corner.
+
+| Command | Words | What                                                                                                                                                                                                                                               |
+| ------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0       | 1     | The end of the frame.                                                                                                                                                                                                                              |
+| 1       | 1     | Nothing. The shipped files end their commands with one.                                                                                                                                                                                            |
+| 2       | 6     | A sprite: sheet number, sprite, x, y, flags. Flag 2 mirrors it left to right, flag 1 top to bottom.                                                                                                                                                |
+| 3       | 7     | A box: x, y, width, height, an outline colour and a fill word. When bit 15 of the fill word is set, the game fills the box with the fill word's low byte, and draws the outline unless it has the same colour. Screens use it, and the coffee pot. |
+| 4       | 6     | A line: x1, y1, x2, y2 and its colour, a palette index in the low byte.                                                                                                                                                                            |
+| 5       | 2     | Plays a sound, like 3019 for `SX_3019.RAW`.                                                                                                                                                                                                        |
+| 6       | 2     | Stops the sound with that number if it is playing. No shipped file uses it.                                                                                                                                                                        |
+
+The Lab draws the boxes and lines with the sprites, in the order the frame has them, with the colours of the
+palette, and a line pixel for pixel as the game does (`tim2LinePixels`, see below).
+
+**The screen.** TIM2.EXE's video drivers are in `VM.OVL`, an `OVL:` chunk with a chunk per driver packed like a `BIN:`
+chunk: `VGA:` for 256 colours and `HEG:` for 16. The routine that loads a driver (`0x0add:0x731f` in the CD build)
+picks it and the screen's height by a mode number: 12, 13 and 14 load `HEG:` with 350, 480 and 400 lines, 15 and 16
+load `VGA:` with 400 and 240 lines. TIM2.EXE asks for mode 13 when it starts, in all three builds (`push 0x0d` before
+the call at `0x1436:0x010d` in the CD build); on a VGA card the routine keeps that mode (`0x0add:0x5f24`, by the BIOS's
+display code). So the game runs with the `HEG:` driver, which sets the BIOS's mode 12h: 640 × 480 in 16 colours, four
+planes of 80 bytes a row, and writes 640 as the screen's width into the word the game keeps it in (`[0x4c3a]`, the
+driver's own data starts at `0x4550` of the data segment). The `VGA:` driver, which TIM2.EXE never asks for, sets mode
+13h and unchains it (320 pixels a row, 80 bytes in four planes) with 200, 240 or 400 lines; that is the 320 wide 400
+line mode the levels research wondered about, and it isn't the game's. Only the `VGA:` driver marks the screen as one
+of 256 colours (it adds 1 to byte 0x1f of its data, the game's `[0x456f]`), and only then does TIM2.EXE read the
+`VGA:` chunks of the `.BMP` and `.SCR` files (`0x0add:0x8129`, `0x0add:0x7c3c`), the high 4 bits of each pixel. So
+the game shows its pictures in 16 colours, from their `BIN:` chunks. None of the pictures of the floppy, CD or demo
+has a `VGA:` chunk anyway, and `TIM.PAL` and `TIM2.PAL` have colours only in their first 16 entries.
+
+**The 16 colours.** How the `HEG:` driver turns a colour of the game into one of its 16, read from its code (offsets in
+the unpacked driver, the same in all three builds):
+
+- In each of its three screen set ups it has the BIOS split the 256 colours of the palette into 16 pages of 16 (int
+  10h with ax 0x1013 and bx 0x0100, first at `0x72`), and sets each of the 16 palette registers to its own number (the
+  loop at `0x120`). The page stays the first: neither the driver nor TIM2.EXE writes the attribute controller or asks
+  the BIOS for another page. TIM2.EXE writes the palette into the colour registers with a routine of its own (file
+  offset `0x37b69` in the CD build). So a pixel's 4 bits pick one of the palette's first 16 colours.
+- A picture, a line or a box's outline keeps only the low 4 bits of its colour: the screen has 4 bits a pixel, and the
+  driver writes in write mode 2, where the low 4 bits of the byte are the colour. Colour c shows as the palette's
+  colour c & 15. The line function takes its colour from byte 0x0e of the driver's data (`0x9a3`).
+- A filled box is different. TIM2.EXE's box routine (`0x0add:0x384e` in the CD build) puts each row of the box in a list and calls the
+  driver's fill, the 28th entry of its table (`0xbec`), with the colour in byte 0x0d of the driver's data, and then
+  draws the outline in byte 0x0e with the line routine, unless the two are the same. The fill tests the colour's high
+  4 bits (`and dl, 0xf0` at `0xc31`). When they are 0 it fills with the colour. Otherwise it fills with a pattern of
+  the colour's two halves, like a checkerboard: pixels of even columns of the screen get one half and odd columns the
+  other (the bit masks 0xaa and 0x55), and the halves change places from one row to the next. Which half comes first
+  goes by the screen row and the left end of the box's first row, so in a box that isn't cut off at its left side the
+  pixel in column i from the left and screen row y has the low half when i + y is odd and the high half when it is
+  even. The box routine fills a colour block (type 127) in the low byte of the part's extra word (its draw routine,
+  `0x2354:0xb19f`), and the play area, x 0 to 560, in the level's background colour (file offset `0x1adab`, with the
+  byte the loader reads after the spare byte).
+- The shipped files use colours above 15 only in colour blocks: 29 blocks in 14 levels of the floppy and CD, in 13
+  colours (like 57, 179 and 239), which the palette's own 256 colours show as black. The lines, the boxes of the animations and the background colours are all below 16, and one pixel of
+  `PART60.BMP` (an `SCN:` picture) has colour 16, which shows as black.
+
+`readTim2Driver` (`packages/content/src/read/tim2-colours.ts`) finds those three places in `VM.OVL`'s `HEG:` driver,
+and `tim2SixteenColours` and `tim2FillColour` do what the driver does. The Lab shows TIM 2 in these 16 colours, or in
+the palette's own 256 with the Colours setting on Sprites, Parts and Levels; without `VM.OVL`'s driver it says so and
+shows the palette's own colours.
+
+**Lines.** Command 4 calls TIM2.EXE's line routine (file offset `0x15302` in the floppy build), which cuts the line
+off at the edges of the area being drawn, sorts its ends so it runs to the right and hands it to the video driver's
+line function, the third entry of the driver's table: `HEG:` offset `0x99b`, unpacked. That function draws a straight
+line as a run and any other from its left end in runs worked out by division, joined by a pixel in the corner, so each
+pixel touches the one before it by a side. A line wider than tall runs across one row after the other: the first run
+is width ÷ (height + 1) + 1 pixels, each other one that many less 1, or 1 more when a running sum of the remainder's
+share (in 65,536ths, kept in 16 bits) overflows, and the last run stops at the line's end. A line taller than wide does
+the same down (or up) with width and height swapped. A line as wide as tall moves a pixel right and then a pixel down
+(or up) for each column, and when its right end is at a multiple of 8 across the driver moves on to the next byte of
+the screen at the last column and leaves the last pixel out. The Lab follows it (`tim2LinePixels`), which gives the
+same pixels as the driver's own code run in the emulator for 5,908 lines all over the screen; on the Levels page it
+takes each part's place across for that last pixel, and on the Parts page a part at x 0. The `VGA:` driver draws a
+line with Bresenham's rule instead, which the Lab followed before.
+
+**Sequences.** A sequence's number is a name for a run of steps that only the code of its part (or screen) knows:
+nothing in the file says more. TIM2.EXE keeps the sequences as a table that ends with number 0, so no sequence is 0.
+One routine (file offset `0x3aa80` in the floppy build) gives the step a sequence starts at, looked up by its number,
+or the number of steps for -1; another (`0x3aa18`) gives the number of the sequence that starts at a step. Of the 143
+calls to the first, 91 pass a fixed number (16 of them -1, the others like 3 or 4), the rest one the code works out; the same number means
+something else in each animation (the cannon has 1, 23, 24 and 19, the brick wall 2 and 1). So a number says which
+of its own runs a part's code asks for, and only reading that code says what the run is.
+
+**Command 6.** TIM2.EXE's frame routine runs command 5 as a call to its play routine (file offset `0x23ccf` in the
+floppy build) and command 6 as a call to the routine at `0x23f1b`. That one sorts the
+number by its thousands as the play routine does, and stops the sound: a song or part sound through the music driver
+(below 2000), or a `.RAW` sample (3000 to 4999), whose digital driver it also stops when that sample is the one
+playing. The play routine calls it itself to stop a sound before starting it again. So command 6 stops a sound.
+
+**Speed.** TIM2.EXE sets the PC's timer to 65,535 ÷ 13 = 5,041 counts, 236.7 ticks a second, and has the timer count
+a step timer down every 4 ticks, 59.2 times a second. Its run loop waits until the step timer is 0 and sets it to 2
+before each step of the machine, so a step takes at least 33.8 ms: at most 29.6 steps a second. The steps of an
+animation repeat a frame to hold it (the cannon's step list shows frame 12 five times in a row), which only makes sense if
+a part moves one state a step; that each part's run routine does so is read from the step lists, not from every run
+routine. The Parts page plays a sequence at that speed (`TIM2_STEP_MS`).
+
+To mirror a whole frame, the game flips each sprite's flags and measures its position from the other side of the
+animation's width or height. All 433 animations of the floppy, CD and demo read to their last byte this way.
+
+### Part properties (.PAR)
+
+`readPar` (`packages/content/src/read/tim2-program.ts`). Every part has a `PART<n>.PAR`, a `PAR:` chunk that
+TIM2.EXE's loader (file offset `0x6571f` in the floppy build) reads right after the part's animation, word by word,
+into the part's type record. It refuses a file that doesn't start with `PROP`, has a version of 0 or above `0x149`,
+or is for another type. All 149 files of the floppy and CD builds read to their last byte this way.
+
+| Bytes | What                                                                                                                                                                                         |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4     | `PROP`.                                                                                                                                                                                      |
+| 2     | Version: `0x149` in every file (its low byte is the `I` that made it look like `PROPI`).                                                                                                     |
+| 2     | The part's type.                                                                                                                                                                             |
+| 2     | Density (type record `0x36`): compared with the air to work out how fast the part falls, as in TIM 1.                                                                                        |
+| 2     | Mass (`0x38`); the loader makes 0 into 1000.                                                                                                                                                 |
+| 2     | Bounciness (`0x3a`) and friction (`0x3c`), 2 each: the collision code reads them together.                                                                                                   |
+| 2     | Terminal velocity (`0x40`). 0 in every file: TIM2.EXE works it out from the air for every type.                                                                                              |
+| 2 × 2 | The smallest width and height (`0x32`) a player can resize the part to; it shrinks in steps of 16.                                                                                           |
+| 2 × 2 | The largest width and height (`0x2e`); it grows in steps of 16. 576 × 416 for the walls, 0 for most parts.                                                                                   |
+| 2 × 2 | The width and height (`0x42`) TIM2.EXE mirrors most parts in, and gives a part whose type has no size.                                                                                       |
+| 2     | Flags, not kept. Bit `0x08` makes the loader add every outline mirrored left to right, `0x10` upside down.                                                                                   |
+| 2     | The number of outlines: the part's shapes for collisions, 1 to 8.                                                                                                                            |
+| 2     | Their number of points in all. The loader reads outlines only when it isn't 0, and keeps this divided by their number as the points per outline; one file has outlines of different lengths. |
+| …     | Per outline, two words the loader skips, then points of three words: flags, x and y. The last has bit `0x4000`. Which outline a part uses when isn't read yet.                               |
+
+A mirrored outline takes x to the width less 1 less x (and y the same way), in the size above. The other flag bits
+(`0x01`, `0x02`, `0x04`, `0x80`, `0x200` in the files) and the points' other flag bits aren't read by the loader. The
+Files page names every word.

@@ -56,7 +56,10 @@ export function tidyTerms(terms: readonly string[]): string[] {
       return (
         !has(`${left} < ${value}`) &&
         !has(`${left} > ${value}`) &&
-        !list.some((other) => other.startsWith(`${left} == `) && other !== `${left} == ${value}`)
+        !list.some((other) => {
+          const equal = COMPARE.exec(other);
+          return !!equal && equal[1] === left && equal[2] === "==" && equal[3] !== value;
+        })
       );
     if (op === "<=") return !has(`${left} < ${value}`);
     if (op === ">=") return !has(`${left} > ${value}`);
@@ -82,7 +85,8 @@ export function outlineSides(part: PartSummary): string[] | undefined {
     if (point[m[2] as "x" | "y"] !== undefined && point[m[2] as "x" | "y"] !== value) return undefined;
     point[m[2] as "x" | "y"] = value;
   }
-  if (points.length < 2 || points.some((p) => p?.x === undefined || p.y === undefined)) return undefined;
+  // Spread, as `some` skips a point that was never written.
+  if (points.length < 2 || [...points].some((p) => p?.x === undefined || p.y === undefined)) return undefined;
   return points.map((p, k) => {
     const next = points[(k + 1) % points.length]!;
     // On screen y grows downward, so the angle with y up is the negative one.
@@ -220,7 +224,10 @@ function outlinePoints(list: readonly Write[]): string[] | undefined {
     if (w.condition !== "always" || point[axis as "x" | "y"] !== undefined) return undefined;
     point[axis as "x" | "y"] = tidyTerm(w.value);
   }
-  return points.some((p) => p?.x === undefined || p.y === undefined) ? undefined : points.map((p) => `(${p.x},${p.y})`);
+  // Spread, as `some` skips a point that was never written.
+  return [...points].some((p) => p?.x === undefined || p.y === undefined)
+    ? undefined
+    : points.map((p) => `(${p.x},${p.y})`);
 }
 
 /**

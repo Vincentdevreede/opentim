@@ -87,7 +87,7 @@ describe("settling a value for the found part's type", () => {
     const kept = choose(compare(">", speed, limit), limit, choose(compare("<", speed, negative), negative, speed));
     const withLimits = {
       ...table,
-      speedLimits: { fixed: [{ type: 4, limit: 12288 }] },
+      speedLimits: { fixed: [{ type: 4, limit: 12288 }], based: [] },
     } as unknown as BehaviourReport["typeTable"];
     expect(settleForType(kept, MEMBER, 4, 4, withLimits, { table: false })).toEqual({
       value: speed,
@@ -105,10 +105,12 @@ describe("settling a value for the found part's type", () => {
     const kept = choose(compare(">", speed, limit), limit, choose(compare("<", speed, negative), negative, speed));
     const withLimits = {
       ...table,
-      speedLimits: { fixed: [], base: 9728, air: { address: 0x4cb7, split: 70, below: 1, above: 4 } },
+      speedLimits: { fixed: [], based: [4], base: 9728, air: { address: 0x4cb7, split: 70, below: 1, above: 4 } },
     } as unknown as BehaviourReport["typeTable"];
     expect(speedLimitRange(withLimits)).toEqual({ min: 7680, max: 9728 });
     expect(settleForType(kept, MEMBER, 4, 4, withLimits, { table: false }).range).toEqual({ min: 7680, max: 9728 });
+    // A type whose limit the routine doesn't give that way gets no range.
+    expect(settleForType(kept, MEMBER, 4, 5, withLimits, { table: false }).range).toBeUndefined();
   });
 
   it("knows when a part's rules can't tell the limits of the range apart", () => {
