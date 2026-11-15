@@ -25,6 +25,7 @@ import {
   MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
   LIST_FLAGS,
+  partWordsOf,
   objects,
   offMovingList,
   onlyAnswersOpen,
@@ -177,6 +178,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
     ?.find((h) => h.kind === "part-factory")
     ?.factory?.startingWords?.find((w) => w.field === LIST_FLAGS);
   const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
+  const words = partWordsOf(report);
   const effects = effectsFromOthers(report, evaluate);
   const hits = hitsFromOthers(report, evaluate);
   /** The fields each part's own rules read, its state included. */
@@ -466,22 +468,30 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
         searchesOnlyMovingList(report, path.routine, path.header)
       )
         ruled.add(MOVING_SEARCH_ASSUMPTION);
-      const offList = offMovingList(target, startingFlags);
+      // Both decided assumptions are about TIM.EXE's words, so only with them.
+      const offList = words && offMovingList(target, startingFlags);
       const lightable = LIGHTABLE_PARTS.has(target.id);
+      const listKnown = offList
+        ? [{ object: path.member, offset: words.listFlags, width: 16, value: 0, knownMask: 0x1000 }]
+        : [];
       const known = [
-        ...(offList ? [{ object: path.member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: 0x1000 }] : []),
-        {
-          object: path.member,
-          ...LIGHTABLE,
-          width: 16,
-          value: lightable ? LIGHTABLE.mask : 0,
-          knownMask: LIGHTABLE.mask,
-        },
+        ...listKnown,
+        ...(words
+          ? [
+              {
+                object: path.member,
+                ...LIGHTABLE,
+                width: 16,
+                value: lightable ? LIGHTABLE.mask : 0,
+                knownMask: LIGHTABLE.mask,
+              },
+            ]
+          : []),
       ];
       for (const term of path.memberTerms) {
         const value = typed(term, path.member, target.type);
-        if (offList && evaluate(value, known.slice(0, 1)) === false) ruled.add(offList);
-        else if (evaluate(value, known) === false) ruled.add(LIGHTABLE_ASSUMPTION);
+        if (offList && evaluate(value, listKnown) === false) ruled.add(offList);
+        else if (words && evaluate(value, known) === false) ruled.add(LIGHTABLE_ASSUMPTION);
       }
       // Without a named type, the search that filled the list keeps only parts with its flags.
       if (path.way === "overlap list" && path.header !== undefined) {
@@ -494,7 +504,7 @@ export function otherPartPairs(report: BehaviourReport, evaluate: Evaluate): Oth
             t.left.offset === typeOffset,
         );
         const tests = named ? [] : (searchTests(report, path.routine, path.header) ?? []);
-        if (tests.some((t) => t.set && isLightableTest(t)) && !lightable) ruled.add(LIGHTABLE_ASSUMPTION);
+        if (words && tests.some((t) => t.set && isLightableTest(t)) && !lightable) ruled.add(LIGHTABLE_ASSUMPTION);
       }
       const key = `${path.sourceType}:${target.type}:${path.routine}:${path.way}`;
       const list = groups.get(key) ?? [];

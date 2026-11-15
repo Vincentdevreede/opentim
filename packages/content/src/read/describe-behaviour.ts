@@ -9,8 +9,9 @@ import {
 } from "./behaviour-saved-frames.ts";
 import { describeGear, type GearDescription } from "./describe-gear.ts";
 import {
-  CONTACT_RECORD,
-  FINE_POSITION,
+  contactRecordWords,
+  finePosition,
+  partWordsOf,
   changedBits,
   effectsFromOthers,
   flagWords,
@@ -37,6 +38,7 @@ import type {
   Transition,
 } from "./behaviour.ts";
 import { listWords, toSigned, unsigned } from "./behaviour-terms.ts";
+import type { PartWords } from "./behaviour-program.ts";
 
 export interface KnownField extends Finding {
   object: string;
@@ -992,13 +994,17 @@ const framesWords = (frames: number[]) =>
       ? `frame ${frames[0]}`
       : `one of frames ${listWords(frames.map(String))}`;
 /**
- * The words where a part's two plugs are: the level loader reads the plugged parts into them (`0x13941` in Even More),
- * and plugging a plug in (`0x5d14`) takes `0x62` when it is free and `0x64` otherwise. A word that isn't 0 holds a part.
+ * The words where a part's two plugs are, as TIM.EXE keeps them (`partWords.plugs`): the level loader reads the
+ * plugged parts into them (`0x13941` in Even More), and plugging a plug in (`0x5d14`) takes `0x62` when it is free and
+ * `0x64` otherwise. A word that isn't 0 holds a part. None for a game without TIM.EXE's words.
  */
-const SOCKETS = new Map([
-  [0x62, "a plug is in its first socket (+0x62)"],
-  [0x64, "a plug is in its second socket (+0x64)"],
-]);
+const socketsOf = (words: PartWords | undefined) =>
+  new Map(
+    (words?.plugs ?? []).map((offset, index) => [
+      offset,
+      `a plug is in its ${index ? "second" : "first"} socket (+0x${offset.toString(16)})`,
+    ]),
+  );
 /**
  * The frames a reset can leave when every path writes the frame as `(frame & kept) | set`. A set bit that a zero test
  * of one field decides on every path is named with that field. The frames are those a path can give from any frame the
@@ -1009,9 +1015,11 @@ function resetFrames(
   part: WithFrameCount,
   stateOffset: number,
   saved: boolean,
+  words: PartWords | undefined,
   savedFrames?: number[],
 ): { frames: number[]; description: string; sockets: boolean } | undefined {
   if (!part.frameCount) return undefined;
+  const SOCKETS = socketsOf(words);
   const bits: { kept: number; set: number }[] = [];
   for (const outcome of outcomes) {
     // One 16-bit write of the frame, and no other write that overlaps it.
@@ -1142,7 +1150,9 @@ function restOf(report: BehaviourReport, part: PartBehaviour): RestDescription {
   const levelEntry = LEVEL_FRAMES.get(part.id);
   const savedFrames = savedRest && levelEntry?.framed ? levelEntry.frames : undefined;
   const bitFrames =
-    !known(state) && resolved ? resetFrames(outcomes, part, stateOffset, !!savedRest, savedFrames) : undefined;
+    !known(state) && resolved
+      ? resetFrames(outcomes, part, stateOffset, !!savedRest, partWordsOf(report), savedFrames)
+      : undefined;
   if (bitFrames?.sockets)
     return {
       status: "sockets",
@@ -3440,21 +3450,30 @@ function helperStores(report: BehaviourReport, write: FieldWrite): string[] {
   return [...texts.values()];
 }
 function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = false): string {
+  // The words of TIM.EXE's records these sentences know by place; for TIM 2 and Toons none, so they say nothing of them.
+  const timWords = partWordsOf(report);
+  const hex = (offset: number) => `0x${offset.toString(16)}`;
   if (write.object.startsWith("outline storage of a listed part at "))
     return "May update the outline coordinates of a part in the overlap list.";
   // A rope, belt or pulley helper's summary names the fields it may change on the parts it reaches, the owner included.
   if (write.object.startsWith("a part reached through a rope, belt or pulley at ")) {
     const reached = "a part its ropes, belt or pulleys reach (this part too)";
-    if (write.offset === 0x14) return `May change field 0x14 of ${reached}: the value the relay passes along.`;
-    if ([0x5a, 0x5c, 0x5e, 0x60, 0x6a, 0x6c].includes(write.offset))
+    if (write.offset === timWords?.relay)
+      return `May change field ${hex(timWords.relay)} of ${reached}: the value the relay passes along.`;
+    if (timWords && [...timWords.ropeLinks, ...timWords.ropePlaces].includes(write.offset))
       return `May change the rope links of ${reached}, turning a rope round.`;
-    if (write.offset === 0x96 || write.offset === 0x9c) return `May move the rope ends of ${reached}.`;
+    if (timWords?.ropeEnds.includes(write.offset)) return `May move the rope ends of ${reached}.`;
     return `May change a field of ${reached}.`;
   }
   // The records a part's belt (0x54) and ropes (0x66, 0x68) link to are records, not parts.
-  const record = /^referenced-by\(part\+0x(54|66|68)\)$/.exec(write.object);
-  if (record) {
-    const what = record[1] === "54" ? "its belt's record" : `the record of its rope at 0x${record[1]}`;
+  const linked = /^referenced-by\(part\+0x([0-9a-f]+)\)$/.exec(write.object);
+  const recordLink = linked ? parseInt(linked[1]!, 16) : undefined;
+  const record =
+    timWords && recordLink !== undefined && [timWords.beltRecord, ...timWords.ropeRecords].includes(recordLink)
+      ? recordLink
+      : undefined;
+  if (record !== undefined) {
+    const what = record === timWords!.beltRecord ? "its belt's record" : `the record of its rope at ${hex(record)}`;
     const self =
       write.value.kind === "binary" &&
       write.value.left.kind === "field" &&
@@ -3471,7 +3490,9 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   }
   // The rope record a rope callback is asked about: the part's rope link at 0x66 or 0x68, picked by the callback's rope
   // number, like the teeter-totter's at 0x1d53d (`mov ax, [bx+si+0x66]` with bx the number times 2).
-  if (/^pointer loaded from table 0x[0-9a-f]+\+0x66 indexed by .*"object":"address of part"/.test(write.object)) {
+  const ropeTable =
+    timWords && new RegExp(`^pointer loaded from table 0x[0-9a-f]+\\+${hex(timWords.ropeRecords[0]!)} indexed by `);
+  if (ropeTable?.test(write.object) && write.object.includes('"object":"address of part"')) {
     const field = `field 0x${write.offset.toString(16).padStart(2, "0")}`;
     const step =
       write.value.kind === "binary" &&
@@ -3482,22 +3503,26 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       ["+", "-"].includes(write.value.operator)
         ? { operator: write.value.operator, amount: write.value.right.value }
         : undefined;
-    const what = "the record of the rope it is asked about (its rope link at 0x66 or 0x68)";
+    const what = `the record of the rope it is asked about (its rope link at ${timWords!.ropeRecords.map(hex).join(" or ")})`;
     return step
       ? `${step.operator === "+" ? "Adds" : "Takes"} ${step.amount} ${step.operator === "+" ? "to" : "from"} ${field} of ${what}.`
       : `Updates ${field} of ${what}.`;
   }
   // A part tied to this one by a rope (its rope links at 0x5a to 0x60) gets one of its own rope links set, like the
   // balloon's: when it pops, the part tied to it is tied to the rope end it makes instead.
-  const tied = /^referenced-by\(part\+0x(5a|5c|5e|60)\)$/.exec(write.object);
-  if (tied && [0x5a, 0x5c, 0x5e, 0x60].includes(write.offset)) {
-    const link = `rope link 0x${write.offset.toString(16)}`;
+  if (
+    timWords &&
+    recordLink !== undefined &&
+    timWords.ropeLinks.includes(recordLink) &&
+    timWords.ropeLinks.includes(write.offset)
+  ) {
+    const link = `rope link ${hex(write.offset)}`;
     const source = write.value.kind === "field" && write.value.offset === 0 ? write.value.object : "";
     const made = createdPartOf(report, source.replace("allocation result at", "allocation returned at"));
     const target = made
       ? `the ${partWords(report.parts.find((part) => part.type === made.type)?.id ?? `part of type ${made.type}`)} it makes`
       : "another part";
-    return `Sets ${link} of the part tied to its rope link 0x${tied[1]} to ${target}.`;
+    return `Sets ${link} of the part tied to its rope link ${hex(recordLink)} to ${target}.`;
   }
   const name = report.layout.fields.find((field) => field.offset === write.offset)?.name;
   // A bounce callback's argument is the part that touched its owner.
@@ -3507,7 +3532,8 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
     return `Sets field 0x${write.offset.toString(16).padStart(2, "0")} of the object it creates at ${created[1]}.`;
   // An overlap query's summary writes the parts it finds: the found list's link at 0x78 and the fields it fills in.
   const found = write.object.startsWith("a candidate selected by the overlap query at ");
-  if (found && write.offset === 0x78) return "Links a part its search finds into its found list (field 0x78).";
+  if (found && write.offset === timWords?.foundLink)
+    return `Links a part its search finds into its found list (field ${hex(timWords.foundLink)}).`;
   const subject = write.object.startsWith("a listed part at ")
     ? "a listed part's"
     : found
@@ -3522,20 +3548,22 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   // the run knows: like the teeter-totter sweeping each part on its plank 16 pixels up and down (0x1d3c2, 0x1d3d7).
   if (write.value.kind === "unknown" && /^Conditional contact-search effect on field /.test(write.value.reason)) {
     const what =
-      CONTACT_RECORD[write.offset] ??
+      contactRecordWords(timWords, write.offset) ??
       (name === "contactPart" || name === "contactAngle" || name === "contactEdge"
         ? `contact record (${name})`
-        : (FINE_POSITION[write.offset] ?? (name ? name : `field ${offsetText}`)));
+        : (finePosition(report, write.offset)?.words ?? (name ? name : `field ${offsetText}`)));
     return `May change ${subject} ${what} through the contact search it runs on it; what that search finds there, only the run knows.`;
   }
-  if (FINE_POSITION[write.offset]) {
+  const fine = finePosition(report, write.offset);
+  if (fine) {
     // The trampoline and the teeter-totter set the long from the whole position: `(positionY << 9)` in its two words.
+    const position = report.layout.fields.find((field) => field.name === fine.axis)?.offset;
     const whole =
       write.value.kind === "binary" &&
       JSON.stringify(write.value).includes(
-        `"object":${JSON.stringify(write.object)},"offset":${write.offset < 0x1a ? 0x1e : 0x20}`,
+        `"object":${JSON.stringify(write.object)},"offset":${position ?? (fine.axis === "positionX" ? 0x1e : 0x20)}`,
       );
-    return `${whole ? "Puts" : "Updates"} ${subject} ${FINE_POSITION[write.offset]}${whole ? ` on its whole ${write.offset < 0x1a ? "positionX" : "positionY"}, in 1/512 pixels` : ", in 1/512 pixels"}.`;
+    return `${whole ? "Puts" : "Updates"} ${subject} ${fine.words}${whole ? ` on its whole ${fine.axis}, in 1/512 pixels` : ", in 1/512 pixels"}.`;
   }
   if (name === "previousX" || name === "previousY")
     return `Updates ${subject} previous position, which the contact search sweeps from to the position.`;
@@ -3546,10 +3574,10 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
     const said = bits && [
       ...[...Array(16).keys()]
         .filter((b) => bits.set & (1 << b))
-        .map((b) => flagWords(write.offset, 1 << b, true, whose)),
+        .map((b) => flagWords(timWords, write.offset, 1 << b, true, whose)),
       ...[...Array(16).keys()]
         .filter((b) => bits.clear & (1 << b))
-        .map((b) => flagWords(write.offset, 1 << b, false, whose)),
+        .map((b) => flagWords(timWords, write.offset, 1 << b, false, whose)),
     ];
     if (said?.length && said.every((words) => words)) {
       const text = said.join(", and ");
@@ -3606,19 +3634,22 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       write.value.kind === "field" &&
       /^value the call at 0x[0-9a-f]+ writes to a selected part$/.test(write.value.object)
     ) {
-      const words = flagWords(write.offset, propagation.partGraph.propagation.visitedMask, true, "its");
+      const words = flagWords(timWords, write.offset, propagation.partGraph.propagation.visitedMask, true, "its");
       if (words) return `May change the drawing flags of a part its gear connections reach: the propagation ${words}.`;
     }
     // A helper whose only store to the flags on this path is an `or` with a number may set those bits, or leave them.
     if (write.value.kind === "unknown") {
       const stores = helperStores(report, write);
-      const masks = stores.map((text) => /^or word \[\w+\+0x08\], 0x([0-9a-f]{4})$/.exec(text)?.[1]);
+      const flags = `0x${write.offset.toString(16).padStart(2, "0")}`;
+      const masks = stores.map(
+        (text) => new RegExp(`^or word \\[\\w+\\+${flags}\\], 0x([0-9a-f]{4})$`).exec(text)?.[1],
+      );
       if (stores.length && masks.every((mask) => mask)) {
         const bits = masks.reduce((all, mask) => all | parseInt(mask!, 16), 0);
         const each = [...Array(16).keys()].filter((b) => bits & (1 << b)).map((b) => 1 << b);
         const words = each.map(
           (bit) =>
-            flagWords(write.offset, bit, true, subject) ??
+            flagWords(timWords, write.offset, bit, true, subject) ??
             `sets flag 0x${bit.toString(16)} of ${subject} drawing flags`,
         );
         const may = words.map((w) => w.replace(/^sets /, "set "));
@@ -3644,7 +3675,7 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
       const each = [...Array(16).keys()].filter((b) => bits & (1 << b)).map((b) => 1 << b);
       const words = each.map(
         (bit) =>
-          flagWords(write.offset, bit, true, subject)?.replace(/^sets /, "set ") ??
+          flagWords(timWords, write.offset, bit, true, subject)?.replace(/^sets /, "set ") ??
           `set flag 0x${bit.toString(16)} of ${subject} drawing flags`,
       );
       return `May ${words.join(", and may ")}: it does on the ways its tests pick, and leaves them as they were on the others.`;
@@ -3668,7 +3699,7 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
         let rest = named.reduce((value, mask) => value & ~mask.value, bits);
         // Bits whose meaning the code proves, like the out-of-play flag 0x2000.
         for (const bit of [...Array(16).keys()].map((b) => 1 << b).filter((b) => rest & b)) {
-          const words = flagWords(write.offset, bit, set, subject);
+          const words = flagWords(timWords, write.offset, bit, set, subject);
           if (!words) continue;
           list.push(`${words[0]!.toUpperCase()}${words.slice(1)}.`);
           rest &= ~bit;
@@ -3714,7 +3745,9 @@ function fieldEffectWords(write: FieldWrite, report: BehaviourReport, other = fa
   if (name === "frameWidth" || name === "frameHeight") return `Updates ${subject} current frame dimensions.`;
   if (name === "horizontalExtent" || name === "verticalExtent" || name === "baseWidth" || name === "baseHeight")
     return `Updates ${subject} stored dimensions.`;
-  if (name === "drawX" || name === "drawY")
+  // TOONS.EXE keeps the frame's offset from the position in the part (frameOffsetX and frameOffsetY), where TIM.EXE
+  // adds it to the drawing origin straight away.
+  if (name === "drawX" || name === "drawY" || name === "frameOffsetX" || name === "frameOffsetY")
     return `Updates where ${subject === "the part's" ? "the" : subject} frame is drawn.`;
   if (name === "positionX" || name === "positionY") return `Updates ${subject} position.`;
   if (name === "velocityX" || name === "velocityY") return `Updates ${subject} motion.`;

@@ -21,6 +21,7 @@ import {
   MADE_FIXED_ASSUMPTION,
   FIXED_TYPE,
   LIST_FLAGS,
+  partWordsOf,
   TYPE_TABLE_ASSUMPTION,
   listFlagWords,
   named,
@@ -851,6 +852,7 @@ export function hitsFromOthers(
   }
 
   const afterResponse = responseFields(report);
+  const words = partWordsOf(report);
   const fixed = (type: number) => !!startingFlags && (startingFlags.values[type]! & FIXED_TYPE) !== 0;
   for (const part of report.parts) {
     const hits = new Map<
@@ -858,19 +860,25 @@ export function hitsFromOthers(
       { hit: PartHit; tests: Predicate[]; place: string[]; touch: boolean; others: FieldWrite[][] }
     >();
     const assumptions = new Set<string>();
-    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so.
-    const offList = offMovingList(part, startingFlags);
+    // A part of a fixed type, or the bullet, is never on the moving list: a decided assumption says so. Both decided
+    // assumptions are about TIM.EXE's words, so only with them.
+    const offList = words && offMovingList(part, startingFlags);
     const known = (member: string) =>
-      offList ? [{ object: member, offset: LIST_FLAGS, width: 16, value: 0, knownMask: MOVING_LIST }] : [];
+      offList ? [{ object: member, offset: words.listFlags, width: 16, value: 0, knownMask: MOVING_LIST }] : [];
     // Whether the part is marked as lightable is decided by its type too, with the decided assumption.
     const lightable = LIGHTABLE_PARTS.has(part.id);
-    const marked = (member: string) => ({
-      object: member,
-      ...LIGHTABLE,
-      width: 16,
-      value: lightable ? LIGHTABLE.mask : 0,
-      knownMask: LIGHTABLE.mask,
-    });
+    const marked = (member: string) =>
+      words
+        ? [
+            {
+              object: member,
+              ...LIGHTABLE,
+              width: 16,
+              value: lightable ? LIGHTABLE.mask : 0,
+              knownMask: LIGHTABLE.mask,
+            },
+          ]
+        : [];
     // The fields the part's own rules read: setting one of them can change its frame.
     const read = new Set<number>([stateOffset]);
     for (const rule of part.transitions) {
@@ -888,17 +896,17 @@ export function hitsFromOthers(
       // The source's code must name this part's type: a search may hold parts the source never acts on. Or, when it
       // names none, the program must give this type every flag the search needs: from the factory's table for the
       // type, or from its constructor. The walk still keeps the search's tests, since a part may lose a flag, except
-      // the lightable flag, which the decided assumption settles for every type.
-      const needs = (t: SearchTest) => t.set && (lightable || !isLightableTest(t));
+      // the lightable flag, which the decided assumption settles for every type of a game with TIM.EXE's words.
+      const needs = (t: SearchTest) => t.set && (lightable || !words || !isLightableTest(t));
       if (c.types.size ? !c.types.has(part.type) : !c.touch && c.search!.some((t) => needs(t) && !gives(part.type, t)))
         continue;
       const searchTerms = (c.search ?? []).map((t) => flagTest(c.member, t));
       for (const term of [...c.memberTerms, ...searchTerms]) {
         const typed = predicateForType(term, c.member, typeOffset, part.type, report.typeTable, used);
         let value = evaluate(typed, known(c.member));
-        let by = listFlagWords(typed, c.member) && offList;
-        if (value === undefined) {
-          value = evaluate(typed, [...known(c.member), marked(c.member)]);
+        let by = listFlagWords(words, typed, c.member) && offList;
+        if (value === undefined && words) {
+          value = evaluate(typed, [...known(c.member), ...marked(c.member)]);
           if (value === true) usesLightable = true;
           by = LIGHTABLE_ASSUMPTION;
         }
@@ -1104,7 +1112,7 @@ export function hitsFromOthers(
     }
     const list = [...hits.values()].map(({ hit, tests, place, touch, others }) => {
       hit.condition = conjunction(tests);
-      hit.conditionWords = tests.flatMap((t) => listFlagWords(t, "part") ?? []);
+      hit.conditionWords = tests.flatMap((t) => listFlagWords(words, t, "part") ?? []);
       // A field the rules don't read keeps the value every source gives it, or becomes unknown.
       const offsets = new Map<string, FieldWrite>();
       for (const w of others.flat()) offsets.set(`${w.offset}:${w.width}`, w);
